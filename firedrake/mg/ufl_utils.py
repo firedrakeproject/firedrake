@@ -7,6 +7,7 @@ from ufl.duals import is_dual
 from functools import singledispatch, partial
 import firedrake
 from firedrake.petsc import PETSc
+from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -244,7 +245,7 @@ def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     return firedrake.MixedVectorSpaceBasis(coarse_V, coarse_bases)
 
 
-@coarsen.register(firedrake.solving_utils._SNESContext)
+@coarsen.register(_SNESContext)
 def coarsen_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -282,20 +283,32 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
             default_pmat_type = context.pmat_type
         else:
             default_pmat_type = coarse_mat_type
-
         coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
                                           default_pmat_type)
+
+        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type", "")
+        if coarse_sub_mat_type == "":
+            coarse_sub_mat_type = context.sub_mat_type
+            default_sub_pmat_type = context.sub_pmat_type
+        else:
+            default_sub_pmat_type = coarse_sub_mat_type
+        coarse_sub_pmat_type = opts.getString(f"{solver_prefix}coarse_sub_pmat_type",
+                                              default_sub_pmat_type or "") or None
     else:
         coarse_mat_type = context.mat_type
         coarse_pmat_type = context.pmat_type
+        coarse_sub_mat_type = context.sub_mat_type
+        coarse_sub_pmat_type = context.sub_pmat_type
 
-    coarse = type(context)(problem,
-                           mat_type=coarse_mat_type,
-                           pmat_type=coarse_pmat_type,
-                           appctx=new_appctx,
-                           options_prefix=context.options_prefix,
-                           transfer_manager=context.transfer_manager,
-                           pre_apply_bcs=context.pre_apply_bcs)
+    coarse = _SNESContext(problem,
+                          mat_type=coarse_mat_type,
+                          pmat_type=coarse_pmat_type,
+                          sub_mat_type=coarse_sub_mat_type,
+                          sub_pmat_type=coarse_sub_pmat_type,
+                          appctx=new_appctx,
+                          options_prefix=context.options_prefix,
+                          transfer_manager=context.transfer_manager,
+                          pre_apply_bcs=context.pre_apply_bcs)
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
     context._coarse = coarse
@@ -325,6 +338,43 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse.set_nullspace(coarse._near_nullspace, ises, transpose=False, near=True)
 
     return coarse
+
+
+@coarsen.register(firedrake.slate.AssembledVector)
+def coarsen_slate_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form)
+
+
+@coarsen.register(firedrake.slate.BlockAssembledVector)
+def coarsen_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    block = self(tensor.block, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form, *block.children, block.indices)
+
+
+@coarsen.register(firedrake.slate.Block)
+def coarsen_slate_block(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, indices=tensor._indices)
+
+
+@coarsen.register(firedrake.slate.Factorization)
+def coarsen_slate_factorization(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children, decomposition=tensor.decomposition)
+
+
+@coarsen.register(firedrake.slate.Tensor)
+def coarsen_slate_tensor(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    return type(tensor)(form, diagonal=tensor.diagonal)
+
+
+@coarsen.register(firedrake.slate.TensorOp)
+def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
+    return type(tensor)(*children)
 
 
 class Interpolation(object):

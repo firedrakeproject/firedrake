@@ -308,14 +308,33 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return self
         return NotImplemented
 
-    def interpolate(self, expression):
-        r"""Interpolate an expression onto this :class:`Cofunction`.
+    @PETSc.Log.EventDecorator()
+    def interpolate(self,
+                    expression: ufl.BaseForm,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate a dual expression onto this :class:`Cofunction`.
 
-        :param expression: a UFL expression to interpolate
-        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
-        from firedrake import interpolation
-        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-        return firedrake.assemble(interp, tensor=self)
+        Parameters
+        ----------
+        expression
+            A dual UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see `firedrake.interpolation.interpolate`.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        from firedrake import interpolation, assemble
+        v, = self.arguments()
+        interp = interpolation.Interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
     def cell_set(self):

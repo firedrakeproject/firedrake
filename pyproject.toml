@@ -29,7 +29,8 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==3.23.4",
-  "petsctools",
+  # TODO RELEASE
+  # "petsctools",
   "pkgconfig",
   "progress",
   # TODO RELEASE: use a release
@@ -41,6 +42,7 @@ dependencies = [
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
+  "vtk",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -83,7 +85,6 @@ docs = [
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
   "sphinx-copybutton",
-  "vtk",  # needed to resolve API
 ]
 jax = [
   "jax",
@@ -98,9 +99,6 @@ slepc = [
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
-]
-vtk = [
-  "vtk",
 ]
 
 # Dependencies needed to run the full test suite
@@ -122,7 +120,6 @@ ci = [
   # TODO RELEASE
   # "slepc4py==3.23.2",
   "torch",  # requires passing '--extra-index-url' to work
-  "vtk",
 ]
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
