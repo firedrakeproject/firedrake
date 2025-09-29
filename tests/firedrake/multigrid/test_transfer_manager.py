@@ -134,8 +134,8 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
         raise ValueError(f"Unrecognized action {action}")
 
 
-@pytest.mark.parametrize("family, degree", [("CG", 1), ("R", 0)])
-def test_cached_transfer(family, degree):
+@pytest.mark.parametrize("family, degree, coefficient", [("CG", 1, "repeated"), ("CG", 1, "mixed"), ("R", 0, "repeated")])
+def test_cached_transfer(family, degree, coefficient):
     # Test that we can properly reuse transfers within solve
     sp = {"mat_type": "matfree",
           "pc_type": "mg",
@@ -149,10 +149,19 @@ def test_cached_transfer(family, degree):
     V = FunctionSpace(mesh, family, degree)
     u = Function(V)
 
-    R1 = FunctionSpace(mesh, "R", 0)
-    R2 = FunctionSpace(mesh, "R", 0)
-    c1 = Function(R1).assign(1)
-    c2 = Function(R2).assign(1)
+    if coefficient == "mixed":
+        R = FunctionSpace(mesh, "R", 0)
+        R2 = R * R
+        c = Function(R2).assign(1)
+        c1 = c[0]
+        c2 = c[1]
+    elif coefficient == "repeated":
+        R1 = FunctionSpace(mesh, "R", 0)
+        R2 = FunctionSpace(mesh, "R", 0)
+        c1 = Function(R1).assign(1)
+        c2 = Function(R2).assign(1)
+    else:
+        raise ValueError(f"Unrecognized coefficient type {coefficient}")
 
     F = inner(u - 1, (c1 + c2)*TestFunction(V)) * dx
     problem = NonlinearVariationalProblem(F, u)
