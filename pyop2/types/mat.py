@@ -852,10 +852,6 @@ class Mat(AbstractMat):
         rows = rows.reshape(-1, 1)
         if self.handle.type == "is":
             self.handle.assemble()
-            # PETSc does not properly handle local dofs that map
-            # to a negative global index
-            rmap, _ = self.handle.getLGMap()
-            rows = rows[rmap.apply(rows) > -1]
             self.handle.zeroRowsColumnsLocal(rows, diag_val)
         else:
             self.change_assembly_state(Mat.INSERT_VALUES)
@@ -976,10 +972,6 @@ class MatBlock(AbstractMat):
         rows = rows.reshape(-1, 1)
         if self.handle.type == "is":
             self.handle.assemble()
-            # PETSc does not properly handle local dofs that map
-            # to a negative global index
-            rmap, _ = self.handle.getLGMap()
-            rows = rows[rmap.apply(rows) > -1]
             self.handle.zeroRowsColumnsLocal(rows, diag_val)
         else:
             self.change_assembly_state(Mat.INSERT_VALUES)
