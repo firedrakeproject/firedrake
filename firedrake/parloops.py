@@ -484,33 +484,28 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
 
-    # THIS IS NEW
-    transform_kernel, form_shapes = self.fuse_orientations()
+    transform_kernel, form_shapes = fuse_orientations(space)
     if transform_kernel:
         orientations = space.mesh().entity_orientations_dat
-        o_packed = orientations[loop_index]
-        o_temp = op3.Dat.null(
-            o_packed.axes.materialize(),
-            dtype=o_packed.dtype,
-            prefix="t")
 
-        op3_arg = self._as_parloop_arg(tsfc_arg, p)
-        temp = op3_arg.materialize()
-        
-        transformed_temp = temp.copy()
+        # INDIA NOTE: I would expect to have two kernels that do the transformation
+        # in either direction
+        transform_in_kernel = transform_kernel
+        transform_out_kernel = transform_kernel
 
-        function_args = [o_temp]
-        for n in form_shapes:
-            function_args += [op3.Dat.null(op3.Axis(n*n), dtype=temp.dtype)]
-        function_args += [temp]
-        for n in form_shapes[:-1]:
-            function_args += [temp.copy()]
-        function_args += [transformed_temp]
+        if form_shapes != (3,):
+            raise NotImplementedError("Need a nice way to detect this")
+        mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([3, 3]), dtype=utils.ScalarType, prefix="trans")
 
-        # TODO: this should be the inverse transform
-        # transform_in_insn = op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE)
-        #
-        # transform_out_insn = transform_kernel(*function_args)
+        def transform_in(untransformed, transformed):
+            transform_in_kernel(orientations[loop_index], mat_work_array, untransformed, transformed)
+
+        def transform_out(transformed, untransformed):
+            transform_out_kernel(orientations[loop_index], mat_work_array, transformed, untransformed)
+
+        transform = op3.OutOfPlaceTensorTransform(packed_dat, transform_in, transform_out)
+        temp = packed_dat.materialize()
+        packed_dat = temp.__record_init__(parent=transform)
 
         # This is currently not implemented. To record my thoughts:
         #
@@ -554,10 +549,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
             t2 <- ginv(t1)
             dat[f(p)] += t2
         """
-        # in_transform and out_transform are instructions that take in op3_arg and temp
-        # and DTRT
-        packed_dat = temp.from_transform(op3_arg, in_transform, out_transform)
-
 
     # /THIS IS NEW
 
@@ -712,3 +703,143 @@ def _node_permutation_from_element(element) -> np.ndarray:
 def _needs_static_permutation(element) -> bool:
     perm = _node_permutation_from_element(element)
     return any(perm != np.arange(perm.size, dtype=perm.dtype))
+
+
+def construct_switch_statement(self, mats, n, args, var_list):
+    string = ["\nswitch (*dim) { \n"]
+    closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
+    closure_size_acc = 0
+    for dim in range(len(closure_sizes)):
+        string += f"case {dim}:\n "
+        string += ["\nswitch (*i) { \n"]
+        for i in range(closure_sizes[dim]):
+            string += f"case {i}:\n "
+            string += ["\nswitch (*o) { \n"]
+            for val in sorted(mats[dim][i].keys()):
+                string += f"case {val}:\n "
+                matname = f"mat{dim}_{i}_{val}"
+                string += f"a = {matname};break;\n"
+                var_list += [matname]
+                mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
+                args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+            string += "default:\n break;\n }"
+        string += "default:\n break;\n }"
+    string += "default:\n break;\n }"
+    return string, args, var_list
+
+
+def fuse_orientations(space: WithGeometry):
+    no_dense = False
+    fuse_defined_space = hasattr(space.ufl_element(), "triple")
+
+    if fuse_defined_space:
+        # pseudocode for desired overall loopy output (ish)
+
+        # c = 0 # placeholder for cell
+        # entity_orientations = self._mesh.entity_orientations[c]
+        # closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
+        # mats = Vs[0].ufl_element().triple.matrices
+        # closure_size_acc = 0
+        # res = b
+        # for dim in range(len(closure_sizes)):
+        #     for i in range(closure_size_acc, closure_size_acc + closure_sizes[dim]):
+        #         res = matmul(mats[dim][i - closure_size_acc][entity_orientations[i]], res)
+        #     closure_size_acc += closure_sizes[dim]
+
+        fs = space
+        mats = fs.ufl_element().triple.matrices
+        t_dim = fs.ufl_element().cell._tdim
+        os = mats[t_dim][0]
+        n = os[next(iter(os.keys()))].shape[0]
+        child_knl = loopy.make_function(
+            f"{{[i, j]:0<=i, j < {n}}}",
+            """
+                res[j] =  res[j] + a[i, j]*b[i]
+            """, name="matmul", target=loopy.CWithGNULibcTarget())
+        args = [loopy.GlobalArg("d", dtype=np.uint8, shape=(1,)),
+                loopy.GlobalArg("o", dtype=np.uint8, shape=(1,)),
+                loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n)),
+                loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, )),
+                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,)),]
+
+        var_list = ["o"]
+        string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
+        transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+
+        parent_knl = loopy.make_function(
+            f"{{[i]:0<= i <= d}}",
+            [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+            name="switch_on_o",
+            kernel_data=args,
+            target=loopy.CWithGNULibcTarget())
+        args[0] = loopy.GlobalArg("closure_sizes", dtype=np.uint8, shape=(space._mesh.dimension, 1))
+        loop_knl = loopy.make_kernel(
+            f"{{[i]:0<= i < {space._mesh.dimension}}}",
+            ["a[:,:], res[:] = switch_on_o(closure_sizes[i, :], o[:], a[:, :], b[:], res[:])"],
+            kernel_data=args[:5],
+            target=loopy.CWithGNULibcTarget())
+        
+        knl = loopy.merge([loop_knl, parent_knl, child_knl])
+        # print(lp.generate_code_v2(knl).device_code())
+        # print(knl)
+
+        transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        return transform, (n,)
+    else:
+        return None, ()
+    # elif len(Vs) == 2 and any(fuse_defined_spaces):
+    #     raise NotImplementedError
+    #     if not all(fuse_defined_spaces):
+    #         raise NotImplementedError("Fuse-defined elements cannot be combined with FIAT elements")
+    #     shapes = [0] * len(Vs)
+    #     os = [None] * len(Vs)
+    #     args = [loopy.GlobalArg("o", dtype=np.uint8, shape=(1,))]
+    #     child_knls = [None] * len(Vs)
+    #     for i in range(len(Vs)):
+    #         fs = Vs[i]
+    #         temp_os = fs.ufl_element().triple.matrices
+    #         t_dim = fs.ufl_element().cell._tdim
+    #         os[i] = temp_os[t_dim][0]
+    #         n = os[i][next(iter(os[i].keys()))].shape[0]
+    #         shapes[i] = n
+    #         args += [loopy.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(n, n))]
+    #
+    #     args += [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=tuple(shapes)), loopy.GlobalArg("temp", dtype=utils.ScalarType, shape=tuple(shapes)), loopy.GlobalArg("res", dtype=utils.ScalarType, shape=tuple(shapes))]
+    #     child_knls[0] = loopy.make_function(
+    #         f"{{[i, j, k]:0<=i, k < {shapes[0]} and 0<= j < {shapes[1]}}}",
+    #         """
+    #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
+    #         """, name=f"matmul{0}", target=loopy.CWithGNULibcTarget())
+    #     child_knls[1] = loopy.make_function(
+    #         f"{{[i, j, k]:0<=k < {shapes[0]} and 0<=  j, i < {shapes[1]}}}",
+    #         """
+    #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
+    #         """, name=f"matmul{1}", target=loopy.CWithGNULibcTarget())
+    #
+    #     var_list = ["o"]
+    #     string = "\nswitch (*o) { \n"
+    #     for val in sorted(os[0].keys()):
+    #         string += f"case {val}:\n"
+    #         for i in range(len(Vs)):
+    #             string += f"a{i} = mat{i}_{val};"
+    #             var_list += [f"mat{i}_{val}"]
+    #             if no_dense:
+    #                 mat = np.eye(shapes[i])
+    #             else:
+    #                 mat = np.array(os[i][val], dtype=utils.ScalarType)
+    #             args += [loopy.TemporaryVariable(f"mat{i}_{val}", initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+    #         string += "break;\n"
+    #     string += "default:\nbreak;\n }"
+    #     transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a0", "a1"), read_variables=frozenset(var_list), id="assign")
+    #     parent_knl = loopy.make_kernel(
+    #         "{:}",
+    #         [transform_insn, "temp[:, :] = matmul0(a0, b, temp) {dep=assign}", "res[:, :] = matmul1(temp, a1, res) {dep=assign}"],
+    #         kernel_data=args,
+    #         target=loopy.CWithGNULibcTarget())
+    #     knl = loopy.merge([parent_knl, child_knls[0], child_knls[1]])
+    #     # print(lp.generate_code_v2(knl).device_code())
+    #     # print(knl)
+    #     transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.WRITE, op3.READ, op3.WRITE, op3.WRITE])
+    #     return transform, shapes
+    # return None, tuple()
+

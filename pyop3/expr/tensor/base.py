@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Callable
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -166,3 +166,21 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
             for axes in self.axis_trees
             for loop in axes.outer_loops
         })
+
+
+# NOTE: No idea if this is where this should live, quite possibly this is wrong
+class TensorTransform(abc.ABC):
+    pass
+
+
+# TODO - the callable here should only take one arg
+@utils.frozenrecord()
+class InPlaceTensorTransform(TensorTransform):
+    ...
+
+
+@utils.frozenrecord()
+class OutOfPlaceTensorTransform(TensorTransform):
+    untransformed: Tensor
+    transform_in: Callable[[Tensor, Tensor], None]
+    transform_out: Callable[[Tensor, Tensor], None]
