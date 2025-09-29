@@ -342,13 +342,25 @@ def masked_lgmap(lgmap, mask, block=True):
 
 
 def unghosted_lgmap(dset, node_maps):
-    lgmap = dset.lgmap
-    ndofs = lgmap.getBlockIndices().size
-    mask = np.arange(ndofs, dtype=PETSc.IntType)
-    for local_ises, node_map in zip(dset.local_ises, node_maps):
-        mask[local_ises.indices[node_map.values]] = -1
-    mask = mask[mask > -1]
-    return masked_lgmap(lgmap, mask)
+    if len(node_maps) == 1:
+        cmap, = node_maps
+        mask = np.setdiff1d(
+            cmap.values_with_halo[cmap.iterset.size:],
+            cmap.values[:cmap.iterset.size],
+        )
+    else:
+        mask_pieces = []
+        for iset, cmap in zip(dset.local_ises, node_maps):
+            to_mask = np.setdiff1d(
+                cmap.values_with_halo[cmap.iterset.size:],
+                cmap.values[:cmap.iterset.size]
+            )
+            bs = iset.block_size
+            if bs > 1:
+                to_mask = np.concatenate([i + bs * to_mask for i in range(bs)])
+            mask_pieces.append(iset.indices[to_mask])
+        mask = np.concatenate(mask_pieces)
+    return masked_lgmap(dset.lgmap, mask)
 
 
 class AbstractMat(DataCarrier, abc.ABC):
@@ -630,8 +642,9 @@ class Mat(AbstractMat):
         if self.mat_type == "is":
             rmaps = [None for _ in range(len(rset.local_ises))]
             cmaps = [None for _ in range(len(cset.local_ises))]
-            for (i, j) in self.sparsity._maps_and_regions:
-                rmaps[i], cmaps[j], _ = tuple(self.sparsity._maps_and_regions[(i, j)])[0]
+            for (i, j), maps_and_regions in self.sparsity._maps_and_regions.items():
+                for item in maps_and_regions:
+                    rmaps[i], cmaps[j], _ = item
             rlgmap = unghosted_lgmap(rset, rmaps)
             clgmap = unghosted_lgmap(cset, cmaps)
             create = mat.createIS

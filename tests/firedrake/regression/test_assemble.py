@@ -119,22 +119,28 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
 def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
-    if shape == "vector":
-        V = VectorFunctionSpace(mesh, "CG", 1)
-    else:
+    if shape == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
-        if shape == "mixed":
-            V = V * V
-    if V.value_size == 1:
+    elif shape == "vector":
+        V = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+    elif shape == "mixed":
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        Q = FunctionSpace(mesh, "CG", 1)
+        V = V * Q
+    else:
+        raise ValueError(f"Unrecognized shape {shape}.")
+
+    if V.value_size == 1 or shape == "mixed":
         A = 1
     else:
-        A = as_matrix([[2, -1], [-1, 2]])
+        A = as_matrix([[2, -1, 0], [-1, 2, -1], [0, -1, 2]])
 
     u = TrialFunction(V)
     v = TestFunction(V)
     a = inner(A * grad(u), grad(v))*dx
     if dirichlet_bcs:
-        bcs = [DirichletBC(V.sub(i), 0, (i % 4+1, (i+2) % 4+1)) for i in range(V.value_size)]
+        subspaces = [V.sub(i).sub(j) for i in range(len(V)) for j in range(len(V.sub(i)))]
+        bcs = [DirichletBC(subspaces[i], 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(subspaces))]
     else:
         bcs = None
 
