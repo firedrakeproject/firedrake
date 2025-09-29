@@ -12,6 +12,7 @@ from firedrake.cython import mgimpl as impl
 
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vf.mesh()
@@ -42,7 +43,10 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
-        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+        try:
+            fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+        except IndexError:
+            breakpoint()
 
         src_axis = Vf.nodal_axes.root
         target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])

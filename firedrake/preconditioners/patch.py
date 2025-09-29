@@ -137,6 +137,7 @@ CompiledKernel = namedtuple('CompiledKernel', ["funptr", "kinfo"])
 
 
 def matrix_funptr(form, state):
+    raise NotImplementedError
     from firedrake.tsfc_interface import compile_form
     test, trial = map(operator.methodcaller("function_space"), form.arguments())
     if test != trial:
@@ -230,6 +231,7 @@ def matrix_funptr(form, state):
 
 
 def residual_funptr(form, state):
+    raise NotImplementedError
     from firedrake.tsfc_interface import compile_form
     test, = map(operator.methodcaller("function_space"), form.arguments())
 

@@ -153,6 +153,8 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     # NOTE: This is quite nasty
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
+        if self.parent:
+            raise NotImplementedError
         # we should be able to get this information from the subst layouts
         import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("Nasty code, do it better")

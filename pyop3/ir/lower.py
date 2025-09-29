@@ -380,7 +380,7 @@ class CompiledCodeExecutor:
         # if "MatSetValues" in str(self):
         #     breakpoint()
         # if "integral" in str(self):
-        # pyop3.extras.debug.maybe_breakpoint()
+        pyop3.extras.debug.maybe_breakpoint("closure")
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:

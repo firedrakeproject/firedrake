@@ -1956,13 +1956,15 @@ class AxisForest(DistributedObject):
 
     @property
     def size(self):
-        from pyop3 import Scalar
-
         return self.trees[0].size
 
     @property
-    def local_size(self):
+    def local_size(self) -> int:
         return utils.single_valued((tree.local_size for tree in self.trees))
+
+    @property
+    def global_size(self) -> int:
+        return utils.single_valued((tree.global_size for tree in self.trees))
 
     def with_context(self, context):
         return type(self)((tree.with_context(context) for tree in self.trees))

@@ -163,6 +163,7 @@ class WithGeometryBase:
 
     @parent.setter
     def parent(self, val):
+        breakpoint()
         self.cargo.parent = val
 
     @property
@@ -1093,13 +1094,23 @@ class FunctionSpace:
         indices_dat = op3.Dat(indices_axes, data=indices_array)
 
         cell_index = self._mesh.cells.owned.iter()
-        # need to hide shape information here (hence the empty tuple)
-        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], self, cell_index)
+
+
+        scalar_space = self
+        if self.shape:
+            scalar_space = self.sub(0)
+
+        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], scalar_space, cell_index)
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
-        map_dat = op3.Dat.empty(map_axes, dtype=IntType)
+        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType)
 
+        # import pyop3
+        # pyop3.extras.debug.enable_conditional_breakpoints("closure")
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
+
+        if max(map_dat.data_ro) > 1e6:
+            breakpoint()
 
         return map_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
 
@@ -1996,6 +2007,7 @@ class MixedFunctionSpace:
             start += nrows
         return tuple(ises)
 
+    # FIXME: This loses information for proxy spaces
     def collapse(self):
         return type(self)([V_ for V_ in self], self.mesh())
 
@@ -2038,18 +2050,6 @@ class ProxyFunctionSpace(FunctionSpace):
              self.index,
              self.component)
 
-    # TODO: This is awful, but I use it here to make the issue explicit
-    weak = True
-    """The extent to which this proxy function space relate to the original space.
-
-    If `True` then we are dealing with a subspace that we can freely create Dats with.
-    If `False` then we have a proper indexed axis tree that references the larger space.
-
-    The main implication of this is what ``function_space.unindexed`` returns. Is it
-    the full space or the indexed space?
-
-    """
-
     identifier = None
     r"""An optional identifier, for debugging purposes."""
 
@@ -2064,55 +2064,6 @@ class ProxyFunctionSpace(FunctionSpace):
         if self.no_dats:
             raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
-
-    @cached_property
-    def plex_axes(self):
-        if not self.weak:
-            return self.parent.plex_axes[self._slice]
-
-        trimmed = self.parent.plex_axes[self._slice]
-        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
-        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
-
-        return op3.IndexedAxisTree(
-            trimmed.node_map,
-            unindexed=trimmed_unindexed,
-            targets=trimmed_targets,
-        )
-
-    @cached_property
-    def nodal_axes(self):
-        if not self.weak:
-            return self.parent.nodal_axes[self._slice]
-
-        trimmed = self.parent.nodal_axes[self._slice]
-        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
-        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
-
-        return op3.IndexedAxisTree(
-            trimmed.node_map,
-            unindexed=trimmed_unindexed,
-            targets=trimmed_targets,
-        )
-
-    @cached_property
-    def _trimmed_axis_labels(self) -> frozenset:
-        if self.identifier == "indexed":
-            return frozenset({"field"})
-        else:
-            assert self.identifier == "component"
-            return frozenset({f"dim{dim}" for dim, _ in enumerate(self.component)})
-
-    @cached_property
-    def _slice(self):
-        if self.identifier == "indexed":
-            return op3.ScalarIndex("field", self.index, 0)
-        else:
-            assert self.identifier == "component"
-            return tuple(
-                op3.ScalarIndex(f"dim{dim}", "XXX", index)
-                for dim, index in enumerate(self.component)
-            )
 
 
 class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
@@ -2183,7 +2134,6 @@ def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
-    new.weak = weak
 
     return new
 
@@ -2206,8 +2156,6 @@ def ComponentFunctionSpace(parent, component, *, weak: bool = True):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-    new.weak = weak
-
     return new
 
 
