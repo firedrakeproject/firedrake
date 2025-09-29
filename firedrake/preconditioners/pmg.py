@@ -1237,9 +1237,14 @@ class StandaloneInterpolationMatrix(object):
     @cached_property
     def _kernels(self):
         try:
-            # We generate custom prolongation and restriction kernels mainly because:
-            # 1. Code generation for the transpose of prolongation is not readily available
-            # 2. Dual evaluation of EnrichedElement is not yet implemented in FInAT
+            prolong = partial(firedrake.assemble, firedrake.interpolate(self.uc, self.Vf), tensor=self.uf)
+            prolong()
+            self.rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
+            self.rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
+            restrict = partial(firedrake.assemble, firedrake.interpolate(firedrake.TestFunction(self.Vc), self.rf), tensor=self.rc)
+        except NotImplementedError:
+            # We generate custom prolongation and restriction kernels because
+            # dual evaluation of EnrichedElement is not yet implemented in FInAT
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
@@ -1247,23 +1252,13 @@ class StandaloneInterpolationMatrix(object):
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
-        except ValueError:
-            # The elements do not have the expected tensor product structure
-            # Fall back to aij kernels
-            uf_map = self.Vf.cell_node_map()
-            uc_map = self.Vc.cell_node_map()
-            prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
-                            self.uf.dat(op2.WRITE, uf_map),
-                            self.uc.dat(op2.READ, uc_map)]
-
-        restrict_args = [restrict_kernel, self.uf.cell_set,
-                         self.uc.dat(op2.INC, uc_map),
-                         self.uf.dat(op2.READ, uf_map),
-                         self._weight.dat(op2.READ, uf_map)]
-        coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-        prolong = op2.ParLoop(*prolong_args, *coefficient_args)
-        restrict = op2.ParLoop(*restrict_args, *coefficient_args)
+            restrict_args = [restrict_kernel, self.uf.cell_set,
+                             self.uc.dat(op2.INC, uc_map),
+                             self.uf.dat(op2.READ, uf_map),
+                             self._weight.dat(op2.READ, uf_map)]
+            coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
+            prolong = op2.ParLoop(*prolong_args, *coefficient_args)
+            restrict = op2.ParLoop(*restrict_args, *coefficient_args)
         return prolong, restrict
 
     def _prolong(self):
@@ -1571,56 +1566,9 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
         P1 = P1.function_space()
     if isinstance(Pk, firedrake.Function):
         Pk = Pk.function_space()
-    sp = op2.Sparsity((Pk.dof_dset,
-                       P1.dof_dset),
-                      {(i, j): [(rmap, cmap, None)]
-                          for i, rmap in enumerate(Pk.cell_node_map())
-                          for j, cmap in enumerate(P1.cell_node_map())
-                          if i == j})
-    mat = op2.Mat(sp, PETSc.ScalarType)
-    mesh = Pk.mesh()
-
-    fele = Pk.ufl_element()
-    if type(fele) is finat.ufl.MixedElement:
-        for i in range(fele.num_sub_elements):
-            Pk_bcs_i = [bc for bc in Pk_bcs if bc.function_space().index == i]
-            P1_bcs_i = [bc for bc in P1_bcs if bc.function_space().index == i]
-
-            rlgmap, clgmap = mat[i, i].local_to_global_maps
-            rlgmap = Pk.sub(i).local_to_global_map(Pk_bcs_i, lgmap=rlgmap)
-            clgmap = P1.sub(i).local_to_global_map(P1_bcs_i, lgmap=clgmap)
-            unroll = any(bc.function_space().component is not None
-                         for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
-            matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
-                               lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            expr = firedrake.TrialFunction(P1.sub(i))
-            kernel, coefficients = prolongation_transfer_kernel_action(Pk.sub(i), expr)
-            parloop_args = [kernel, mesh.cell_set, matarg]
-            for coefficient in coefficients:
-                m_ = coefficient.cell_node_map()
-                parloop_args.append(coefficient.dat(op2.READ, m_))
-
-            op2.par_loop(*parloop_args)
-
-    else:
-        rlgmap, clgmap = mat.local_to_global_maps
-        rlgmap = Pk.local_to_global_map(Pk_bcs, lgmap=rlgmap)
-        clgmap = P1.local_to_global_map(P1_bcs, lgmap=clgmap)
-        unroll = any(bc.function_space().component is not None
-                     for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
-        matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
-                     lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        expr = firedrake.TrialFunction(P1)
-        kernel, coefficients = prolongation_transfer_kernel_action(Pk, expr)
-        parloop_args = [kernel, mesh.cell_set, matarg]
-        for coefficient in coefficients:
-            m_ = coefficient.cell_node_map()
-            parloop_args.append(coefficient.dat(op2.READ, m_))
-
-        op2.par_loop(*parloop_args)
-
-    mat.assemble()
-    return mat.handle
+    bcs = P1_bcs + Pk_bcs
+    mat = firedrake.assemble(firedrake.interpolate(firedrake.TrialFunction(P1), Pk), bcs=bcs)
+    return mat.petscmat
 
 
 def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
