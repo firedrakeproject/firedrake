@@ -248,7 +248,7 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Dat.null(arg.axes.materialize().regionless, dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.raxes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
@@ -324,7 +324,7 @@ def _(dat: Dat) -> bool:
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.caxes))
 
 
 def _layouts_match(axis_tree) -> bool:
@@ -447,10 +447,10 @@ def _(array: Tensor, /, access_type):
             temp_reshaped = temp_initial.with_axes(array.axes)
         else:
             assert isinstance(array, Mat)
-            raxes = AxisTree(array.parent.raxes.node_map)
+            raxes = AxisTree(array.parent.row_axes.node_map)
             caxes = AxisTree(array.parent.caxes.node_map)
-            temp_initial = Mat.null(raxes, caxes, dtype=array.dtype, prefix="t")
-            temp_reshaped = temp_initial.with_axes(array.raxes, array.caxes)
+            temp_initial = Mat.null(row_axes, caxes, dtype=array.dtype, prefix="t")
+            temp_reshaped = temp_initial.with_axes(array.row_axes, array.caxes)
 
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
 

@@ -1707,12 +1707,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             # If setting a block then use an identity matrix
             size = utils.single_valued((
-                axes.size for axes in {assignee.raxes, assignee.caxes}
+                axes.size for axes in {assignee.row_axes, assignee.caxes}
             ))
             expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
             expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
             expression = op3.Mat(
-                assignee.raxes.materialize(),
+                assignee.row_axes.materialize(),
                 assignee.caxes.materialize(),
                 buffer=expr_buffer,
             )
@@ -1778,11 +1778,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(op2tensor, raxes, caxes, i, j, component, node_set):
+    def _apply_bcs_mat_real_block(op2tensor, row_axes, caxes, i, j, component, node_set):
         dat = op2tensor.handle.getNestSubMatrix(i, j).getPythonContext().dat
         mat_type = op2tensor.buffer.mat_spec[i, j].mat_type
         if mat_type == "rvec":
-            nodal_axes = raxes 
+            nodal_axes = row_axes 
         else:
             nodal_axes = caxes 
 

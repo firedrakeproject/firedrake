@@ -196,7 +196,7 @@ def _(mat: op3_expr.Mat, /) -> OrderedSet:
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
 
-    for cs_axes in {mat.raxes, mat.caxes}:
+    for cs_axes in {mat.row_axes, mat.caxes}:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
@@ -443,7 +443,7 @@ def _(dat: op3_expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Dat
 @concretize_layouts.register(op3_expr.Mat)
 def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.BufferExpression:
     nest_indices = ()
-    row_axes = mat.raxes
+    row_axes = mat.row_axes
     column_axes = mat.caxes
     if mat.buffer.is_nested:
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:

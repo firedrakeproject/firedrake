@@ -94,7 +94,7 @@ class Mat(Tensor):
 
     @property
     def shape(self):
-        return (self.raxes.materialize(), self.caxes.materialize())
+        return (self.row_axes.materialize(), self.caxes.materialize())
 
     @property
     def _full_str(self) -> str:
@@ -154,7 +154,7 @@ class Mat(Tensor):
     @cached_property
     def nrows(self) -> int:
         "The number of local rows in the matrix (including ghosts)."
-        return self.raxes.size
+        return self.row_axes.size
 
     @cached_property
     def ncols(self) -> int:
@@ -292,7 +292,8 @@ class Mat(Tensor):
 
     @property
     def context_free(self):
-        row_axes = self.raxes.context_free
+        assert False, "old code"
+        row_axes = self.row_axes.context_free
         col_axes = self.caxes.context_free
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
@@ -331,7 +332,7 @@ class Mat(Tensor):
 
     @property
     def comm(self) -> MPI.Comm:
-        return single_valued([self.raxes.comm, self.caxes.comm])
+        return single_valued([self.row_axes.comm, self.caxes.comm])
 
     # }}}
 
@@ -348,11 +349,11 @@ class Mat(Tensor):
 
     @cached_property
     def size(self) -> Any:
-        return self.raxes.size * self.caxes.size
+        return self.row_axes.size * self.caxes.size
 
     @cached_property
     def alloc_size(self) -> int:
-        return self.raxes.alloc_size * self.caxes.alloc_size
+        return self.row_axes.alloc_size * self.caxes.alloc_size
 
     @property
     def nested(self):
@@ -376,18 +377,18 @@ class Mat(Tensor):
         if strictly_all(
             x is None for x in {raxis, caxis, mat_type, rlabel_acc, clabel_acc}
         ):
-            raxis = self.raxes.unindexed.root
+            raxis = self.row_axes.unindexed.root
             caxis = self.caxes.unindexed.root
             mat_type = self.mat_type
             rlabel_acc = ()
             clabel_acc = ()
 
         if not strictly_all(x is None for x, _ in mat_type.keys()):
-            rroot = self.raxes.root
+            rroot = self.row_axes.root
             rlabels = unique(
                 clabel
                 for c in rroot.components
-                for axlabel, clabel in self.raxes.target_paths[
+                for axlabel, clabel in self.row_axes.target_paths[
                     rroot.id, c.label
                 ].items()
                 if axlabel == raxis.label
@@ -422,7 +423,7 @@ class Mat(Tensor):
 
             submat_type = mat_type[rlabel, clabel]
             if isinstance(submat_type, collections.abc.Mapping):
-                rsubaxis = self.raxes.unindexed.child(raxis, rlabel)
+                rsubaxis = self.row_axes.unindexed.child(raxis, rlabel)
                 csubaxis = self.caxes.unindexed.child(caxis, clabel)
                 yield from self._iter_nest_labels(
                     rsubaxis, csubaxis, submat_type, rlabel_acc_, clabel_acc_
@@ -446,7 +447,7 @@ class Mat(Tensor):
 
     @cached_property
     def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:
-        return (self.raxes, self.caxes)
+        return (self.row_axes, self.caxes)
 
     @classmethod
     def _merge_axes(cls, row_axes, col_axes):
@@ -478,7 +479,7 @@ class Mat(Tensor):
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
-        if self.raxes.size * self.caxes.size > 1e6:
+        if self.row_axes.size * self.caxes.size > 1e6:
             raise ValueError(
                 "Printing a dense matrix with more than 1 million "
                 "entries is not allowed"
@@ -499,7 +500,7 @@ class Mat(Tensor):
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
-                return petscmat[self.raxes._buffer_slice, self.caxes._buffer_slice]
+                return petscmat[self.row_axes._buffer_slice, self.caxes._buffer_slice]
         else:
             raise NotImplementedError
 
@@ -510,7 +511,7 @@ class Mat(Tensor):
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(itertools.zip_longest(self.raxes.nest_indices, self.caxes.nest_indices))
+        return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.caxes.nest_indices))
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
