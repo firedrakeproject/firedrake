@@ -363,13 +363,12 @@ class CrossMeshInterpolator(Interpolator):
                     "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                 )
             self.dest_element = base_element
-            self._get_symbolic_expressions()
         elif isinstance(dest_element, finat.ufl.MixedElement):
-            self._mixed_function_space()
+            return self._mixed_function_space()
         else:
             # scalar fiat/finat element
             self.dest_element = dest_element
-            self._get_symbolic_expressions()
+        self._get_symbolic_expressions()
 
     def _get_symbolic_expressions(self):
         """Constructs the symbolic Interpolate expressions for cross-mesh interpolation.
