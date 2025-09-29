@@ -288,8 +288,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
                 push_appctx(coarseneddm, coarse)
-                teardown = partial(pop_appctx, coarseneddm, coarse)
-                add_hook(parentdm, teardown=teardown)
+                if parentdm.getAttr("__setup_hooks__"):
+                    add_hook(parentdm, teardown=partial(pop_appctx, coarseneddm, coarse))
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)

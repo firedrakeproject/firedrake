@@ -147,7 +147,7 @@ def restrict(fine_dual, coarse_dual):
 
         kernel = kernels.restrict_kernel(Vf, Vc)
         op3.loop(
-            n := Vf.nodal_axes.iter(),
+            n := Vf.nodes.owned.iter(),
             kernel(next.dat[fine_to_coarse(n)], fine_dual.dat[n], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
             eager=True,
         )
@@ -234,16 +234,26 @@ def inject(fine, coarse):
             coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
-            raise NotImplementedError
             for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            raise NotImplementedError
-            op2.par_loop(kernel, Vc.mesh().cell_set,
-                         next.dat(op2.INC, next.cell_node_map()),
-                         fine.dat(op2.READ, coarse_cell_to_fine_nodes),
-                         fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
-                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+                d.dat.buffer.reduce_leaves_to_roots_begin()
+            for d in [fine, fine_coords]:
+                d.dat.buffer.reduce_leaves_to_roots_end()
+
+            op3.loop(
+                c := Vc.mesh().cells.owned.iter(),
+                kernel(
+                    next.dat[next.function_space().cell_node_map(c)],
+                    fine.dat[coarse_cell_to_fine_nodes(c)],
+                    fine_coords.dat[coarse_cell_to_fine_coords(c)],
+                    coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                ),
+                eager=True,
+            )
+            # op2.par_loop(kernel, Vc.mesh().cell_set,
+            #              next.dat(op2.INC, next.cell_node_map()),
+            #              fine.dat(op2.READ, coarse_cell_to_fine_nodes),
+            #              fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
+            #              coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
         fine = next
         Vf = Vc
     return coarse

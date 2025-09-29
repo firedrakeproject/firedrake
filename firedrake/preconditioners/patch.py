@@ -777,7 +777,7 @@ class PatchBase(PCSNESBase):
         self.ctx = ctx
         self.plex.setAttr("__firedrake_ctx__", weakref.proxy(ctx))
 
-        if mesh.cell_set._extruded:
+        if mesh.extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
         if "overlap_type" not in mesh._distribution_parameters:

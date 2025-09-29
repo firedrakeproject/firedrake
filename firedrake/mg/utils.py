@@ -60,6 +60,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
@@ -107,8 +108,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
-    raise NotImplementedError
     if len(Vf) > 1:
+        raise NotImplementedError
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
@@ -138,22 +139,35 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cell_set
+        iterset = Vc.mesh().cells
         arity = Vf.finat_element.space_dimension() * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = Vf.cell_node_map().values[coarse_to_fine, :].reshape(iterset.size, arity)
+        coarse_to_fine_nodes = numpy.full((iterset.local_size, arity*level_ratio), -1, dtype=IntType)
+        values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.size, arity)
 
         if Vc.extruded:
             off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
+            coarse_to_fine_nodes[:iterset.local_size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
         else:
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
+            coarse_to_fine_nodes[:iterset.local_size, :] = values
         offset = Vf.offset
         if offset is not None:
             offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
-        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
-                                             offset=offset))
+
+        src_axis = iterset.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({src_axis.label: src_axis.component.label}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label
+        )
+        # return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
+        #                                      arity=arity*level_ratio, values=coarse_to_fine_nodes,
+        #                                      offset=offset))
+        return cache.setdefault(key, node_map)
 
 
 def physical_node_locations(V):

@@ -812,13 +812,15 @@ class FunctionSpace:
         return self.layout_axes[index_tree]
 
     @cached_property
-    def nodal_axes(self) -> op3.IndexedAxisTree:
-        # NOTE: This might be a good candidate for axis forests so we could have
-        # V.axes and index it with node things or mesh things
+    def nodes(self) -> op3.Axis:
         scalar_axis_tree = self.plex_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.local_size
+        return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
 
-        node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        node_axis = self.nodes
+        num_nodes = node_axis.local_size
         axis_tree = op3.AxisTree(node_axis)
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
@@ -949,7 +951,7 @@ class FunctionSpace:
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF())
         # Remember the function space so we can get from DM back to FunctionSpace.
-        # dmhooks.set_function_space(dm, self)
+        dmhooks.set_function_space(dm, self)
         return dm
 
     @utils.cached_property
@@ -1057,9 +1059,28 @@ class FunctionSpace:
 
         return section
 
+    @utils.cached_property
+    def cell_node_map(self) -> op3.Map:
+        map_data = self.cell_node_list
+        ncells, arity = map_data.shape
+        cells_axis = self.mesh().cells.owned.root
+        assert cells_axis.local_size == ncells
+        node_axis = op3.Axis(arity)
+        map_axes = op3.AxisTree.from_iterable([cells_axis, node_axis])
+        map_dat = op3.Dat(map_axes, data=self.cell_node_list.flatten(), prefix="map")
+        return op3.Map(
+            {
+                idict({cells_axis.label: cells_axis.component.label}): [
+                    [op3.TabulatedMapComponent("nodes", None, map_dat)]
+                ],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=node_axis.label
+        )
+
     # IMPORTANT: This is only for the subspace - if addressing a subfunction with this an offset is needed
     @utils.cached_property
-    def cell_node_list(self):
+    def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
