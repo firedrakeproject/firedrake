@@ -153,7 +153,7 @@ def test_cached_transfer(family, degree, coefficient):
         R = FunctionSpace(mesh, "R", 0)
         R2 = R * R
         c = Function(R2).assign(1)
-        c1 = c[0]
+        c1 = c.subfunctions[0]
         c2 = c[1]
     elif coefficient == "repeated":
         R1 = FunctionSpace(mesh, "R", 0)

@@ -332,6 +332,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        coefficients += problem.u.subfunctions
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
