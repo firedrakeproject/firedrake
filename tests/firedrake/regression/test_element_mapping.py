@@ -1,8 +1,6 @@
 from firedrake import *
 
 
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 def test_with_mapping():
     """
     This test creates a deformed domain and checks that the function

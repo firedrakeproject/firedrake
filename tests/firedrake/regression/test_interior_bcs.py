@@ -1,8 +1,6 @@
 from os.path import abspath, dirname, join
 
 from firedrake import *
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = abspath(dirname(__file__))
 

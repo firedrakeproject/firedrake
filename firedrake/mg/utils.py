@@ -1,6 +1,8 @@
 import numpy
+from immutabledict import immutabledict as idict
 from fractions import Fraction
 from pyop2 import op2
+import pyop3 as op3
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
@@ -41,9 +43,19 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
-                                             fine_to_coarse_nodes.shape[1],
-                                             values=fine_to_coarse_nodes))
+
+        src_axis = Vf.nodal_axes.root
+        target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=fine_to_coarse_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            },
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label,
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
@@ -79,12 +91,23 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             coarse_to_fine_nodes.shape[1],
-                                             values=coarse_to_fine_nodes))
+
+        src_axis = Vc.nodal_axes.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=target_axis.label
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
+    raise NotImplementedError
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))

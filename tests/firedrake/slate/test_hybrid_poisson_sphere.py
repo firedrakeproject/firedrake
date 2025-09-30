@@ -4,9 +4,6 @@ from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     """Test hybridizing lowest order mixed methods on a sphere."""
     mesh = MeshClass(refinement_level=refinement)

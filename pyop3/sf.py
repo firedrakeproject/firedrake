@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import abc
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 from mpi4py import MPI
@@ -9,12 +13,116 @@ from pyop2.mpi import internal_comm
 from pyop3.utils import just_one, strict_int
 
 
+# This is so we can more easily distinguish internal and external comms
+# It is still necessary to register weakref finalizers for these (see what
+# we do in Firedrake).
+class Pyop3Comm(MPI.Comm):
+    pass
+
+
+class ParallelAwareObject(abc.ABC):
+    """Abstract class for objects that know about communicators.
+
+    Unlike `DistributedObject`s, it is allowed for objects inheriting from
+    this class to have `None` for communicator values.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def user_comm(self) -> MPI.Comm | None:
+        pass
+
+    # TODO: probably decorate as 'collective'
+    @property
+    def internal_comm(self) -> Pyop3Comm | None:
+        if self.user_comm is None:
+            return None
+
+        # this is where the magic happens...
+        # but not yet
+        return self.user_comm
+
+    # TODO: cast to a Pyop3 and register a weakref handler of some kind
+    @staticmethod
+    def register_comm(self, comm) -> Pyop3Comm:
+        pass
+
+
+class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
+    """Abstract class for objects that have a parallel execution context.
+
+    The expected usage is for classes to implement the attribute `user_comm`.
+
+    """
+
+    @property
+    def internal_comm(self) -> Pyop3Comm:
+        # this is where the magic happens...
+        # but not yet
+        assert self.user_comm is not None
+        return self.user_comm
+
+    @property
+    @abc.abstractmethod
+    def user_comm(self) -> MPI.Comm:
+        pass
+
+
 class BufferSizeMismatchException(Exception):
     pass
 
 
-class StarForest:
+class AbstractStarForest(DistributedObject, abc.ABC):
+
+    # {{{ abstract methods
+
+    @abc.abstractmethod
+    def __hash__(self) -> int:
+        pass
+
+    @abc.abstractmethod
+    def __eq__(self, other: Any, /) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def broadcast_begin(self, *args):
+        pass
+
+    @abc.abstractmethod
+    def broadcast_end(self, *args):
+        pass
+
+    # }}}
+
+    def broadcast(self, *args):
+        self.broadcast_begin(*args)
+        self.broadcast_end(*args)
+
+
+
+class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
+
+    # {{{ interface impls
+
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self.nroots,
+            self.ilocal.data.tobytes(),
+            self.iremote.data.tobytes(),
+        ))
+
+    def __eq__(self, /, other: Any) -> bool:
+        return (
+            type(other) is type(self)
+            and other.nroots == self.nroots
+            and (other.ilocal == self.ilocal).all()
+            and (other.iremote == self.iremote).all()
+        )
+
+    # }}}
 
     def __init__(self, sf, size: IntType):
         self.sf = sf
@@ -34,7 +142,7 @@ class StarForest:
         return cls(sf, size)
 
     @property
-    def comm(self) -> MPI.Comm:
+    def user_comm(self) -> MPI.Comm:
         return self.sf.comm.tompi4py()
 
     @cached_property
@@ -95,10 +203,6 @@ class StarForest:
     def graph(self):
         return self.sf.getGraph()
 
-    def broadcast(self, *args):
-        self.broadcast_begin(*args)
-        self.broadcast_end(*args)
-
     def broadcast_begin(self, *args):
         bcast_args = self._prepare_args(*args)
         self.sf.bcastBegin(*bcast_args)
@@ -129,11 +233,37 @@ class StarForest:
             raise ValueError
 
         if any(len(buf) != self.size for buf in [from_buffer, to_buffer]):
+            breakpoint()
             raise BufferSizeMismatchException
 
         # what about cdim?
         dtype, _ = get_mpi_dtype(from_buffer.dtype)
         return (dtype, from_buffer, to_buffer, op)
+
+
+class NullStarForest(AbstractStarForest):
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
+
+    def __eq__(self, other):
+        return type(other) is type(self)
+
+    def __bool__(self) -> bool:
+        return False
+
+    def broadcast_begin(self, *args):
+        pass
+
+    def broadcast_end(self, *args):
+        pass
+
+    def reduce_begin(self, *args):
+        pass
+
+    def reduce_end(self, *args):
+        pass
 
 
 def single_star_sf(comm, size=1, root=0):

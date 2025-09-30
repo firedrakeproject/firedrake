@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"])
@@ -50,7 +49,7 @@ def test_facet_area(cell, mesh):
 
 def test_miscellaneous():
     mesh = UnitSquareMesh(2, 1, quadrilateral=True)
-    mesh.coordinates.dat.data[:, 0] = np.sqrt(mesh.coordinates.dat.data_ro[:, 0])
+    mesh.coordinates.dat.data_wo[::2] = np.sqrt(mesh.coordinates.dat.data_ro[::2])
 
     assert np.allclose(assemble(CellVolume(mesh)*dx), 2 - sqrt(2))
     assert np.allclose(assemble(CellVolume(mesh)*ds), 5 - 2*sqrt(2))

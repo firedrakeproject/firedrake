@@ -1,3 +1,4 @@
+import textwrap
 import numpy as np
 from functools import cached_property
 import rtree
@@ -13,8 +14,9 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from pyrsistent import freeze
+from immutabledict import immutabledict as idict
 
-from pyop2 import mpi
+from pyop2 import mpi, MPI
 from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
 
@@ -27,6 +29,7 @@ from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
+from firedrake.functionspaceimpl import parse_component_indices
 
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
@@ -34,13 +37,12 @@ __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
-                ("extruded", c_int),
-                ("n_layers", c_int),
+    _fields_ = [("n_cells", c_int),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
+                ("f_offset", c_int),
                 ("sidx", c_void_p)]
 
 
@@ -86,7 +88,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
@@ -100,12 +102,9 @@ class CoordinatelessFunction(ufl.Coefficient):
             and copy values.  If ``False``, the default, then the new
             :class:`CoordinatelessFunction` will share the dof values.
         """
-        if deepcopy:
-            val = self.dat.copy2()
-        else:
-            val = self.dat
+        dat = self.dat.copy() if deepcopy else self.dat
         return type(self)(self.function_space(),
-                          val=val, name=self.name(),
+                          val=dat, name=self.name(),
                           dtype=self.dat.dtype)
 
     def ufl_id(self):
@@ -117,16 +116,11 @@ class CoordinatelessFunction(ufl.Coefficient):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for subspace in self.function_space():
+            for i in range(len(self.function_space())):
+                # a guess, might not work
+                # subspace = self.function_space().sub(i, weak=False)
+                subspace = self.function_space().sub(i, weak=True)
                 subdat = self.dat[subspace.index]
-                # relabel the axes (remove suffix)
-                subaxes = subdat.axes.relabel({
-                    label: label.removesuffix(f"_{subspace.index}")
-                    for label in subdat.axes.node_labels
-                    if label.startswith("dof")
-                })
-                # .with_axes
-                subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -135,59 +129,44 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             return (self,)
 
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
-    def _components(self):
-        if self.function_space()._cdim == 1:
+    def _components(self) -> np.ndarray["CoordinatelessFunction"]:
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                val=self.dat[indices],
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
+            )
+            components[ix] = component
+        return utils.readonly(components)
+
+        if self.function_space().rank == 0:
             return (self,)
         else:
-            if len(self.function_space().shape) > 1:
-                # This all gets a lot easier if one could insert slices *above*
-                # the relevant indices. Then we could just index with a ScalarIndex.
-                # Instead we have to construct the whole IndexTree and for simplicity
-                # this is disabled for tensor things.
-                raise NotImplementedError
-
-            # TODO: Ultimately we want to remove all this extra code when we can index
-            # things more flexibly.
-            root_axis = self.dat.axes.root
-            root_index = op3.Slice(
-                root_axis.label,
-                [op3.AffineSliceComponent(c.label) for c in root_axis.components],
-            )
-            root_index_tree = op3.IndexTree(root_index)
-            for axis_component, component in zip(root_axis.components, root_index.component_labels):
-                dof_axis = self.dat.axes.child(root_axis, axis_component)
-                subtree = op3.IndexTree(op3.Slice(dof_axis.label, [op3.AffineSliceComponent("XXX")]))
-                root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
-
-            subfuncs = []
-            # This flattens any tensor shape, which pyop3 can now do "properly"
-            for i, j in enumerate(np.ndindex(self.function_space().shape)):
-
-                # just one-tuple supported for now
-                j, = j
-
-                indices = root_index_tree
-                subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
-                for leaf in root_index_tree.leaves:
-                    indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
-
-                subfunc = CoordinatelessFunction(
-                    self.function_space().sub(i),
-                    # FIXME: (06/12/24) This doesnt yet work because we assume certain ordering
-                    # constraints when indexing (see compose_targets)
-                    # val=self.dat[subtree],
-                    val=self.dat.getitem(indices, strict=True),
-                    name=f"view[{i}]({self.name()})"
-                )
-                subfuncs.append(subfunc)
-            return tuple(subfuncs)
+            if self.function_space().value_size == 1:
+                return (CoordinatelessFunction(self.function_space().sub(0, weak=False), val=self.dat,
+                                               name=f"view[0]({self.name()})"),)
+            else:
+                components = []
+                for i, j in enumerate(np.ndindex(self.function_space().shape)):
+                    indices = op3.IndexTree.from_iterable((
+                        op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                        for i_, j_ in enumerate(j)
+                    ))
+                    subdat = self.dat[indices]
+                    component = CoordinatelessFunction(
+                        self.function_space().sub(i, weak=False),
+                        val=subdat,
+                        name=f"view[{i}]({self.name()})"
+                    )
+                    components.append(component)
+                return tuple(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -310,6 +289,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         if isinstance(function_space, Function):
             self.assign(function_space)
 
+    def __str__(self):
+        return ufl2unicode(self)
+
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
@@ -341,38 +323,50 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.subfunctions))
-
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
-    @cached_property
-    def _components(self):
-        if self.function_space().rank == 0:
-            return (self, )
+        if len(self.function_space()) > 1:
+            return tuple(
+                # type(self)(self.function_space().sub(i, weak=False), val)
+                type(self)(self.function_space().sub(i, weak=True), val)  # a guess, might not work
+                for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().block_size))
+            return (self,)
+
+    @utils.cached_property
+    def _components(self):
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+    def sub(self, indices: tuple[int] | int) -> "Function":
+        """Extract the `i`th sub function of this function.
 
-        :arg i: the index to extract
+        If the `Function` is defined on a `~.VectorFunctionSpace` or
+        `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th
+        component of the space, suitable for use in boundary condition application.
 
-        See also :attr:`subfunctions`.
+        Parameters
+        ----------
+        indices :
+            Indices indicating the sub function to extract. If an `int` is
+            used then this is converted into a `tuple`.
 
-        If the :class:`Function` is defined on a
-        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        Returns
+        -------
+        The sub function.
+
+        See Also
+        --------
+        subfunctions
+
+        """
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[indices]
+        else:
+            indices = parse_component_indices(indices, self.function_space().shape)
+            return self._components[indices]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
@@ -457,7 +451,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=Ellipsis):
+    def assign(self, expr, subset=None):
         r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
         :class:`.FunctionSpace` as the :class:`Function` being assigned to.
@@ -481,13 +475,17 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
                 self.dat.data_wo[...] = expr
             except (DataTypeError, DataValueError) as e:
                 raise ValueError(e)
         elif expr == 0:
-            self.dat.zero(subset=subset)
+            self.dat[subset].zero(eager=True)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
@@ -567,41 +565,18 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Retrieve data from Python object
         function_space = self.function_space()
         mesh = function_space.mesh()
-        plex = mesh.topology
-        tdim = plex.dimension
         coordinates = mesh.coordinates
-
-        def as_int_ptr(dat):
-            return dat.data_ro.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        coordinates_space = coordinates.function_space()
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cols = plex.num_cells()
-        if plex.layers is not None:
-            # TODO: assert constant layer. Can we do variable though?
-            c_function.extruded = 1
-            c_function.n_layers = plex.layers - 1
-        else:
-            c_function.extruded = 0
-            c_function.n_layers = 1
-
-        cell_closures = plex._fiat_closure.connectivity[freeze({plex.name: plex.cell_label})]
-        null = POINTER(c_int)()
-        c_function.closure0 = as_int_ptr(cell_closures[0].array)
-        c_function.closure1 = as_int_ptr(cell_closures[1].array) if tdim > 0 else null
-        c_function.closure2 = as_int_ptr(cell_closures[2].array) if tdim > 1 else null
-        c_function.closure3 = as_int_ptr(cell_closures[3].array) if tdim > 2 else null
-        c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
-
-        c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
-        layouts = coordinates.dat.layouts
-        c_function.section0 = as_int_ptr(layouts[freeze({plex.name: "0"})].array)
-        c_function.section1 = as_int_ptr(layouts[freeze({plex.name: "1"})].array) if tdim > 0 else null
-        c_function.section2 = as_int_ptr(layouts[freeze({plex.name: "2"})].array) if tdim > 1 else null
-        c_function.section3 = as_int_ptr(layouts[freeze({plex.name: "3"})].array) if tdim > 2 else null
-
-        # TODO same as for coords above
-        # c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        c_function.n_cells = mesh.num_cells
+        c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        # c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.buffer.data_rw.ctypes.data_as(c_void_p)
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        c_function.f_offset = op3.evaluate(self.dat.axes.subst_layouts()[idict({mesh.topology.name: mesh.cell_label})], {mesh.topology.name: 0})
         return c_function
 
     @property
@@ -642,15 +617,12 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
-        raise NotImplementedError("TODO pyop3")
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
             return self.dat.data_ro
 
         # Need to ensure data is up-to-date for reading
-        self.dat.global_to_local_begin(op2.READ)
-        self.dat.global_to_local_end(op2.READ)
-        from mpi4py import MPI
+        self.dat.buffer.assemble()
 
         if args:
             arg = (arg,) + args
@@ -752,8 +724,17 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
-    def __str__(self):
-        return ufl2unicode(self)
+    @property
+    def vec_ro(self):
+        return self.dat.vec_ro(bsize=self.function_space().block_size)
+
+    @property
+    def vec_wo(self):
+        return self.dat.vec_wo(bsize=self.function_space().block_size)
+
+    @property
+    def vec_rw(self):
+        return self.dat.vec_rw(bsize=self.function_space().block_size)
 
 
 class PointNotInDomainError(Exception):
@@ -775,9 +756,6 @@ class PointNotInDomainError(Exception):
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
-
-    raise NotImplementedError("TODO pyop3")
-
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
@@ -786,23 +764,32 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
+    gdim = mesh.geometric_dimension()
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 
-    args = []
-
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    args.append(arg)
-
-    arg = function.dat(op2.READ, function.cell_node_map())
-    args.append(arg)
+    coords_shape = np.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    func_shape = np.prod(function.function_space().finat_element.index_shape, dtype=int)
+    func_bsize = function.function_space().block_size
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
-    src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=[p_ScalarType_c,
-                                                          p_ScalarType_c],
-                                            kernel_name="evaluate_kernel",
-                                            wrapper_name="wrap_evaluate"))
+    wrapper_src = textwrap.dedent(f"""
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1, int const dat1_offset)
+        {{
+          {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
+          {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
+
+          for (int32_t i = 0; i < {coords_shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
+          for (int32_t i = 0; i < {func_shape}; ++i)
+            for (int32_t j = 0; j < {func_bsize}; ++j) {{
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j + dat1_offset];
+            }}
+          evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
+        }}"""
+    )
+    src.append(wrapper_src)
 
     src = "\n".join(src)
 

@@ -28,9 +28,6 @@ import numpy as np
 from firedrake import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 def poisson_mixed(size, parameters={}, quadrilateral=False):
     # Create mesh
     mesh = UnitSquareMesh(2 ** size, 2 ** size, quadrilateral=quadrilateral)

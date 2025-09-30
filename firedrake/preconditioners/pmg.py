@@ -106,7 +106,7 @@ class PMGBase(PCSNESBase):
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
 
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         pdm = PETSc.DMShell().create(comm=obj.comm)
         pdm.setOptionsPrefix(options_prefix)
@@ -119,7 +119,7 @@ class PMGBase(PCSNESBase):
             default_mat_type = "matfree"
 
         # Get the coarse degree from PETSc options
-        copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
+        copts = PETSc.Options((ppc.getOptionsPrefix() or "") + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
         self.coarse_mat_type = copts.getString("mat_type", default=default_mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
@@ -423,7 +423,7 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele._elements))
         elif isinstance(ele, finat.ufl.TensorProductElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements), cell=ele.cell)
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.factor_elements), cell=ele.cell)
         elif isinstance(ele, finat.ufl.MixedElement):
             shift = degree - PMGBase.max_degree(ele)
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements))
@@ -443,7 +443,7 @@ class PMGPC(PCBase, PMGBase):
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + self._prefix)
+        ppc.setOptionsPrefix((pc.getOptionsPrefix() or "") + self._prefix)
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
@@ -458,7 +458,7 @@ class PMGPC(PCBase, PMGBase):
         # other way to get PETSc to know this at the right time.
         max_levels = odm.getRefineLevel() + 1
         if max_levels > 1:
-            opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+            opts = PETSc.Options((pc.getOptionsPrefix() or "") + "pmg_")
             if opts.getString("mg_coarse_pc_type") == "mg":
                 opts["mg_coarse_pc_mg_levels"] = min(opts.getInt("mg_coarse_pc_mg_levels", max_levels), max_levels)
         return ppc
@@ -479,7 +479,7 @@ class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
-        psnes.setOptionsPrefix(snes.getOptionsPrefix() + self._prefix)
+        psnes.setOptionsPrefix((snes.getOptionsPrefix() or "") + self._prefix)
         psnes.setType("fas")
         psnes.setDM(pdm)
         psnes.setTolerances(max_it=1)
@@ -503,7 +503,7 @@ class PMGSNES(SNESBase, PMGBase):
         # other way to get PETSc to know this at the right time.
         max_levels = odm.getRefineLevel() + 1
         if max_levels > 1:
-            opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+            opts = PETSc.Options((snes.getOptionsPrefix() or "") + "pfas_")
             if opts.getString("fas_coarse_pc_type") == "mg":
                 opts["fas_coarse_pc_mg_levels"] = min(opts.getInt("fas_coarse_pc_mg_levels", max_levels), max_levels)
             if opts.getString("fas_coarse_snes_type") == "fas":
@@ -1633,7 +1633,7 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
-    sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
+    sizes = (Vf.template_vec.sizes, Vc.template_vec.sizes)
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
     M_shll.setUp()
     return M_shll

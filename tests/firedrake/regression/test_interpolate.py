@@ -2,7 +2,6 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 
 cwd = abspath(dirname(__file__))
 
@@ -42,8 +41,12 @@ def test_mixed_expression():
 
     f1 = Function(V1).interpolate(expressions[0])
     g1 = Function(V2).interpolate(expressions[1])
-    assert np.allclose(f.dat.data, f1.dat.data)
-    assert np.allclose(g.dat.data, g1.dat.data)
+    f1_data = f1.dat.data_ro
+    g1_data = g1.dat.data_ro
+
+    assert np.allclose(fg.dat.data_ro, np.concatenate([f1_data, g1_data]))
+    assert np.allclose(f.dat.data_ro, f1_data)
+    assert np.allclose(g.dat.data_ro, g1_data)
 
 
 def test_mixed_function():
@@ -169,7 +172,6 @@ def test_compound_expression():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_hdiv_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -181,7 +183,6 @@ def test_hdiv_extruded_interval():
     assert np.allclose(u.dat.data, u_proj.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_hcurl_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -283,17 +284,8 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    for edge_dof in range(2):
-        coord = f.dat.get_value(
-            {m.topology.name: 0, "dof": edge_dof, "dim0": 0},
-            path={m.topology.name: m.edge_label, "dof": "XXX", "dim0": "XXX"}
-        )
-        warped = warp(coord)
-        f.dat.set_value(
-            {m.topology.name: 0, "dof": edge_dof, "dim0": 1},
-            warped,
-            path={m.topology.name: m.edge_label, "dof": "XXX", "dim0": "XXX"}
-        )
+    f_data = f.dat.data_rw.reshape((-1, 2))
+    f_data[1:3, 1] = warp(f_data[1:3, 0])
 
     mesh = Mesh(f)
     g = assemble(interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0)))
@@ -374,7 +366,6 @@ def test_interpolator_tets():
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_interpolator_extruded():
     mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -415,6 +406,10 @@ def test_adjoint_Pk(degree):
     v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
+
+    v_adj_form = assemble(interpolate(TestFunction(Pk), v * dx))
+
+    assert np.allclose(v_adj_form.dat.data, v_adj.dat.data)
 
 
 def test_adjoint_quads():
@@ -458,7 +453,7 @@ def test_function_cofunction(degree):
     assert np.allclose(norm_i, norm)
 
 
-@pytest.mark.xfail(reason="pyop3 par_loop")
+@pytest.mark.skip(reason="pyop3 MAX not implemented")
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
@@ -471,20 +466,19 @@ def test_interpolate_periodic_coords_max():
                        [0.25, 0.5, 0.75, 1])
 
 
-@pytest.mark.xfail(reason="cell_node_map no longer implemented, but it could be")
 def test_basic_dual_eval_cg3():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 3)
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = (1-x[0])**3
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
 
 
 def test_basic_dual_eval_bdm():
@@ -520,7 +514,6 @@ def test_quadrature():
     assert np.allclose(wq.dat.data_ro, fiat_rule._weights)
 
 
-@pytest.mark.skip(reason="too expensive to run currently")
 def test_interpolation_tensor_convergence():
     errors = []
     for n in range(2, 9):
@@ -561,8 +554,7 @@ def test_interpolation_tensor_symmetric():
     assert np.isclose(norm(fexp - f), 0)
 
 
-# FIXME: Fails in parallel but works in serial
-# @pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_interpolation_on_hex():
     # "cube_hex.msh" contains all possible facet orientations.
     meshfile = join(cwd, "..", "meshes", "cube_hex.msh")

@@ -51,7 +51,7 @@ different.  For a bilinear form, the matrix is obtained with:
 
 .. code-block:: python3
 
-   petsc_mat = assemble(bilinear_form).M.handle
+   petsc_mat = assemble(bilinear_form).petscmat
 
 For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
@@ -136,7 +136,7 @@ newly defined class to compute the matrix action:
 
    # Assemble the bilinear form that defines A and get the concrete
    # PETSc matrix
-   A = assemble(bilinear_form).M.handle
+   A = assemble(bilinear_form).petscmat
 
    # Now do the same for the linear forms for u and v, making a copy
 
@@ -351,7 +351,7 @@ and the `PETSc manual`_ for details.
 
 If vertex coordinate information is to be accessed from the
 DMPlex then we must first establish a mapping between
-`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+its numbering and the coordinates in the Firedrake mesh. This is done
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
 For a :math:`d`-dimensional mesh, we seek to establish offsets to recover
@@ -408,4 +408,3 @@ entity ``d`` (according to the DMPlex numbering) by
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
 .. _PETSc manual: https://petsc.org/release/manual/dmplex/
-.. _its numbering: https://petsc.org/release/manual/dmplex/#data-layout-by-hand

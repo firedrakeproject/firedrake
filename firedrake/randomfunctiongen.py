@@ -3,7 +3,7 @@ Overview
 ========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
-and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
+and enables users to generate a randomised :class:`.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
 Generator
@@ -11,7 +11,7 @@ Generator
 
 A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
-and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
+and they can be used to generate a randomised :class:`.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
 
 Example:
 
@@ -106,7 +106,7 @@ import numpy.random as randomgen
 
 from firedrake.function import Function
 from pyop2.mpi import COMM_WORLD
-from ufl import FunctionSpace
+from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]
 
@@ -280,7 +280,7 @@ def __getattr__(module_attr):
 
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             raise NotImplementedError("%s.%s does not take FunctionSpace as argument" % (module_attr, c_a))
                         else:
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
@@ -294,14 +294,14 @@ def __getattr__(module_attr):
                 def funcgen(c_a):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             # Extract size from V
                             if 'size' in kwargs.keys():
                                 raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
                             V = args[0]
                             f = Function(V)
                             args = args[1:]
-                            with f.dat.vec_wo as v:
+                            with f.vec_wo as v:
                                 kwargs['size'] = (v.local_size,)
                                 v.array[:] = getattr(self, c_a)(*args, **kwargs)
                             return f

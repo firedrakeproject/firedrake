@@ -2,7 +2,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 CG = [("CG", 1)]
 DG = [("DG", 0)]

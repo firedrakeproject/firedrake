@@ -3,7 +3,6 @@ import pytest
 import numpy
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=3)
 def test_cr_facet_integral_parallel():
     mesh = UnitSquareMesh(4, 4)

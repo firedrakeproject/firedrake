@@ -9,6 +9,7 @@ from itertools import chain
 from pyop2.mpi import COMM_WORLD, internal_comm
 from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
+from firedrake.mesh import ExtrudedMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
@@ -81,7 +82,7 @@ def is_dg(V):
 
     :arg V: A FunctionSpace.
     """
-    return V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs()
+    return V.finat_element.is_dg()
 
 
 def is_linear(V):
@@ -130,10 +131,11 @@ def get_topology(coordinates):
     nonLinear = not is_linear(V)
     mesh = V.mesh().topology
     cell = mesh.ufl_cell()
-    values = V.cell_node_map().values
+    values = V.cell_node_list
     value_shape = values.shape
     basis_dim = value_shape[1]
-    offsetMap = V.cell_node_map().offset
+    # TODO
+    # offsetMap = V.cell_node_map().offset
     perm = None
     # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
@@ -190,10 +192,11 @@ def get_topology(coordinates):
 
     # Repeat up the column
     num_cells = mesh.cell_set.size
-    if not mesh.cell_set._extruded:
+    if not isinstance(mesh, ExtrudedMeshTopology):
         cell_layers = 1
         offsets = 0
     else:
+        raise NotImplementedError
         if perm is not None:
             offsetMap = offsetMap[perm]
         if mesh.variable_layers:

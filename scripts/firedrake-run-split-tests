@@ -24,26 +24,26 @@
 #
 #   * pytest
 #   * pytest-split
-#   * pytest-mpi (https://github.com/firedrakeproject/pytest-mpi)
+#   * mpi-pytest
 #   * GNU parallel
 
 num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-log_file_prefix="pytest_nprocs${num_procs}_job"
-
 if [ $num_procs = 1 ]; then
-    pytest_exec="python -m pytest"
-    marker_spec="\"parallel[1] or not parallel\""
+    # Cannot use mpiexec -n 1 because this can sometimes hang with
+    # OpenMPI at MPI_Finalize
+    pytest_exec="python3 -m pytest"
 else
-    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
-    marker_spec="parallel[${num_procs}]"
+    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
 fi
-
+marker_spec="parallel[${num_procs}]"
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
             -m ${marker_spec} ${extra_args}"
+
+log_file_prefix="pytest_nprocs${num_procs}_job"
 
 # Print the command
 set -x

@@ -1,6 +1,5 @@
 from firedrake import *
 import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=["NONE", "FACET", "VERTEX"])
@@ -63,7 +62,6 @@ def mesh(request, overlap):
     else:
         mesh = UnitSquareMesh(2, 2, reorder=False,
                               distribution_parameters=params)
-    mesh.init()
     return mesh
 
 
@@ -93,9 +91,6 @@ def test_override_distribution_parameters(overlap):
     # coarse mesh if given.
     params = {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}
     fine_mesh = MeshHierarchy(mesh, 1, distribution_parameters=params)[-1]
-
-    mesh.init()
-    fine_mesh.init()
 
     if overlap[0] == DistributedMeshOverlapType.NONE:
         assert mesh.num_cells() == 1

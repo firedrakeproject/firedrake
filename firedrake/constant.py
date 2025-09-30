@@ -1,6 +1,7 @@
 import numpy as np
 import ufl
 import finat.ufl
+from mpi4py import MPI
 
 from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
@@ -30,11 +31,18 @@ def _create_const(value, comm):
     rank = len(shape)
 
     if rank == 0:
-        axes = op3.AxisTree(op3.Axis(1))
+        # could maybe be a Scalar
+        sf = op3.sf.single_star_sf(comm)
+        axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
-        axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
-        for i, s in enumerate(shape[1:]):
-            axes = axes.add_axis(op3.Axis({"XXX": s}, label=f"dim{i+1}"), *axes.leaf)
+        sf = op3.sf.single_star_sf(comm, shape[0])
+        root_component = op3.AxisComponent(shape[0], sf=sf)
+        components = [root_component]
+        for size in shape[1:]:
+            components.append(op3.AxisComponent(size))
+        axes = op3.AxisTree.from_iterable((
+            op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
+        ))
     dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
@@ -104,7 +112,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        self.dat, rank, self._ufl_shape = _create_const(value, None)
+        self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
 
         super().__init__()
         Counted.__init__(self, count, Counted)
@@ -157,11 +165,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def subfunctions(self):
         return (self,)
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
         if bcs is not None:
@@ -198,6 +201,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             raise ValueError("Cannot assign to constant, value has incorrect shape")
         self.dat.data_wo[...] = value
         return self
+
+    def zero(self):
+        """Set the value of this constant to zero."""
+        return self.assign(0)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")

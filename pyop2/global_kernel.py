@@ -12,7 +12,7 @@ from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, serial_cache
+from pyop2.caching import memory_cache, disk_only_cache
 from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
@@ -364,11 +364,6 @@ class GlobalKernel:
         return builder
 
     @cached_property
-    def code_to_compile(self):
-        """Return the C/C++ source code as a string."""
-        return _generate_code_from_global_kernel(self)
-
-    @cached_property
     def argtypes(self):
         """Return the ctypes datatypes of the compiled function."""
         # The first two arguments to the global kernel are the 'start' and 'stop'
@@ -405,8 +400,9 @@ class GlobalKernel:
         return tuple(ldargs)
 
 
-@serial_cache(hashkey=lambda knl: knl.cache_key)
-def _generate_code_from_global_kernel(kernel):
+@memory_cache(hashkey=lambda knl, _: knl.cache_key)
+@disk_only_cache(hashkey=lambda knl, _: knl.cache_key, bcast=True)
+def _generate_code_from_global_kernel(kernel, comm):
     with PETSc.Log.Event("GlobalKernel: generate loopy"):
         wrapper = generate(kernel.builder)
 
@@ -416,12 +412,13 @@ def _generate_code_from_global_kernel(kernel):
     if kernel.local_kernel.cpp:
         preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
         device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
-        return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
+        code = preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
+    else:
+        code = code.device_code()
+    return code
 
-    return code.device_code()
 
-
-@parallel_cache(hashkey=lambda knl, _: knl.cache_key)
+@memory_cache(hashkey=lambda knl, _: knl.cache_key)
 @mpi.collective
 def compile_global_kernel(kernel, comm):
     """Compile the kernel.
@@ -438,8 +435,10 @@ def compile_global_kernel(kernel, comm):
     A ctypes function pointer for the compiled function.
 
     """
+    code = _generate_code_from_global_kernel(kernel, comm)
+
     dll = load(
-        kernel.code_to_compile,
+        code,
         "cpp" if kernel.local_kernel.cpp else "c",
         cppargs=kernel._cppargs,
         ldargs=kernel._ldargs,

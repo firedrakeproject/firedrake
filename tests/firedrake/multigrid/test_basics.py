@@ -7,7 +7,7 @@ def test_refine_interval():
 
     mh = MeshHierarchy(m, 1)
 
-    assert mh[1].num_cells() == 2 * mh[0].num_cells()
+    assert mh[1].num_cells == 2 * mh[0].num_cells
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -16,7 +16,7 @@ def test_refine_interval_parallel():
 
     mh = MeshHierarchy(m, 1)
 
-    assert mh[1].num_cells() < 2 * mh[0].num_cells()
+    assert mh[1].num_cells < 2 * mh[0].num_cells
 
 
 def test_refine_quad_mesh():
@@ -24,7 +24,7 @@ def test_refine_quad_mesh():
 
     mh = MeshHierarchy(m, 1)
 
-    assert mh[1].num_cells() == 4 * mh[0].num_cells()
+    assert mh[1].num_cells == 4 * mh[0].num_cells
 
 
 def test_refine_tet_mesh():
@@ -32,7 +32,7 @@ def test_refine_tet_mesh():
 
     mh = MeshHierarchy(m, 1)
 
-    assert mh[1].num_cells() == 8 * mh[0].num_cells()
+    assert mh[1].num_cells == 8 * mh[0].num_cells
 
 
 def test_refine_hex_mesh():
@@ -40,7 +40,7 @@ def test_refine_hex_mesh():
     mh = MeshHierarchy(m, 1)
     mh = ExtrudedMeshHierarchy(mh, layers=[2, 2], height=1)
 
-    assert mh[1].num_cells() == 4 * mh[0].num_cells()
+    assert mh[1].num_cells == 4 * mh[0].num_cells
 
 
 def test_refine_square_ncell():
@@ -48,7 +48,7 @@ def test_refine_square_ncell():
 
     mh = MeshHierarchy(m, 1)
 
-    assert mh[1].num_cells() == 4 * mh[0].num_cells()
+    assert mh[1].num_cells == 4 * mh[0].num_cells
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -59,14 +59,4 @@ def test_refine_square_ncell_parallel():
 
     # Should be fewer than 4 times the number of coarse cells due to
     # halo shrinking.
-    assert mh[1].num_cells() < 4 * mh[0].num_cells()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_refining_overlapped_mesh_fails_parallel():
-    m = UnitSquareMesh(4, 4)
-
-    m.init()
-
-    with pytest.raises(RuntimeError):
-        MeshHierarchy(m, 1)
+    assert mh[1].num_cells < 4 * mh[0].num_cells

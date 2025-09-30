@@ -4,9 +4,6 @@ from firedrake import *
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="equation bcs not implemented")
-
-
 def test_equation_bcs_direct_assemble_one_form():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)

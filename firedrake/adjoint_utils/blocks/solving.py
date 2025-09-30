@@ -197,12 +197,9 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
-        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        # Homogenize and apply boundary conditions on adj_dFdu.
         bcs = self._homogenize_bcs()
         dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
-
-        for bc in bcs:
-            bc.zero(dJdu)
 
         adj_sol = firedrake.Function(self.function_space)
         firedrake.solve(
@@ -526,18 +523,11 @@ class GenericSolveBlock(Block):
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
-        rhs_func = rhs.riesz_representation(riesz_map="l2")
-        for bc in bcs:
-            bc.apply(rhs_func)
-        rhs.assign(rhs_func.riesz_representation(riesz_map="l2"))
         firedrake.solve(lhs, func, rhs, **kwargs)
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        lhs = prepared[0]
-        rhs = prepared[1]
-        func = prepared[2]
-        bcs = prepared[3]
+        lhs, rhs, func, bcs = prepared
         result = self._forward_solve(lhs, rhs, func, bcs)
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)
@@ -572,9 +562,9 @@ def solve_init_params(self, args, kwargs, varform):
                 )
             self.adj_kwargs.pop("appctx", None)
 
-    if "mat_type" in kwargs.get("solver_parameters", {}):
-        self.assemble_kwargs["mat_type"] = \
-            kwargs["solver_parameters"]["mat_type"]
+    solver_params = kwargs.get("solver_parameters", None)
+    if solver_params is not None and "mat_type" in solver_params:
+        self.assemble_kwargs["mat_type"] = solver_params["mat_type"]
 
     if varform:
         if "appctx" in kwargs:
@@ -613,14 +603,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, adj_cache, problem_J,
-                 solver_params, solver_kwargs, **kwargs):
+                 solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
-        self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
@@ -645,7 +634,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func

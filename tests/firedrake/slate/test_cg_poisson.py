@@ -3,9 +3,6 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 def run_CG_problem(r, degree, quads=False):
     """
     Solves the Dirichlet problem for the elliptic equation:

@@ -7,7 +7,6 @@ a theta scheme with theta = 0.5.
 import pytest
 
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def adv_diff(x, quadrilateral=False):

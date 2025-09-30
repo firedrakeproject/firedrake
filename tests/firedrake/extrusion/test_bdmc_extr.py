@@ -1,7 +1,6 @@
 import numpy as np
 from firedrake import *
 import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def project_bdmc(size, degree, family):

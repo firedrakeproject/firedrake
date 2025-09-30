@@ -271,9 +271,9 @@ precondition the system with:
          solver_parameters={'pc_type': 'hypre',
                             'pc_hypre_type': 'boomeramg'})
 
-Although the `KSP` name suggests that only Krylov methods are
-supported, this is not the case.  We may, for example, solve the
-system directly by computing an LU factorisation of the problem.  To
+Although the ``KSP`` name suggests that only Krylov methods are
+supported, this is not the case. We may, for example, solve the
+system directly by computing an LU factorisation of the problem. To
 do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 "preconditioner only" Krylov method:
 
@@ -290,7 +290,7 @@ iterations with:
 
    solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
-                            'pc_type': 'jacobi'}
+                            'pc_type': 'jacobi'})
 
 .. note::
 
@@ -728,32 +728,23 @@ solving with.
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
 
-If no parameters are passed to a solve call, we use, in most cases,
+If no parameters are passed to a ``solve`` call, we use, in most cases,
 the defaults that PETSc supplies for solving the linear or nonlinear
-system.  We describe the most commonly modified options (along with
-their defaults in Firedrake) here.  For linear variational solves we
+system. We describe the most commonly modified options (along with
+their defaults in Firedrake) here. For linear variational solves we
 use:
 
-* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
-* ``ksp_rtol``: 1e-7
-* ``ksp_atol``: 1e-50
-* ``ksp_divtol`` 1e4
-* ``ksp_max_it``: 10000
-* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+* ``mat_type``: ``aij``
+* ``ksp_type``: ``preonly``
+* ``ksp_rtol``: ``1e-7``
+* ``pc_type``: ``lu``
+* ``pc_factor_mat_solver_type`` : ``mumps``
+* ``pc_factor_mat_mumps_icntl_14``: 200
 
-For nonlinear variational solves we have:
+For nonlinear variational solves we additionally have:
 
-* ``snes_type``: Newton linesearch
-* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
-* ``snes_rtol``: 1e-8
-* ``snes_atol``: 1e-50
-* ``snes_stol``: 1e-8
-* ``snes_max_it``: 50
-* ``ksp_rtol``: 1e-5
-* ``ksp_atol``: 1e-50
-* ``ksp_divtol``: 1e4
-* ``ksp_max_it``: 10000
-* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+* ``snes_type`` : ``newtonls``
+* ``snes_linesearch_type`` : ``basic``
 
 To see the full view that PETSc has of solver objects, you can pass a
 view flag to the solve call.  For linear solves pass:
@@ -932,7 +923,7 @@ with the following:
 .. code-block:: python3
 
    A = assemble(a)  # use bcs keyword if there are boundary conditions
-   print A.M.handle.isSymmetric(tol=1e-13)
+   print A.petscmat.isSymmetric(tol=1e-13)
 
 If the problem is not symmetric, try using a method such as GMRES
 instead.  PETSc uses restarted GMRES with a default restart of 30, for

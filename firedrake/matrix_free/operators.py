@@ -11,7 +11,6 @@ from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
 from ufl.form import ZeroBaseForm
 
 
@@ -114,18 +113,18 @@ class ImplicitMatrixContext(object):
             arg.function_space() for arg in a.arguments()
         )
         # Need a cofunction since y receives the assembled result of Ax
-        self._ystar = Cofunction(test_space.dual())
+        self._ystar = Function(test_space.dual())
         self._y = Function(test_space)
         self._x = Function(trial_space)
-        self._xstar = Cofunction(trial_space.dual())
+        self._xstar = Function(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = Cofunction(trial_space.dual())
+            self._xbc = Function(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = Cofunction(test_space.dual())
+            self._ybc = Function(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.template_vec
@@ -178,7 +177,7 @@ class ImplicitMatrixContext(object):
     @cached_property
     def _diagonal(self):
         assert self.on_diag
-        return Cofunction(self._x.function_space().dual())
+        return Function(self._x.function_space().dual())
 
     @cached_property
     def _assemble_diagonal(self):
@@ -192,7 +191,7 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             # Operator is identity on boundary nodes
             bc.set(self._diagonal, 1)
-        with self._diagonal.dat.vec_ro as v:
+        with self._diagonal.dat.vec_ro() as v:
             v.copy(vec)
 
     def missingDiagonal(self, mat):
@@ -200,7 +199,7 @@ class ImplicitMatrixContext(object):
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
-        with self._x.dat.vec_wo as v:
+        with self._x.dat.vec_wo() as v:
             X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
@@ -221,7 +220,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._xbc.dat.vec_wo as v:
+                with self._xbc.dat.vec_wo() as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._ystar, self._xbc)
@@ -229,7 +228,7 @@ class ImplicitMatrixContext(object):
             for bc in self.row_bcs:
                 bc.zero(self._ystar)
 
-        with self._ystar.dat.vec_ro as v:
+        with self._ystar.dat.vec_ro() as v:
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
@@ -299,7 +298,7 @@ class ImplicitMatrixContext(object):
                        ( 0  )
 
         """
-        with self._y.dat.vec_wo as v:
+        with self._y.dat.vec_wo() as v:
             Y.copy(v)
 
         if len(self.bcs) > 0:
@@ -322,7 +321,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._ybc.dat.vec_wo as v:
+                with self._ybc.dat.vec_wo() as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
                     bc.set(self._xstar, self._ybc)
@@ -330,7 +329,7 @@ class ImplicitMatrixContext(object):
             for bc in self.col_bcs:
                 bc.zero(self._xstar)
 
-        with self._xstar.dat.vec_ro as v:
+        with self._xstar.dat.vec_ro() as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):

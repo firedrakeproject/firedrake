@@ -1,12 +1,8 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 import ufl
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope='module')
@@ -36,6 +32,26 @@ def f1(mesh, V1):
     x, y = SpatialCoordinate(mesh)
     expr = cos(2*pi*x)*sin(2*pi*y)
     return Function(V1).interpolate(expr)
+
+
+def test_interp_self(V1):
+    a = assemble(conj(TestFunction(V1)) * dx)
+    b = assemble(conj(TestFunction(V1)) * dx)
+    a.interpolate(a)
+    assert np.allclose(a.dat.data_ro, b.dat.data_ro)
+
+
+def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
+    a = assemble(conj(TestFunction(V1)) * dx)
+    # We want tensor to be a dependency of the input expression for this test
+    assemble(Interpolator(f1 * TestFunction(V1), V1).interpolate(a, adjoint=True),
+             tensor=a)
+
+    x, y = SpatialCoordinate(mesh)
+    f2 = Function(V1, name="f2").interpolate(
+        exp(x) * y)
+
+    assert np.allclose(assemble(a(f2)), assemble(Function(V1).interpolate(conj(f1 * f2)) * dx))
 
 
 def test_assemble_interp_operator(V2, f1):
@@ -109,7 +125,7 @@ def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True)
+    b = assemble(Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True))
 
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V2, name="f2").interpolate(
@@ -164,7 +180,7 @@ def test_assemble_base_form_operator_expressions(mesh):
     res = assemble(Iv1 + Iv2)
     mat_Iv1 = assemble(Iv1)
     mat_Iv2 = assemble(Iv2)
-    assert np.allclose((mat_Iv1 + mat_Iv2)[:, :], res.petscmat[:, :], rtol=1e-14)
+    assert np.allclose(mat_Iv1.petscmat[:, :] + mat_Iv2.petscmat[:, :], res.petscmat[:, :], rtol=1e-14)
 
     # Linear combination of BaseFormOperator (1-form)
     alpha = 0.5
@@ -260,3 +276,70 @@ def test_solve_interp_u(mesh):
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
     assert np.allclose(u.dat.data, u2.dat.data)
+
+
+@pytest.fixture(params=[("DG", 1, "CG", 2),
+                        ("DG", 0, "RT", 1),
+                        ("CG", 1),
+                        ("RT", 1)],
+                ids=lambda x: "-".join(map(str, x)))
+def target_space(mesh, request):
+    spaces = []
+    for i in range(0, len(request.param), 2):
+        family, degree = request.param[i:i+2]
+        spaces.append(FunctionSpace(mesh, family, degree))
+
+    W = spaces[0] if len(spaces) == 1 else MixedFunctionSpace(spaces)
+    return W
+
+
+@pytest.fixture(params=["scalar", "vector", "mixed"])
+def source_space(mesh, request):
+    if request.param == "scalar":
+        return FunctionSpace(mesh, "DG", 0)
+    elif request.param == "vector":
+        return VectorFunctionSpace(mesh, "DG", 0, dim=3)
+    elif request.param == "mixed":
+        P0 = FunctionSpace(mesh, "DG", 0)
+        return P0 * P0 * P0
+    else:
+        raise ValueError("Unrecognized parameter")
+
+
+def test_interp_dual_mixed(source_space, target_space):
+    W = target_space
+    w = TestFunction(W)
+
+    V = source_space
+    v = TestFunction(V)
+
+    A_shape = V.value_shape + W.value_shape
+    if A_shape == ():
+        A = 1
+    else:
+        mn = V.value_size * W.value_size
+        A = as_tensor(np.arange(1, 1+mn).reshape(A_shape))
+
+    if V.value_shape == ():
+        b = 1
+    else:
+        m = V.value_size
+        b = as_tensor(np.arange(1, 1+m).reshape(V.value_shape))
+
+    expr = dot(A, w) if V.value_shape == () else A * w
+
+    F_target = inner(b, expr)*dx(degree=0)
+    expected = assemble(F_target)
+
+    F_source = inner(b, v)*dx
+    I_source = Interpolate(expr, F_source)
+
+    c = Cofunction(W.dual())
+    c.assign(99)
+    for tensor in (None, c):
+        result = assemble(I_source, tensor=tensor)
+        assert result.function_space() == W.dual()
+        if tensor:
+            assert result is tensor
+        for x, y, in zip(result.subfunctions, expected.subfunctions):
+            assert np.allclose(x.dat.data_ro, y.dat.data_ro)

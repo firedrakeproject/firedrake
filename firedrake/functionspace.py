@@ -56,6 +56,9 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     if isinstance(family, finat.ufl.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
+    if family in {"Real", "R"} and degree is None:
+        degree = 0
+
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
@@ -73,7 +76,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None):
+                  vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -103,7 +106,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -143,7 +146,7 @@ def DualSpace(mesh, family, degree=None, name=None,
 
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None, variant=None):
+                        name=None, vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -172,12 +175,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     -----
     The ``family`` argument may be an existing
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all other arguments
-    are ignored and the appropriate :class:`.FunctionSpace` is returned.  In
-    this case, the provided element must have an empty
-    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
-
-    The element that you provide need be a scalar element (with empty
-    ``value_shape``), however, it should not be an existing
+    are ignored and the appropriate :class:`.FunctionSpace` is returned.
+    The element that you provide need be a scalar element, however, it should not be an existing
     :class:`finat.ufl.mixedelement.VectorElement`.  If you already have an
     existing :class:`finat.ufl.mixedelement.VectorElement`, you should
     pass it to :class:`.FunctionSpace` directly instead.
@@ -189,7 +188,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = finat.ufl.VectorElement(sub_element, dim=dim)
-    return FunctionSpace(mesh, element, name=name)
+    return FunctionSpace(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -228,23 +227,22 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     The ``family`` argument may be an existing
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `FunctionSpace` is
-    returned.  In this case, the provided element must have an empty
-    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
+    returned.
 
-    The element that you provide must be a scalar element (with empty
-    ``value_shape``).  If you already have an existing
+    The element that you provide must be a scalar element.  If you already have an existing
     :class:`finat.ufl.mixedelement.TensorElement`, you should pass it to
     `FunctionSpace` directly instead.
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    shape = shape or (mesh.geometric_dimension(),) * 2
+    if shape is None:
+        shape = (mesh.geometric_dimension(),) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -302,14 +300,14 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    new = impl.MixedFunctionSpace(spaces, name=name)
+    new = impl.MixedFunctionSpace(spaces, name=name, **kwargs)
     if mesh is not mesh.topology:
         new = cls.create(new, mesh)
     return new
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
+def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters

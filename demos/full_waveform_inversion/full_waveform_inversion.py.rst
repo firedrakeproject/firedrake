@@ -104,7 +104,7 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
 ::
 
     import os
-    if os.getenv("FIREDRAKE_CI_TESTS") == "1": 
+    if os.getenv("FIREDRAKE_CI") == "1": 
         # Setup for a faster test execution.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
@@ -216,8 +216,6 @@ The receivers mesh and its function space :math:`V_r`::
 The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
 We are now able to proceed with the synthetic data computations and record them on the receivers::
-
-    from firedrake.__future__ import interpolate
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1

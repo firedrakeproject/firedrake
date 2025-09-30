@@ -95,59 +95,21 @@ def run_tensor_test_nonstandard_shape():
     return np.array([tensor_identity_nonstandard_shape(family, d) for d in degree])
 
 
+@pytest.mark.parallel([1, 3])
 def test_identity():
     assert (run_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_vector_identity():
     assert (run_vector_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_tensor_identity():
     assert (run_tensor_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_tensor_identity_nonstandard_shape():
     assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-@pytest.mark.parallel
-def test_identity_parallel():
-    assert (run_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_vector_identity_parallel():
-    assert (run_vector_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_tensor_identity_parallel():
-    assert (run_tensor_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_tensor_identity_nonstandard_shape_parallel():
-    assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-if __name__ == "__main__":
-    mesh = UnitCubeMesh(3, 3, 3)
-    fs = FunctionSpace(mesh, "P", 1)
-    x = SpatialCoordinate(mesh)
-
-    f = Function(fs)
-    out = Function(fs)
-
-    u = TrialFunction(fs)
-    v = TestFunction(fs)
-
-    a = inner(u, v) * dx
-
-    f.interpolate(x[0])
-
-    L = inner(f, v) * dx
-
-    solve(a == L, out)
-
-    print("done")

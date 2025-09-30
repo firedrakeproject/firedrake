@@ -18,40 +18,6 @@ called ``mpiexec``.  For example, to run a simulation in a file named
    mpiexec -n 16 python simulation.py
 
 
-Installing for parallel use
-===========================
-
-By default, Firedrake makes use of an MPICH library that is
-downloaded, configured, and installed in the virtual environment as
-part of the PETSc installation procedure.  If you do not intend to use
-parallelism, or only use it in a limited way, this will be sufficient
-for your needs.  The default MPICH installation uses ``nemesis`` as the
-MPI channel, which is reasonably fast, but imposes a hard limit on the
-maximum number of concurrent MPI threads equal to the number of cores
-on your machine.  If you would like to be able to *oversubscribe* your
-machine, and run more threads than cores, you need to change the MPICH
-device at install time to ``sock``, by setting an environment variable
-before you run ``firedrake-install``:
-
-.. code-block:: shell
-
-   export PETSC_CONFIGURE_OPTIONS="--download-mpich-device=ch3:sock"
-
-If parallel performance is important to you (e.g., for generating
-reliable timings or using a supercomputer), then you should probably
-be using an MPICH library tuned for your system.  If you have a
-system-wide install already available, then you can simply tell the
-firedrake installer to use it, by running:
-
-.. code-block:: shell
-
-   python3 firedrake-install --mpiexec=mpiexec --mpicc=mpicc --mpicxx=mpicxx --mpif90=mpif90 --mpihome mpihome
-
-where ``mpiexec``, ``mpicc``, ``mpicxx``, and ``mpif90`` are the
-commands to run an MPI job and to compile C, C++, and Fortran 90 code,
-respectively. ``mpihome`` is an extra variable that must point to the
-root directory of the MPI installation (e.g. ``/usr`` or ``/opt/mpich``).
-
 Printing in parallel
 ====================
 
@@ -118,89 +84,21 @@ different simulations on the two halves we would write.
 
    ...
 
+.. note::
+
+   If you need to create Firedrake meshes on different communicators,
+   then usually the best approach is to use the :class:`~.Ensemble`,
+   which manages splitting MPI communicators and communicating
+   :class:`~.Function` objects between the split communicators.  More
+   information on using the :class:`~.Ensemble` can be found
+   :doc:`here <ensemble_parallelism>`.
+
 To access the communicator a mesh was created on, we can use the
 ``mesh.comm`` property, or the function ``mesh.mpi_comm``.
 
 .. warning::
   Do not use the internal ``mesh._comm`` attribute for communication.
   This communicator is for internal Firedrake MPI communication only.
-
-
-Ensemble parallelism
-====================
-
-Ensemble parallelism means solving simultaneous copies of a model
-with different coefficients, RHS or initial data, in situations that
-require communication between the copies. Use cases include ensemble
-data assimilation, uncertainty quantification, and time parallelism.
-
-In ensemble parallelism, we split the MPI communicator into a number of
-subcommunicators, each of which we refer to as an ensemble
-member. Within each ensemble member, existing Firedrake functionality
-allows us to specify the FE problem solves which use spatial
-parallelism across the subcommunicator in the usual way. Another
-set of subcommunicators then allow communication between ensemble
-members.
-
-.. figure:: images/ensemble.svg
-  :align: center
-
-  Spatial and ensemble paralellism for an ensemble with 5 members,
-  each of which is executed in parallel over 5 processors.
-
-The additional functionality required to support ensemble parallelism
-is the ability to send instances of :class:`~.Function` from one
-ensemble to another.  This is handled by the :class:`~.Ensemble`
-class. Instantiating an ensemble requires a communicator (usually
-``MPI_COMM_WORLD``) plus the number of MPI processes to be used in
-each member of the ensemble (5, in the case of the example
-below). Each ensemble member will have the same spatial parallelism
-with the number of ensemble members given by dividing the size of the
-original communicator by the number processes in each ensemble
-member. The total number of processes launched by ``mpiexec`` must
-therefore be equal to the product of number of ensemble members with
-the number of processes to be used for each ensemble member.
-
-.. code-block:: python3
-
-   from firedrake import *
-
-   my_ensemble = Ensemble(COMM_WORLD, 5)
-
-Then, the spatial sub-communicator must be passed to :func:`~.mesh.Mesh` (or via
-inbuilt mesh generators in :mod:`~.utility_meshes`), so that it will then be used by function spaces
-and functions derived from the mesh.
-
-.. code-block:: python3
-
-    mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
-    x, y = SpatialCoordinate(mesh)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-
-The ensemble sub-communicator is then available through the attribute ``Ensemble.ensemble_comm``.
-
-.. code-block:: python3
-
-    q = Constant(my_ensemble.ensemble_comm.rank + 1)
-    u.interpolate(sin(q*pi*x)*cos(q*pi*y))
-
-MPI communications across the spatial sub-communicator (i.e., within
-an ensemble member) are handled automatically by Firedrake, whilst MPI
-communications across the ensemble sub-communicator (i.e., between ensemble
-members) are handled through methods of :class:`~.Ensemble`. Currently
-send/recv, reductions and broadcasts are supported, as well as their
-non-blocking variants.
-
-.. code-block:: python3
-
-    my_ensemble.send(u, dest)
-    my_ensemble.recv(u, source)
-
-    my_ensemble.reduce(u, usum, root)
-    my_ensemble.allreduce(u, usum)
-
-    my_ensemble.bcast(u, root)
 
 .. _MPI: http://mpi-forum.org/
 .. _STREAMS: http://www.cs.virginia.edu/stream/

@@ -14,6 +14,8 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     restricted_form = inner(u2, v2) * dx
 
     normal_fs_matrix = assemble(original_form, bcs=bcs)
+    import pyop3.extras.debug
+    pyop3.extras.debug.enable_conditional_breakpoints("ABC")
     restricted_fs_matrix = assemble(restricted_form, bcs=res_bcs)
 
     identity = np.identity(normal_fs_matrix.M.nrows)
@@ -176,7 +178,8 @@ def test_restricted_function_space_coord_change(j):
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
-def test_poisson_restricted_mixed_space():
+@pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
+def test_poisson_restricted_mixed_space(assembled_rhs):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "RT", 1)
     Q = FunctionSpace(mesh, "DG", 0)
@@ -186,6 +189,8 @@ def test_poisson_restricted_mixed_space():
     v, q = TestFunctions(Z)
     a = inner(u, v)*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(1, q)*dx
+    if assembled_rhs:
+        L = assemble(L)
 
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
 
@@ -362,3 +367,7 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
+
+
+if __name__ == "__main__":
+    test_restricted_function_space_1_1_square(1)
