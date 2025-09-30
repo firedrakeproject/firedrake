@@ -173,7 +173,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     """
     if isinstance(V, (Cofunction, Coargument)):
         dual_arg = V
-    elif isinstance(V, (ufl.Form, ufl.BaseForm)):
+    elif isinstance(V, ufl.BaseForm):
         rank = len(V.arguments())
         if rank == 1:
             dual_arg = V
