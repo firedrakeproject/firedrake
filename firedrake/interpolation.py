@@ -263,7 +263,18 @@ class Interpolator(abc.ABC):
 
     def __new__(cls, expr, V, **kwargs):
         if isinstance(expr, ufl.Interpolate):
+            # Mixed spaces are handled well only by the primal 1-form.
+            # Are we a 2-form or a dual 1-form?
+            arguments = expr.arguments()
+            if any(not isinstance(a, Coargument) for a in arguments):
+                # Do we have mixed source or target spaces?
+                spaces = [a.function_space() for a in arguments]
+                if len(spaces) < 2:
+                    spaces.append(V)
+                if any(len(space) > 1 for space in spaces):
+                    return object.__new__(MixedInterpolator)
             expr, = expr.ufl_operands
+
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
         submesh_interp_implemented = \
@@ -309,9 +320,10 @@ class Interpolator(abc.ABC):
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(operand) or target_mesh
         vom_onto_other_vom = ((source_mesh is not target_mesh)
+                              and isinstance(self, SameMeshInterpolator)
                               and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
                               and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
-        if not isinstance(self, SameMeshInterpolator) or vom_onto_other_vom:
+        if isinstance(self, CrossMeshInterpolator) or vom_onto_other_vom:
             # For bespoke interpolation, we currently rely on different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
             # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
@@ -369,7 +381,7 @@ class Interpolator(abc.ABC):
         """
         pass
 
-    def assemble(self, tensor=None, default_missing_val=None):
+    def assemble(self, tensor=None, **kwargs):
         """Assemble the operator (or its action)."""
         from firedrake.assemble import assemble
         needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
@@ -383,13 +395,11 @@ class Interpolator(abc.ABC):
             if needs_adjoint:
                 # Out-of-place Hermitian transpose
                 petsc_mat.hermitianTranspose(out=res)
-            elif res:
-                petsc_mat.copy(res)
+            elif tensor:
+                petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
-            if tensor is None:
-                tensor = firedrake.AssembledMatrix(arguments, self.bcs, res)
-            return tensor
+            return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
         else:
             # Assembling the action
             cofunctions = ()
@@ -401,11 +411,11 @@ class Interpolator(abc.ABC):
                     cofunctions = (dual_arg,)
 
             if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(default_missing_val=default_missing_val)
+                Iu = self._interpolate(**kwargs)
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         default_missing_val=default_missing_val)
+                                         **kwargs)
 
 
 class DofNotDefinedError(Exception):
@@ -975,33 +985,10 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         return callable
     else:
         loops = []
-        if len(V) == 1:
-            expressions = (expr,)
-        else:
-            if (hasattr(operand, "subfunctions") and len(operand.subfunctions) == len(V)
-                    and all(sub_op.ufl_shape == Vsub.value_shape for Vsub, sub_op in zip(V, operand.subfunctions))):
-                # Use subfunctions if they match the target shapes
-                operands = operand.subfunctions
-            else:
-                # Unflatten the expression into the shapes of the mixed components
-                offset = 0
-                operands = []
-                for Vsub in V:
-                    if len(Vsub.value_shape) == 0:
-                        operands.append(operand[offset])
-                    else:
-                        components = [operand[offset + j] for j in range(Vsub.value_size)]
-                        operands.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
-                    offset += Vsub.value_size
+        expressions = split_interpolate_target(expr)
 
-            # Split the dual argument
-            if isinstance(dual_arg, Cofunction):
-                duals = dual_arg.subfunctions
-            elif isinstance(dual_arg, Coargument):
-                duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
-            else:
-                duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
-            expressions = map(expr._ufl_expr_reconstruct_, operands, duals)
+        if access == op2.INC:
+            loops.append(tensor.zero)
 
         # Interpolate each sub expression into each function space
         for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
@@ -1074,8 +1061,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     parameters['scalar_type'] = utils.ScalarType
 
     callables = ()
-    if access == op2.INC:
-        callables += (tensor.zero,)
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
@@ -1720,3 +1705,106 @@ class VomOntoVomDummyMat(object):
 
     def duplicate(self, mat=None, op=None):
         return self._wrap_dummy_mat()
+
+
+def split_interpolate_target(expr: ufl.Interpolate):
+    """Split an Interpolate into the components (subfunctions) of the target space."""
+    dual_arg, operand = expr.argument_slots()
+    V = dual_arg.function_space().dual()
+    if len(V) == 1:
+        return (expr,)
+    # Split the target (dual) argument
+    if isinstance(dual_arg, Cofunction):
+        duals = dual_arg.subfunctions
+    elif isinstance(dual_arg, ufl.Coargument):
+        duals = [Coargument(Vsub, dual_arg.number()) for Vsub in dual_arg.function_space()]
+    else:
+        duals = [vi for _, vi in sorted(firedrake.formmanipulation.split_form(dual_arg))]
+    # Split the operand into the target shapes
+    if (isinstance(operand, firedrake.Function) and len(operand.subfunctions) == len(V)
+            and all(fsub.ufl_shape == Vsub.value_shape for Vsub, fsub in zip(V, operand.subfunctions))):
+        # Use subfunctions if they match the target shapes
+        operands = operand.subfunctions
+    else:
+        # Unflatten the expression into the target shapes
+        cur = 0
+        operands = []
+        components = numpy.reshape(operand, (-1,))
+        for Vi in V:
+            operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
+            cur += Vi.value_size
+    expressions = tuple(map(expr._ufl_expr_reconstruct_, operands, duals))
+    return expressions
+
+
+class MixedInterpolator(Interpolator):
+    """A reusable interpolation object between MixedFunctionSpaces.
+
+    Parameters
+    ----------
+    expr
+        The underlying ufl.Interpolate or the operand to the ufl.Interpolate.
+    V
+        The :class:`.FunctionSpace` or :class:`.Function` to
+        interpolate into.
+    bcs
+        A list of boundary conditions.
+    **kwargs
+        Any extra kwargs are passed on to the sub Interpolators.
+        For details see :class:`firedrake.interpolation.Interpolator`.
+    """
+    def __init__(self, expr, V, bcs=None, **kwargs):
+        super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
+        expr = self.ufl_interpolate
+        bcs = bcs or ()
+        self.arguments = expr.arguments()
+
+        # Split the target (dual) argument
+        dual_split = split_interpolate_target(expr)
+        self.sub_interpolators = {}
+        for i, form in enumerate(dual_split):
+            # Split the source (primal) argument
+            for j, sub_interp in firedrake.formmanipulation.split_form(form):
+                j = max(j) if j else 0
+                # Ensure block sparsity
+                vi, operand = sub_interp.argument_slots()
+                if not isinstance(operand, ufl.classes.Zero):
+                    Vtarget = vi.function_space().dual()
+                    adjoint = vi.number() == 1 if isinstance(vi, Coargument) else True
+
+                    args = sub_interp.arguments()
+                    Vsource = args[0 if adjoint else 1].function_space()
+                    sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
+
+                    indices = (j, i) if adjoint else (i, j)
+                    Isub = Interpolator(sub_interp, Vtarget, bcs=sub_bcs, **kwargs)
+                    self.sub_interpolators[indices] = Isub
+
+        self.callable = self._callable
+
+    def _callable(self):
+        """Assemble the operator."""
+        shape = tuple(len(a.function_space()) for a in self.arguments)
+        Isubs = self.sub_interpolators
+        blocks = numpy.reshape([Isubs[ij].callable().handle if ij in Isubs else PETSc.Mat()
+                                for ij in numpy.ndindex(shape)], shape)
+        petscmat = PETSc.Mat().createNest(blocks)
+        tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
+        return tensor.M
+
+    def _interpolate(self, output=None, adjoint=False, **kwargs):
+        """Assemble the action."""
+        tensor = output
+        rank = len(self.arguments)
+        if rank == 1:
+            # Assemble the action
+            if tensor is None:
+                V_dest = self.arguments[0].function_space().dual()
+                tensor = firedrake.Function(V_dest)
+            for k, fsub in enumerate(tensor.subfunctions):
+                fsub.assign(sum(Isub.assemble(**kwargs) for (i, j), Isub in self.sub_interpolators.items() if i == k))
+            return tensor
+        elif rank == 0:
+            # Assemble the double action
+            result = sum(Isub.assemble(**kwargs) for (i, j), Isub in self.sub_interpolators.items())
+            return tensor.assign(result) if tensor else result
