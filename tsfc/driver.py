@@ -6,7 +6,7 @@ from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
 import ufl
-from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
@@ -211,11 +211,12 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    orig_expression = expression
+    orig_coefficients = extract_coefficients(expression)
     if isinstance(expression, ufl.Interpolate):
-        operand, = expression.ufl_operands
+        v, operand = expression.argument_slots()
     else:
         operand = expression
+        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
 
     # Map into reference space
     operand = apply_mapping(operand, ufl_element, domain)
@@ -223,11 +224,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
-    if isinstance(expression, ufl.Interpolate):
-        v, _ = expression.argument_slots()
-        expression = ufl.Interpolate(operand, v)
-    else:
-        expression = operand
+    # Reconstructed Interpolate with mapped operand
+    expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
     if interface is None:
@@ -235,9 +233,10 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
-    arguments = extract_arguments(operand)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
+    arguments = expression.arguments()
+    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
+                             for arg in arguments}
+    assert len(argument_multiindices) == len(arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
@@ -246,7 +245,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
-    orig_coefficients = extract_coefficients(orig_expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
@@ -284,11 +282,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
-    if isinstance(expression, ufl.Interpolate):
-        dual_arg, operand = expression.argument_slots()
-    else:
-        operand = expression
-        dual_arg = None
+    dual_arg, operand = expression.argument_slots()
 
     # Create callable for translation of UFL expression to gem
     fn = DualEvaluationCallable(operand, kernel_cfg)
@@ -307,9 +301,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
             evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
         basis_indices = ()
+    else:
+        argument_multiindices[dual_arg.number()] = basis_indices
+
+    argument_multiindices = dict(sorted(argument_multiindices.items()))
 
     # Build kernel body
-    return_indices = tuple(chain(basis_indices, *argument_multiindices))
+    return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape or (1,))
     return_expr = gem.Indexed(return_var, return_indices or (0,))
@@ -318,7 +316,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
-    index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
+    index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
@@ -381,7 +379,7 @@ class DualEvaluationCallable(object):
         gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
         # In some cases ps.indices may be dropped from expr, but nothing
         # new should now appear
-        argument_multiindices = kernel_cfg["argument_multiindices"]
+        argument_multiindices = kernel_cfg["argument_multiindices"].values()
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr

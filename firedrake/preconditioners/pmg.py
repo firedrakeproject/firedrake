@@ -1457,7 +1457,7 @@ class StandaloneInterpolationMatrix(object):
         except KeyError:
             pass
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TrialFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -1593,7 +1593,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            expr = firedrake.TestFunction(P1.sub(i))
+            expr = firedrake.TrialFunction(P1.sub(i))
             kernel, coefficients = prolongation_transfer_kernel_action(Pk.sub(i), expr)
             parloop_args = [kernel, mesh.cell_set, matarg]
             for coefficient in coefficients:
@@ -1610,7 +1610,7 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        expr = firedrake.TestFunction(P1)
+        expr = firedrake.TrialFunction(P1)
         kernel, coefficients = prolongation_transfer_kernel_action(Pk, expr)
         parloop_args = [kernel, mesh.cell_set, matarg]
         for coefficient in coefficients:
