@@ -112,16 +112,16 @@ class Dat(Tensor):
 
     # {{{ class attrs
 
-    DEFAULT_PREFIX: ClassVar[str] = "dat"
+    DEFAULT_PREFIX = "dat"
 
     # }}}
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    parent: ClassVar[property] = utils.attr("_parent")
-    buffer: ClassVar[property] = utils.attr("_buffer")
-    dim: ClassVar[int] = 1
+    name = utils.attr("_name")
+    parent = utils.attr("_parent")
+    buffer = utils.attr("_buffer")
+    dim = 1
 
     @property
     @utils.deprecated("internal_comm")

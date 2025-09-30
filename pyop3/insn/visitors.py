@@ -229,6 +229,7 @@ class ImplicitPackUnpackExpander(Transformer):
 
     @_apply.register
     def _(self, terminal: CalledFunction):
+        assert False, "old code"
         gathers = []
         # NOTE: scatters are executed in LIFO order
         scatters = []
@@ -236,9 +237,23 @@ class ImplicitPackUnpackExpander(Transformer):
         for (arg, intent), shape in zip(
             terminal.function_arguments, terminal.argument_shapes, strict=True
         ):
-            if isinstance(arg, DummyKernelArgument):
-                arguments.append(arg)
-                continue
+            # bare_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(arg, intent)
+            # gathers.extend(arg_pack_insns)
+            # scatters.extend(arg_unpack_insns)
+            #
+            #     if intent == READ:
+            #         gathers.extend(ArrayAssignment(temporary, arg, "write"))
+            #     elif intent == WRITE:
+            #         # This is currently necessary because some local kernels
+            #         # (interpolation) actually increment values instead of setting
+            #         # them directly. This should ideally be addressed.
+            #         gathers.append(ArrayAssignment(temporary, 0, "write"))
+            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+            #     elif intent == RW:
+            #         gathers.append(ArrayAssignment(temporary, arg, "write"))
+            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+            #     else:
+            #         assert intent == INC
 
             # emit pack/unpack instructions
             if _requires_pack_unpack(arg):
@@ -272,6 +287,7 @@ class ImplicitPackUnpackExpander(Transformer):
                 function_arg = LinearDatBufferExpression(arg.buffer, 0)
             arguments.append(function_arg)
 
+        breakpoint()  # TODO: reverse the scatters
         return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))
 
 
@@ -358,6 +374,63 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
+def _intent_as_access_type(intent):
+    if intent == READ:
+        return ArrayAccessType.READ
+    if intent == WRITE:
+        return ArrayAccessType.WRITE
+    else:
+        assert intent == INC
+        return ArrayAccessType.INC
+
+
+
+@expand_assignments.register(CalledFunction)
+def _(called_func: CalledFunction, /) -> InstructionList:
+    bare_func_args = []
+    pack_insns = []
+    unpack_insns = []
+    for func_arg, intent in zip(
+        called_func.arguments, called_func.function._access_descrs, strict=True
+    ):
+        access_type = _intent_as_access_type(intent)
+
+        bare_func_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(func_arg, access_type)
+        arg_pack_insns = list(arg_pack_insns)
+        arg_unpack_insns = list(arg_unpack_insns)
+
+        # function calls need materialised arrays
+        if _requires_pack_unpack(bare_func_arg):
+            local_tensor = bare_func_arg.materialize()
+
+            if intent == READ:
+                arg_pack_insns.append(local_tensor.assign(bare_func_arg))
+            elif intent == WRITE:
+                # This is currently necessary because some local kernels
+                # (interpolation) actually increment values instead of setting
+                # them directly. This should ideally be addressed.
+                arg_pack_insns.append(local_tensor.assign(0))
+                arg_unpack_insns.insert(0, bare_func_arg.assign(local_tensor))
+            elif intent == RW:
+                arg_pack_insns.append(local_tensor.assign(bare_func_arg))
+                arg_unpack_insns.insert(0, bare_func_arg.assign(local_tensor))
+            else:
+                assert intent == INC
+                arg_pack_insns.append(local_tensor.assign(0))
+                arg_unpack_insns.insert(0, bare_func_arg.iassign(local_tensor))
+
+            materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+        else:
+            materialized_arg = LinearDatBufferExpression(bare_func_arg.buffer, 0)
+
+        bare_func_args.append(materialized_arg)
+        pack_insns.extend(arg_pack_insns)
+        unpack_insns.extend(arg_unpack_insns)
+
+    bare_called_func = StandaloneCalledFunction(called_func.function, bare_func_args)
+    return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
+
+
 @expand_assignments.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> InstructionList:
     # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
@@ -438,11 +511,7 @@ def _(array: Tensor, /, access_type):
     if array.parent:
         # .materialize?
         if isinstance(array, Dat):
-            temp_initial = Dat.null(
-                AxisTree(array.parent.axes.node_map),
-                dtype=array.dtype,
-                prefix="t"
-            )
+            temp_initial = array.materialize()
             temp_reshaped = temp_initial.with_axes(array.axes)
         else:
             assert isinstance(array, Mat)

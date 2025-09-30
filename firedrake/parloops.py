@@ -505,7 +505,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
 
         transform = op3.OutOfPlaceTensorTransform(packed_dat, transform_in, transform_out)
         temp = packed_dat.materialize()
-        packed_dat = temp.__record_init__(parent=transform)
+        packed_dat = temp.__record_init__(_parent=transform)
 
         # This is currently not implemented. To record my thoughts:
         #

@@ -601,6 +601,8 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     changed_attrs = {}
     for attr_name, attr in attrs.items():
         assert attr_name in self.__dataclass_fields__
+        # TODO: don't allow for assigning to ClassVar type, this should be nicer
+        assert "ClassVar" not in repr(self.__dataclass_fields__[attr_name])
         try:
             if getattr(self, attr_name) != attr:
                 changed_attrs[attr_name] = attr

@@ -211,9 +211,13 @@ class Instruction(DistributedObject, abc.ABC):
         insn = self
 
         insn = expand_loop_contexts(insn)
-        insn = expand_implicit_pack_unpack(insn)
+        import pyop3
+        if "form" in str(self):
+            pyop3.extras.debug.maybe_breakpoint("ABC")
 
+        # these should be done together
         insn = expand_assignments(insn)  # specifically reshape bits
+        # insn = expand_implicit_pack_unpack(insn)  # now dead
 
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
@@ -856,6 +860,7 @@ def exscan(*args, eager: bool = False, **kwargs):
 
 
 # TODO: With Python 3.11 can be made a StrEnum
+# The idea is basically RW isn't allowed here
 class ArrayAccessType(enum.Enum):
     READ = "read"
     WRITE = "write"
