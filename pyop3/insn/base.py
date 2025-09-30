@@ -211,13 +211,15 @@ class Instruction(DistributedObject, abc.ABC):
         insn = self
 
         insn = expand_loop_contexts(insn)
-        import pyop3
-        if "form" in str(self):
-            pyop3.extras.debug.maybe_breakpoint("ABC")
 
-        # these should be done together
-        insn = expand_assignments(insn)  # specifically reshape bits
-        # insn = expand_implicit_pack_unpack(insn)  # now dead
+        # bad name, this expands all transformations and pack/unpacks for called functions
+        # 'flatten?'
+        # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
+        old_insn = insn
+        insn = expand_assignments(insn)
+        while insn != old_insn:
+            old_insn = insn
+            insn = expand_assignments(insn)
 
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)

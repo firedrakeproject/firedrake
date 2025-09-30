@@ -13,6 +13,7 @@ from immutabledict import immutabledict
 import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
+from pyop3.expr.tensor.base import InPlaceTensorTransform, OutOfPlaceTensorTransform
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import merge_axis_trees
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer
@@ -446,18 +447,19 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
     #     raise NotImplementedError("think")
     #     return InstructionList([assignment])
 
-    bare_expression, extra_input_insns = _expand_reshapes(
+    bare_expression, extra_input_insns, _ = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
     )
 
-    if assignment.assignment_type == AssignmentType.WRITE:
-        assignee_access_type = ArrayAccessType.WRITE
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
-        assignee_access_type = ArrayAccessType.INC
+    # NOTE: This might have broken things, be careful (30/09/25)
+    # if assignment.assignment_type == AssignmentType.WRITE:
+    #     assignee_access_type = ArrayAccessType.WRITE
+    # else:
+    #     assert assignment.assignment_type == AssignmentType.INC
+    #     assignee_access_type = ArrayAccessType.INC
 
-    bare_assignee, extra_output_insns = _expand_reshapes(
-        assignment.assignee, assignee_access_type
+    bare_assignee, _, extra_output_insns = _expand_reshapes(
+        assignment.assignee, ArrayAccessType.WRITE
     )
 
     if bare_assignee == assignment.assignee:
@@ -477,23 +479,28 @@ def _expand_reshapes(expr: Any, /, mode):
 
 @_expand_reshapes.register
 def _(op: expr_types.UnaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    return (type(op)(bare_a), a_insns)
+    bare_a, pack_insns, unpack_insns = _expand_reshapes(op.a, access_type)
+    return (type(op)(bare_a), pack_insns, unpack_insns)
 
 
 @_expand_reshapes.register
 def _(op: expr_types.BinaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_insns = _expand_reshapes(op.b, access_type)
-    return (type(op)(bare_a, bare_b), a_insns + b_insns)
+    bare_a, a_pack_insns, a_unpack_insns = _expand_reshapes(op.a, access_type)
+    bare_b, b_pack_insns, b_unpack_insns = _expand_reshapes(op.b, access_type)
+    return (type(op)(bare_a, bare_b), a_pack_insns+b_pack_insns, a_unpack_insns+b_unpack_insns)
 
 
 @_expand_reshapes.register
 def _(op: expr_types.TernaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_insns = _expand_reshapes(op.b, access_type)
-    bare_c, c_insns = _expand_reshapes(op.c, access_type)
-    return (type(op)(bare_a, bare_b, bare_c), a_insns + b_insns + c_insns)
+    bare_operands = []
+    pack_insns = []
+    unpack_insns = []
+    for operand in op.operands:
+        bare_operand, operand_pack_insns, operand_unpack_insns = _expand_reshapes(operand, access_type)
+        bare_operands.append(bare_operand)
+        pack_insns.extend(operand_pack_insns)
+        unpack_insns.extend(operand_unpack_insns)
+    return (type(op)(*bare_operands), tuple(pack_insns), tuple(unpack_insns))
 
 
 @_expand_reshapes.register(numbers.Number)
@@ -502,37 +509,55 @@ def _(op: expr_types.TernaryOperator, /, access_type):
 @_expand_reshapes.register(BufferExpression)
 @_expand_reshapes.register(expr_types.NaN)
 def _(var, /, access_type):
-    return (var, ())
+    return (var, (), ())
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
 @_expand_reshapes.register(Tensor)
 def _(array: Tensor, /, access_type):
     if array.parent:
-        # .materialize?
-        if isinstance(array, Dat):
-            temp_initial = array.materialize()
-            temp_reshaped = temp_initial.with_axes(array.axes)
+        bare_array = array.__record_init__(_parent=None)
+
+        parent_transformed_dat, parent_pack_insns, parent_unpack_insns = _expand_reshapes(array.parent.untransformed, access_type)
+
+        pack_insns = list(parent_pack_insns)
+        unpack_insns = list(parent_unpack_insns)
+
+        if not array.parent.untransformed.parent:
+            # We have materialised an intermediate array, hence we have to handle
+            # incrementing here. For example:
+            #
+            #     t0 <- 0
+            #     kernel(t0)  # INC
+            #     t1 <- f(t0)
+            #     res += t1
+            #
+            # This check will trigger when we have 'res' (parent_transformed_dat) and 't1' (bare_array)
+            if access_type == ArrayAccessType.INC:
+                unpack_insns.append(parent_transformed_dat.iassign(bare_array))
+
+        if isinstance(array.parent, OutOfPlaceTensorTransform):
+            if access_type == ArrayAccessType.READ:
+                pack_insns.extend(array.parent.transform_in(parent_transformed_dat, bare_array))
+            elif access_type == ArrayAccessType.WRITE:
+                unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
+            else:
+                assert access_type == ArrayAccessType.INC
+                pack_insns.extend(array.parent.transform_in(parent_transformed_dat, bare_array))
+                unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
+
+                # FIXME: I think I need to add a zero insn here
+                # breakpoint()
         else:
-            assert isinstance(array, Mat)
-            raxes = AxisTree(array.parent.raxes.node_map)
-            caxes = AxisTree(array.parent.caxes.node_map)
-            temp_initial = Mat.null(raxes, caxes, dtype=array.dtype, prefix="t")
-            temp_reshaped = temp_initial.with_axes(array.raxes, array.caxes)
+            raise NotImplementedError("Need to implement in-place transforms to get .reshape functionality back")
+            assert isinstance(array.parent, InPlaceTensorTransform)
+            temp_reshaped = transformed_dat  # no extra assignment needed
 
-        transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
+            breakpoint()
 
-        if access_type == ArrayAccessType.READ:
-            assignment = ArrayAssignment(temp_initial, transformed_dat, "write")
-        elif access_type == ArrayAccessType.WRITE:
-            assignment = ArrayAssignment(transformed_dat, temp_initial, "write")
-        else:
-            assert access_type == ArrayAccessType.INC
-            assignment = ArrayAssignment(transformed_dat, temp_initial, "inc")
-
-        return (temp_reshaped, extra_insns + (assignment,))
+        return (bare_array, tuple(pack_insns), tuple(unpack_insns))
     else:
-        return (array, ())
+        return (array, (), ())
 
 
 @functools.singledispatch

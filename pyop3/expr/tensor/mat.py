@@ -141,6 +141,16 @@ class Mat(Tensor):
 
     # {{{ Array impls
 
+    def materialize(self) -> Mat:
+        """Return a new "unindexed" array with the same shape."""
+        # TODO: use axis forests instead of trees here
+        return type(self).null(
+            self.row_axes.materialize().regionless,
+            self.column_axes.materialize().regionless,
+            dtype=self.dtype,
+            prefix="t",
+        )
+
     @property
     def dim(self) -> int:
         return 2

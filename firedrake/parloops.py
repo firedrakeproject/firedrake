@@ -498,10 +498,14 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([3, 3]), dtype=utils.ScalarType, prefix="trans")
 
         def transform_in(untransformed, transformed):
-            transform_in_kernel(orientations[loop_index], mat_work_array, untransformed, transformed)
+            return (
+                transform_in_kernel(orientations[loop_index], mat_work_array, untransformed, transformed),
+            )
 
         def transform_out(transformed, untransformed):
-            transform_out_kernel(orientations[loop_index], mat_work_array, transformed, untransformed)
+            return (
+                transform_out_kernel(orientations[loop_index], mat_work_array, transformed, untransformed),
+            )
 
         transform = op3.OutOfPlaceTensorTransform(packed_dat, transform_in, transform_out)
         temp = packed_dat.materialize()
@@ -706,14 +710,15 @@ def _needs_static_permutation(element) -> bool:
 
 
 def construct_switch_statement(self, mats, n, args, var_list):
-    string = ["\nswitch (*dim) { \n"]
+    # string = ["\nswitch (*dim) { \n"] (INDIA NOTE removing for now)
+    string = []
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     for dim in range(len(closure_sizes)):
-        string += f"case {dim}:\n "
-        string += ["\nswitch (*i) { \n"]
+        # string += f"case {dim}:\n "
+        # string += ["\nswitch (*i) { \n"]
         for i in range(closure_sizes[dim]):
-            string += f"case {i}:\n "
+            # string += f"case {i}:\n "
             string += ["\nswitch (*o) { \n"]
             for val in sorted(mats[dim][i].keys()):
                 string += f"case {val}:\n "
@@ -723,8 +728,8 @@ def construct_switch_statement(self, mats, n, args, var_list):
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
                 args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
             string += "default:\n break;\n }"
-        string += "default:\n break;\n }"
-    string += "default:\n break;\n }"
+        # string += "default:\n break;\n }"
+    # string += "default:\n break;\n }"
     return string, args, var_list
 
 
@@ -756,8 +761,8 @@ def fuse_orientations(space: WithGeometry):
             """
                 res[j] =  res[j] + a[i, j]*b[i]
             """, name="matmul", target=loopy.CWithGNULibcTarget())
-        args = [loopy.GlobalArg("d", dtype=np.uint8, shape=(1,)),
-                loopy.GlobalArg("o", dtype=np.uint8, shape=(1,)),
+        # args = [loopy.GlobalArg("d", dtype=np.uint8, shape=(1,)),
+        args = [loopy.GlobalArg("o", dtype=np.uint8, shape=(1,)),
                 loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n)),
                 loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, )),
                 loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,)),]
@@ -772,18 +777,20 @@ def fuse_orientations(space: WithGeometry):
             name="switch_on_o",
             kernel_data=args,
             target=loopy.CWithGNULibcTarget())
-        args[0] = loopy.GlobalArg("closure_sizes", dtype=np.uint8, shape=(space._mesh.dimension, 1))
+        # INDIA NOTE: I removed this, this should be hard-code-able
+        # args[0] = loopy.GlobalArg("closure_sizes", dtype=np.uint8, shape=(space._mesh.dimension, 1))
         loop_knl = loopy.make_kernel(
             f"{{[i]:0<= i < {space._mesh.dimension}}}",
-            ["a[:,:], res[:] = switch_on_o(closure_sizes[i, :], o[:], a[:, :], b[:], res[:])"],
-            kernel_data=args[:5],
+            # ["a[:,:], res[:] = switch_on_o(closure_sizes[i, :], o[:], a[:, :], b[:], res[:])"],
+            ["a[:,:], res[:] = switch_on_o(o[:], a[:, :], b[:], res[:])"],
+            kernel_data=args[:4],
             target=loopy.CWithGNULibcTarget())
         
         knl = loopy.merge([loop_knl, parent_knl, child_knl])
         # print(lp.generate_code_v2(knl).device_code())
         # print(knl)
 
-        transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform, (n,)
     else:
         return None, ()
