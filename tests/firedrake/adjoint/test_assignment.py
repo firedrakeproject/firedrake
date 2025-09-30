@@ -281,3 +281,42 @@ def test_adjoint_cleanup(scheduler, rg):
     dtemp = rg.uniform(u_0.function_space())
 
     assert taylor_test(reduced_functional, u_0, dtemp) > 1.99999999
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("scheduler", (None, SingleMemoryStorageSchedule()))
+def test_adjoint_stagger(scheduler, rg):
+    # This test checks that the adjoint does not discard too many checkpoint
+    # variables. This is achieved by computing the derivative before conducting
+    # the Taylor test. This extra derivative is the thing that would cause the
+    # spurious discards.
+
+    # get tape
+    tape = get_working_tape()
+    tape.clear_tape()
+    continue_annotation()
+
+    if scheduler is not None:
+        tape.enable_checkpointing(scheduler)
+
+    mesh = SquareMesh(1, 1, 1, quadrilateral=True)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    u_0 = Function(V).assign(1.0)
+    u = Function(V).assign(u_0)
+    r = Function(R)
+
+    for i in tape.timestepper(iter(range(10))):
+        if i % 3 == 0:
+            r.assign(r + 1.0)
+            u.project(r * u)
+
+    J = assemble(u ** 2 * dx)
+
+    pause_annotation()
+    reduced_functional = ReducedFunctional(J, Control(u_0))
+
+    dtemp = rg.uniform(u_0.function_space())
+    assert taylor_test(reduced_functional, u_0, dtemp) > 1.99999999
