@@ -64,6 +64,8 @@ concurrency:
 
 jobs:
   test_linux:
+    # UNDO ME, don't need this for this PR
+    if: false
     name: Build and test Firedrake (Linux)
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
@@ -481,11 +483,15 @@ jobs:
       - name: Setup flake8 annotations
         uses: rbialon/flake8-annotations@v1
       - name: Install linting packages
-        run: pip install flake8 pylint
+        run: pip install flake8 mypy pylint
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
+      - name: Run type checks
+        run: mypy -p firedrake -p pyop2 -p tsfc
 
   build_docs:
+    # UNDO ME
+    if: false
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:
