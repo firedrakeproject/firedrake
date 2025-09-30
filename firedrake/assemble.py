@@ -1900,11 +1900,7 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
             packed_args.append(packed_arg)
-        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
-        kernel = op3.Function(
-            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in packed_args[1:]]
-        )
-        return op3.loop(p, kernel(*packed_args))
+        return op3.loop(p, self._kinfo.kernel(*packed_args))
 
     @property
     def test_function_space(self):

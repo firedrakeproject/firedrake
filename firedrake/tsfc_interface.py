@@ -17,6 +17,7 @@ from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
+import pyop3 as op3
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
 from pyop2.mpi import COMM_WORLD
@@ -131,12 +132,14 @@ class TSFCKernel:
 
                 ep = add_likwid_markers(ast.default_entrypoint)
                 ast = ast.with_kernel(ep)
+            ast = ast.with_entrypoints({kernel.name})
 
-            pyop2_kernel = as_pyop2_local_kernel(ast, kernel.name,
-                                                 len(kernel.arguments),
-                                                 flop_count=kernel.flop_count,
-                                                 events=events)
-            kernels.append(KernelInfo(kernel=pyop2_kernel,
+            # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
+            #                                      len(kernel.arguments),
+            #                                      flop_count=kernel.flop_count,
+            #                                      events=events)
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
@@ -316,7 +319,7 @@ def gather_integer_subdomain_ids(knls):
     return all_integer_subdomain_ids
 
 
-def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
+def as_pyop3_local_kernel(ast, nargs, access=op3.INC):
     """Convert a loopy kernel to a PyOP2 ``pyop2.LocalKernel``.
 
     :arg ast: The kernel code. This could be, for example, a loopy kernel.
@@ -325,9 +328,8 @@ def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
     :arg access: Access descriptor for the first kernel argument.
     """
     # all but the first argument to the kernel are read-only
-    accesses = tuple([access] + [op2.READ]*(nargs-1))
-    return op2.Kernel(ast, name, accesses=accesses,
-                      requires_zeroed_output_arguments=True, **kwargs)
+    accesses = tuple([access] + [op3.READ]*(nargs-1))
+    return op3.Function(ast, accesses)
 
 
 def extract_numbered_coefficients(expr, numbers):

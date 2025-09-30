@@ -173,10 +173,11 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # set default_entrypoint
     loopy_merged = loopy_merged.with_entrypoints(name)
 
-    loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
-                                                       include_dirs=BLASLAPACK_INCLUDE.split(),
-                                                       ldargs=BLASLAPACK_LIB.split(),
-                                                       events=events+(slate_loopy_event,))
+    # loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, name, len(arguments),
+    #                                                    include_dirs=BLASLAPACK_INCLUDE.split(),
+    #                                                    ldargs=BLASLAPACK_LIB.split(),
+    #                                                    events=events+(slate_loopy_event,))
+    loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, len(arguments))
 
     # map the coefficients in the order that PyOP2 needs
     orig_coeffs = orig_expr.coefficients()
