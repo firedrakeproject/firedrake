@@ -514,11 +514,11 @@ def _(var, /, access_type):
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
 @_expand_reshapes.register(Tensor)
-def _(array: Tensor, /, access_type):
+def _(array: Tensor, /, access_type, *, has_child=False):
     if array.parent:
         bare_array = array.__record_init__(_parent=None)
 
-        parent_transformed_dat, parent_pack_insns, parent_unpack_insns = _expand_reshapes(array.parent.untransformed, access_type)
+        parent_transformed_dat, parent_pack_insns, parent_unpack_insns = _expand_reshapes(array.parent.untransformed, access_type, has_child=True)
 
         pack_insns = list(parent_pack_insns)
         unpack_insns = list(parent_unpack_insns)
@@ -543,11 +543,12 @@ def _(array: Tensor, /, access_type):
                 unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
             else:
                 assert access_type == ArrayAccessType.INC
+                # if incrementing then I think that we have to do an initial zeroing
+                if not has_child:
+                    pack_insns.append(bare_array.assign(0))
                 pack_insns.extend(array.parent.transform_in(parent_transformed_dat, bare_array))
                 unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
 
-                # FIXME: I think I need to add a zero insn here
-                # breakpoint()
         else:
             raise NotImplementedError("Need to implement in-place transforms to get .reshape functionality back")
             assert isinstance(array.parent, InPlaceTensorTransform)

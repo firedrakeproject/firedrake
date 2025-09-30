@@ -365,10 +365,7 @@ class CompiledCodeExecutor:
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
             for buffer_key, replacement_buffer in replacement_buffers.items():
-                try:
-                    index = self._buffer_ref_indices[buffer_key]
-                except KeyError:
-                    breakpoint()
+                index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
                 replacement_handle = replacement_buffer.handle(
                     nest_indices=self._buffer_refs[index].nest_indices

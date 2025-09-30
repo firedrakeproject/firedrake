@@ -511,25 +511,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         temp = packed_dat.materialize()
         packed_dat = temp.__record_init__(_parent=transform)
 
-        # This is currently not implemented. To record my thoughts:
-        #
-        # * We can't only represent transformations as pyop3 instructions. This
-        #   is because:
-        #
-        #     * Instructions do not have a concept of having a single input and
-        #       output. If we have the transformation 't1 <- f(t0, X)' where 'X'
-        #       is another array (e.g. the orientation dat) then the instruction
-        #       is not able to determine which of 't0' and 'X' is the input to
-        #       the transformation.
-        #
-        #     * Dealing with instructions makes it really awkward to deal with
-        #       access descriptors. When we hit the compiler we want to inspect
-        #       the accesses of function calls and emit zeros, incs etc at that
-        #       time. It is clunky to also deal with that here.
-        #
-        # * We already have the trivial transformation implemented: 'reshape'.
-        #   We have a dat that is a transformed version of another and the
-        #   input and output dats are accessible by traversing Dat.parent.
         """Some old exposition:
 
         Consider the general case:
