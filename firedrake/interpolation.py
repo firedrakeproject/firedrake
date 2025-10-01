@@ -4,7 +4,7 @@ import tempfile
 import abc
 
 from functools import partial, singledispatch
-from typing import Hashable, Optional
+from typing import Hashable, Literal
 from dataclasses import asdict, dataclass
 
 import FIAT
@@ -97,10 +97,10 @@ class InterpolateOptions:
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
         and reduce operations.
     """
-    subset: Optional[op2.Subset] = None
-    access: Access = op2.WRITE
+    subset: op2.Subset | None = None
+    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] = op2.WRITE
     allow_missing_dofs: bool = False
-    default_missing_val: Optional[float] = None
+    default_missing_val: float | None = None
     matfree: bool = True
 
 
@@ -219,6 +219,7 @@ class Interpolator(abc.ABC):
         self.expr_renumbered = operand
         self.ufl_interpolate_renumbered = expr
 
+        access = self.options.access
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             self.options.access = op2.INC
@@ -365,7 +366,8 @@ class CrossMeshInterpolator(Interpolator):
                 )
             self.dest_element = base_element
         elif isinstance(dest_element, finat.ufl.MixedElement):
-            return self._mixed_function_space()
+            self._mixed_function_space()
+            return
         else:
             # scalar fiat/finat element
             self.dest_element = dest_element
