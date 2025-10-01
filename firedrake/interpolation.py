@@ -5,7 +5,7 @@ import abc
 import warnings
 from collections.abc import Iterable
 from functools import partial, singledispatch
-from typing import Hashable
+from typing import Hashable, Literal
 
 import FIAT
 import ufl
@@ -262,7 +262,7 @@ class Interpolator(abc.ABC):
         V: ufl.FunctionSpace | firedrake.function.Function,
         subset: op2.Subset | None = None,
         freeze_expr: bool = False,
-        access: op2.Access | None = None,
+        access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None,
         bcs: Iterable[firedrake.bcs.BCBase] | None = None,
         allow_missing_dofs: bool = False,
         matfree: bool = True
