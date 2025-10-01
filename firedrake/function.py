@@ -382,9 +382,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         firedrake.function.Function
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V, **kwargs)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -697,7 +697,7 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -712,7 +712,7 @@ class PointEvaluator:
             The mesh on which to embed the points.
         points : numpy.ndarray | list
             Array or list of points to evaluate at.
-        tolerance : float | None
+        tolerance : Optional[float]
             Tolerance to use when checking if a point is in a cell.
             If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
         missing_points_behaviour : str

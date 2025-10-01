@@ -2,7 +2,7 @@
 import numpy
 import collections
 
-from ufl import as_vector, split
+from ufl import as_tensor, as_vector, split
 from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake.ufl_expr import Coargument
 from firedrake.matrix import AssembledMatrix
 
 
@@ -133,6 +134,17 @@ class ExtractSubBlock(MultiFunction):
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
+    def coargument(self, o):
+        V = o.function_space()
+
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
+        indices = self.blocks[o.number()]
+        W = subspace(V, indices)
+        return Coargument(W, number=o.number(), part=o.part())
+
     def cofunction(self, o):
         V = o.function_space()
 
@@ -170,6 +182,38 @@ class ExtractSubBlock(MultiFunction):
         submat = o.petscmat.createSubMatrix(*ises)
         bcs = ()
         return AssembledMatrix(tuple(args), bcs, submat)
+
+    def interpolate(self, o, operand):
+        if isinstance(operand, Zero):
+            return ZeroBaseForm(o.arguments())
+
+        dual_arg, _ = o.argument_slots()
+        V = dual_arg.function_space()
+        if len(V) == 1 or len(dual_arg.arguments()) == 1:
+            return o._ufl_expr_reconstruct_(operand, dual_arg)
+
+        # Split the target (dual) argument
+        if isinstance(dual_arg, Coargument):
+            dual_arg = self(dual_arg)
+            indices = self.blocks[dual_arg.number()]
+        else:
+            raise NotImplementedError()
+
+        # Unflatten the expression into the target shapes
+        cur = 0
+        cindices = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                cindices.extend(range(cur, cur+Vi.value_size))
+            cur += Vi.value_size
+
+        W = dual_arg.function_space()
+        components = [operand[i] for i in cindices]
+        operand = as_tensor(numpy.reshape(components, W.value_shape))
+        if isinstance(operand, Zero):
+            return ZeroBaseForm(o.arguments())
+
+        return o._ufl_expr_reconstruct_(operand, dual_arg)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])

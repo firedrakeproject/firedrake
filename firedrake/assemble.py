@@ -18,12 +18,12 @@ import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import _get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -556,6 +556,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             result = expr.assemble(assembly_opts=opts)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
+            if not isinstance(expr, firedrake.Interpolate):
+                expr = firedrake.Interpolate(*reversed(expr.dual_args()))
             # Replace assembled children
             _, operand = expr.argument_slots()
             v, *assembled_operand = args
@@ -570,44 +572,13 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # If argument numbers have been swapped => Adjoint.
-            arg_operand = ufl.algorithms.extract_arguments(operand)
-            is_adjoint = (arg_operand and arg_operand[0].number() == 0)
-
             # Get the target space
             V = v.function_space().dual()
 
-            # Dual interpolation from mixed source
-            if is_adjoint and len(V) > 1:
-                cur = 0
-                sub_operands = []
-                components = numpy.reshape(operand, (-1,))
-                for Vi in V:
-                    sub_operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
-                    cur += Vi.value_size
-
-                # Component-split of the primal operands interpolated into the dual argument-split
-                split_interp = sum(reconstruct_interp(sub_operands[i], v=vi) for (i,), vi in split_form(v))
-                return assemble(split_interp, tensor=tensor)
-
-            # Dual interpolation into mixed target
-            if is_adjoint and len(arg_operand[0].function_space()) > 1 and rank == 1:
-                V = arg_operand[0].function_space()
-                tensor = tensor or firedrake.Cofunction(V.dual())
-
-                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
-                for (i,), sub_interp in split_form(expr):
-                    assemble(sub_interp, tensor=tensor.subfunctions[i])
-                return tensor
-
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
-            interpolator = firedrake.Interpolator(expr, V, **interp_data)
-            # Assembly
-            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
+            interpolator = _get_interpolator(expr, V)
+            return interpolator.assemble(tensor=tensor)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):

@@ -299,12 +299,21 @@ def test_interpolate_unitsquare_mixed():
     assert not np.allclose(f_src.dat.data_ro[0], cofunc_src.dat.data_ro[0])
     assert not np.allclose(f_src.dat.data_ro[1], cofunc_src.dat.data_ro[1])
 
-    # Can't go from non-mixed to mixed
+    # Interpolate from non-mixed to mixed
     V_src_2 = VectorFunctionSpace(m_src, "CG", 1)
     assert V_src_2.value_shape == V_src.value_shape
-    f_src_2 = Function(V_src_2)
-    with pytest.raises(NotImplementedError):
-        assemble(interpolate(f_src_2, V_dest))
+    f_src_2 = Function(V_src_2).interpolate(SpatialCoordinate(m_src))
+    result_mixed = assemble(interpolate(f_src_2, V_dest))
+
+    expected_zero_form = 0
+    for i in range(len(V_dest)):
+        expected = assemble(interpolate(f_src_2[i], V_dest[i]))
+        assert np.allclose(result_mixed.dat.data_ro[i], expected.dat.data_ro)
+
+        expected_zero_form += assemble(action(cofunc_dest.subfunctions[i], expected))
+
+    mixed_zero_form = assemble(interpolate(f_src_2, cofunc_dest))
+    assert np.isclose(mixed_zero_form, expected_zero_form)
 
 
 @pytest.mark.parallel([1, 3])
@@ -541,7 +550,7 @@ def test_missing_dofs():
     V_src = FunctionSpace(m_src, "CG", 2)
     V_dest = FunctionSpace(m_dest, "CG", 3)
     with pytest.raises(DofNotDefinedError):
-        Interpolator(TestFunction(V_src), V_dest)
+        assemble(interpolate(TrialFunction(V_src), V_dest))
     f_src = Function(V_src).interpolate(expr)
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     dest_eval = PointEvaluator(m_dest, coords)
