@@ -245,8 +245,8 @@ class Interpolator(abc.ABC):
             if needs_adjoint:
                 # Out-of-place Hermitian transpose
                 petsc_mat.hermitianTranspose(out=res)
-            elif res:
-                petsc_mat.copy(res)
+            elif tensor:
+                petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
             return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
@@ -268,6 +268,18 @@ class Interpolator(abc.ABC):
 
 
 def _get_interpolator(expr: Interpolate | Expr, V) -> Interpolator:
+    V_target = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
+    if not isinstance(expr, ufl.Interpolate):
+        expr = interpolate(expr, V_target)
+
+    spaces = [a.function_space() for a in expr.arguments()]
+    has_mixed_spaces = any(len(space) > 1 for space in spaces)
+    if len(spaces) == 2 and has_mixed_spaces:
+        return object.__new__(MixedInterpolator)
+
+    operand, = expr.ufl_operands
+    target_mesh = as_domain(V)
+    source_mesh = extract_unique_domain(operand) or target_mesh
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
     submesh_interp_implemented = \
@@ -484,21 +496,6 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 output = firedrake.Function(V_dest)
 
-        if len(self.sub_interpolates):
-            # MixedFunctionSpace case
-            for sub_interpolate, f_src_sub_func, output_sub_func in zip(
-                self.sub_interpolates, f_src.subfunctions, output.subfunctions
-            ):
-                if f_src is self.expr:
-                    # f_src is already contained in self.point_eval_interpolate,
-                    # so the sub_interpolates are already prepared to interpolate
-                    # without needing to be given a Function
-                    assert not self.nargs
-                    assemble(sub_interpolate, tensor=output_sub_func)
-                else:
-                    assemble(action(sub_interpolate, f_src_sub_func), tensor=output_sub_func)
-            return output
-
         if not adjoint:
             if f_src is self.expr:
                 # f_src is already contained in self.point_eval_interpolate
@@ -694,37 +691,37 @@ class SameMeshInterpolator(Interpolator):
         f, tensor = self._get_tensor()
 
         loops = []
-        if len(self.V) == 1:
-            expressions = (expr,)
-        else:
-            if (hasattr(operand, "subfunctions") and len(operand.subfunctions) == len(self.V)
-                    and all(sub_op.ufl_shape == Vsub.value_shape for Vsub, sub_op in zip(self.V, operand.subfunctions))):
-                # Use subfunctions if they match the target shapes
-                operands = operand.subfunctions
-            else:
-                # Unflatten the expression into the shapes of the mixed components
-                offset = 0
-                operands = []
-                for Vsub in self.V:
-                    if len(Vsub.value_shape) == 0:
-                        operands.append(operand[offset])
-                    else:
-                        components = [operand[offset + j] for j in range(Vsub.value_size)]
-                        operands.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
-                    offset += Vsub.value_size
 
-            # Split the dual argument
-            if isinstance(dual_arg, Cofunction):
-                duals = dual_arg.subfunctions
-            elif isinstance(dual_arg, Coargument):
-                duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
-            else:
-                duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
-            expressions = map(expr._ufl_expr_reconstruct_, operands, duals)
+        if access == op2.INC:
+            loops.append(tensor.zero)
+
+        dual_arg, operand = expr.argument_slots()
+        # Arguments in the operand are allowed to be from a MixedFunctionSpace
+        # We need to split the target space V and generate separate kernels
+        if len(V) == 1:
+            expressions = {(0,): expr}
+        elif isinstance(dual_arg, Coargument):
+            # Split in the coargument
+            expressions = dict(firedrake.formmanipulation.split_form(expr))
+        else:
+            # Split in the cofunction: split_form can only split in the coargument
+            # Replace the cofunction with a coargument to construct the Jacobian
+            interp = expr._ufl_expr_reconstruct_(operand, V)
+            # Split the Jacobian into blocks
+            interp_split = dict(firedrake.formmanipulation.split_form(interp))
+            # Split the cofunction
+            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
+            # Combine the splits by taking their action
+            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
 
         # Interpolate each sub expression into each function space
-        for Vsub, sub_tensor, sub_expr in zip(self.V, tensor, expressions):
-            loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, self.subset, arguments, self.options.access, bcs=self.bcs))
+        for indices, sub_expr in expressions.items():
+            if isinstance(sub_expr, ufl.ZeroBaseForm):
+                continue
+            arguments = sub_expr.arguments()
+            sub_space = sub_expr.argument_slots()[0].function_space().dual()
+            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
+            loops.extend(_interpolator(sub_space, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if self.bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in self.bcs)
@@ -886,8 +883,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     parameters['scalar_type'] = utils.ScalarType
 
     callables = ()
-    if access == op2.INC:
-        callables += (tensor.zero,)
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
@@ -1532,3 +1527,91 @@ class VomOntoVomDummyMat(object):
 
     def duplicate(self, mat=None, op=None):
         return self._wrap_dummy_mat()
+
+
+class MixedInterpolator(Interpolator):
+    """A reusable interpolation object between MixedFunctionSpaces.
+
+    Parameters
+    ----------
+    expr
+        The underlying ufl.Interpolate or the operand to the ufl.Interpolate.
+    V
+        The :class:`.FunctionSpace` or :class:`.Function` to
+        interpolate into.
+    bcs
+        A list of boundary conditions.
+    **kwargs
+        Any extra kwargs are passed on to the sub Interpolators.
+        For details see :class:`firedrake.interpolation.Interpolator`.
+    """
+    def __init__(self, expr, V, bcs=None, **kwargs):
+        super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
+        expr = self.ufl_interpolate
+        self.arguments = expr.arguments()
+        rank = len(self.arguments)
+
+        needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
+        if needs_action:
+            dual_arg, operand = expr.argument_slots()
+            # Split the dual argument
+            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
+            # Create the Jacobian to be split into blocks
+            expr = expr._ufl_expr_reconstruct_(operand, V)
+
+        Isub = {}
+        for indices, form in firedrake.formmanipulation.split_form(expr):
+            if isinstance(form, ufl.ZeroBaseForm):
+                # Ensure block sparsity
+                continue
+            vi, _ = form.argument_slots()
+            Vtarget = vi.function_space().dual()
+            if bcs and rank != 0:
+                args = form.arguments()
+                Vsource = args[1-vi.number()].function_space()
+                sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
+            else:
+                sub_bcs = None
+            if needs_action:
+                # Take the action of each sub-cofunction against each block
+                form = action(form, dual_split[indices[-1:]])
+
+            Isub[indices] = Interpolator(form, Vtarget, bcs=sub_bcs, **kwargs)
+
+        self._sub_interpolators = Isub
+        self.callable = self._get_callable
+
+    def __getitem__(self, item):
+        return self._sub_interpolators[item]
+
+    def __iter__(self):
+        return iter(self._sub_interpolators)
+
+    def _get_callable(self):
+        """Assemble the operator."""
+        shape = tuple(len(a.function_space()) for a in self.arguments)
+        blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
+        for i in self:
+            blocks[i] = self[i].callable().handle
+        petscmat = PETSc.Mat().createNest(blocks)
+        tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
+        return tensor.M
+
+    def _interpolate(self, *function, output=None, adjoint=False, **kwargs):
+        """Assemble the action."""
+        rank = len(self.arguments)
+        if rank == 0:
+            result = sum(self[i].assemble(**kwargs) for i in self)
+            return output.assign(result) if output else result
+
+        if output is None:
+            output = firedrake.Function(self.arguments[-1].function_space().dual())
+
+        if rank == 1:
+            for k, sub_tensor in enumerate(output.subfunctions):
+                sub_tensor.assign(sum(self[i].assemble(**kwargs) for i in self if i[0] == k))
+        elif rank == 2:
+            for k, sub_tensor in enumerate(output.subfunctions):
+                sub_tensor.assign(sum(self[i]._interpolate(*function, adjoint=adjoint, **kwargs)
+                                      for i in self if i[0] == k))
+        return output
