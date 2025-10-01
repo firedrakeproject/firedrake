@@ -519,3 +519,50 @@ def test_interpolate_logical_not():
     a = assemble(interpolate(conditional(Not(x < .2), 1, 0), V))
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
+
+
+@pytest.mark.parametrize("mode", ("forward", "adjoint"))
+def test_mixed_matrix(mode):
+    nx = 3
+    mesh = UnitSquareMesh(nx, nx)
+
+    V1 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = FunctionSpace(mesh, "CG", 1)
+    V3 = FunctionSpace(mesh, "CG", 1)
+    V4 = FunctionSpace(mesh, "DG", 1)
+
+    Z = V1 * V2
+    W = V3 * V3 * V4
+
+    if mode == "forward":
+        I = Interpolate(TrialFunction(Z), TestFunction(W.dual()))
+        a = assemble(I)
+        assert a.arguments()[0].function_space() == W.dual()
+        assert a.arguments()[1].function_space() == Z
+        assert a.petscmat.getSize() == (W.dim(), Z.dim())
+        assert a.petscmat.getType() == "nest"
+
+        u = Function(Z)
+        u.subfunctions[0].sub(0).assign(1)
+        u.subfunctions[0].sub(1).assign(2)
+        u.subfunctions[1].assign(3)
+        result_matfree = assemble(Interpolate(u, TestFunction(W.dual())))
+    elif mode == "adjoint":
+        I = Interpolate(TestFunction(Z), TrialFunction(W.dual()))
+        a = assemble(I)
+        assert a.arguments()[1].function_space() == W.dual()
+        assert a.arguments()[0].function_space() == Z
+        assert a.petscmat.getSize() == (Z.dim(), W.dim())
+        assert a.petscmat.getType() == "nest"
+
+        u = Function(W.dual())
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        u.subfunctions[2].assign(3)
+        result_matfree = assemble(Interpolate(TestFunction(Z), u))
+    else:
+        raise ValueError(f"Unrecognized mode {mode}")
+
+    result_explicit = assemble(action(a, u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
