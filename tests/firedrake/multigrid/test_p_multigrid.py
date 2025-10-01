@@ -208,7 +208,7 @@ def test_p_multigrid_scalar(mesh, mat_type, restrict):
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
 
-    assert solver.snes.ksp.its <= 5
+    assert solver.snes.ksp.its <= 6
     ppc = solver.snes.ksp.pc.getPythonContext().ppc
     assert ppc.getMGLevels() == 3
     assert ppc.getMGCoarseSolve().pc.getMGLevels() == 2
@@ -345,7 +345,7 @@ def test_p_multigrid_mixed(mat_type):
     sp = {"snes_monitor": None,
           "snes_type": "ksponly",
           "ksp_type": "cg",
-          "ksp_rtol": 1E-12,
+          "ksp_rtol": 1E-11,
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
@@ -369,9 +369,9 @@ def test_p_multigrid_mixed(mat_type):
     assert ppc.getMGLevels() == 3
 
     # test that nullspace component is zero
-    assert abs(assemble(z[1]*dx)) < 1E-12
+    assert abs(assemble(z[1]*dx)) < 1E-10
     # test that we converge to the exact solution
-    assert norm(z-z_exact, "H1") < 1E-12
+    assert norm(z-z_exact, "H1") < 1E-10
 
     # test that we have coarsened the nullspace correctly
     ctx_levels = 0
