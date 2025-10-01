@@ -120,7 +120,7 @@ jobs:
       - name: Check version number matches
         working-directory: firedrake-repo
         run: |
-          if [ -z $( grep "version = \"${{ inputs.target_branch }}\"" pyproject.toml ) ]; then
+          if [ -z "$( grep 'version = \"${{ inputs.target_branch }}\"' pyproject.toml )" ]; then
             echo "match not found"
           else
             echo "match found"
