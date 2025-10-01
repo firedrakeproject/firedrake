@@ -985,14 +985,18 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         return callable
     else:
         loops = []
-        expressions = split_interpolate_target(expr)
 
         if access == op2.INC:
             loops.append(tensor.zero)
 
         # Interpolate each sub expression into each function space
-        for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
-            loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+        tensors = list(tensor)
+        if len(tensors) == 1:
+            split = [((0,), expr)]
+        else:
+            split = firedrake.formmanipulation.split_form(expr)
+        for (i,), sub_expr in split:
+            loops.extend(_interpolator(V[i], tensors[i], sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
@@ -1707,36 +1711,6 @@ class VomOntoVomDummyMat(object):
         return self._wrap_dummy_mat()
 
 
-def split_interpolate_target(expr: ufl.Interpolate):
-    """Split an Interpolate into the components (subfunctions) of the target space."""
-    dual_arg, operand = expr.argument_slots()
-    V = dual_arg.function_space().dual()
-    if len(V) == 1:
-        return (expr,)
-    # Split the target (dual) argument
-    if isinstance(dual_arg, Cofunction):
-        duals = dual_arg.subfunctions
-    elif isinstance(dual_arg, ufl.Coargument):
-        duals = [Coargument(Vsub, dual_arg.number()) for Vsub in dual_arg.function_space()]
-    else:
-        duals = [vi for _, vi in sorted(firedrake.formmanipulation.split_form(dual_arg))]
-    # Split the operand into the target shapes
-    if (isinstance(operand, firedrake.Function) and len(operand.subfunctions) == len(V)
-            and all(fsub.ufl_shape == Vsub.value_shape for Vsub, fsub in zip(V, operand.subfunctions))):
-        # Use subfunctions if they match the target shapes
-        operands = operand.subfunctions
-    else:
-        # Unflatten the expression into the target shapes
-        cur = 0
-        operands = []
-        components = numpy.reshape(operand, (-1,))
-        for Vi in V:
-            operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
-            cur += Vi.value_size
-    expressions = tuple(map(expr._ufl_expr_reconstruct_, operands, duals))
-    return expressions
-
-
 class MixedInterpolator(Interpolator):
     """A reusable interpolation object between MixedFunctionSpaces.
 
@@ -1754,39 +1728,40 @@ class MixedInterpolator(Interpolator):
         For details see :class:`firedrake.interpolation.Interpolator`.
     """
     def __init__(self, expr, V, bcs=None, **kwargs):
-        super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
-        expr = self.ufl_interpolate
         bcs = bcs or ()
+        super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
+
+        expr = self.ufl_interpolate
         self.arguments = expr.arguments()
+        rank = len(self.arguments)
+        if rank < 2:
+            dual_arg, operand = expr.argument_slots()
+            # Split the dual argument
+            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
+            # Create the Jacobian to split into blocks
+            expr = expr._ufl_expr_reconstruct_(operand, firedrake.TrialFunction(dual_arg.function_space()))
 
-        # Split the target (dual) argument
-        dual_split = split_interpolate_target(expr)
-        self.sub_interpolators = {}
-        for i, form in enumerate(dual_split):
-            # Split the source (primal) argument
-            for j, sub_interp in firedrake.formmanipulation.split_form(form):
-                j = max(j) if j else 0
-                # Ensure block sparsity
-                if not isinstance(sub_interp, ufl.ZeroBaseForm):
-                    vi, operand = sub_interp.argument_slots()
-                    Vtarget = vi.function_space().dual()
-                    adjoint = vi.number() == 1 if isinstance(vi, Coargument) else True
+        Isub = {}
+        for indices, form in firedrake.formmanipulation.split_form(expr):
+            if not isinstance(form, ufl.ZeroBaseForm):
+                args = form.arguments()
+                vi, operand = form.argument_slots()
+                Vtarget = vi.function_space().dual()
+                Vsource = args[1-vi.number()].function_space()
+                sub_bcs = [bc for bc in self.bcs if bc.function_space() in {Vsource, Vtarget}]
+                if rank == 1:
+                    # Take the action of each sub-cofunction against each block
+                    form = action(form, dual_split[indices[1:]])
+                Isub[indices] = Interpolator(form, Vtarget, bcs=sub_bcs, **kwargs)
 
-                    args = sub_interp.arguments()
-                    Vsource = args[0 if adjoint else 1].function_space()
-                    sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
-
-                    indices = (j, i) if adjoint else (i, j)
-                    Isub = Interpolator(sub_interp, Vtarget, bcs=sub_bcs, **kwargs)
-                    self.sub_interpolators[indices] = Isub
-
+        self.sub_interpolators = Isub
         self.callable = self._get_callable
 
     def _get_callable(self):
         """Assemble the operator."""
+        Isub = self.sub_interpolators
         shape = tuple(len(a.function_space()) for a in self.arguments)
-        Isubs = self.sub_interpolators
-        blocks = numpy.reshape([Isubs[ij].callable().handle if ij in Isubs else PETSc.Mat()
+        blocks = numpy.reshape([Isub[ij].callable().handle if ij in Isub else PETSc.Mat()
                                 for ij in numpy.ndindex(shape)], shape)
         petscmat = PETSc.Mat().createNest(blocks)
         tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)

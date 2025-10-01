@@ -2,7 +2,7 @@
 import numpy
 import collections
 
-from ufl import as_vector, split
+from ufl import as_tensor, as_vector, split
 from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake.ufl_expr import Coargument
 from firedrake.matrix import AssembledMatrix
 
 
@@ -175,7 +176,32 @@ class ExtractSubBlock(MultiFunction):
         if isinstance(operand, Zero):
             return ZeroBaseForm(o.arguments())
 
-        return o._ufl_expr_reconstruct_(operand)
+        dual_arg, _ = o.argument_slots()
+        V = dual_arg.function_space()
+        if len(V) == 1:
+            return o._ufl_expr_reconstruct_(operand, dual_arg)
+
+        # Split the target (dual) argument
+        if isinstance(dual_arg, Coargument):
+            indices = self.blocks[dual_arg.number()]
+            W = subspace(dual_arg.function_space(), indices)
+            dual_arg = Coargument(W, dual_arg.number())
+        else:
+            raise NotImplementedError()
+
+        # Unflatten the expression into the target shapes
+        cur = 0
+        operands = []
+        components = numpy.reshape(operand, (-1,))
+        for i, Vi in enumerate(V):
+            if i in indices:
+                operands.extend(components[cur:cur+Vi.value_size])
+            cur += Vi.value_size
+
+        operand = as_tensor(numpy.reshape(operands, W.value_shape))
+        if isinstance(operand, Zero):
+            return ZeroBaseForm(o.arguments())
+        return o._ufl_expr_reconstruct_(operand, dual_arg)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
