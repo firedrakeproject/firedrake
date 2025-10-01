@@ -4,14 +4,13 @@ import tempfile
 import abc
 import warnings
 from collections.abc import Iterable
-from typing import Literal
 from functools import partial, singledispatch
 from typing import Hashable
 
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -25,9 +24,9 @@ import gem
 import finat
 
 import firedrake
-import firedrake.bcs
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
+from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
+from firedrake.cofunction import Cofunction
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
@@ -263,7 +262,7 @@ class Interpolator(abc.ABC):
         V: ufl.FunctionSpace | firedrake.function.Function,
         subset: op2.Subset | None = None,
         freeze_expr: bool = False,
-        access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None,
+        access: op2.Access | None = None,
         bcs: Iterable[firedrake.bcs.BCBase] | None = None,
         allow_missing_dofs: bool = False,
         matfree: bool = True
