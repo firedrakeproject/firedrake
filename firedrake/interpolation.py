@@ -262,21 +262,17 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
-        if isinstance(expr, ufl.Interpolate):
-            # MixedFunctionSpace is only implemented for the primal 1-form.
-            # Are we a 2-form or a dual 1-form?
-            arguments = expr.arguments()
-            if any(not isinstance(a, Coargument) for a in arguments):
-                # Do we have mixed source or target spaces?
-                spaces = [a.function_space() for a in arguments]
-                if len(spaces) < 2:
-                    spaces.append(V)
-                if any(len(space) > 1 for space in spaces):
-                    return object.__new__(MixedInterpolator)
-            expr, = expr.ufl_operands
+        if not isinstance(expr, ufl.Interpolate):
+            expr = interpolate(expr, V if isinstance(V, ufl.FunctionSpace) else V.function_space())
 
+        spaces = [a.function_space() for a in expr.arguments()]
+        has_mixed_spaces = any(len(space) > 1 for space in spaces)
+        if len(spaces) == 2 and has_mixed_spaces:
+            return object.__new__(MixedInterpolator)
+
+        operand, = expr.ufl_operands
         target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(expr) or target_mesh
+        source_mesh = extract_unique_domain(operand) or target_mesh
         submesh_interp_implemented = \
             all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
             target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
@@ -284,8 +280,11 @@ class Interpolator(abc.ABC):
         if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
+            needs_adjoint = not isinstance(expr.arguments()[0], Coargument)
             if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 return object.__new__(SameMeshInterpolator)
+            elif has_mixed_spaces and needs_adjoint:
+                return object.__new__(MixedInterpolator)
             else:
                 return object.__new__(CrossMeshInterpolator)
 
@@ -301,8 +300,7 @@ class Interpolator(abc.ABC):
         matfree: bool = True
     ):
         if not isinstance(expr, ufl.Interpolate):
-            fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-            expr = interpolate(expr, fs)
+            expr = interpolate(expr, V if isinstance(V, ufl.FunctionSpace) else V.function_space())
         dual_arg, operand = expr.argument_slots()
         self.ufl_interpolate = expr
         self.expr = operand
@@ -414,8 +412,7 @@ class Interpolator(abc.ABC):
                 Iu = self._interpolate(**kwargs)
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         **kwargs)
+                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint, **kwargs)
 
 
 class DofNotDefinedError(Exception):
@@ -989,21 +986,33 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         if access == op2.INC:
             loops.append(tensor.zero)
 
-        if rank == 0 and len(V) > 1:
-            dual_arg, operand = expr.argument_slots()
-            interp = expr._ufl_expr_reconstruct_(operand, V)
-            interp_split = dict(firedrake.formmanipulation.split_form(interp))
-            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
-            expressions = {i: action(interp_split[i], dual_split[i]) for i in dual_split}
-        elif len(V) > 1:
+        dual_arg, operand = expr.argument_slots()
+        # Any arguments in the operand may be from a MixedFunctoinSpace
+        # We need to split the target space V and generate separate kernels
+        if len(V) == 1:
+            expressions = {(0,): expr}
+        elif isinstance(dual_arg, Coargument):
+            # Split in the coargument
             expressions = dict(firedrake.formmanipulation.split_form(expr))
         else:
-            expressions = {(0,): expr}
+            # Split in the cofunction: split_form can only split in the coargument
+            # Replace the cofunction with a coargument to construct the Jacobian
+            interp = expr._ufl_expr_reconstruct_(operand, V)
+            # Split the Jacobian into blocks
+            interp_split = dict(firedrake.formmanipulation.split_form(interp))
+            # Split the cofunction
+            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
+            # Combine the splits by taking their action
+            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
 
         # Interpolate each sub expression into each function space
-        for (i,), sub_expr in expressions.items():
-            sub_tensor = tensor[i] if (rank == 1 and len(V) > 1) else tensor
-            loops.extend(_interpolator(V[i], sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+        for indices, sub_expr in expressions.items():
+            if isinstance(sub_expr, ufl.ZeroBaseForm):
+                continue
+            arguments = sub_expr.arguments()
+            sub_space = sub_expr.argument_slots()[0].function_space().dual()
+            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
+            loops.extend(_interpolator(sub_space, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
