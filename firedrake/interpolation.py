@@ -5,8 +5,8 @@ import abc
 
 from collections.abc import Iterable
 from functools import partial, singledispatch
-from typing import Hashable, Optional
-from dataclasses import asdict, dataclass, Literal
+from typing import Hashable, Literal
+from dataclasses import asdict, dataclass
 
 import FIAT
 import ufl
@@ -97,10 +97,10 @@ class InterpolateOptions:
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
         and reduce operations.
     """
-    subset: Optional[op2.Subset] = None
-    access: Access = op2.WRITE
+    subset: op2.Subset | None = None
+    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] = op2.WRITE
     allow_missing_dofs: bool = False
-    default_missing_val: Optional[float] = None
+    default_missing_val: float | None = None
     matfree: bool = True
 
 
@@ -219,6 +219,7 @@ class Interpolator(abc.ABC):
         self.expr_renumbered = operand
         self.ufl_interpolate_renumbered = expr
 
+        access = self.options.access
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             if access and access != op2.INC:
@@ -303,44 +304,6 @@ def _get_interpolator(expr: Interpolate, V) -> Interpolator:
         else:
             return CrossMeshInterpolator(expr, V)
 
-    def assemble(self, tensor=None, default_missing_val=None):
-        """Assemble the operator (or its action)."""
-        from firedrake.assemble import assemble
-        needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
-        arguments = self.ufl_interpolate.arguments()
-        if len(arguments) == 2:
-            # Assembling the operator
-            res = tensor.petscmat if tensor else PETSc.Mat()
-            # Get the interpolation matrix
-            op2mat = self.callable()
-            petsc_mat = op2mat.handle
-            if needs_adjoint:
-                # Out-of-place Hermitian transpose
-                petsc_mat.hermitianTranspose(out=res)
-            elif res:
-                petsc_mat.copy(res)
-            else:
-                res = petsc_mat
-            if tensor is None:
-                tensor = firedrake.AssembledMatrix(arguments, self.bcs, res)
-            return tensor
-        else:
-            # Assembling the action
-            cofunctions = ()
-            if needs_adjoint:
-                # The renumbered Interpolate has dropped Cofunctions.
-                # We need to explicitly operate on them.
-                dual_arg, _ = self.ufl_interpolate.argument_slots()
-                if not isinstance(dual_arg, ufl.Coargument):
-                    cofunctions = (dual_arg,)
-
-            if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
-            else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         default_missing_val=default_missing_val)
-
 
 class DofNotDefinedError(Exception):
     r"""Raised when attempting to interpolate across function spaces where the
@@ -421,7 +384,8 @@ class CrossMeshInterpolator(Interpolator):
                 )
             self.dest_element = base_element
         elif isinstance(dest_element, finat.ufl.MixedElement):
-            return self._mixed_function_space()
+            self._mixed_function_space()
+            return
         else:
             # scalar fiat/finat element
             self.dest_element = dest_element
