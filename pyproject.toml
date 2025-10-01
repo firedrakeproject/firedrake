@@ -171,3 +171,24 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+
+[tool.mypy]
+# from https://quantlane.com/blog/type-checking-large-codebase/
+
+# TODO: enable at some point
+# disallow_untyped_calls = true
+# disallow_untyped_defs = true
+# disallow_incomplete_defs = true
+# disallow_untyped_decorators = true
+# check_untyped_defs = true
+
+# warn_redundant_casts = true
+# warn_unused_ignores = true
+# warn_unused_configs = true
+# show_error_codes = true
+
+ignore_missing_imports = true
+follow_imports = "silent"
+disable_error_code = ["attr-defined", "import-untyped"]
+
+exclude = ["firedrake/_check"]

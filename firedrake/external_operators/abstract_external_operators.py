@@ -91,6 +91,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
     def function_space(self):
         return self._function_space
 
+    @staticmethod
     def assemble_method(derivs, args):
         """Decorator helper function to specify the type of external operator type associated with each assembly methods.
 
