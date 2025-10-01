@@ -98,6 +98,11 @@ class Interpolate(ufl.Interpolate):
             expr_args = extract_arguments(ufl.as_ufl(expr))
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
             V = Argument(V.dual(), 1 if is_adjoint else 0)
+
+        target_shape = V.arguments()[0].function_space().value_shape
+        if expr.ufl_shape != target_shape:
+            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {target_shape}.")
+
         super().__init__(expr, V)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
