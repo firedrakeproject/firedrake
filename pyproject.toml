@@ -2,7 +2,9 @@
 name = "firedrake"
 # <year>.<month>.<patch>
 # TODO RELEASE: remove '.dev0'
-version = "2025.4.3.dev0"
+# version = "2025.4.3.dev0"
+# UNDO ME
+version = "release"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
