@@ -7,7 +7,7 @@ from petsctools import OptionsManager, flatten_parameters
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
@@ -98,7 +98,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = Interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
 
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
@@ -332,12 +332,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        spaces = chain.from_iterable(c.function_space() for c in coefficients)
+        coefficients += problem.u.subfunctions
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
-        for V in spaces:
-            dm = V.dm
+        for c in coefficients:
+            dm = c.function_space().dm
             if dm == solution_dm:
                 # Make sure the solution dm is visited last
                 continue
