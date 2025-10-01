@@ -134,6 +134,17 @@ class ExtractSubBlock(MultiFunction):
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
+    def coargument(self, o):
+        V = o.function_space()
+
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
+        indices = self.blocks[o.number()]
+        W = subspace(V, indices)
+        return Coargument(W, number=o.number(), part=o.part())
+
     def cofunction(self, o):
         V = o.function_space()
 
@@ -178,29 +189,30 @@ class ExtractSubBlock(MultiFunction):
 
         dual_arg, _ = o.argument_slots()
         V = dual_arg.function_space()
-        if len(V) == 1:
+        if len(V) == 1 or len(dual_arg.arguments()) == 1:
             return o._ufl_expr_reconstruct_(operand, dual_arg)
 
         # Split the target (dual) argument
         if isinstance(dual_arg, Coargument):
+            dual_arg = self(dual_arg)
             indices = self.blocks[dual_arg.number()]
-            W = subspace(dual_arg.function_space(), indices)
-            dual_arg = Coargument(W, dual_arg.number())
         else:
             raise NotImplementedError()
 
         # Unflatten the expression into the target shapes
         cur = 0
-        operands = []
-        components = numpy.reshape(operand, (-1,))
+        cindices = []
         for i, Vi in enumerate(V):
             if i in indices:
-                operands.extend(components[cur:cur+Vi.value_size])
+                cindices.extend(range(cur, cur+Vi.value_size))
             cur += Vi.value_size
 
-        operand = as_tensor(numpy.reshape(operands, W.value_shape))
+        W = dual_arg.function_space()
+        components = [operand[i] for i in cindices]
+        operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
             return ZeroBaseForm(o.arguments())
+
         return o._ufl_expr_reconstruct_(operand, dual_arg)
 
 
