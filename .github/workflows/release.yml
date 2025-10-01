@@ -34,15 +34,13 @@ jobs:
       - name: Check version number matches
         working-directory: firedrake-repo
         run: |
-          if [ -z $( grep "version = \"${{ inputs.version }}\"" pyproject.toml ) ]; then
+          if [ -z "$( grep 'version = \"${{ inputs.version }}\"' pyproject.toml )" ]; then
             exit 1
           else
             exit 0
           fi
 
   pypi:
-    # UNDO ME
-    if: false
     uses: ./.github/workflows/core.yml
     needs: check
     with:
@@ -53,8 +51,6 @@ jobs:
     secrets: inherit
 
   github_release:
-    # UNDO ME
-    if: false
     name: Create GitHub release
     needs: pypi
     runs-on: ubuntu-latest
@@ -67,8 +63,6 @@ jobs:
         run: gh release create ${{ inputs.version }} --title ${{ inputs.version }} --generate-notes
 
   docker:
-    # UNDO ME
-    if: false
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
     needs: pypi

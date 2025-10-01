@@ -116,18 +116,6 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      # UNDO ME, just testing
-      - name: Check version number matches
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( grep 'version = \"${{ inputs.target_branch }}\"' pyproject.toml )" ]; then
-            echo "match not found"
-          else
-            echo "match found"
-          fi
-          : # Stop here
-          exit 1
-
       - name: Validate single source of truth
         run: ./firedrake-repo/scripts/check-config
 
