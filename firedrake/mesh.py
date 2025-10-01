@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import ctypes
 import os
@@ -2835,11 +2837,9 @@ values from f.)"""
         self.topology.mark_entities(f.topological, label_value, label_name)
 
     # NOTE: Used to be curve_field and return coordinates (deprecate this)
+    # TODO: 'snap_to_netgen_mesh'?
     @PETSc.Log.EventDecorator()
-    def curve(self, order, permutation_tol=1e-8, location_tol=1e-1, cg_field=False): -> MeshGeometry:
-        return self._curve_netgen(...)
-
-    def _curve_netgen(self) -> MeshGeometry:
+    def curve(self, order, permutation_tol=1e-8, location_tol=1e-1, cg_field=False) -> MeshGeometry:
         '''
         This method returns a curved mesh as a Firedrake function.
 
@@ -2850,7 +2850,7 @@ values from f.)"""
                        default DG field.
 
         '''
-        ngsPETSc = utils.import_ngsPETSc()
+        import ngsPETSc
 
         # Check if the mesh is a surface mesh or two dimensional mesh
         if len(self.netgen_mesh.Elements3D()) == 0:
@@ -3271,9 +3271,7 @@ def Mesh(meshfile, **kwargs):
                             submesh_parent=submesh_parent.topology if submesh_parent else None,
                             comm=user_comm)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
-        breakpoint()
-        mesh = netgen_firedrake_mesh.firedrakeMesh
+        mesh = _mesh_from_netgen(topology, netgen_firedrake_mesh, name=name, comm=user_comm)
     else:
         mesh = make_mesh_from_mesh_topology(topology, name)
     mesh.submesh_parent = submesh_parent
@@ -4860,12 +4858,14 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
 
 
 
-def _mesh_from_netgen(topology, netgen_mesh) -> MeshGeometry:
+def _mesh_from_netgen(topology: MeshTopology, netgen_mesh, name, comm) -> MeshGeometry:
+    from firedrake import VectorElement
+
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
-    element = fd.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
+    element = VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     # Create mesh object
-    firedrakeMesh = fd.MeshGeometry.__new__(fd.MeshGeometry, element, comm)
+    firedrakeMesh = MeshGeometry.__new__(MeshGeometry, element, comm)
     firedrakeMesh._init_topology(topology)
     firedrakeMesh.name = name
     # Adding Netgen mesh and inverse sfBC as attributes
