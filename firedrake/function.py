@@ -14,7 +14,7 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from functools import partial
-from typing import Tuple, Optional
+from typing import Tuple
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -362,7 +362,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     def interpolate(self,
                     expression: ufl.classes.Expr,
-                    ad_block_tag: Optional[str] = None,
+                    ad_block_tag: str | None = None,
                     **kwargs):
         """Interpolate an expression onto this :class:`Function`.
 
@@ -707,7 +707,7 @@ class PointNotInDomainError(Exception):
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: Optional[float] = None,
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
                  missing_points_behaviour: str = "error", redundant: bool = True) -> None:
         r"""
         Parameters
