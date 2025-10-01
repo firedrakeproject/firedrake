@@ -47,6 +47,7 @@ jobs:
       source_ref: ${{ inputs.branch }}
       target_branch: release
       run_tests: false
+      build_docs: false
       upload_pypi: true
     secrets: inherit
 
