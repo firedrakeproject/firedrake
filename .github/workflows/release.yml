@@ -41,6 +41,8 @@ jobs:
           fi
 
   pypi:
+    # UNDO ME
+    if: false
     uses: ./.github/workflows/core.yml
     needs: check
     with:
@@ -51,6 +53,8 @@ jobs:
     secrets: inherit
 
   github_release:
+    # UNDO ME
+    if: false
     name: Create GitHub release
     needs: pypi
     runs-on: ubuntu-latest
@@ -63,11 +67,12 @@ jobs:
         run: gh release create ${{ inputs.version }} --title ${{ inputs.version }} --generate-notes
 
   docker:
+    # UNDO ME
+    if: false
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
     needs: pypi
     with:
       tag: ${{ inputs.version }}
       branch: ${{ inputs.branch }}
-      build_dev: false
     secrets: inherit
