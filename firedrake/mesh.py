@@ -2966,34 +2966,39 @@ values from f.)"""
         DistParams = self._distribution_parameters
         els = {2: self.netgen_mesh.Elements2D, 3: self.netgen_mesh.Elements3D}
         dim = self.geometric_dimension()
-        refine_faces = flagsUtils(netgen_flags, "refine_faces", False)
-        if dim in [2,3]:
-            with mark.dat.vec as marked:
-                marked0 = marked
-                getIdx = self._cell_numbering.getOffset
-                if self.sfBCInv is not None:
-                    getIdx = lambda x: x #pylint: disable=C3001
-                    _, marked0 = self.topology_dm.distributeField(self.sfBCInv,
-                                                                  self._cell_numbering,
-                                                                  marked)
-                if self.comm.Get_rank() == 0:
-                    mark = marked0.getArray()
-                    max_refs = np.max(mark)
-                    for _ in range(int(max_refs)):
-                        for i, el in enumerate(els[dim]()):
-                            if mark[getIdx(i)] > 0:
-                                el.refine = True
-                            else:
-                                el.refine = False
-                        if not refine_faces and dim == 3:
-                            self.netgen_mesh.Elements2D().NumPy()["refine"] = 0
-                        self.netgen_mesh.Refine(adaptive=True)
-                        mark = mark-np.ones(mark.shape)
-                    return fd.Mesh(self.netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
-                return fd.Mesh(netgen.libngpy._meshing.Mesh(dim),
-                               distribution_parameters=DistParams, comm=self.comm)
-        else:
-            raise NotImplementedError("No implementation for dimension other than 2 and 3.")
+        refine_faces = netgen_flags.get("refine_faces", False)
+
+        if dim not in {2, 3}:
+            raise NotImplementedError(
+                "No implementation for dimension other than 2 and 3."
+            )
+
+        with mark.dat.vec as marked:
+            marked0 = marked
+            getIdx = self._cell_numbering.getOffset
+            if self.sfBC is not None:
+                sfBCInv = self.sfBC.createInverse()
+                getIdx = lambda x: x #pylint: disable=C3001
+                _, marked0 = self.topology_dm.distributeField(sfBCInv,
+                                                              self._cell_numbering,
+                                                              marked)
+            if self.comm.Get_rank() == 0:
+                mark = marked0.getArray()
+                max_refs = np.max(mark)
+                for _ in range(int(max_refs)):
+                    for i, el in enumerate(els[dim]()):
+                        if mark[getIdx(i)] > 0:
+                            el.refine = True
+                        else:
+                            el.refine = False
+                    if not refine_faces and dim == 3:
+                        self.netgen_mesh.Elements2D().NumPy()["refine"] = 0
+                    self.netgen_mesh.Refine(adaptive=True)
+                    mark = mark-np.ones(mark.shape)
+                return Mesh(self.netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
+            else:
+                return Mesh(netgen.libngpy._meshing.Mesh(dim),
+                            distribution_parameters=DistParams, comm=self.comm)
 
 
 @PETSc.Log.EventDecorator()
@@ -3270,10 +3275,9 @@ def Mesh(meshfile, **kwargs):
                             permutation_name=kwargs.get("permutation_name"),
                             submesh_parent=submesh_parent.topology if submesh_parent else None,
                             comm=user_comm)
+    mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        mesh = _mesh_from_netgen(topology, netgen_firedrake_mesh, name=name, comm=user_comm)
-    else:
-        mesh = make_mesh_from_mesh_topology(topology, name)
+        mesh.netgen_mesh = netgen_firedrake_mesh
     mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
     return mesh
@@ -4855,25 +4859,3 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         },
     )
     return submesh
-
-
-
-def _mesh_from_netgen(topology: MeshTopology, netgen_mesh, name, comm) -> MeshGeometry:
-    from firedrake import VectorElement
-
-    cell = topology.ufl_cell()
-    geometric_dim = topology.topology_dm.getCoordinateDim()
-    element = VectorElement("Lagrange", cell, 1, dim=geometric_dim)
-    # Create mesh object
-    firedrakeMesh = MeshGeometry.__new__(MeshGeometry, element, comm)
-    firedrakeMesh._init_topology(topology)
-    firedrakeMesh.name = name
-    # Adding Netgen mesh and inverse sfBC as attributes
-    firedrakeMesh.netgen_mesh = netgen_mesh
-    # if self.firedrakeMesh.sfBC is not None:
-    #     self.firedrakeMesh.sfBCInv = self.firedrakeMesh.sfBC.createInverse()
-    # else:
-    #     self.firedrakeMesh.sfBCInv = None
-    #Generating ngs to Firedrake cell index map
-    #Adding refine_marked_elements and curve_field methods
-    return firedrakeMesh
