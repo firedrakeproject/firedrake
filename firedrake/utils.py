@@ -168,3 +168,15 @@ def deprecated(prefer=None, internal=False):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+# issue: sometimes not just import ngsPETSc here
+#
+# def import_ngsPETSc():
+#     try:
+#         import ngsPETSc
+#     except ImportError:
+#         raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
+#                           "are installed and available to Firedrake (see "
+#                           "https://www.firedrakeproject.org/install.html#netgen).")
+#     else:
+#         return ngsPETSc

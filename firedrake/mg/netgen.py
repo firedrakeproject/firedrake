@@ -1,22 +1,16 @@
-'''
-This module contains all the functions related
-'''
-try:
-    import firedrake as fd
-    from firedrake.cython import mgimpl as impl, dmcommon
-    from firedrake.__future__ import interpolate
-    from firedrake import dmhooks
-    import ufl
-except ImportError:
-    fd = None
-
 from fractions import Fraction
+
 import numpy as np
+import ufl
 from petsc4py import PETSc
 
-from netgen.meshing import MeshingParameters
+import firedrake as fd
+from firedrake.cython import mgimpl as impl, dmcommon
+from firedrake import dmhooks
 
-from ngsPETSc.utils.firedrake.meshes import flagsUtils
+
+__all__ = ()
+
 
 def snapToNetgenDMPlex(ngmesh, petscPlex):
     '''
@@ -33,6 +27,7 @@ def snapToNetgenDMPlex(ngmesh, petscPlex):
         petscPlex.setCoordinatesLocal(petscPlexCoordinates)
     else:
         raise NotImplementedError("Snapping to Netgen meshes is only implemented for 2D meshes.")
+
 
 def snapToCoarse(coarse, linear, degree, snap_smoothing, cg):
     '''
@@ -114,6 +109,7 @@ def snapToCoarse(coarse, linear, degree, snap_smoothing, cg):
         raise NotImplementedError("Snapping to Netgen meshes is only implemented for 2D meshes.")
     return fd.Mesh(ho, comm=linear.comm, distribution_parameters=linear._distribution_parameters)
 
+
 def uniformRefinementRoutine(ngmesh, cdm):
     '''
     Routing called inside of NetgenHierarchy to compute refined ngmesh and plex.
@@ -127,6 +123,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     rdm.removeLabel("pyop2_owned")
     rdm.removeLabel("pyop2_ghost")
     return (rdm, ngmesh)
+
 
 def uniformMapRoutine(meshes, lgmaps):
     '''
@@ -148,6 +145,7 @@ def uniformMapRoutine(meshes, lgmaps):
                                 for i, f2c in enumerate(fine_to_coarse_cells))
     return (coarse_to_fine_cells, fine_to_coarse_cells)
 
+
 def alfeldRefinementRoutine(ngmesh, cdm):
     '''
     Routing called inside of NetgenHierarchy to compute refined ngmesh and plex.
@@ -162,6 +160,7 @@ def alfeldRefinementRoutine(ngmesh, cdm):
     rdm = tr.apply(cdm)
     return (rdm, ngmesh)
 
+
 def alfeldMapRoutine(meshes):
     '''
     This function computes the coarse to fine and fine to coarse maps
@@ -169,8 +168,10 @@ def alfeldMapRoutine(meshes):
     '''
     raise NotImplementedError("Alfeld refinement is not implemented yet.")
 
+
 refinementTypes = {"uniform": (uniformRefinementRoutine, uniformMapRoutine),
                    "Alfeld": (alfeldRefinementRoutine, alfeldMapRoutine)}
+
 
 def NetgenHierarchy(mesh, levs, flags):
     '''
@@ -187,22 +188,29 @@ def NetgenHierarchy(mesh, levs, flags):
         -tol, geometric tolerance adopted in snapToNetgenDMPlex.
         -refinement_type, the refinment type to be used: uniform (default), Alfeld
     '''
+    try:
+        from netgen.meshing import MeshingParameters
+    except ImportError:
+        raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
+                          "are installed and available to Firedrake (see "
+                          "https://www.firedrakeproject.org/install.html#netgen).")
+
     if mesh.geometric_dimension() == 3:
         raise NotImplementedError("Netgen hierachies are only implemented for 2D meshes.")
     comm = mesh.comm
     #Parsing netgen flags
     if not isinstance(flags, dict):
         flags = {}
-    order = flagsUtils(flags, "degree", 1)
+    order = flags.get("degree", 1)
     if isinstance(order, int):
         order= [order]*(levs+1)
-    permutation_tol = flagsUtils(flags, "tol", 1e-8)
-    refType = flagsUtils(flags, "refinement_type", "uniform")
-    optMoves = flagsUtils(flags, "optimisation_moves", False)
-    snap = flagsUtils(flags, "snap_to", "geometry")
-    snap_smoothing = flagsUtils(flags, "snap_smoothing", "hyperelastic")
-    cg = flagsUtils(flags, "cg", False)
-    nested = flagsUtils(flags, "nested", snap in ["coarse"])
+    permutation_tol = flags.get("tol", 1e-8)
+    refType = flags.get("refinement_type", "uniform")
+    optMoves = flags.get("optimisation_moves", False)
+    snap = flags.get("snap_to", "geometry")
+    snap_smoothing = flags.get("snap_smoothing", "hyperelastic")
+    cg = flags.get("cg", False)
+    nested = flags.get("nested", snap in ["coarse"])
     #Firedrake quoantities
     meshes = []
     lgmaps = []
