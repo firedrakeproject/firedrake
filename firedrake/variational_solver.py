@@ -253,9 +253,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
+        sub_mat_type = self.parameters.get("sub_mat_type")
+        sub_pmat_type = self.parameters.get("sub_pmat_type")
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
+                                         sub_mat_type=sub_mat_type,
+                                         sub_pmat_type=sub_pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_jacobian_callback,
                                          pre_function_callback=pre_function_callback,
@@ -328,12 +332,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        spaces = chain.from_iterable(c.function_space() for c in coefficients)
+        coefficients += problem.u.subfunctions
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
-        for V in spaces:
-            dm = V.dm
+        for c in coefficients:
+            dm = c.function_space().dm
             if dm == solution_dm:
                 # Make sure the solution dm is visited last
                 continue

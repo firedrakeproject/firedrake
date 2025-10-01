@@ -3,9 +3,10 @@ import os
 import tempfile
 import abc
 
+from collections.abc import Iterable
 from functools import partial, singledispatch
 from typing import Hashable, Optional
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, Literal
 
 import FIAT
 import ufl
@@ -27,10 +28,10 @@ import finat
 import firedrake
 from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
+from firedrake.cofunction import Cofunction
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
-from firedrake.cofunction import Cofunction
 from firedrake.functionspaceimpl import WithGeometry
 from mpi4py import MPI
 
@@ -220,7 +221,25 @@ class Interpolator(abc.ABC):
 
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            self.options.access = op2.INC
+            if access and access != op2.INC:
+                raise ValueError("Matfree adjoint interpolation requires INC access")
+            access = op2.INC
+        elif access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            access = op2.WRITE
+        self.access = access
+
+    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
+        """
+        .. warning::
+
+            This method has been removed. Use the function :func:`interpolate` to return a symbolic
+            :class:`Interpolate` object.
+        """
+        raise FutureWarning(
+            "The 'interpolate' method on `Interpolator` objects has been "
+            "removed. Use the `interpolate` function instead."
+        )
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -283,6 +302,44 @@ def _get_interpolator(expr: Interpolate, V) -> Interpolator:
             return SameMeshInterpolator(expr, V)
         else:
             return CrossMeshInterpolator(expr, V)
+
+    def assemble(self, tensor=None, default_missing_val=None):
+        """Assemble the operator (or its action)."""
+        from firedrake.assemble import assemble
+        needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
+        arguments = self.ufl_interpolate.arguments()
+        if len(arguments) == 2:
+            # Assembling the operator
+            res = tensor.petscmat if tensor else PETSc.Mat()
+            # Get the interpolation matrix
+            op2mat = self.callable()
+            petsc_mat = op2mat.handle
+            if needs_adjoint:
+                # Out-of-place Hermitian transpose
+                petsc_mat.hermitianTranspose(out=res)
+            elif res:
+                petsc_mat.copy(res)
+            else:
+                res = petsc_mat
+            if tensor is None:
+                tensor = firedrake.AssembledMatrix(arguments, self.bcs, res)
+            return tensor
+        else:
+            # Assembling the action
+            cofunctions = ()
+            if needs_adjoint:
+                # The renumbered Interpolate has dropped Cofunctions.
+                # We need to explicitly operate on them.
+                dual_arg, _ = self.ufl_interpolate.argument_slots()
+                if not isinstance(dual_arg, ufl.Coargument):
+                    cofunctions = (dual_arg,)
+
+            if needs_adjoint and len(arguments) == 0:
+                Iu = self._interpolate(default_missing_val=default_missing_val)
+                return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
+            else:
+                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
+                                         default_missing_val=default_missing_val)
 
 
 class DofNotDefinedError(Exception):

@@ -1,6 +1,7 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
+# TODO RELEASE: remove '.dev0'
 version = "2025.5.0.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
@@ -77,7 +78,7 @@ docs = [
   "matplotlib",  # needed to resolve API
   "numpydoc",
   "pylit",
-  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx",
   "sphinx-autobuild",
   "sphinx-reredirects",
   "sphinxcontrib-bibtex",

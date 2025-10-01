@@ -82,7 +82,6 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
-      PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
       # NOTE: One should occasionally update test_durations.json by running
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
@@ -131,17 +130,6 @@ jobs:
           echo "Docker version: $docker_version"
           if [[ "$docker_version" != "$latest_version" ]]; then
             echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
-            exit 1
-          fi
-
-      # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check no 'TODO RELEASE' comments (release only)
-        if: inputs.target_branch == 'release'
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
-            exit 0
-          else
             exit 1
           fi
 

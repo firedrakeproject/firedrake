@@ -346,13 +346,15 @@ def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
 
     if rank == 0:
         operand = Function(Pk).interpolate(expr)
+        dual_arg = TestFunction(Pkp1.dual())
     else:
         operand = TestFunction(Pk)
+        dual_arg = TrialFunction(Pkp1.dual())
 
     if mat_type == "matfree":
         interp = interpolate(operand, v)
     else:
-        adj_interp = assemble(interpolate(operand, TrialFunction(Pkp1.dual())))
+        adj_interp = assemble(interpolate(operand, dual_arg))
         if rank == 0:
             interp = action(v, adj_interp)
         else:
