@@ -262,8 +262,9 @@ class Interpolator(abc.ABC):
     """
 
     def __new__(cls, expr, V, **kwargs):
+        V_target = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
         if not isinstance(expr, ufl.Interpolate):
-            expr = interpolate(expr, V if isinstance(V, ufl.FunctionSpace) else V.function_space())
+            expr = interpolate(expr, V_target)
 
         spaces = [a.function_space() for a in expr.arguments()]
         has_mixed_spaces = any(len(space) > 1 for space in spaces)
@@ -280,10 +281,9 @@ class Interpolator(abc.ABC):
         if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
-            needs_adjoint = not isinstance(expr.arguments()[0], Coargument)
             if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 return object.__new__(SameMeshInterpolator)
-            elif has_mixed_spaces and needs_adjoint:
+            elif has_mixed_spaces or len(V_target) > 1:
                 return object.__new__(MixedInterpolator)
             else:
                 return object.__new__(CrossMeshInterpolator)
@@ -506,8 +506,6 @@ class CrossMeshInterpolator(Interpolator):
         self.src_mesh = src_mesh
         self.dest_mesh = dest_mesh
 
-        self.sub_interpolators = []
-
         # Create a VOM at the nodes of V_dest in src_mesh. We don't include halo
         # node coordinates because interpolation doesn't usually include halos.
         # NOTE: it is very important to set redundant=False, otherwise the
@@ -515,53 +513,17 @@ class CrossMeshInterpolator(Interpolator):
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
         if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
-            if all(
-                ufl_scalar_element.sub_elements[0] == e
-                for e in ufl_scalar_element.sub_elements
-            ):
-                # For a VectorElement or TensorElement the correct
-                # VectorFunctionSpace equivalent is built from the scalar
-                # sub-element.
-                ufl_scalar_element = ufl_scalar_element.sub_elements[0]
-                if ufl_scalar_element.reference_value_shape != ():
-                    raise NotImplementedError(
-                        "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
-                    )
-            else:
-                # Build and save an interpolator for each sub-element
-                # separately for MixedFunctionSpaces. NOTE: since we can't have
-                # expressions for MixedFunctionSpaces we know that the input
-                # argument ``expr`` must be a Function. V_dest can be a Function
-                # or a FunctionSpace, and subfunctions works for both.
-                if self.nargs == 1:
-                    # Arguments don't have a subfunctions property so I have to
-                    # make them myself. NOTE: this will not be correct when we
-                    # start allowing interpolators created from an expression
-                    # with arguments, as opposed to just being the argument.
-                    expr_subfunctions = [
-                        firedrake.TestFunction(V_src_sub_func)
-                        for V_src_sub_func in self.expr.function_space().subspaces
-                    ]
-                elif self.nargs > 1:
-                    raise NotImplementedError(
-                        "Can't yet create an interpolator from an expression with multiple arguments."
-                    )
-                else:
-                    expr_subfunctions = self.expr.subfunctions
-                if len(expr_subfunctions) != len(V_dest.subspaces):
-                    raise NotImplementedError(
-                        "Can't interpolate from a non-mixed function space into a mixed function space."
-                    )
-                for input_sub_func, target_subspace in zip(
-                    expr_subfunctions, V_dest.subspaces
-                ):
-                    self.sub_interpolators.append(
-                        interpolate(
-                            input_sub_func, target_subspace, subset=subset,
-                            access=access, allow_missing_dofs=allow_missing_dofs
-                        )
-                    )
-                return
+            if type(ufl_scalar_element) == finat.ufl.MixedElement:
+                raise NotImplementedError("Need a MixedInterpolator")
+
+            # For a VectorElement or TensorElement the correct
+            # VectorFunctionSpace equivalent is built from the scalar
+            # sub-element.
+            ufl_scalar_element = ufl_scalar_element.sub_elements[0]
+            if ufl_scalar_element.reference_value_shape != ():
+                raise NotImplementedError(
+                    "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
+                )
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
@@ -671,21 +633,6 @@ class CrossMeshInterpolator(Interpolator):
                 output = self.V
             else:
                 output = firedrake.Function(V_dest)
-
-        if len(self.sub_interpolators):
-            # MixedFunctionSpace case
-            for sub_interpolate, f_src_sub_func, output_sub_func in zip(
-                self.sub_interpolators, f_src.subfunctions, output.subfunctions
-            ):
-                if f_src is self.expr:
-                    # f_src is already contained in self.point_eval_interpolate,
-                    # so the sub_interpolators are already prepared to interpolate
-                    # without needing to be given a Function
-                    assert not self.nargs
-                    assemble(sub_interpolate, tensor=output_sub_func)
-                else:
-                    assemble(action(sub_interpolate, f_src_sub_func), tensor=output_sub_func)
-            return output
 
         if not adjoint:
             if f_src is self.expr:
@@ -1748,7 +1695,9 @@ class MixedInterpolator(Interpolator):
         expr = self.ufl_interpolate
         self.arguments = expr.arguments()
         rank = len(self.arguments)
-        if rank < 2:
+
+        needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
+        if needs_action:
             dual_arg, operand = expr.argument_slots()
             # Split the dual argument
             dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
@@ -1768,7 +1717,7 @@ class MixedInterpolator(Interpolator):
                 sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
             else:
                 sub_bcs = None
-            if rank < 2:
+            if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[1:]])
 
@@ -1805,8 +1754,9 @@ class MixedInterpolator(Interpolator):
 
         if rank == 1:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i, j].assemble(**kwargs) for (i, j) in self if i == k))
+                sub_tensor.assign(sum(self[i].assemble(**kwargs) for i in self if i[0] == k))
         elif rank == 2:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i, j]._interpolate(*function, adjoint=adjoint, **kwargs) for (i, j) in self if i == k))
+                sub_tensor.assign(sum(self[i]._interpolate(*function, adjoint=adjoint, **kwargs)
+                                      for i in self if i[0] == k))
         return output
