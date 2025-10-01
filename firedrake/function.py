@@ -14,7 +14,7 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from functools import partial
-from typing import Tuple
+from typing import Tuple, Optional
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -362,7 +362,7 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     def interpolate(self,
                     expression: ufl.classes.Expr,
-                    ad_block_tag: str | None = None,
+                    ad_block_tag: Optional[str] = None,
                     **kwargs):
         """Interpolate an expression onto this :class:`Function`.
 
@@ -701,13 +701,13 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: Optional[float] = None,
                  missing_points_behaviour: str = "error", redundant: bool = True) -> None:
         r"""
         Parameters
@@ -716,7 +716,7 @@ class PointEvaluator:
             The mesh on which to embed the points.
         points : numpy.ndarray | list
             Array or list of points to evaluate at.
-        tolerance : float | None
+        tolerance : Optional[float]
             Tolerance to use when checking if a point is in a cell.
             If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
         missing_points_behaviour : str
