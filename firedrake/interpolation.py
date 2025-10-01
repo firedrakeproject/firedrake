@@ -513,7 +513,7 @@ class CrossMeshInterpolator(Interpolator):
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
         if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
-            if type(ufl_scalar_element) == finat.ufl.MixedElement:
+            if type(ufl_scalar_element) is finat.ufl.MixedElement:
                 raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
 
             # For a VectorElement or TensorElement the correct
