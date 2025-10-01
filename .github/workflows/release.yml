@@ -1,24 +1,72 @@
 name: Publish release
 
 on:
-  release:
-    types: [released]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: The branch to release from
+        type: string
+        required: true
+      version:
+        description: The version number to release
+        type: string
+        required: true
 
 jobs:
-  deploy:
+  check:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.branch }}
+
+      - name: Check no 'TODO RELEASE' comments remain
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
+            exit 0
+          else
+            exit 1
+          fi
+
+      - name: Check version number matches
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( grep 'version = \"${{ inputs.version }}\"' pyproject.toml )" ]; then
+            exit 1
+          else
+            exit 0
+          fi
+
+  pypi:
     uses: ./.github/workflows/core.yml
+    needs: check
     with:
-      source_ref: release
+      source_ref: ${{ inputs.branch }}
       target_branch: release
       run_tests: false
       upload_pypi: true
     secrets: inherit
 
+  github_release:
+    name: Create GitHub release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ inputs.version }} --title ${{ inputs.version }} --generate-notes
+
   docker:
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
+    needs: pypi
     with:
-      tag: ${{ github.ref_name }}
-      branch: ${{ github.ref_name }}
-      build_dev: false
+      tag: ${{ inputs.version }}
+      branch: ${{ inputs.branch }}
     secrets: inherit

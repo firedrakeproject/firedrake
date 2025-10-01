@@ -205,6 +205,9 @@ def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, def
 class Interpolator(abc.ABC):
     """A reusable interpolation object.
 
+    This object can be used to carry out the same interpolation
+    multiple times (for example in a timestepping loop).
+
     Parameters
     ----------
     expr
@@ -249,11 +252,8 @@ class Interpolator(abc.ABC):
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
         and reduce operations.
 
-    This object can be used to carry out the same interpolation
-    multiple times (for example in a timestepping loop).
-
-    Note
-    ----
+    Notes
+    -----
 
        The :class:`Interpolator` holds a reference to the provided
        arguments (such that they won't be collected until the

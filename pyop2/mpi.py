@@ -76,8 +76,6 @@ _COMM_CIDX = count()
 _DUPED_COMM_DICT = {}
 # Flag to indicate whether we are in cleanup (at exit)
 PYOP2_FINALIZED = False
-# Flag for outputting information at the end of testing (do not abuse!)
-_running_on_ci = bool(os.environ.get('PYOP2_CI_TESTS'))
 
 
 class PyOP2CommError(ValueError):
@@ -549,12 +547,10 @@ def finalize_safe_debug():
     finished writing debug information. In this case we fall back to using the
     Python `print` function to output debugging information.
 
-    Furthermore, we always want to see this finalization information when
-    running the CI tests.
     '''
     global debug
     if PYOP2_FINALIZED:
-        if logger.level > DEBUG and not _running_on_ci:
+        if logger.level > DEBUG:
             debug = lambda string: None
         else:
             debug = lambda string: print(string)
