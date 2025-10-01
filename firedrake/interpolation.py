@@ -266,9 +266,9 @@ class Interpolator(abc.ABC):
         if not isinstance(expr, ufl.Interpolate):
             expr = interpolate(expr, V_target)
 
-        spaces = [a.function_space() for a in expr.arguments()]
-        has_mixed_spaces = any(len(space) > 1 for space in spaces)
-        if len(spaces) == 2 and has_mixed_spaces:
+        arguments = expr.arguments()
+        has_mixed_arguments = any(len(a.function_space()) > 1 for a in arguments)
+        if len(arguments) == 2 and has_mixed_arguments:
             return object.__new__(MixedInterpolator)
 
         operand, = expr.ufl_operands
@@ -283,7 +283,7 @@ class Interpolator(abc.ABC):
         else:
             if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 return object.__new__(SameMeshInterpolator)
-            elif has_mixed_spaces or len(V_target) > 1:
+            elif has_mixed_arguments or len(V_target) > 1:
                 return object.__new__(MixedInterpolator)
             else:
                 return object.__new__(CrossMeshInterpolator)
@@ -514,12 +514,12 @@ class CrossMeshInterpolator(Interpolator):
         ufl_scalar_element = V_dest.ufl_element()
         if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
             if type(ufl_scalar_element) == finat.ufl.MixedElement:
-                raise NotImplementedError("Need a MixedInterpolator")
+                raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
 
             # For a VectorElement or TensorElement the correct
             # VectorFunctionSpace equivalent is built from the scalar
             # sub-element.
-            ufl_scalar_element = ufl_scalar_element.sub_elements[0]
+            ufl_scalar_element, = set(ufl_scalar_element.sub_elements)
             if ufl_scalar_element.reference_value_shape != ():
                 raise NotImplementedError(
                     "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
@@ -865,10 +865,10 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
-            raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
+            raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+                raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
             if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
@@ -936,7 +936,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         dual_arg, operand = expr.argument_slots()
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
-        if len(V) == 1:
+        if len(arguments) == 2:
             expressions = {(0,): expr}
         elif isinstance(dual_arg, Coargument):
             # Split in the coargument
@@ -1696,6 +1696,7 @@ class MixedInterpolator(Interpolator):
         self.arguments = expr.arguments()
         rank = len(self.arguments)
 
+        # We need a Coargument in order to split the Interpolate
         needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
         if needs_action:
             dual_arg, operand = expr.argument_slots()
@@ -1705,6 +1706,7 @@ class MixedInterpolator(Interpolator):
             expr = expr._ufl_expr_reconstruct_(operand, V)
 
         Isub = {}
+        # Split in the arguments of the Interpolate
         for indices, form in firedrake.formmanipulation.split_form(expr):
             if isinstance(form, ufl.ZeroBaseForm):
                 # Ensure block sparsity
