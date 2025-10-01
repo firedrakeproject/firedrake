@@ -238,24 +238,24 @@ def test_dirichlet(rg):
 def test_burgers(solve_type, rg):
     tape = Tape()
     set_working_tape(tape)
-    n = 100
-    mesh = UnitIntervalMesh(n)
-    V = FunctionSpace(mesh, "CG", 2)
+    nx = 50
+    nt = 5
+    mesh = UnitIntervalMesh(nx)
+    V = FunctionSpace(mesh, "CG", 1)
 
-    def Dt(u, u_, timestep):
-        return (u - u_)/timestep
+    def Dt(u, u_, dt):
+        return (u - u_)/dt
 
     x, = SpatialCoordinate(mesh)
-    pr = project(sin(2*pi*x), V, annotate=False)
-    ic = Function(V).assign(pr)
+    ic = Function(V).project(sin(2*pi*x))
 
-    u_ = Function(V)
-    u = Function(V)
+    u_ = Function(V).assign(ic)
+    u = Function(V).assign(ic)
     v = TestFunction(V)
 
-    nu = Constant(0.0001)
+    nu = Constant(1/100)
 
-    timestep = Constant(1.0/n)
+    dt = Constant(1/nx)
 
     params = {
         'snes_rtol': 1e-10,
@@ -263,10 +263,9 @@ def test_burgers(solve_type, rg):
         'pc_type': 'lu',
     }
 
-    F = (Dt(u, ic, timestep)*v
+    F = (Dt(u, u_, dt)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
-    t = 0.0
 
     if solve_type == "nlvs":
         use_nlvs = True
@@ -280,39 +279,36 @@ def test_burgers(solve_type, rg):
             NonlinearVariationalProblem(F, u),
             solver_parameters=params)
 
-    if use_nlvs:
-        solver.solve()
-    else:
-        solve(F == 0, u, bc, solver_parameters=params)
-    u_.assign(u)
-    t += float(timestep)
-
-    F = (Dt(u, u_, timestep)*v
-         + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
-
-    end = 0.2
-    while (t <= end):
+    for _ in range(nt):
         if use_nlvs:
             solver.solve()
         else:
             solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
 
-        t += float(timestep)
-
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
+
     h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
-    J.block_variable.adj_value = 1.0
-    ic.block_variable.tlm_value = h
-    tape.evaluate_adj()
-    tape.evaluate_tlm()
+    print(f"{norm(h) = }")
 
-    J.block_variable.hessian_value = 0
-    tape.evaluate_hessian()
+    taylor = taylor_to_dict(Jhat, g, h)
+    from pprint import pprint
+    pprint(taylor)
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
-    dJdm = J.block_variable.tlm_value
-    Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
-    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+    # J.block_variable.adj_value = 1.0
+    # ic.block_variable.tlm_value = h
+    # tape.evaluate_adj()
+    # tape.evaluate_tlm()
+
+    # J.block_variable.hessian_value = 0
+    # tape.evaluate_hessian()
+
+    # dJdm = J.block_variable.tlm_value
+    # Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
+    # assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
