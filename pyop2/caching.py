@@ -32,7 +32,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Provides common base classes for cached objects."""
-import atexit
 import cachetools
 import functools
 import hashlib
@@ -60,9 +59,6 @@ from petsc4py import PETSc
 
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
-
-# Flag for outputting information at the end of testing (do not abuse!)
-_running_on_ci = bool(os.environ.get('PYOP2_CI_TESTS'))
 
 
 # FIXME: (Later) Remove ObjectCached
@@ -312,10 +308,6 @@ def print_cache_stats(*args, **kwargs):
         print(hline)
 
 
-if _running_on_ci:
-    print_cache_stats = atexit.register(print_cache_stats)
-
-
 class _CacheMiss:
     pass
 
@@ -488,7 +480,7 @@ class DEFAULT_CACHE(dict):
 # EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
 
 # Turn on cache measurements if printing cache info is enabled
-if configuration["print_cache_info"] or _running_on_ci:
+if configuration["print_cache_info"]:
     DEFAULT_CACHE = instrument(DEFAULT_CACHE)
     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
