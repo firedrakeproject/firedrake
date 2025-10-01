@@ -934,7 +934,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             loops.append(tensor.zero)
 
         dual_arg, operand = expr.argument_slots()
-        # Any arguments in the operand may be from a MixedFunctoinSpace
+        # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(V) == 1:
             expressions = {(0,): expr}
@@ -1701,7 +1701,7 @@ class MixedInterpolator(Interpolator):
             dual_arg, operand = expr.argument_slots()
             # Split the dual argument
             dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
-            # Create the Jacobian be split into blocks
+            # Create the Jacobian to be split into blocks
             expr = expr._ufl_expr_reconstruct_(operand, V)
 
         Isub = {}
@@ -1719,7 +1719,7 @@ class MixedInterpolator(Interpolator):
                 sub_bcs = None
             if needs_action:
                 # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[1:]])
+                form = action(form, dual_split[indices[-1:]])
 
             Isub[indices] = Interpolator(form, Vtarget, bcs=sub_bcs, **kwargs)
 

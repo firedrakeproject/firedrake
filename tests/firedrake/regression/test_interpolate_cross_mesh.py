@@ -305,9 +305,15 @@ def test_interpolate_unitsquare_mixed():
     f_src_2 = Function(V_src_2).interpolate(SpatialCoordinate(m_src))
     result_mixed = assemble(interpolate(f_src_2, V_dest))
 
+    expected_zero_form = 0
     for i in range(len(V_dest)):
         expected = assemble(interpolate(f_src_2[i], V_dest[i]))
         assert np.allclose(result_mixed.dat.data_ro[i], expected.dat.data_ro)
+
+        expected_zero_form += assemble(action(cofunc_dest.subfunctions[i], expected))
+
+    mixed_zero_form = assemble(interpolate(f_src_2, cofunc_dest))
+    assert np.isclose(mixed_zero_form, expected_zero_form)
 
 
 @pytest.mark.parallel([1, 3])
