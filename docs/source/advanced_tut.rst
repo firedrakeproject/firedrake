@@ -24,6 +24,7 @@ element systems.
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
+   Data assimilation: parallel-in-time solvers for weak constraint 4DVar.<demos/data_assimilation.py>
    1D Vlasov-Poisson equation using vertical independent function spaces.<demos/vp1d.py>
    Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
    Monolithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
