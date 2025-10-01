@@ -12,10 +12,10 @@ import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain, extract_unique_domain
+from ufl.classes import Expr
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
-from pyop2.types import Access
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -59,21 +59,10 @@ class InterpolateOptions:
         the target mesh is a :func:`.VertexOnlyMesh`.
     access : pyop2.types.access.Access, default op2.WRITE
         The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-        supported at present when interpolating across meshes unless the target
-        mesh is a :func:`.VertexOnlyMesh`.
-
-        .. note::
-            If you use an access descriptor other than ``WRITE``, the
-            behaviour of interpolation changes if interpolating into a
-            function space, or an existing function. If the former, then
-            the newly allocated function will be initialised with
-            appropriate values (e.g. for MIN access, it will be initialised
-            with MAX_FLOAT). On the other hand, if you provide a function,
-            then it is assumed that its values should take part in the
-            reduction (hence using MIN will compute the MIN between the
-            existing values and any new values).
-
+        DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``. 
+        Only ``WRITE`` is supported at present when interpolating across meshes 
+        unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is 
+        supported for the matrix-free adjoint interpolation.
     allow_missing_dofs : bool, default False
         For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
         in the target mesh that cannot be defined on the source mesh.
@@ -98,7 +87,7 @@ class InterpolateOptions:
         and reduce operations.
     """
     subset: op2.Subset | None = None
-    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] = op2.WRITE
+    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
     matfree: bool = True
@@ -106,7 +95,7 @@ class InterpolateOptions:
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, V, **kwargs):
+    def __init__(self, expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs):
         """Symbolic representation of the interpolation operator.
 
         Parameters
@@ -125,13 +114,20 @@ class Interpolate(ufl.Interpolate):
             expr_args = extract_arguments(ufl.as_ufl(expr))
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
             V = Argument(V.dual(), 1 if is_adjoint else 0)
+
+        target_shape = V.arguments()[0].function_space().value_shape
+        if expr.ufl_shape != target_shape:
+            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {target_shape}.")
+
         super().__init__(expr, V)
 
         self._options = InterpolateOptions(**kwargs)
 
     function_space = ufl.Interpolate.ufl_function_space
 
-    def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
+    def _ufl_expr_reconstruct_(
+            self, expr: Expr, v: WithGeometry | ufl.BaseForm | None = None, **interp_data
+    ):
         interp_data = interp_data or asdict(self.options)
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
@@ -141,7 +137,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, **kwargs):
+def interpolate(expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     Parameters
@@ -188,12 +184,8 @@ class Interpolator(abc.ABC):
         # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
         # self.ufl_interpolate (which carries the dual argument).
         # See github issue https://github.com/firedrakeproject/firedrake/issues/4592
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(operand) or target_mesh
-        vom_onto_other_vom = ((source_mesh is not target_mesh)
-                              and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                              and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
-        if not isinstance(self, SameMeshInterpolator) or vom_onto_other_vom:
+
+        if isinstance(self, CrossMeshInterpolator | VomOntoVomInterpolator):
             # For bespoke interpolation, we currently rely on different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
             # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
@@ -222,7 +214,13 @@ class Interpolator(abc.ABC):
         access = self.options.access
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            self.options.access = op2.INC
+            if access and access != op2.INC:
+                raise ValueError("Matfree adjoint interpolation requires INC access")
+            access = op2.INC
+        elif access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            access = op2.WRITE
+        self.options.access = access
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -269,7 +267,7 @@ class Interpolator(abc.ABC):
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint)
 
 
-def _get_interpolator(expr: Interpolate, V) -> Interpolator:
+def _get_interpolator(expr: Interpolate | Expr, V) -> Interpolator:
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
     submesh_interp_implemented = \
@@ -689,7 +687,7 @@ class SameMeshInterpolator(Interpolator):
         return f, tensor
 
     def _get_callable(self):
-        expr = self.ufl_interpolate_renumbered
+        expr = self.ufl_interpolate
         dual_arg, operand = expr.argument_slots()
         arguments = expr.arguments()
         rank = len(arguments)
