@@ -171,6 +171,12 @@ class ExtractSubBlock(MultiFunction):
         bcs = ()
         return AssembledMatrix(tuple(args), bcs, submat)
 
+    def interpolate(self, o, operand):
+        if isinstance(operand, Zero):
+            return ZeroBaseForm(o.arguments())
+
+        return o._ufl_expr_reconstruct_(operand)
+
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 

@@ -1767,8 +1767,8 @@ class MixedInterpolator(Interpolator):
             for j, sub_interp in firedrake.formmanipulation.split_form(form):
                 j = max(j) if j else 0
                 # Ensure block sparsity
-                vi, operand = sub_interp.argument_slots()
-                if not isinstance(operand, ufl.classes.Zero):
+                if not isinstance(sub_interp, ufl.ZeroBaseForm):
+                    vi, operand = sub_interp.argument_slots()
                     Vtarget = vi.function_space().dual()
                     adjoint = vi.number() == 1 if isinstance(vi, Coargument) else True
 
@@ -1780,9 +1780,9 @@ class MixedInterpolator(Interpolator):
                     Isub = Interpolator(sub_interp, Vtarget, bcs=sub_bcs, **kwargs)
                     self.sub_interpolators[indices] = Isub
 
-        self.callable = self._callable
+        self.callable = self._get_callable
 
-    def _callable(self):
+    def _get_callable(self):
         """Assemble the operator."""
         shape = tuple(len(a.function_space()) for a in self.arguments)
         Isubs = self.sub_interpolators
