@@ -1,5 +1,4 @@
-# UNDO ME, use a unique name so I can trigger it
-name: Publish release (testing)
+name: Publish release
 
 on:
   workflow_call:
