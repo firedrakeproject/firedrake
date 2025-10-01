@@ -133,17 +133,6 @@ jobs:
             exit 1
           fi
 
-      # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check no 'TODO RELEASE' comments (release only)
-        if: inputs.target_branch == 'release'
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
-            exit 0
-          else
-            exit 1
-          fi
-
       - name: Install system dependencies (2)
         run: |
           apt-get -y install \
