@@ -575,9 +575,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Get the target space
             V = v.function_space().dual()
 
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
             interpolator = _get_interpolator(expr, V)
