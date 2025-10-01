@@ -1,8 +1,7 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
-# TODO RELEASE: remove '.dev0'
-version = "2025.4.3.dev0"
+version = "2025.4.3"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -20,9 +19,8 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "fenics-ufl>=2025.1.0",
-  # TODO RELEASE
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@release",
+  "fenics-ufl==2025.1.0",
+  "firedrake-fiat==2025.4.2",
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
@@ -31,7 +29,7 @@ dependencies = [
   "packaging",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.04.1",
+  "pyadjoint-ad==2025.04.1",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -88,7 +86,7 @@ jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc",
+  "ngsPETSc==0.1.0",
 ]
 slepc = [
   "slepc4py==3.23.2",
@@ -105,7 +103,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc",
+  "ngsPETSc==0.1.0",
   "pdf2image",
   "pygraphviz",
   "pylit",
