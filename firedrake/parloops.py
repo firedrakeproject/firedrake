@@ -691,26 +691,33 @@ def _needs_static_permutation(element) -> bool:
 
 
 def construct_switch_statement(self, mats, n, args, var_list):
-    # string = ["\nswitch (*dim) { \n"] (INDIA NOTE removing for now)
-    string = []
+    string = ["\nswitch (d) { \n"] #(INDIA NOTE removing for now)
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
+    indent = 0
     for dim in range(len(closure_sizes)):
-        # string += f"case {dim}:\n "
-        # string += ["\nswitch (*i) { \n"]
+        string += f"case {dim}:\n "
+        indent += 1
+        string += indent*"\t" + f"o_val = o[i + closure_size_acc]; \n "
+        string += [indent*"\t" + "switch (i) { \n"]
+        indent += 1
         for i in range(closure_sizes[dim]):
-            # string += f"case {i}:\n "
-            string += ["\nswitch (*o) { \n"]
+            string += indent*"\t" + f"case {i}:\n "
+            string += indent*"\t" + "switch (o_val) { \n"
+            indent += 1
             for val in sorted(mats[dim][i].keys()):
-                string += f"case {val}:\n "
+                string += indent*"\t" + f"case {val}:\n "
                 matname = f"mat{dim}_{i}_{val}"
-                string += f"a = {matname};break;\n"
+                string += indent*"\t" + f"a = {matname};break;\n"
                 var_list += [matname]
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
                 args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
-            string += "default:\n break;\n }"
-        # string += "default:\n break;\n }"
-    # string += "default:\n break;\n }"
+            indent -= 1
+            string += indent*"\t" + "default: break;}\n"
+        indent -= 1
+
+        string += indent*"\t" + "default: break; }\n"
+    string += "default: break; }\n"
     return string, args, var_list
 
 
@@ -737,20 +744,25 @@ def fuse_orientations(space: WithGeometry):
         t_dim = fs.ufl_element().cell._tdim
         os = mats[t_dim][0]
         n = os[next(iter(os.keys()))].shape[0]
+        closures_dict = space._mesh._closure_sizes[space._mesh.dimension]
+        closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
         child_knl = loopy.make_function(
             f"{{[i, j]:0<=i, j < {n}}}",
             """
                 res[j] =  res[j] + a[i, j]*b[i]
             """, name="matmul", target=loopy.CWithGNULibcTarget())
-        # args = [loopy.GlobalArg("d", dtype=np.uint8, shape=(1,)),
-        args = [loopy.GlobalArg("o", dtype=np.uint8, shape=(1,)),
+        #loopy.ValueArg("closure_size_acc", dtype=np.uint8),
+        args = [loopy.ValueArg("d", dtype=utils.IntType),
+                loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
+                loopy.ValueArg("o_val", dtype=utils.IntType),
+                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures))),
                 loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n)),
                 loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, )),
                 loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,)),]
 
-        var_list = ["o"]
+        var_list = ["o", "d", "i", "o_val"]
         string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
-        transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+        transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign")
 
         parent_knl = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
@@ -760,17 +772,29 @@ def fuse_orientations(space: WithGeometry):
             target=loopy.CWithGNULibcTarget())
         # INDIA NOTE: I removed this, this should be hard-code-able
         # args[0] = loopy.GlobalArg("closure_sizes", dtype=np.uint8, shape=(space._mesh.dimension, 1))
-        loop_knl = loopy.make_kernel(
-            f"{{[i]:0<= i < {space._mesh.dimension}}}",
-            # ["a[:,:], res[:] = switch_on_o(closure_sizes[i, :], o[:], a[:, :], b[:], res[:])"],
-            ["a[:,:], res[:] = switch_on_o(o[:], a[:, :], b[:], res[:])"],
-            kernel_data=args[:4],
+        #closure_insn = loopy.CInstruction(tuple(), f"closure_sizes = {[closures[c] for c in sorted(closures.keys())]}", assignees=("closure_sizes")
+        closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
+        #d_arg = [loopy.TemporaryVariable("d", initializer=None,shape=(1,), dtype=utils.IntType, address_space=loopy.AddressSpace(1))]
+        loop_knl1 = loopy.make_function(
+            f"{{[i]:0<= i <= {space._mesh.dimension}}}",
+            ["d = closure_sizes[i] {id=closure}",
+             "a[:,:], res[:] = switch_on_o(d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
+             "closure_size_acc = closure_size_acc + d {dep=switch}"],
+            name="loop_over_dims",
+            kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
-        knl = loopy.merge([loop_knl, parent_knl, child_knl])
-        # print(lp.generate_code_v2(knl).device_code())
-        # print(knl)
+        loop_knl2 = loopy.make_kernel(
+            "{:}",
+            ["a[:,:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:])"],
+            kernel_data = args[3:7],
+            target=loopy.CWithGNULibcTarget())
 
+        knl = loopy.merge([loop_knl2, loop_knl1, parent_knl, child_knl])
+        
+        print(loopy.generate_code_v2(knl).device_code())
+        print(knl)
+        #breakpoint()
         transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform, (n,)
     else:
