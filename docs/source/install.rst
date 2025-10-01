@@ -62,7 +62,7 @@ firedrake-configure
 To simplify the installation process, Firedrake provides a utility script called
 ``firedrake-configure``. This script can be downloaded by executing::
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/2025.4.2/scripts/firedrake-configure
+  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
 
 Unlike the now deprecated ``firedrake-install`` script, ``firedrake-configure``
 **does not install Firedrake for you**. It is simply a helper script that emits
