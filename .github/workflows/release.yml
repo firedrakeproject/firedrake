@@ -58,10 +58,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create ${{ inputs.version }} --title ${{ inputs.version }} --generate-notes
+        run: gh release create --title ${{ inputs.version }} --target ${{ inputs.branch }} --generate-notes ${{ inputs.version }}
 
   docker:
     name: Build Docker containers
