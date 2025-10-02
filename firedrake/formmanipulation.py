@@ -183,9 +183,12 @@ class ExtractSubBlock(MultiFunction):
         bcs = ()
         return AssembledMatrix(tuple(args), bcs, submat)
 
+    def zero_base_form(self, o):
+        return ZeroBaseForm(tuple(map(self, o.arguments())))
+
     def interpolate(self, o, operand):
         if isinstance(operand, Zero):
-            return ZeroBaseForm(o.arguments())
+            return self(ZeroBaseForm(o.arguments()))
 
         dual_arg, _ = o.argument_slots()
         V = dual_arg.function_space()
@@ -211,7 +214,7 @@ class ExtractSubBlock(MultiFunction):
         components = [operand[i] for i in cindices]
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
-            return ZeroBaseForm(o.arguments())
+            return self(ZeroBaseForm(o.arguments()))
 
         return o._ufl_expr_reconstruct_(operand, dual_arg)
 

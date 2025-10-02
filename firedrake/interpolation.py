@@ -933,7 +933,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         if access == op2.INC:
             loops.append(tensor.zero)
 
-        dual_arg, operand = expr.argument_slots()
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(arguments) == 2:
@@ -956,13 +955,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
             sub_tensor = tensor[indices[0]] if rank == 1 else tensor
-            if isinstance(sub_expr, ufl.ZeroBaseForm):
-                if access == op2.WRITE:
-                    loops.append(sub_tensor.zero)
-                continue
-            arguments = sub_expr.arguments()
-            sub_space = sub_expr.argument_slots()[0].function_space().dual()
-            loops.extend(_interpolator(sub_space, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+            loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
 
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
@@ -976,10 +969,21 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
 
 @utils.known_pyop2_safe
-def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
+def _interpolator(tensor, expr, subset, access, bcs=None):
+    if isinstance(expr, ufl.ZeroBaseForm):
+        if access is op2.INC:
+            return ()
+        elif access is op2.WRITE:
+            return (tensor.zero,)
+        V = expr.arguments()[-1].function_space().dual()
+        expr = interpolate(ufl.zero(V.value_shape), V)
+
     if not isinstance(expr, ufl.Interpolate):
         raise ValueError("Expecting to interpolate a ufl.Interpolate")
+
+    arguments = expr.arguments()
     dual_arg, operand = expr.argument_slots()
+    V = dual_arg.function_space().dual()
 
     try:
         to_element = create_element(V.ufl_element())
