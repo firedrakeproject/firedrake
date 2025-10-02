@@ -413,7 +413,7 @@ class Interpolator(abc.ABC):
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                default_missing_val=default_missing_val)
+                                         default_missing_val=default_missing_val)
 
 
 class DofNotDefinedError(Exception):
