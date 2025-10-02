@@ -974,7 +974,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         if access is op2.INC:
             return ()
         elif access is op2.WRITE:
-            return (tensor.zero,)
+            return (partial(tensor.zero, subset=subset),)
         V = expr.arguments()[-1].function_space().dual()
         expr = interpolate(ufl.zero(V.value_shape), V)
 
