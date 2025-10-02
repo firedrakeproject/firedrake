@@ -27,18 +27,22 @@ def _get_expr(V):
         return as_vector([cos(x), sin(y)])
 
 
-def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
+def make_submesh(mesh, subdomain_cond, label_value):
     dim = mesh.topological_dimension()
-    (family, degree), (family_sub, degree_sub) = fe_fesub
     DG0 = FunctionSpace(mesh, "DG", 0)
     indicator_function = Function(DG0).interpolate(subdomain_cond)
-    label_value = 999
     mesh.mark_entities(indicator_function, label_value)
-    msub = Submesh(mesh, dim, label_value)
+    return Submesh(mesh, dim, label_value)
+
+
+def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
+    (family, degree), (family_sub, degree_sub) = fe_fesub
+    label_value = 999
+    subm = make_submesh(mesh, subdomain_cond, label_value)
     V = FunctionSpace(mesh, family, degree)
     V_ = FunctionSpace(mesh, family_sub, degree_sub)
-    Vsub = FunctionSpace(msub, family_sub, degree_sub)
-    Vsub_ = FunctionSpace(msub, family, degree)
+    Vsub = FunctionSpace(subm, family_sub, degree_sub)
+    Vsub_ = FunctionSpace(subm, family, degree)
     f = Function(V).interpolate(_get_expr(V))
     gsub_ = Function(Vsub_).interpolate(_get_expr(Vsub_))
     gsub = Function(Vsub).interpolate(gsub_)
@@ -166,3 +170,179 @@ def test_submesh_interpolate_subcell_subcell_2_processes():
     f_r = assemble(action(A, f_l))
     g_r = Function(V_r).interpolate(conditional(x < 2.001, 3.0, 0.0))
     assert np.allclose(f_r.dat.data_with_halos, g_r.dat.data_with_halos)
+
+
+@pytest.mark.parallel(nprocs=5)
+@pytest.mark.parametrize('hexahedral', [False, True])
+@pytest.mark.parametrize('direction', ['x', 'y', 'z'])
+@pytest.mark.parametrize('facet_type', ['interior', 'exterior'])
+def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
+    def expr(m):
+        x, y, z = SpatialCoordinate(m)
+        return x + y**2 + z**3
+    degree = 3
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    if hexahedral:
+        mesh = Mesh(
+            join(cwd, "..", "meshes", "cube_hex.msh"),
+            distribution_parameters=distribution_parameters,
+        )
+        V = FunctionSpace(mesh, "CG", 2)
+    else:
+        mesh = UnitCubeMesh(8, 8, 8)
+        V = FunctionSpace(mesh, "HDiv Trace", 0)
+    x, y, z = SpatialCoordinate(mesh)
+    facet_function = Function(V).interpolate(
+        conditional(
+            {
+                ('x', 'interior'): And(x > .499, x < .501),
+                ('y', 'interior'): And(y > .499, y < .501),
+                ('z', 'interior'): And(z > .499, z < .501),
+                ('x', 'exterior'): x > .999,
+                ('y', 'exterior'): y > .999,
+                ('z', 'exterior'): z > .999,
+            }[(direction, facet_type)],
+            1., 0.,
+        )
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    DG3d = FunctionSpace(mesh, "DG", degree)
+    dg3d = Function(DG3d).interpolate(expr(mesh))
+    DG2d = FunctionSpace(subm, "DG", degree)
+    dg2d = Function(DG2d).interpolate(expr(subm))
+    value3d_int = assemble(inner(dg3d('+'), dg3d('-')) * dS(facet_value))
+    value3d_ext = assemble(inner(dg3d, dg3d) * ds(facet_value))
+    value2d = assemble(inner(dg2d, dg2d) * dx)
+    assert abs(value2d - (value3d_int + value3d_ext)) < 1.e-14
+    if facet_type == 'exterior':
+        x, y, z = SpatialCoordinate(subm)
+        RT2d = FunctionSpace(subm, "RTCE" if hexahedral else "RTE", 4)
+        tangent_expr = {
+            'x': as_vector([0, y**2, z**3]),
+            'y': as_vector([x, 0, z**3]),
+            'z': as_vector([x, y**2, 0]),
+        }[direction]
+        rt2d = Function(RT2d).project(
+            tangent_expr,
+            solver_parameters={
+                "ksp_rtol": 1.e-14,
+            },
+        )
+        error_expr = rt2d - tangent_expr
+        error = assemble(inner(error_expr, error_expr) * dx)**0.5
+        assert abs(error) < 1.e-14
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
+    # The usage of sckelton meshes is limited as
+    # number of support cells of a facet can be > 2.
+    # We can not make sckelton mesh of hex meshes as,
+    # already in the quad orientation implementation,
+    # we assume that number of support cells <= 2.
+    def expr(m):
+        x, y, z = SpatialCoordinate(m)
+        return x + y**2 + z**3
+    degree = 3
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh = UnitCubeMesh(8, 8, 8, distribution_parameters=distribution_parameters)
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_function = Function(V).interpolate(Constant(1.))
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    HDivT3d = FunctionSpace(mesh, "HDiv Trace", degree)
+    hdivt3d = Function(HDivT3d).interpolate(expr(mesh))
+    DG2d = FunctionSpace(subm, "DG", degree)
+    dg2d = Function(DG2d).interpolate(expr(subm))
+    value3d_int = assemble(inner(hdivt3d('+'), hdivt3d('-')) * dS(facet_value))
+    value3d_ext = assemble(inner(hdivt3d, hdivt3d) * ds(facet_value))
+    value2d = assemble(inner(dg2d, dg2d) * dx)
+    assert abs(value2d - (value3d_int + value3d_ext)) < 5.e-13
+    DG3d = FunctionSpace(mesh, "DG", degree)
+    dg3d = Function(DG3d).interpolate(expr(mesh))
+    dg2d_ = Function(DG2d).interpolate(dg3d)
+    error = assemble(inner(dg2d_ - expr(subm), dg2d_ - expr(subm)) * dx)**0.5
+    assert abs(error) < 1.e-14
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize('fe_fesub', [[("DG", 2), ("DG", 1)],
+                                      [("CG", 3), ("CG", 2)]])
+def test_submesh_interpolate_adjoint(fe_fesub):
+    (family, degree), (family_sub, degree_sub) = fe_fesub
+
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    subdomain_cond = conditional(And(LT(x, 0.5), LT(y, 0.5)), 1, 0)
+    label_value = 999
+    subm = make_submesh(mesh, subdomain_cond, label_value)
+
+    V1 = FunctionSpace(subm, family_sub, degree_sub)
+    V2 = FunctionSpace(mesh, family, degree)
+
+    x, y = SpatialCoordinate(V1.mesh())
+    expr = x * y
+    u1 = Function(V1).interpolate(expr)
+    ustar2 = assemble(inner(1, TestFunction(V2))*dx(label_value))
+
+    expected = assemble(inner(1, u1)*dx(label_value))
+
+    # Test forward 2-form
+    I = assemble(interpolate(TrialFunction(V1), TestFunction(V2.dual()), allow_missing_dofs=True))
+    assert I.arguments()[0].function_space() == V2.dual()
+    assert I.arguments()[1].function_space() == V1
+
+    result_forward_2 = assemble(action(ustar2, action(I, u1)))
+    assert np.isclose(result_forward_2, expected)
+
+    # Test adjoint 2-form
+    I_adj = assemble(interpolate(TestFunction(V1), TrialFunction(V2.dual()), allow_missing_dofs=True))
+    assert I_adj.arguments()[0].function_space() == V1
+    assert I_adj.arguments()[1].function_space() == V2.dual()
+
+    result_adjoint_2 = assemble(action(action(I_adj, ustar2), u1))
+    assert np.isclose(result_adjoint_2, expected)
+
+    # Test forward 1-form (only works in serial for continuous elements)
+    # Matfree forward interpolation with Submesh currently fails in parallel.
+    # The ghost nodes of the parent mesh may be redistributed
+    # into different processes as non-ghost dofs of the submesh.
+    # The submesh kernel will write into ghost nodes of the parent mesh,
+    # but this will be ignored in the halo exchange if access=op2.WRITE.
+
+    # See https://github.com/firedrakeproject/firedrake/issues/4483
+    expected_to_pass = (V2.comm.size == 1 or V2.finat_element.is_dg())
+
+    Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
+    assert Iu1.function_space() == V2
+
+    expected_primal = assemble(action(I, u1))
+    test1 = np.allclose(Iu1.dat.data, expected_primal.dat.data)
+    assert test1 or not expected_to_pass
+
+    result_forward_1 = assemble(action(ustar2, Iu1))
+    test0 = np.isclose(result_forward_1, expected)
+    assert test0 or not expected_to_pass
+
+    # Test adjoint 1-form
+    ustar2I = assemble(interpolate(TestFunction(V1), ustar2, allow_missing_dofs=True))
+    assert ustar2I.function_space() == V1.dual()
+
+    expected_dual = assemble(action(I_adj, ustar2))
+    assert np.allclose(ustar2I.dat.data, expected_dual.dat.data)
+
+    result_adjoint_1 = assemble(action(ustar2I, u1))
+    assert np.isclose(result_adjoint_1, expected)
+
+    # Test 0-form
+    result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
+    assert np.isclose(result_0, expected)

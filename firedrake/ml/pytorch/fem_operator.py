@@ -18,11 +18,10 @@ except ImportError:
 import collections
 from functools import partial
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.vector import Vector
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -83,7 +82,7 @@ class FiredrakeTorchOperator(torch.autograd.Function):
             adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
-        adj_output = F.derivative(adj_input=adj_input, options={"riesz_representation": None})
+        adj_output = F.derivative(adj_input=adj_input)
 
         # Tuplify adjoint output
         adj_output = (adj_output,) if not isinstance(adj_output, collections.abc.Sequence) else adj_output
@@ -107,8 +106,8 @@ def fem_operator(F):
     firedrake.ml.pytorch.fem_operator.FiredrakeTorchOperator
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2023")
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2023")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
@@ -134,7 +133,7 @@ def _extract_function_space(x):
 
     Parameters
     ----------
-    x : float, firedrake.function.Function or firedrake.vector.Vector
+    x : float or firedrake.function.Function
         Firedrake object from which to extract the function space.
 
     Returns
@@ -144,8 +143,6 @@ def _extract_function_space(x):
     """
     if isinstance(x, (Function, Cofunction)):
         return x.function_space()
-    elif isinstance(x, Vector):
-        return _extract_function_space(x.function)
     elif isinstance(x, float):
         return None
     else:
@@ -157,7 +154,7 @@ def to_torch(x, gather=False, batched=True, **kwargs):
 
     Parameters
     ----------
-    x : firedrake.function.Function, firedrake.vector.Vector or firedrake.constant.Constant
+    x : firedrake.function.Function or firedrake.constant.Constant
         Firedrake object to convert.
     gather : bool
              If True, gather data from all processes
@@ -174,13 +171,13 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     torch.Tensor
         PyTorch tensor representing the Firedrake object `x`.
     """
-    if isinstance(x, (Function, Cofunction, Vector)):
+    if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = torch.tensor(x.vector().gather(), **kwargs)
+            x_P = torch.tensor(x.dat.global_data, **kwargs)
         else:
             # Use local data
-            x_P = torch.tensor(x.vector().get_local(), **kwargs)
+            x_P = torch.tensor(x.dat.data_ro, **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to PyTorch
             return x_P[None, :]
@@ -220,7 +217,5 @@ def from_torch(x, V=None):
             val = val[0]
         return Constant(val)
     else:
-        x = x.detach().numpy()
-        x_F = Function(V)
-        x_F.vector().set_local(x)
+        x_F = Function(V, val=x.detach().numpy())
         return x_F

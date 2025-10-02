@@ -18,6 +18,7 @@ import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
+from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -230,34 +231,36 @@ class ExprAssembler(object):
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
                 if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
-                return get_assembler(ufl.FormSum((a, 1), (b, 1))).assemble()
+                return assemble(ufl.FormSum((a, 1), (b, 1)), tensor=tensor)
             elif isinstance(expr, ufl.algebra.Product):
                 a, b = expr.ufl_operands
                 scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
                 if scalar:
                     base_form = a if a is scalar else b
                     assembled_mat = assemble(base_form)
-                    return get_assembler(ufl.FormSum((assembled_mat, scalar[0]))).assemble()
+                    return assemble(ufl.FormSum((assembled_mat, scalar[0])), tensor=tensor)
                 a, b = [assemble(e) for e in (a, b)]
-                return get_assembler(ufl.action(a, b)).assemble()
+                return assemble(ufl.action(a, b), tensor=tensor)
         # -- Linear combination of Functions and 1-form BaseFormOperators -- #
         # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
         # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
         else:
             base_form_operators = extract_base_form_operators(expr)
-            assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
             # Substitute base form operators with their output before examining the expression
             # which avoids conflict when determining function space, for example:
             # extract_coefficients(Interpolate(u, V2)) with u \in V1 will result in an output function space V1
             # instead of V2.
             if base_form_operators:
-                expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
-            try:
-                coefficients = ufl.algorithms.extract_coefficients(expr)
-                V, = set(c.function_space() for c in coefficients) - {None}
-            except ValueError:
-                raise ValueError("Cannot deduce correct target space from pointwise expression")
-            return firedrake.Function(V).assign(expr)
+                assembled_bfops = {e: firedrake.assemble(e) for e in base_form_operators}
+                expr = ufl.replace(expr, assembled_bfops)
+            if tensor is None:
+                try:
+                    coefficients = ufl.algorithms.extract_coefficients(expr)
+                    V, = set(c.function_space() for c in coefficients) - {None}
+                except ValueError:
+                    raise ValueError("Cannot deduce correct target space from pointwise expression")
+                tensor = firedrake.Function(V)
+            return tensor.assign(expr)
 
 
 class AbstractFormAssembler(abc.ABC):
@@ -511,9 +514,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if all(isinstance(op, numbers.Complex) for op in args):
                 result = sum(weight * arg for weight, arg in zip(weights, args))
                 return tensor.assign(result) if tensor else result
-            elif all(isinstance(op, firedrake.Cofunction) for op in args):
+            elif (all(isinstance(op, firedrake.Cofunction) for op in args)
+                    or all(isinstance(op, firedrake.Function) for op in args)):
                 V, = set(a.function_space() for a in args)
-                result = tensor if tensor else firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Function(V)
                 result.dat.maxpy(weights, [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
@@ -553,61 +557,57 @@ class BaseFormAssembler(AbstractFormAssembler):
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
-            _, expression = expr.argument_slots()
-            v, *assembled_expression = args
-            if assembled_expression:
+            _, operand = expr.argument_slots()
+            v, *assembled_operand = args
+            if assembled_operand:
                 # Occur in situations such as Interpolate composition
-                expression = assembled_expression[0]
-            expr = expr._ufl_expr_reconstruct_(expression, v)
+                operand = assembled_operand[0]
 
-            # Different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
-            # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-            # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-            # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
-            # This can be generalized to the case where the first slot is an arbitray expression.
+            reconstruct_interp = expr._ufl_expr_reconstruct_
+            if (v, operand) != expr.argument_slots():
+                expr = reconstruct_interp(operand, v=v)
+
             rank = len(expr.arguments())
+            if rank > 2:
+                raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             # If argument numbers have been swapped => Adjoint.
-            arg_expression = ufl.algorithms.extract_arguments(expression)
-            is_adjoint = (arg_expression and arg_expression[0].number() == 0)
-            # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-            if not is_adjoint and rank != 1:
-                _, v1 = expr.arguments()
-                expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
-            # Get the interpolator
-            interp_data = expr.interp_data
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
-            # Assembly
-            if rank == 1:
-                # Assembling the action of the Jacobian adjoint.
-                if is_adjoint:
-                    output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
-                # Assembling the Jacobian action.
-                if interpolator.nargs:
-                    return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
-                # Assembling the operator
-                if tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
-                return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
-            elif rank == 2:
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                # Get the interpolation matrix
-                op2_mat = interpolator.callable()
-                petsc_mat = op2_mat.handle
-                if is_adjoint:
-                    # Out-of-place Hermitian transpose
-                    petsc_mat.hermitianTranspose(out=res)
-                else:
-                    # Copy the interpolation matrix into the output tensor
-                    petsc_mat.copy(result=res)
-                if tensor is None:
-                    tensor = self.assembled_matrix(expr, res)
+            arg_operand = ufl.algorithms.extract_arguments(operand)
+            is_adjoint = (arg_operand and arg_operand[0].number() == 0)
+
+            # Get the target space
+            V = v.function_space().dual()
+
+            # Dual interpolation from mixed source
+            if is_adjoint and len(V) > 1:
+                cur = 0
+                sub_operands = []
+                components = numpy.reshape(operand, (-1,))
+                for Vi in V:
+                    sub_operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
+                    cur += Vi.value_size
+
+                # Component-split of the primal operands interpolated into the dual argument-split
+                split_interp = sum(reconstruct_interp(sub_operands[i], v=vi) for (i,), vi in split_form(v))
+                return assemble(split_interp, tensor=tensor)
+
+            # Dual interpolation into mixed target
+            if is_adjoint and len(arg_operand[0].function_space()) > 1 and rank == 1:
+                V = arg_operand[0].function_space()
+                tensor = tensor or firedrake.Cofunction(V.dual())
+
+                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
+                for (i,), sub_interp in split_form(expr):
+                    assemble(sub_interp, tensor=tensor.subfunctions[i])
                 return tensor
-            else:
-                # The case rank == 0 is handled via the DAG restructuring
-                raise ValueError("Incompatible number of arguments.")
+
+            # Get the interpolator
+            interp_data = expr.interp_data.copy()
+            default_missing_val = interp_data.pop('default_missing_val', None)
+            if rank == 1 and isinstance(tensor, firedrake.Function):
+                V = tensor
+            interpolator = firedrake.Interpolator(expr, V, **interp_data)
+            # Assembly
+            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -817,7 +817,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 replace_map = {arg: left}
                 # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
                 other_args = [a for a in right.arguments() if a is not arg]
-                new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
+                new_args = [a.reconstruct(number=a.number()-1) for a in other_args]
                 replace_map.update(dict(zip(other_args, new_args)))
                 # Replace arguments
                 return ufl.replace(right, replace_map)
@@ -828,13 +828,13 @@ class BaseFormAssembler(AbstractFormAssembler):
             u, v = B.arguments()
             # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
             # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
-                                   firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
+            reordered_arguments = {u: u.reconstruct(number=v.number()),
+                                   v: v.reconstruct(number=u.number())}
             # Replace arguments in argument slots
-            return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
+            return ufl.replace(B, reordered_arguments)
 
         # -- Case (5) -- #
-        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
+        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and len(expr.arguments()) == 0:
             # We are assembling a BaseFormOperator of rank 0 (no arguments).
             # B(f, u*) be a BaseFormOperator with u* a Cofunction and f a Coefficient, then:
             #    B(f, u*) <=> Action(B(f, v*), f) where v* is a Coargument
@@ -962,10 +962,6 @@ class FormAssembler(AbstractFormAssembler):
 
     def __init__(self, form, bcs=None, form_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
-        # Ensure mesh is 'initialised' as we could have got here without building a
-        # function space (e.g. if integrating a constant).
-        for mesh in form.ufl_domains():
-            mesh.init()
         if any(c.dat.dtype != ScalarType for c in form.coefficients()):
             raise ValueError("Cannot assemble a form containing coefficients where the "
                              "dtype is not the PETSc scalar type.")
@@ -1234,7 +1230,7 @@ class OneFormAssembler(ParloopFormAssembler):
             else:
                 # The residual belongs to a mixed space that is dual on the boundary nodes
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
-                r = tensor.riesz_representation("l2")
+                r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)

@@ -62,12 +62,11 @@ firedrake-configure
 To simplify the installation process, Firedrake provides a utility script called
 ``firedrake-configure``. This script can be downloaded by executing::
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
+  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/main/scripts/firedrake-configure
 
-Unlike the now deprecated ``firedrake-install`` script, ``firedrake-configure``
-**does not install Firedrake for you**. It is simply a helper script that emits
-the configuration options that Firedrake needs for the various steps needed
-during installation.
+Note that ``firedrake-configure`` **does not install Firedrake for you**. It
+is simply a helper script that emits the configuration options that Firedrake
+needs for the various steps needed during installation.
 
 To improve robustness, ``firedrake-configure`` is intentionally kept extremely
 minimal and simple. This means that if you want to install Firedrake in a
@@ -257,6 +256,12 @@ Updating Firedrake involves following the same steps as above when
 to set the right environment variables and then run::
 
      $ pip install --upgrade firedrake
+
+Previously generated code may not be compatible with a newer
+Firedrake installation, and may crash with cryptic messages.
+We recommend removing any cached code after updating by running::
+
+     $ firedrake-clean
 
 Updating PETSc
 ~~~~~~~~~~~~~~

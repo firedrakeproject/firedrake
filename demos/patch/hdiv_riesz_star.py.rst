@@ -39,8 +39,9 @@ Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, her
 Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions. ::
 
 
-  def mg_params(relax):
+  def mg_params(relax, mat_type="aij"):
       return {
+          "mat_type": mat_type,
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
@@ -49,6 +50,7 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
               **relax
           },
           "mg_coarse": {
+              "mat_type": "aij",
               "ksp_type": "preonly",
               "pc_type": "cholesky"
           }

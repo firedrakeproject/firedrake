@@ -21,12 +21,11 @@ import numpy as np
 from functools import partial
 from typing import Union, Optional
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.vector import Vector
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -92,7 +91,7 @@ class FiredrakeJaxOperator:
             adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
-        adj_output = self.F.derivative(adj_input=adj_input, options={'riesz_representation': None})
+        adj_output = self.F.derivative(adj_input=adj_input, apply_riesz=False)
 
         # Tuplify adjoint output
         adj_output = (adj_output,) if not isinstance(adj_output, collections.abc.Sequence) else adj_output
@@ -115,7 +114,7 @@ def fem_operator(F: ReducedFunctional) -> FiredrakeJaxOperator:
     firedrake.ml.jax.fem_operator.FiredrakeJaxOperator
         A JAX custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
@@ -126,7 +125,7 @@ def fem_operator(F: ReducedFunctional) -> FiredrakeJaxOperator:
     return partial(FiredrakeJaxOperator.forward, jax_op)
 
 
-def _extract_function_space(x: Union[float, Function, Vector]) -> Union[WithGeometry, None]:
+def _extract_function_space(x: Union[float, Function]) -> Union[WithGeometry, None]:
     """Extract the function space from a Firedrake object `x`.
 
     Parameters
@@ -141,15 +140,13 @@ def _extract_function_space(x: Union[float, Function, Vector]) -> Union[WithGeom
     """
     if isinstance(x, (Function, Cofunction)):
         return x.function_space()
-    elif isinstance(x, Vector):
-        return _extract_function_space(x.function)
     elif isinstance(x, float):
         return None
     else:
         raise ValueError("Cannot infer the function space of %s" % x)
 
 
-def to_jax(x: Union[Function, Vector, Constant], gather: Optional[bool] = False, batched: Optional[bool] = False, **kwargs) -> "jax.Array":
+def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched: Optional[bool] = False, **kwargs) -> "jax.Array":
     """Convert a Firedrake object `x` into a JAX tensor.
 
     Parameters
@@ -170,13 +167,13 @@ def to_jax(x: Union[Function, Vector, Constant], gather: Optional[bool] = False,
     jax.Array
         JAX tensor representing the Firedrake object `x`.
     """
-    if isinstance(x, (Function, Cofunction, Vector)):
+    if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = jnp.array(x.vector().gather(), **kwargs)
+            x_P = jnp.array(x.dat.global_data, **kwargs)
         else:
             # Use local data
-            x_P = jnp.array(x.vector().get_local(), **kwargs)
+            x_P = jnp.array(x.dat.data_ro, **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to JAX
             return x_P[None, :]
@@ -225,7 +222,5 @@ def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function
             val = val[0]
         return Constant(val)
     else:
-        x = np.asarray(x)
-        x_F = Function(V)
-        x_F.vector().set_local(x)
+        x_F = Function(V, val=np.asarray(x))
         return x_F

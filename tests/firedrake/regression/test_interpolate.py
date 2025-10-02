@@ -2,7 +2,6 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 
 cwd = abspath(dirname(__file__))
 
@@ -314,70 +313,6 @@ def test_lvalue_rvalue():
     assert np.allclose(u.dat.data_ro, 2.0)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_interpolator_Pk(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", degree)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-@pytest.mark.parametrize("variant", ("spectral", "equispaced"))
-@pytest.mark.parametrize("quads", (True, False), ids=("quads", "triangles"))
-def test_interpolator(quads, degree, variant):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=quads)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", degree, variant=variant)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-def test_interpolator_tets():
-    mesh = UnitTetrahedronMesh()
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
-
-    expr = x[0] + x[1]
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-def test_interpolator_extruded():
-    mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
-
-    expr = x[0] + x[1]
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
 def test_trace():
     mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
@@ -392,29 +327,47 @@ def test_trace():
     assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_adjoint_Pk(degree):
-    mesh = UnitSquareMesh(10, 10)
-    Pkp1 = FunctionSpace(mesh, "CG", degree+1)
-    Pk = FunctionSpace(mesh, "CG", degree)
+@pytest.mark.parametrize("rank", (0, 1))
+@pytest.mark.parametrize("mat_type", ("matfree", "aij"))
+@pytest.mark.parametrize("degree", (1, 3))
+@pytest.mark.parametrize("cell", ["triangle", "quadrilateral"])
+@pytest.mark.parametrize("shape", ("scalar", "vector", "tensor"))
+def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
+    quad = (cell == "quadrilateral")
+    mesh = UnitSquareMesh(5, 5, quadrilateral=quad)
 
-    v = conj(TestFunction(Pkp1))
-    u_Pk = assemble(conj(TestFunction(Pk)) * dx)
-    v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
+    x = SpatialCoordinate(mesh)
+    expr = {"scalar": x[0], "vector": x, "tensor": outer(x, x)}[shape]
+    fs = {"scalar": FunctionSpace, "vector": VectorFunctionSpace, "tensor": TensorFunctionSpace}[shape]
+    Pk = fs(mesh, "CG", degree)
+    Pkp1 = fs(mesh, "CG", degree+1)
 
-    assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
+    v = assemble(inner(expr, TestFunction(Pkp1)) * dx)
 
+    if rank == 0:
+        operand = Function(Pk).interpolate(expr)
+        dual_arg = TestFunction(Pkp1.dual())
+    else:
+        operand = TestFunction(Pk)
+        dual_arg = TrialFunction(Pkp1.dual())
 
-def test_adjoint_quads():
-    mesh = UnitSquareMesh(10, 10)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
+    if mat_type == "matfree":
+        interp = interpolate(operand, v)
+    else:
+        adj_interp = assemble(interpolate(operand, dual_arg))
+        if rank == 0:
+            interp = action(v, adj_interp)
+        else:
+            interp = action(adj_interp, v)
 
-    v = conj(TestFunction(P2))
-    u_P1 = assemble(conj(TestFunction(P1)) * dx)
-    v_adj = assemble(interpolate(TestFunction(P1), assemble(v * dx)))
-
-    assert np.allclose(u_P1.dat.data, v_adj.dat.data)
+    result = assemble(interp)
+    expect = assemble(inner(expr, operand) * dx)
+    if rank == 0:
+        assert np.allclose(result, expect)
+    else:
+        assert expect.function_space() == result.function_space()
+        for x, y in zip(result.subfunctions, expect.subfunctions):
+            assert np.allclose(x.dat.data, y.dat.data)
 
 
 def test_adjoint_dg():
@@ -422,9 +375,9 @@ def test_adjoint_dg():
     cg1 = FunctionSpace(mesh, "CG", 1)
     dg1 = FunctionSpace(mesh, "DG", 1)
 
-    v = conj(TestFunction(dg1))
+    L = conj(TestFunction(dg1)) * dx
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
-    v_adj = assemble(interpolate(TestFunction(cg1), assemble(v * dx)))
+    v_adj = assemble(interpolate(TestFunction(cg1), L))
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 

@@ -1,11 +1,12 @@
 from collections import OrderedDict, defaultdict, namedtuple
-from functools import partial, reduce
+from functools import partial
 from itertools import chain, zip_longest
 
 from gem.gem import Delta, Indexed, Sum, index_sum, one
-from gem.node import Memoizer
+from gem.node import Memoizer, MemoizerArg
+from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
-from gem.optimise import remove_componenttensors, replace_division, unroll_indexsum
+from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
 from gem.coffee import optimise_monomial_sum
@@ -41,7 +42,7 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
         expressions = unroll_indexsum(expressions, predicate=predicate)
 
     expressions = [index_sum(e, quadrature_multiindex) for e in expressions]
-    argument_indices = tuple(chain(*argument_multiindices))
+    argument_indices = tuple(chain.from_iterable(argument_multiindices))
     return [Integral(e, quadrature_multiindex, argument_indices) for e in expressions]
 
 
@@ -66,7 +67,7 @@ def flatten(var_reps, index_cache):
                    for e in expressions)
 
         # Save assignment pair
-        pairs.append((variable, reduce(Sum, expressions)))
+        pairs.append((variable, Sum(*expressions)))
 
         # Collect quadrature_indices
         for r in reps:
@@ -79,6 +80,9 @@ def flatten(var_reps, index_cache):
         variable, expression = pair
         return frozenset(variable.free_indices)
 
+    # Common memoizer to remove ComponentTensors
+    index_replacer = MemoizerArg(filtered_replace_indices)
+    # Common memoizer to test for Deltas inside expressions
     delta_inside = Memoizer(_delta_inside)
     # Variable ordering after delta cancellation
     narrow_variables = OrderedDict()
@@ -94,7 +98,7 @@ def flatten(var_reps, index_cache):
         # result into delta_simplified.
         for variable, monomial_sum in zip(variables, monomial_sums):
             for monomial in monomial_sum:
-                var, s, a, r = delta_elimination(variable, *monomial)
+                var, s, a, r = delta_elimination(variable, *monomial, index_replacer)
                 narrow_variables.setdefault(var)
                 delta_simplified[var].add(s, a, r)
 
@@ -102,7 +106,7 @@ def flatten(var_reps, index_cache):
     for variable in narrow_variables:
         monomial_sum = delta_simplified[variable]
         # Collect sum indices applicable to the current MonomialSum
-        sum_indices = set().union(*[m.sum_indices for m in monomial_sum])
+        sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
         # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
         # Sort for increasing index extent, this obtains the good
@@ -133,7 +137,7 @@ def classify(argument_indices, expression, delta_inside):
         return COMPOUND
 
 
-def delta_elimination(variable, sum_indices, args, rest):
+def delta_elimination(variable, sum_indices, args, rest, index_replacer):
     """IndexSum-Delta cancellation for monomials."""
     factors = list(args) + [variable, rest]  # construct factors
 
@@ -141,7 +145,7 @@ def delta_elimination(variable, sum_indices, args, rest):
         # Skip last factor (``rest``, see above) which can be
         # arbitrarily complicated, so its pruning may be expensive,
         # and its early pruning brings no advantages.
-        result = remove_componenttensors(factors[:-1])
+        result = [index_replacer(f, ()) for f in factors[:-1]]
         result.append(factors[-1])
         return result
 

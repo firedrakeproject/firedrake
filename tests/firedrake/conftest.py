@@ -8,7 +8,8 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc, get_external_packages
+from firedrake.petsc import PETSc
+from petsctools import get_external_packages
 
 
 def _skip_test_dependency(dependency):

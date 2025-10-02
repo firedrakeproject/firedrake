@@ -1,10 +1,14 @@
 import pytest
 
-from numpy.random import rand
 from numpy.testing import assert_allclose
 
 from firedrake import *
 from firedrake.adjoint import *
+
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -34,11 +38,9 @@ def test_assemble_0_forms():
     a2 = assemble(u**2 * dx)
     a3 = assemble(u**3 * dx)
 
-    # this previously failed when in Firedrake "vectorial" adjoint values
-    # where stored as a Function instead of Vector()
     s = a1 + a2 + 2.0 * a3
     rf = ReducedFunctional(s, Control(u))
-    dJdm = rf.derivative()
+    dJdm = rf.derivative(apply_riesz=True)
     assert_allclose(dJdm.dat.data_ro, 1. + 2. * 4. + 6. * 16.)
 
 
@@ -52,19 +54,17 @@ def test_assemble_0_forms_mixed():
     a2 = assemble(u[0]**2 * dx)
     a3 = assemble(u[0]**3 * dx)
 
-    # this previously failed when in Firedrake "vectorial" adjoint values
-    # where stored as a Function instead of Vector()
     s = a1 + 2. * a2 + a3
     s -= a3  # this is done deliberately to end up with an adj_input of 0.0 for the a3 AssembleBlock
     rf = ReducedFunctional(s, Control(u))
     # derivative is: (1+4*u)*dx - summing is equivalent to testing with 1
-    dJdm = rf.derivative()
+    dJdm = rf.derivative(apply_riesz=True)
     assert_allclose(dJdm.dat.data_ro[0], 1. + 4. * 7)
     assert_allclose(dJdm.dat.data_ro[1], 0.0)
 
 
 @pytest.mark.skipcomplex
-def test_assemble_1_forms_adjoint():
+def test_assemble_1_forms_adjoint(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     v = TestFunction(V)
@@ -78,11 +78,11 @@ def test_assemble_1_forms_adjoint():
         inner_dual = lambda x: assemble(action(x, x.riesz_representation()))
         return sum(inner_dual(c) for c in (w1, w2, w3))
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_assemble_1_forms_tlm():
+def test_assemble_1_forms_tlm(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -98,8 +98,8 @@ def test_assemble_1_forms_tlm():
     J = sum(inner_dual(c) for c in (w1, w2, w3))
 
     Jhat = ReducedFunctional(J, Control(f))
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+
+    h = rg.uniform(V)
     g = f.copy(deepcopy=True)
     f.block_variable.tlm_value = h
     tape.evaluate_tlm()
@@ -107,14 +107,12 @@ def test_assemble_1_forms_tlm():
 
 
 @pytest.mark.skipcomplex
-def _test_adjoint(J, f):
-    import numpy.random
+def _test_adjoint(J, f, rg):
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = numpy.random.rand(V.dim())
+    h = rg.uniform(V)
 
     eps_ = [0.01 / 2.0**i for i in range(5)]
     residuals = []
@@ -126,9 +124,9 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.vector()
+        dJdf = f.block_variable.adj_value.dat
 
-        residual = abs(Jp - Jm - eps * dJdf.inner(h.vector()))
+        residual = abs(Jp - Jm - eps * dJdf.inner(h.dat))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
