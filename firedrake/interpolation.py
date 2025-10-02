@@ -958,7 +958,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             sub_tensor = tensor[indices[0]] if rank == 1 else tensor
             if isinstance(sub_expr, ufl.ZeroBaseForm):
                 if access == op2.WRITE:
-                    sub_tensor.zero()
+                    loops.append(sub_tensor.zero)
                 continue
             arguments = sub_expr.arguments()
             sub_space = sub_expr.argument_slots()[0].function_space().dual()
