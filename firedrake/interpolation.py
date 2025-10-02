@@ -972,10 +972,13 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 @utils.known_pyop2_safe
 def _interpolator(tensor, expr, subset, access, bcs=None):
     if isinstance(expr, ufl.ZeroBaseForm):
+        # Zero simplification, avoid code-generation
         if access is op2.INC:
             return ()
         elif access is op2.WRITE:
             return (partial(tensor.zero, subset=subset),)
+        # Unclear how to avoid codegen for MIN and MAX
+        # Reconstruct the expression as an Interpolate
         V = expr.arguments()[-1].function_space().dual()
         expr = interpolate(ufl.zero(V.value_shape), V)
 
