@@ -691,7 +691,10 @@ def _needs_static_permutation(element) -> bool:
 
 
 def construct_switch_statement(self, mats, n, args, var_list):
-    string = ["\nswitch (d) { \n"] #(INDIA NOTE removing for now)
+    string = []
+    #string += "printf(\"mat[0,0]: %f\\n\", mat0_0_0[0]); \n"
+    #string += "printf(\"a[0,0]: %f\\n\", a[0]); \n"
+    string += ["\nswitch (dim) { \n"] #(INDIA NOTE removing for now)
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     indent = 0
@@ -713,7 +716,12 @@ def construct_switch_statement(self, mats, n, args, var_list):
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
                 args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
             indent -= 1
-            string += indent*"\t" + "default: break;}\n"
+            string += indent*"\t" + f"default: printf(\" failure dim: {dim} i:{i} closure_size_acc: %d o_val: %d\\n\", closure_size_acc, o_val); break;}}\n"
+        #string += indent*"\t" + "printf(\"o_val %d\\n\", o_val); \n"
+        #string += indent*"\t" + "printf(\"dim: %d\\n\", dim); \n"
+        #string += indent*"\t" + "printf(\"i: %d\\n\", i); \n"
+        #string += indent*"\t" + "printf(\"a[0,0]: %f\\n\", a[0]); \n"
+        #string += indent*"\t" + "\n"
         indent -= 1
 
         string += indent*"\t" + "default: break; }\n"
@@ -751,7 +759,7 @@ def fuse_orientations(space: WithGeometry):
             """
                 res[j] =  res[j] + a[i, j]*b[i]
             """, name="matmul", target=loopy.CWithGNULibcTarget())
-        #loopy.ValueArg("closure_size_acc", dtype=np.uint8),
+        replace_insn = loopy.CInstruction(tuple(), "b[i]=res[i];", assignees=(), read_variables=frozenset(["res", "i"]))
         args = [loopy.ValueArg("d", dtype=utils.IntType),
                 loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
                 loopy.ValueArg("o_val", dtype=utils.IntType),
@@ -759,38 +767,62 @@ def fuse_orientations(space: WithGeometry):
                 loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n)),
                 loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, )),
                 loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,)),]
+        replace_insn = loopy.CInstruction(tuple(), "b[i]=res[i];", assignees=("b"), read_variables=frozenset(["res", "i"]))
+        set_knl = loopy.make_function(
+            f"{{[i]:0<=i < {n}}}",
+            [replace_insn], kernel_data=args[-3:], name="set", target=loopy.CWithGNULibcTarget())
 
-        var_list = ["o", "d", "i", "o_val"]
+        zero_knl = loopy.make_function(
+    "{ [i]: 0 <= i < 3 }",
+        [loopy.Assignment("res[i]", 0, within_inames=frozenset({"i"}))],
+        [loopy.GlobalArg("res", shape=(3,), dtype=int)],
+        target=loopy.CWithGNULibcTarget(),
+        name="zero",
+)
+        #""" b[i] = temp""",
+        # I just want this to be zero but loopy doesn't let me res[i] - res[i]
+        #zero_knl = loopy.make_function(
+        #    f"{{[i]:0<=i < {n}}}",
+        #    [loopy.Assignment("res[i]", 0, within_inames=frozenset(["i"]))], kernel_data=args[-1:], name="zero", target=loopy.CWithGNULibcTarget())
+        var_list = ["o", "d", "i", "o_val", "dim"]
         string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
         transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign")
-
+        print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]))
+        printb_insn = loopy.CInstruction(tuple(), "printf(\"b: %f\\n\", b[0]);", assignees=(), read_variables=frozenset(["b"]))
+        print_insn1 = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);printf(\"b: %f\\n\", b[0]);", assignees=(), id="print")
+        replace_insn = loopy.CInstruction(tuple(), f"for (int32_t i = 0;i < {n};i++){{ b[i]=res[i];}};", assignees=(), read_variables=frozenset(["res"]), id="replace", depends_on="matmul")
+        dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
         parent_knl = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
-            [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+            [transform_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=assign}", 
+             "res[:] = zero(a, b, res) {dep=matmul,dep=assign}",
+             printb_insn],
             name="switch_on_o",
-            kernel_data=args,
+            kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
-        # INDIA NOTE: I removed this, this should be hard-code-able
-        # args[0] = loopy.GlobalArg("closure_sizes", dtype=np.uint8, shape=(space._mesh.dimension, 1))
-        #closure_insn = loopy.CInstruction(tuple(), f"closure_sizes = {[closures[c] for c in sorted(closures.keys())]}", assignees=("closure_sizes")
+        #replace_insn,
+        #"b[:] = set(a, b, res) {dep=matmul,dep=assign}",
         closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
-        #d_arg = [loopy.TemporaryVariable("d", initializer=None,shape=(1,), dtype=utils.IntType, address_space=loopy.AddressSpace(1))]
+        replace_insn = loopy.CInstruction(tuple(), f"for (int32_t i = 0;i < {n};i++){{ res[i]=b[i];}};", assignees=(), read_variables=frozenset(["res"]), id="replace", depends_on="switch")
         loop_knl1 = loopy.make_function(
-            f"{{[i]:0<= i <= {space._mesh.dimension}}}",
-            ["d = closure_sizes[i] {id=closure}",
-             "a[:,:], res[:] = switch_on_o(d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
-             "closure_size_acc = closure_size_acc + d {dep=switch}"],
+            f"{{[dim]:0<= dim <= {space._mesh.dimension}}}",
+            ["d = closure_sizes[dim] {id=closure}",
+             "a[:,:], res[:] = switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
+             "closure_size_acc = closure_size_acc + d {dep=switch}",
+             replace_insn],
             name="loop_over_dims",
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
+             #"res[:] = set_and_zero(res[:])Vx {dep=switch}"],
         loop_knl2 = loopy.make_kernel(
             "{:}",
-            ["a[:,:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:])"],
+            [print_insn1, "a[:,:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {dep=print}", print_insn],
             kernel_data = args[3:7],
+            name="overall",
             target=loopy.CWithGNULibcTarget())
 
-        knl = loopy.merge([loop_knl2, loop_knl1, parent_knl, child_knl])
+        knl = loopy.merge([loop_knl2, loop_knl1, parent_knl, child_knl, set_knl, zero_knl])
         
         print(loopy.generate_code_v2(knl).device_code())
         print(knl)
