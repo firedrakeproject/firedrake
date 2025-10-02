@@ -828,7 +828,7 @@ class FunctionSpace(object):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -837,9 +837,7 @@ class FunctionSpace(object):
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
         if bcs is None or len(bcs) == 0:
-            if lgmap and lgmap[0]:
-                return lgmap[0]
-            return self.dof_dset.lgmap
+            return lgmap or self.dof_dset.lgmap
         for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
@@ -848,7 +846,7 @@ class FunctionSpace(object):
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
         unblocked = any(bc.function_space().component is not None
                         for bc in bcs)
-        if lgmap is None or lgmap[0] is None:
+        if lgmap is None:
             lgmap = self.dof_dset.lgmap
             if unblocked:
                 indices = lgmap.indices.copy()
@@ -859,8 +857,7 @@ class FunctionSpace(object):
                 assert bsize == self.block_size
         else:
             # MatBlock case, the LGMap is implementation dependent
-            lgmap, ismatis = lgmap
-            if ismatis:
+            if mat_type == "is":
                 bsize = 1
                 indices = lgmap.indices.copy()
                 unblocked = False
@@ -977,10 +974,8 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None):
-        if lgmap and lgmap[0]:
-            return lgmap[0]
-        return self.dof_dset.lgmap
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+        return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
@@ -1183,7 +1178,7 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -1429,7 +1424,7 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         assert len(bcs) == 0
         return None
 
