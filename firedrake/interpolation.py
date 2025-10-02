@@ -93,9 +93,10 @@ class Interpolate(ufl.Interpolate):
                 between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
                 and reduce operations.
         """
+        expr = ufl.as_ufl(expr)
         if isinstance(V, functionspaceimpl.WithGeometry):
             # Need to create a Firedrake Argument so that it has a .function_space() method
-            expr_args = extract_arguments(ufl.as_ufl(expr))
+            expr_args = extract_arguments(expr)
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
             V = Argument(V.dual(), 1 if is_adjoint else 0)
 
