@@ -191,7 +191,6 @@ class ExtractSubBlock(MultiFunction):
             return self(ZeroBaseForm(o.arguments()))
 
         dual_arg, _ = o.argument_slots()
-        V = dual_arg.function_space()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
             # The dual argument has been contracted or does not need to be split
             return o._ufl_expr_reconstruct_(operand, dual_arg)
