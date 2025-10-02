@@ -193,7 +193,7 @@ class ExtractSubBlock(MultiFunction):
         dual_arg, _ = o.argument_slots()
         V = dual_arg.function_space()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
-        # The dual argument has been contracted or does not need to be split
+            # The dual argument has been contracted or does not need to be split
             return o._ufl_expr_reconstruct_(operand, dual_arg)
 
         # Split the target (dual) argument
@@ -203,7 +203,7 @@ class ExtractSubBlock(MultiFunction):
         else:
             raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
 
-        # Unflatten the expression into the target shapes
+        # Unflatten the expression into the target shape
         cur = 0
         cindices = []
         for i, Vi in enumerate(V):
