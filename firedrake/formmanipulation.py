@@ -195,28 +195,29 @@ class ExtractSubBlock(MultiFunction):
             # The dual argument has been contracted or does not need to be split
             return o._ufl_expr_reconstruct_(operand, dual_arg)
 
-        # Split the target (dual) argument
-        if isinstance(dual_arg, Coargument):
-            dual_arg = self(dual_arg)
-            indices = self.blocks[dual_arg.number()]
-        else:
+        if not isinstance(dual_arg, Coargument):
             raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
+
+        indices = self.blocks[dual_arg.number()]
+        V = dual_arg.function_space()
+
+        # Split the target (dual) argument
+        sub_dual_arg = self(dual_arg)
+        W = sub_dual_arg.function_space()
 
         # Unflatten the expression into the target shape
         cur = 0
-        cindices = []
+        components = []
         for i, Vi in enumerate(V):
             if i in indices:
-                cindices.extend(range(cur, cur+Vi.value_size))
+                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
             cur += Vi.value_size
 
-        W = dual_arg.function_space()
-        components = [operand[i] for i in cindices]
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
             return self(ZeroBaseForm(o.arguments()))
 
-        return o._ufl_expr_reconstruct_(operand, dual_arg)
+        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
