@@ -379,7 +379,7 @@ class Interpolator(abc.ABC):
         """
         pass
 
-    def assemble(self, tensor=None, **kwargs):
+    def assemble(self, tensor=None, default_missing_val=None):
         """Assemble the operator (or its action)."""
         from firedrake.assemble import assemble
         needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
@@ -409,10 +409,11 @@ class Interpolator(abc.ABC):
                     cofunctions = (dual_arg,)
 
             if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(**kwargs)
+                Iu = self._interpolate(default_missing_val=default_missing_val)
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint, **kwargs)
+                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
+                default_missing_val=default_missing_val)
 
 
 class DofNotDefinedError(Exception):
@@ -514,7 +515,7 @@ class CrossMeshInterpolator(Interpolator):
         ufl_scalar_element = V_dest.ufl_element()
         if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
             if type(ufl_scalar_element) is finat.ufl.MixedElement:
-                raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+                raise TypeError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
 
             # For a VectorElement or TensorElement the correct
             # VectorFunctionSpace equivalent is built from the scalar
@@ -865,7 +866,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
-            raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+            raise TypeError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
@@ -983,7 +984,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
     arguments = expr.arguments()
     dual_arg, operand = expr.argument_slots()
-    V = dual_arg.function_space().dual()
+    V = dual_arg.arguments()[0].function_space()
 
     try:
         to_element = create_element(V.ufl_element())
@@ -1733,7 +1734,7 @@ class MixedInterpolator(Interpolator):
             Isub[indices] = Interpolator(form, Vtarget, bcs=sub_bcs, **kwargs)
 
         self._sub_interpolators = Isub
-        self.callable = self._get_callable
+        self.callable = self._assemble_matnest
 
     def __getitem__(self, item):
         return self._sub_interpolators[item]
@@ -1741,10 +1742,11 @@ class MixedInterpolator(Interpolator):
     def __iter__(self):
         return iter(self._sub_interpolators)
 
-    def _get_callable(self):
+    def _assemble_matnest(self):
         """Assemble the operator."""
         shape = tuple(len(a.function_space()) for a in self.arguments)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
+        # Assemble the sparse block matrix
         for i in self:
             blocks[i] = self[i].callable().handle
         petscmat = PETSc.Mat().createNest(blocks)
