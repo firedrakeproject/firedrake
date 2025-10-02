@@ -837,7 +837,9 @@ class FunctionSpace(object):
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
         if bcs is None or len(bcs) == 0:
-            return lgmap or self.dof_dset.lgmap
+            if lgmap and lgmap[0]:
+                return lgmap[0]
+            return self.dof_dset.lgmap
         for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
@@ -846,7 +848,7 @@ class FunctionSpace(object):
                 raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
         unblocked = any(bc.function_space().component is not None
                         for bc in bcs)
-        if lgmap is None:
+        if lgmap is None or lgmap[0] is None:
             lgmap = self.dof_dset.lgmap
             if unblocked:
                 indices = lgmap.indices.copy()
@@ -856,10 +858,16 @@ class FunctionSpace(object):
                 bsize = lgmap.getBlockSize()
                 assert bsize == self.block_size
         else:
-            # MatBlock case, LGMap is already unrolled.
-            indices = lgmap.block_indices.copy()
-            bsize = lgmap.getBlockSize()
-            unblocked = True
+            # MatBlock case, the LGMap is implementation dependent
+            lgmap, ismatis = lgmap
+            if ismatis:
+                bsize = 1
+                indices = lgmap.indices.copy()
+                unblocked = False
+            else:
+                indices = lgmap.block_indices.copy()
+                bsize = lgmap.getBlockSize()
+                unblocked = True
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
@@ -970,7 +978,9 @@ class RestrictedFunctionSpace(FunctionSpace):
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None):
-        return lgmap or self.dof_dset.lgmap
+        if lgmap and lgmap[0]:
+            return lgmap[0]
+        return self.dof_dset.lgmap
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
@@ -1173,7 +1183,7 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
