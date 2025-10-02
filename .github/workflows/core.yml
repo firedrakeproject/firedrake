@@ -203,7 +203,7 @@ jobs:
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist "$EXTRA_BUILD_ARGS"
+          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \

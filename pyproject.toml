@@ -20,22 +20,20 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO RELEASE: use releases
-  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git",
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  # TODO RELEASE
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@release",
+  # TODO RELEASE
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@release",
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
   "numpy",
   "packaging",
-  # TODO RELEASE
-  # "petsc4py==3.23.4",
-  # TODO RELEASE
-  # "petsctools",
+  "petsc4py==3.24.0",
+  "petsctools",
   "pkgconfig",
   "progress",
-  # TODO RELEASE: use a release
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint",
+  "pyadjoint-ad>=2025.10.0",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -91,12 +89,10 @@ jax = [
   "jax",
 ]
 netgen = [
-  # TODO RELEASE
-  # "ngsPETSc",
+  "ngsPETSc>=0.1.1",
 ]
 slepc = [
-  # TODO RELEASE
-  # "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -110,7 +106,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc",
+  "ngsPETSc>=0.1.1",
   "pdf2image",
   "pygraphviz",
   "pylit",
@@ -118,8 +114,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  # TODO RELEASE
-  # "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
   "torch",  # requires passing '--extra-index-url' to work
 ]
 docker = [  # Used in firedrake-vanilla container
@@ -135,8 +130,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  # TODO RELEASE
-  # "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
 ]
 
 [build-system]
@@ -150,8 +144,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  # TODO RELEASE
-  # "petsc4py==3.23.4",
+  "petsc4py==3.24.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
