@@ -221,6 +221,9 @@ class Instruction(DistributedObject, abc.ABC):
             old_insn = insn
             insn = expand_assignments(insn)
 
+        # if "form" in str(self):
+        #     breakpoint()
+
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
 

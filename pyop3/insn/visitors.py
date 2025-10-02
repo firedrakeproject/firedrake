@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import abc
+from ctypes import Array
 import functools
 from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
+from re import I
 from typing import Any
 
 from petsc4py import PETSc
@@ -335,12 +337,12 @@ def _(scalar: Scalar) -> bool:
 def _(dat: Dat) -> bool:
     # This is overly restrictive since we could pass something contiguous like
     # dat[i0, :] directly to a local kernel
-    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes))
+    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
 
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes) and not has_materialized_temporaries(mat))
 
 
 def _layouts_match(axis_tree) -> bool:
@@ -391,6 +393,7 @@ def _(called_func: CalledFunction, /) -> InstructionList:
     bare_func_args = []
     pack_insns = []
     unpack_insns = []
+
     for func_arg, intent in zip(
         called_func.arguments, called_func.function._access_descrs, strict=True
     ):
@@ -514,51 +517,166 @@ def _(var, /, access_type):
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
 @_expand_reshapes.register(Tensor)
-def _(array: Tensor, /, access_type, *, has_child=False):
-    if array.parent:
-        bare_array = array.__record_init__(_parent=None)
+def _(array: Tensor, /, access_type):
+    """
+    Example:
 
-        parent_transformed_dat, parent_pack_insns, parent_unpack_insns = _expand_reshapes(array.parent.untransformed, access_type, has_child=True)
+    Consider:
 
-        pack_insns = list(parent_pack_insns)
-        unpack_insns = list(parent_unpack_insns)
+        kernel(dat[?])  # INC
 
-        if not array.parent.untransformed.parent:
-            # We have materialised an intermediate array, hence we have to handle
-            # incrementing here. For example:
-            #
-            #     t0 <- 0
-            #     kernel(t0)  # INC
-            #     t1 <- f(t0)
-            #     res += t1
-            #
-            # This check will trigger when we have 'res' (parent_transformed_dat) and 't1' (bare_array)
-            if access_type == ArrayAccessType.INC:
-                unpack_insns.append(parent_transformed_dat.iassign(bare_array))
+    into
 
-        if isinstance(array.parent, OutOfPlaceTensorTransform):
-            if access_type == ArrayAccessType.READ:
-                pack_insns.extend(array.parent.transform_in(parent_transformed_dat, bare_array))
-            elif access_type == ArrayAccessType.WRITE:
-                unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
-            else:
-                assert access_type == ArrayAccessType.INC
-                # if incrementing then I think that we have to do an initial zeroing
-                if not has_child:
-                    pack_insns.append(bare_array.assign(0))
-                pack_insns.extend(array.parent.transform_in(parent_transformed_dat, bare_array))
-                unpack_insns.extend(array.parent.transform_out(bare_array, parent_transformed_dat))
+        t0 <- 0
+        kernel(t0)
+        f(t0)  # in-place
+        t1 <- g(t0)  # out-of-place
+        dat[?] += t1
+    """
+    if not array.parent:
+        return array, (), ()
 
-        else:
-            raise NotImplementedError("Need to implement in-place transforms to get .reshape functionality back")
-            assert isinstance(array.parent, InPlaceTensorTransform)
-            temp_reshaped = transformed_dat  # no extra assignment needed
+    pack_insns = []
+    unpack_insns = []
 
-            breakpoint()
+    # Mumble, INC accesses are inherently incompatible with transforms because
+    # transforms imply R/W accesses.
+    #
+    # e.g. consider 'kernel' with INC access and a global. The following won't work
+    # because the transformation won't only be over the single contribution.
+    #
+    #   kernel(glob)
+    #   f(glob)  # in-place transform
+    #
+    # vs
+    #
+    #   kernel(t0)
+    #   f(t0)
+    #   glob += t0
+    #
+    # which is safe to do.
+    #
+    # As a consequence it means that INC accesses with transforms must always be
+    # expanded to have temporaries.
+    #
+    # N.B. I am fairly confident that this is right but I haven't quite got it
+    # straight in my head exactly why.
+    if access_type == ArrayAccessType.INC:
+        transformed_temporary, local_output_tensor, global_tensor = _materialize_untransformed_tensor(array)
 
-        return (bare_array, tuple(pack_insns), tuple(unpack_insns))
+        bare_temporary = transformed_temporary.__record_init__(_parent=None)
+        pack_insns.insert(0, bare_temporary.zero())
+
+        unpack_insns.append(global_tensor.iassign(local_output_tensor))
+
+        array = transformed_temporary
+        access_type = ArrayAccessType.WRITE
+
+    if access_type == ArrayAccessType.READ:
+        insns = _expand_transforms_in(array)
+        pack_insns.extend(insns)
     else:
-        return (array, (), ())
+        assert access_type == ArrayAccessType.WRITE
+        insns = _expand_transforms_out(array)
+        unpack_insns = [*insns, *unpack_insns]
+
+    bare_array = array.__record_init__(_parent=None)
+    return bare_array, tuple(pack_insns), tuple(unpack_insns)
+
+
+def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
+    """
+    I.e.
+
+    * given: 'T'
+    * want:
+
+        f(U)         # in-place transform
+        T <- g(U)    # out-of-place transform
+        ...
+        kernel(T)
+
+      and 'U'
+
+    """
+    current_tensor = tensor
+    pack_insns = ()
+    while current_tensor.parent:
+        parent_tensor = current_tensor.parent.untransformed
+
+        bare_current_tensor = current_tensor.__record_init__(_parent=None)
+        bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
+        transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
+        pack_insns = pack_insns + transform_insns
+
+        current_tensor = parent_tensor
+    return pack_insns
+
+
+def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
+    """
+    I.e.
+
+    * given: 'T'
+    * want:
+
+        kernel(T, ...)
+        ...
+        f'(T)        # in-place transform
+        U <- g'(T)   # out-of-place transform
+
+      and 'U'
+
+    """
+    current_tensor = tensor
+    unpack_insns = ()
+    while current_tensor.parent:
+        parent_tensor = current_tensor.parent.untransformed
+
+        bare_current_tensor = current_tensor.__record_init__(_parent=None)
+        bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
+        transform_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
+        unpack_insns = transform_insns + unpack_insns
+
+        current_tensor = parent_tensor
+    return unpack_insns
+
+
+def has_materialized_temporaries(tensor: Tensor) -> bool:
+    while tensor.parent:
+        if isinstance(tensor.parent, OutOfPlaceTensorTransform):
+            return True
+        else:
+            tensor = tensor.parent.untransformed
+    return False
+
+
+def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
+    """
+    I.e.
+
+    * given 'T' implying:
+
+        kernel(T, ...)
+        ...
+        f'(T)        # in-place transform
+        U <- g'(T)   # out-of-place transform
+        dat += U
+
+    * want to materialise U and return U and dat
+
+    This effectively means we have to look at all the parents and return the top-most, we also
+    need to swap out 'parent'
+
+    """
+    if tensor.parent:
+        new_parent_tensor, root_temp, root = _materialize_untransformed_tensor(tensor.parent.untransformed)
+        new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
+        return tensor.__record_init__(_parent=new_parent), root_temp, root
+    else:
+        U = tensor.materialize()
+        return U, U, tensor
+
 
 
 @functools.singledispatch
