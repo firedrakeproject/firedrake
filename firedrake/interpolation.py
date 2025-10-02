@@ -937,6 +937,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(arguments) == 2:
+            # Matrix case assumes that the spaces are not mixed
             expressions = {(0,): expr}
         elif isinstance(dual_arg, Coargument):
             # Split in the coargument
@@ -954,11 +955,13 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
+            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
             if isinstance(sub_expr, ufl.ZeroBaseForm):
+                if access == op2.WRITE:
+                    sub_tensor.zero()
                 continue
             arguments = sub_expr.arguments()
             sub_space = sub_expr.argument_slots()[0].function_space().dual()
-            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
             loops.extend(_interpolator(sub_space, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and rank == 1:
