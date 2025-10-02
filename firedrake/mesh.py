@@ -6,7 +6,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Tuple, Optional
+from typing import Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -2183,9 +2183,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # The leaves have been ordered according to the pyop2 classes with non-halo
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
-    
+
     def _update_swarm(
-            self, new_coords: np.ndarray, new_global_idxs: np.ndarray, new_ref_coords: np.ndarray, 
+            self, new_coords: np.ndarray, new_global_idxs: np.ndarray, new_ref_coords: np.ndarray,
             new_parent_cell_nums: np.ndarray, new_ranks: np.ndarray
     ) -> None:
         """Updates the VOM's DMSwarm to new coordinates. Assumes there are N new coordinates,
@@ -3531,8 +3531,8 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
 def _pic_swarm_in_mesh(
     parent_mesh: AbstractMeshTopology,
     coords: np.ndarray,
-    fields: Optional[list[Tuple[str, int, np.dtype]]] = None,
-    tolerance: Optional[float] = None,
+    fields: list[Tuple[str, int, np.dtype]] | None = None,
+    tolerance: float | None = None,
     redundant: bool = True,
     exclude_halos: bool = True,
 ) -> Tuple[FiredrakeDMSwarm, FiredrakeDMSwarm, int]:
@@ -3566,7 +3566,7 @@ def _pic_swarm_in_mesh(
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
         cause the parent mesh's spatial index to be rebuilt which can take some
-        time. 
+        time.
     redundant
         If True, the DMSwarm will be created using only the
         points specified on MPI rank 0. Defaults to True.
