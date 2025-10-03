@@ -877,11 +877,11 @@ class BaseFormAssembler(AbstractFormAssembler):
             if isinstance(e, slate.TensorBase):
                 raise TypeError("SLATE Tensors are not differentiable.")
             if ufl.algorithms.extract_type(e, ufl.differentiation.Derivative):
-                raise RuntimeError("We should expand derivatives.")
+                raise AssertionError("We should expand derivatives.")
         try:
             visited = {}
             BaseFormAssembler.base_form_postorder_traversal(form, visitor, visited)
-        except RuntimeError:
+        except AssertionError:
             # Only expand derivatives if the expression contains any
             return ufl.algorithms.ad.expand_derivatives(form)
         except TypeError:
