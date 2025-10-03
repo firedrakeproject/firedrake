@@ -872,10 +872,23 @@ class BaseFormAssembler(AbstractFormAssembler):
         # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
+
+        def visitor(e, *operands):
+            if isinstance(e, slate.TensorBase):
+                raise TypeError("SLATE Tensors are not differentiable.")
+            if ufl.algorithms.extract_type(e, ufl.differentiation.Derivative):
+                raise RuntimeError("We should expand derivatives.")
         try:
+            visited = {}
+            BaseFormAssembler.base_form_postorder_traversal(form, visitor, visited)
+        except RuntimeError:
+            # Only expand derivatives if the expression contains any
             return ufl.algorithms.ad.expand_derivatives(form)
-        except ValueError:
+        except TypeError:
             # Some forms (e.g. SLATE tensors) are not currently differentiable.
+            return form
+        else:
+            # Return the original ufl.BaseForm if there are no derivatives.
             return form
 
 
