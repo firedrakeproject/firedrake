@@ -1,5 +1,5 @@
 from .assembly import AssembleBlock  # NOQA F401
-from .solving import GenericSolveBlock, SolveLinearSystemBlock, \
+from .solving import CachedSolverBlock, GenericSolveBlock, SolveLinearSystemBlock, \
     ProjectBlock, SupermeshProjectBlock, SolveVarFormBlock, \
     NonlinearVariationalSolveBlock  # NOQA F401
 from .function import FunctionAssignBlock, FunctionMergeBlock, \

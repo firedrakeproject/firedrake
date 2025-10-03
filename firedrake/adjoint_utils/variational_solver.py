@@ -1,7 +1,7 @@
 import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, CachedSolverBlock
 from firedrake.ufl_expr import derivative, adjoint
 from ufl import replace
 
@@ -52,10 +52,86 @@ class NonlinearVariationalSolverMixin:
                                 "recompute_count": 0}
             self._ad_adj_cache = {}
 
+            self._ad_solver_cache = {}
+
         return wrapper
+
+    def _ad_cache_forward_solver(self):
+        from firedrake import (
+            Function, Cofunction,
+            NonlinearVariationalProblem,
+            NonlinearVariationalSolver)
+        from firedrake.adjoint_utils.blocks.solving import FORWARD
+
+        problem = self._ad_problem
+
+        F = problem.F
+        replace_map = {}
+        for old_coeff in F.coefficients():
+            if isinstance(old_coeff, Function) and old_coeff.ufl_element().family() == "Real":
+                new_coeff = copy.deepcopy(old_coeff)
+            else:
+                new_coeff = old_coeff.copy(deepcopy=True)
+            replace_map[old_coeff] = new_coeff
+
+        Fnew = replace(F, replace_map)
+        unew = replace_map[problem.u]
+
+        for cnew in replace_map.values():
+            assert cnew in Fnew.coefficients()
+        for cold in replace_map.keys():
+            assert cold not in Fnew.coefficients()
+
+        # assert False
+
+        nlvp = NonlinearVariationalProblem(Fnew, unew)
+        nlvs = NonlinearVariationalSolver(nlvp)
+
+        self.dependencies_to_add = tuple(replace_map.keys())
+        self.replaced_dependencies = tuple(replace_map.values())
+        self._ad_solver_cache[FORWARD] = nlvs
 
     @staticmethod
     def _ad_annotate_solve(solve):
+        @wraps(solve)
+        def wrapper(self, **kwargs):
+            """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+            Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
+            for the purposes of the adjoint computation (such as projecting fields to other function spaces
+            for the purposes of visualisation)."""
+            from firedrake import LinearVariationalSolver
+            from firedrake.adjoint_utils.blocks.solving import FORWARD
+            annotate = annotate_tape(kwargs)
+            if annotate:
+                if kwargs.pop("bounds", None) is not None:
+                    raise ValueError(
+                        "MissingMathsError: we do not know how to differentiate through a variational inequality")
+
+                if FORWARD not in self._ad_solver_cache:
+                    self._ad_cache_forward_solver()
+
+                block = CachedSolverBlock(self._ad_problem.u
+                                          self._ad_solver_cache,
+                                          self.replaced_dependencies,
+                                          ad_block_tag=self.ad_block_tag)
+
+                for dep in self.dependencies_to_add:
+                    block.add_dependency(dep, no_duplicates=True)
+
+                get_working_tape().add_block(block)
+
+            with stop_annotating():
+                out = solve(self, **kwargs)
+
+            if annotate:
+                block.add_output(self._ad_problem._ad_u.create_block_variable())
+
+            return out
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_solve_old(solve):
         @wraps(solve)
         def wrapper(self, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the

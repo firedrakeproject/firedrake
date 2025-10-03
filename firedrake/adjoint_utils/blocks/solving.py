@@ -25,10 +25,89 @@ def extract_subfunction(u, V):
         return u
 
 
-class Solver(Enum):
+class SolverType(Enum):
     """Enum for solver types."""
     FORWARD = 0
     ADJOINT = 1
+    TLM = 2
+    HESSIAN = 3
+
+FORWARD = SolverType.FORWARD
+ADJOINT = SolverType.ADJOINT
+TLM = SolverType.TLM
+HESSIAN = SolverType.HESSIAN
+
+
+# @singledispatch((Coefficient, Constant, Cofunction))
+def update_dependency(replaced_dep, dep):
+    if not isinstance(replaced_dep, (firedrake.Coefficient,
+                                     firedrake.Constant,
+                                     firedrake.Cofunction)):
+        raise TypeError("Updating non-Function-y things not implemented yet.")
+    replaced_dep.assign(dep.saved_output)
+
+
+class CachedSolverBlock(Block):
+    def __init__(self, func, cached_solvers, replaced_dependencies, ad_block_tag=None):
+        super().__init__(ad_block_tag=ad_block_tag)
+
+        self.func = func
+        self.cached_solvers = cached_solvers
+        self.replaced_dependencies = replaced_dependencies
+
+    def update_dependencies(self):
+        for replaced_dep, dep in zip(self.replaced_dependencies,
+                                     self.get_dependencies()):
+            update_dependency(replaced_dep, dep)
+
+    def prepare_recompute_component(self, inputs, relevant_outputs):
+        return None
+
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        self.update_dependencies()
+
+        solver = self.cached_solvers[FORWARD]
+        solver.solve()
+        result = solver._problem.u.copy(deepcopy=True)
+
+        if isinstance(block_variable.checkpoint, firedrake.Function):
+            result = block_variable.checkpoint.assign(result)
+
+        return maybe_disk_checkpoint(result)
+
+    def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        return None
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        self.update_dependencies()
+        self.update_tlm_dependencies()
+
+        self.tlm_dFdm.zero()
+        for i, block_variable in enumerate(self.get_dependencies()):
+            if block_variable.tlm_value is None:
+                continue
+            if block_variable.output == self.func:
+                continue
+
+            self.tlm_dFdm += self.tlm_dFdm_assemblers[i]()
+
+        solver = self.cached_solvers[TLM]
+        solver._problem.u.zero()
+        solver.solve()
+        result = solver._problem.u.copy(deepcopy=True)
+        return result
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        pass
+
+    def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
+        pass
+
+    def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
+        pass
+
+    def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs, block_variable, idx, relevant_dependencies, prepared=None):
+        pass
 
 
 class GenericSolveBlock(Block):
@@ -656,12 +735,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             and self._ad_solvers["update_adjoint"]
         ):
             # Update left hand side of the adjoint equation.
-            self._ad_solver_replace_forms(Solver.ADJOINT)
+            self._ad_solver_replace_forms(SolverType.ADJOINT)
             self._ad_solvers["adjoint_lvs"].invalidate_jacobian()
             self._ad_solvers["update_adjoint"] = False
         elif not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
             # Update left hand side of the adjoint equation.
-            self._ad_solver_replace_forms(Solver.ADJOINT)
+            self._ad_solver_replace_forms(SolverType.ADJOINT)
 
         # Update the right hand side of the adjoint equation.
         # problem.F._component[1] is the right hand side of the adjoint.
@@ -679,7 +758,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return u_sol, adj_sol_bdy
 
     def _ad_assign_map(self, form, solver):
-        if solver == Solver.FORWARD:
+        if solver == SolverType.FORWARD:
             count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
         else:
             count_map = self._ad_solvers["adjoint_lvs"]._problem._ad_count_map
@@ -697,7 +776,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                         block_variable.saved_output
 
         if (
-            solver == Solver.ADJOINT
+            solver == SolverType.ADJOINT
             and not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian
         ):
             block_variable = self.get_outputs()[0]
@@ -712,8 +791,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
-    def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
-        if solver == Solver.FORWARD:
+    def _ad_solver_replace_forms(self, solver=SolverType.FORWARD):
+        if solver == SolverType.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
             self._ad_assign_coefficients(problem.F, solver)
             self._ad_assign_coefficients(problem.J, solver)
