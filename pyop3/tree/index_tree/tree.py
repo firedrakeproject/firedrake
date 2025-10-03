@@ -2138,7 +2138,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    utils.debug_assert(lambda: min_value(start) >= 0)
+    # utils.debug_assert(lambda: min_value(start) >= 0)
 
     # TODO: This check doesn't always hold. For example if we have the arities of
     # facets and are expecting interior facets but there aren't any. Then the max

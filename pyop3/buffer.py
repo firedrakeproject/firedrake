@@ -709,6 +709,14 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     _name: str
     _constant: bool
 
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self._mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
+
     # }}}
 
     # {{{ interface impls
@@ -729,14 +737,6 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
 
 @utils.record()
 class PetscMatPreallocatorBuffer(PetscMatBuffer):
@@ -750,6 +750,14 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     _constant: bool
 
     _lazy_template: PETSc.Mat | None = None
+
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self._mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
 
     # }}}
 
@@ -770,14 +778,6 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
         return cls(mat, mat_spec, **kwargs)
 
     # }}}
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
 
     def materialize(self) -> AllocatedPetscMatBuffer:
         if not self._lazy_template:

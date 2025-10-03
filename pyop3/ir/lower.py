@@ -1266,6 +1266,11 @@ def _(scalar: op3_expr.Scalar, /, iname_maps, loop_indices, context, *, intent, 
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
 
+@_lower_expr.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [0], iname_maps, loop_indices, context, intent=intent)
+
+
 @_lower_expr.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)

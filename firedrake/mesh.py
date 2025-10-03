@@ -941,6 +941,24 @@ class AbstractMeshTopology(abc.ABC):
 
         return readonly(numbering)
 
+    @cachedmethod(lambda self: self._cache["_entity_numbering_section"])
+    def _entity_numbering_section(self, dim):
+        section = PETSc.Section().create(comm=self._comm)
+        section.setChart(*self.topology_dm.getChart())
+
+        # TODO: Cythonize
+
+        numbering = self._entity_numbering(dim)
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        for i, p in enumerate(range(p_start, p_end)):
+            section.setDof(p, 1)
+            section.setOffset(p, numbering[i])
+        return section
+
+    @cached_property
+    def _cell_numbering_section(self) -> PETSc.Section:
+        return self._entity_numbering_section(self.dimension)
+
     def _entity_permutation(self, dim):
         """The map from renumbered point to initial (I think)"""
         return op3.utils.invert(self._entity_numbering(dim))

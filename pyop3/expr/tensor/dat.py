@@ -86,15 +86,15 @@ class Dat(Tensor):
 
         unindexed = axis_forest.trees[0].unindexed
 
-        if buffer_kwargs is None:
-            buffer_kwargs = {}
-
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
+            assert buffer_kwargs is None
             assert buffer.sf == unindexed.sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
+            if buffer_kwargs is None:
+                buffer_kwargs = {}
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, unindexed.sf, **buffer_kwargs)
@@ -145,9 +145,9 @@ class Dat(Tensor):
     # {{{ constructors
 
     @classmethod
-    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -155,9 +155,9 @@ class Dat(Tensor):
         return cls.empty(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -165,15 +165,15 @@ class Dat(Tensor):
         return cls.zeros(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype)
+        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod

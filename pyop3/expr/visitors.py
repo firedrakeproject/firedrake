@@ -131,6 +131,11 @@ def _(dat: op3_expr.Dat, /, **kwargs) -> Any:
     return _evaluate(dat.concretize(), **kwargs)
 
 
+@_evaluate.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, **kwargs):
+    return expr.buffer.buffer.data_ro_with_halos.item()
+
+
 @_evaluate.register
 def _(dat_expr: op3_expr.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
@@ -310,6 +315,11 @@ def _(dat: op3_expr.Dat, /, replace_map):
     return replace_terminals(dat.concretize(), replace_map)
 
 
+@replace_terminals.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, replace_map):
+    return replace_map.get(expr, expr)
+
+
 @replace_terminals.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, replace_map) -> op3_expr.LinearDatBufferExpression:
     new_layout = replace_terminals(expr.layout, replace_map)
@@ -352,6 +362,12 @@ def _(num: numbers.Number, /, replace_map) -> numbers.Number:
 @replace.register(op3_expr.Dat)
 def _(dat: op3_expr.Dat, /, replace_map):
     return replace(dat.concretize(), replace_map)
+
+
+@replace.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, replace_map):
+    # TODO: Can have a flag that determines the replacement order (pre/post)
+    return replace_map.get(expr, expr)
 
 
 @replace.register(op3_expr.LinearDatBufferExpression)
@@ -469,8 +485,8 @@ def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Buf
     return concretize_layouts(mat_expr, axis_trees)
 
 
-@concretize_layouts.register(op3_expr.LinearBufferExpression)
-def _(dat_expr: op3_expr.LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.LinearBufferExpression:
+@concretize_layouts.register(op3_expr.BufferExpression)
+def _(dat_expr: op3_expr.BufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.BufferExpression:
     # Nothing to do here. If we drop any zero-sized tree branches then the
     # whole thing goes away and we won't hit this.
     return dat_expr
@@ -695,6 +711,11 @@ def _(op: op3_expr.Operator, /, *args, **kwargs) -> idict:
 @concretize_materialized_tensor_indirections.register(op3_expr.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
+
+
+@concretize_materialized_tensor_indirections.register(op3_expr.ScalarBufferExpression)
+def _(buffer_expr: op3_expr.ScalarBufferExpression, layouts, key):
+    return buffer_expr
 
 
 @concretize_materialized_tensor_indirections.register(op3_expr.LinearDatBufferExpression)

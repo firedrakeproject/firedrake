@@ -8,13 +8,13 @@ from itertools import product
 from typing import Any, ClassVar
 
 import numpy as np
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 from pyop3 import buffer
-from pyrsistent import freeze, pmap
 
 from pyop3 import utils
+from pyop3.typing import KwargsT
 from .base import Tensor
 from .dat import Dat
 from pyop3.tree.axis_tree.tree import (
@@ -112,6 +112,7 @@ class Mat(Tensor):
         *,
         buffer_spec: MatBufferSpec | None = None,
         preallocator: bool = False,
+        buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
         if buffer_spec is None:
@@ -120,9 +121,9 @@ class Mat(Tensor):
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
 
         if not preallocator:
-            buffer = AllocatedPetscMatBuffer.empty(full_spec)
+            buffer = AllocatedPetscMatBuffer.empty(full_spec, **buffer_kwargs)
         else:
-            buffer = PetscMatPreallocatorBuffer.empty(full_spec)
+            buffer = PetscMatPreallocatorBuffer.empty(full_spec, **buffer_kwargs)
 
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
@@ -131,10 +132,10 @@ class Mat(Tensor):
         return cls.empty(row_axes, column_axes, preallocator=True, **kwargs)
 
     @classmethod
-    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
+    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.unindexed.size*column_axes.unindexed.size, dtype=dtype)
+        buffer = NullBuffer(row_axes.unindexed.size*column_axes.unindexed.size, dtype=dtype, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}
@@ -322,6 +323,9 @@ class Mat(Tensor):
     def leaf_layouts(self):
         assert False, "unused"
 
+    def concretize(self):
+        raise NotImplementedError
+
     # }}}
 
     # {{{ DistributedArray impls
@@ -430,20 +434,6 @@ class Mat(Tensor):
                 )
             else:
                 yield (rlabel_acc_, clabel_acc_)
-
-    @staticmethod
-    def _merge_contexts(row_mapping, col_mapping):
-        merged = {}
-        for row_context, row_value in row_mapping.items():
-            for col_context, col_value in col_mapping.items():
-                # skip if the row and column contexts are incompatible
-                if any(
-                    ckey in row_context and row_context[ckey] != cvalue
-                    for ckey, cvalue in col_context.items()
-                ):
-                    continue
-                merged[row_context | col_context] = (row_value, col_value)
-        return freeze(merged)
 
     @cached_property
     def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:

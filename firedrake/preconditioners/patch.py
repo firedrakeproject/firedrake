@@ -7,8 +7,10 @@ from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.functionspace import FunctionSpace
 from firedrake.interpolation import Interpolate
 from firedrake.parloops import pack_tensor, pack_pyop3_tensor
+from firedrake import utils
 
 from collections import namedtuple
+import textwrap
 import operator
 from itertools import chain
 from functools import partial
@@ -165,13 +167,26 @@ def matrix_funptr(form, state):
         mesh = form.ufl_domains()[kinfo.domain_number]
         args = []
 
-        # FIXME: This isn't right, need a subset here... and it must be non-constant to not be flattened away
         if kinfo.integral_type == "cell":
-            loop_index = mesh.cells.owned.iter()
+            subset_size_buffer = op3.ArrayBuffer(data=numpy.empty(1, dtype=IntType))
+            subset_size = op3.Scalar(buffer=subset_size_buffer)
+
+            # clean this up
+            # subset_dat = op3.Dat.empty(subset_size, dtype=IntType, buffer_kwargs={"name": "subset"})
+            subset_axes = op3.AxisTree(op3.Axis([op3.AxisComponent([op3.AxisComponentRegion(subset_size)])]))
+            subset_dat = op3.Dat.empty(subset_axes, dtype=IntType, buffer_kwargs={"name": "subset"})
+
+            cells = mesh.cells.owned
+
+            subset = op3.Slice(cells.root.label, [op3.Subset(cells.root.component.label, subset_dat)])
+            loop_index = cells[subset].iter()
             kernels = cell_kernels
         else:
             assert kinfo.integral_type == "interior_facet"
-            loop_index = mesh.interior_facets.owned.iter()
+            raise NotImplementedError
+            # subset_dat = ???
+            subset = op3.Slice(op3.Subset(subset_dat))
+            loop_index = mesh.interior_facets[subset].owned.iter()
             kernels = int_facet_kernels
 
         # TODO!
@@ -189,7 +204,7 @@ def matrix_funptr(form, state):
         # arg = mat(op2.INC, (entity_node_map, entity_node_map))
         #
         # The size of the matrix doesn't matter as it's just a pointer
-        mat = op3.Mat.empty(test.axes, trial.axes)
+        mat = op3.Mat.empty(test.axes, trial.axes, buffer_kwargs={"name": "out"})
         arg = pack_pyop3_tensor(mat, test, trial, loop_index, kinfo.integral_type)
         args.append(arg)
 
@@ -341,52 +356,112 @@ def residual_funptr(form, state):
 # just wrap up everything as a C function pointer and use that
 # directly.
 def make_struct(code, jacobian=False):
-    # TODO: if jacobian=False then we can have state and results polluting the coeffs here, this is fragile
-    state_index, coeff_indices, map_indices = extract_argument_indices(code.funptr)
-    coeffs = []
-    maps = []
-    for i, c in enumerate(coeff_indices):
-        if c is None:
-            coeffs.append("state")
-        else:
-            coeffs.append("c{}".format(i))
-    for i, m in enumerate(map_indices):
-        if m is None:
-            maps.append("dofArrayWithAll")
-        else:
-            maps.append("m{}".format(i))
-    coeff_struct = ";\n".join("  const PetscScalar *c{}".format(i) for i, c in enumerate(coeff_indices) if c is not None)
-    map_struct = ";\n".join("  const PetscInt    *m{}".format(i) for i, m in enumerate(map_indices) if m is not None)
-    coeff_decl = ", ".join("const PetscScalar *restrict {}".format(c) for c in coeffs)
-    map_decl = ", ".join("const PetscInt *restrict {}".format(m) for m in maps)
-    coeff_call = ", ".join(c if c == "state" else "ctx->{}".format(c) for c in coeffs)
-    map_call = ", ".join(m if m == "dofArrayWithAll" else "ctx->{}".format(m) for m in maps)
-    if jacobian:
-        out = "Mat J"
-    else:
-        out = "PetscScalar * restrict F"
-    function = "  void (*pyop2_call)(int start, int end, const PetscInt * restrict cells, {}, {}, const PetscInt *restrict dofArray, {})".format(out, coeff_decl, map_decl)
+    # Need to be able to map the signature to the specific bits and pieces coming in. The order is less deterministic now.
+    buffers = tuple(
+        buffer_ref.buffer for buffer_ref, _ in code.funptr.buffer_map.values()
+    )
+    # Currently this value is very hard to introspect, use the fact that this is always the
+    # first argument. This is very fragile though.
+    npoints_index = 0
+    subset_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "subset")
+    out_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "out")
+    coeff_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.ScalarType and i != out_index)
+    map_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.IntType and i != subset_index)
+
+    ncoeffs = len(coeff_indices)
+    nmaps = len(map_indices)
+
+    try:
+        assert ncoeffs + nmaps + 3 == len(buffers)
+    except:
+        breakpoint()
+
+    # # TODO: if jacobian=False then we can have state and results polluting the coeffs here, this is fragile
+    # state_index, coeff_indices, map_indices = extract_argument_indices(code.funptr)
+    # coeffs = []
+    # maps = []
+    # for i, c in enumerate(coeff_indices):
+    #     if c is None:
+    #         coeffs.append("state")
+    #     else:
+    #         coeffs.append("c{}".format(i))
+    # for i, m in enumerate(map_indices):
+    #     if m is None:
+    #         maps.append("dofArrayWithAll")
+    #     else:
+    #         maps.append("m{}".format(i))
+
+    coeff_struct = ";\n".join(
+        f"  const PetscScalar *c{i}" for i in range(ncoeffs)
+    )
+    map_struct = ";\n".join(
+        f"  const PetscInt    *m{i}" for i in range(nmaps)
+    )
+    coeff_decl = ", ".join(
+        f"const PetscScalar *restrict c{i}" for i in range(ncoeffs)
+    )
+    map_decl = ", ".join(
+        f"const PetscInt *restrict m{i}" for i in range(nmaps)
+    )
+    # coeff_call = ", ".join(
+    #     c if c == "state" else "ctx->{}".format(c) for c in coeffs
+    # )
+    coeff_call = ", ".join(
+        f"ctx->c{i}" for i in range(ncoeffs)
+    )
+    # map_call = ", ".join(m if m == "dofArrayWithAll" else "ctx->{}".format(m) for m in maps)
+    map_call = ", ".join(
+        f"ctx->m{i}" for i in range(nmaps)
+    )
+
+    # 'npoints' + 'subset' + 'out' + coeffs + maps (?)
+    nargs = ncoeffs + nmaps + 3
+    function_signature = numpy.empty(nargs, dtype=object)
+    call_args = numpy.empty(nargs, dtype=object)
+
+    function_signature[out_index] = "Mat" if jacobian else "PetscScalar * restrict"
+    call_args[out_index] = "out"
+
+    function_signature[npoints_index] = "int*"
+    call_args[npoints_index] = "&npoints"
+
+    function_signature[subset_index] = "const PetscInt * restrict"
+    call_args[subset_index] = "whichPoints"
+
+    for i, idx in enumerate(coeff_indices):
+        function_signature[idx] = "const PetscScalar * restrict"
+        call_args[idx] = f"ctx->c{i}"
+
+    for i, idx in enumerate(map_indices):
+        function_signature[idx] = "const PetscInt * restrict"
+        call_args[idx] = f"ctx->m{i}"
+
+    function = f"  void (*pyop3_call)({', '.join(function_signature)})"
+    call = f"pyop3_call({', '.join(call_args)})"
 
     fields = []
-    for c in coeffs:
-        if c != "state":
-            fields.append((c, ctypes.c_voidp))
-    for m in maps:
-        if m != "dofArrayWithAll":
-            fields.append((m, ctypes.c_voidp))
+    for _ in range(ncoeffs):
+        # if c != "state":
+        #     fields.append((c, ctypes.c_voidp))
+        fields.append(("huh?", ctypes.c_voidp))
+    for _ in range(nmaps):
+        # if m != "dofArrayWithAll":
+        #     fields.append((m, ctypes.c_voidp))
+        fields.append(("huh?", ctypes.c_voidp))
     fields.append(("point2facet", ctypes.c_voidp))
-    fields.append(("pyop2_call", ctypes.c_voidp))
+    fields.append(("pyop3_call", ctypes.c_voidp))
 
     class Struct(ctypes.Structure):
         _fields_ = fields
-    struct = """
-typedef struct {{
-{};
-{};
-  const PetscInt    *point2facet;
-{};
-}} UserCtx;""".format(coeff_struct, map_struct, function)
-    call = "pyop2_call(0, npoints, whichPoints, out, {}, dofArray, {})".format(coeff_call, map_call)
+
+    struct = textwrap.dedent(f"""
+        typedef struct {{
+          {coeff_struct};
+          {map_struct};
+          const PetscInt    *point2facet;
+        {function};
+        }} UserCtx;"""
+    )
 
     return struct, call, Struct
 
@@ -581,11 +656,11 @@ def make_c_struct(function, struct, point2facet=None):
         args.append(0)
     else:
         args.append(point2facet)
-    breakpoint()
     return struct(*args, ctypes.cast(function.executable, ctypes.c_voidp).value)
 
 
 def extract_argument_indices(code):
+    assert False, "old code"
     state_index = None  # TODO
     coeff_indices = tuple(
         i
@@ -851,8 +926,6 @@ class PatchBase(PCSNESBase):
         Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
         Jop_struct = make_c_struct(Jcell_kernel.funptr, Struct)
 
-        breakpoint()
-
         Jhas_int_facet_kernel = False
         if len(Jint_facet_kernels) > 0:
             raise NotImplementedError
@@ -901,7 +974,7 @@ class PatchBase(PCSNESBase):
                                                  point2facet=point2facet)
 
         patch.setDM(self.plex)
-        patch.setPatchCellNumbering(mesh._cell_numbering)
+        patch.setPatchCellNumbering(mesh._cell_numbering_section)
 
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)

@@ -168,3 +168,7 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
             for axes in self.axis_trees
             for loop in axes.outer_loops
         })
+
+    @abc.abstractmethod
+    def concretize(self):
+        """Convert to an expression, can no longer be indexed properly"""

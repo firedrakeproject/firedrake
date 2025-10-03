@@ -300,10 +300,10 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __init__(self, size, label=None):
-        from pyop3 import as_linear_buffer_expression, Dat
+        from pyop3 import as_linear_buffer_expression, Tensor
 
         # this is a little clumsy
-        if isinstance(size, Dat):
+        if isinstance(size, Tensor):
             size = size.concretize()
 
         object.__setattr__(self, "size", size)
@@ -1200,6 +1200,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def _source_exprs(self):
+        if self.is_empty:  # debug
+            breakpoint()
         assert not self.is_empty, "handle outside?"
         if self.is_empty:
             return idict({idict(): idict()})
