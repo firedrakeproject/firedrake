@@ -8,7 +8,8 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc, get_external_packages
+from firedrake.petsc import PETSc
+from petsctools import get_external_packages
 
 
 def _skip_test_dependency(dependency):
@@ -67,14 +68,6 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
-    elif dependency == "vtk":
-        try:
-            from firedrake.output import VTKFile  # noqa: F401
-            del VTKFile
-            return not skip
-        except ImportError:
-            return skip
-
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
@@ -90,7 +83,6 @@ dependency_skip_markers_and_reasons = (
     ("jax", "skipjax", "JAX is not installed"),
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
-    ("vtk", "skipvtk", "VTK is not installed")
 )
 
 
@@ -125,10 +117,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipslepc: mark as skipped if slepc4py is not installed"
-    )
-    config.addinivalue_line(
-        "markers",
-        "skipvtk: mark as skipped if vtk is not installed"
     )
     config.addinivalue_line(
         "markers",

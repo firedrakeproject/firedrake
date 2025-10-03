@@ -2,18 +2,16 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
+from petsctools import OptionsManager, flatten_parameters
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake.petsc import (
-    PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
-    DEFAULT_SNES_PARAMETERS
-)
+from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
+from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction, action
+from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from firedrake.__future__ import interpolate
 from ufl import replace, Form
 
 __all__ = ["LinearVariationalProblem",
@@ -89,7 +87,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 bcs = J.bcs
         if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
             restrict = False
-        self.restrict = restrict
+        self.restrict = restrict and bcs
 
         if restrict and bcs:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
@@ -100,7 +98,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = action(replace(F, {self.u: self.u_restrict}), interpolate(v_res, V))
+                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:
@@ -276,9 +275,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
+        sub_mat_type = self.parameters.get("sub_mat_type")
+        sub_pmat_type = self.parameters.get("sub_pmat_type")
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
+                                         sub_mat_type=sub_mat_type,
+                                         sub_pmat_type=sub_pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_jacobian_callback,
                                          pre_function_callback=pre_function_callback,
@@ -336,7 +339,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s. or :class:`~.Vector`\s.
+            :class:`~.Function`\s.
 
         .. note::
 
@@ -351,9 +354,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        # Make sure the solution dm is visited last
+        coefficients += problem.u.subfunctions
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
+        # Grab the unique DMs for this problem
+        problem_dms = []
+        for c in coefficients:
+            dm = c.function_space().dm
+            if dm == solution_dm:
+                # Make sure the solution dm is visited last
+                continue
+            if dm not in problem_dms:
+                problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
         if self._ctx.pre_apply_bcs:

@@ -1,7 +1,8 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
-version = "2025.4.2"
+# TODO RELEASE
+version = "2025.10.1.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -19,17 +20,20 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "fenics-ufl>=2025.1.0",
-  "firedrake-fiat>=2025.4.0",
+  # TODO RELEASE
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@release",
+  # TODO RELEASE
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@release",
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  "petsc4py==3.23.4",
   "numpy",
   "packaging",
+  "petsc4py==3.24.0",
+  "petsctools",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.04.1",
+  "pyadjoint-ad>=2025.10.0",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -37,6 +41,7 @@ dependencies = [
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
+  "vtk",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -58,7 +63,6 @@ Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 [project.scripts]
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
-firedrake-status = "firedrake.scripts.firedrake_status:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 
 
@@ -72,29 +76,26 @@ docs = [
   "matplotlib",  # needed to resolve API
   "numpydoc",
   "pylit",
-  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx",
   "sphinx-autobuild",
   "sphinx-reredirects",
   "sphinxcontrib-bibtex",
   "sphinxcontrib-jquery",
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
-  "vtk",  # needed to resolve API
+  "sphinx-copybutton",
 ]
 jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc",
+  "ngsPETSc>=0.1.1",
 ]
 slepc = [
-  "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
-]
-vtk = [
-  "vtk",
 ]
 
 # Dependencies needed to run the full test suite
@@ -105,7 +106,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc",
+  "ngsPETSc>=0.1.1",
   "pdf2image",
   "pygraphviz",
   "pylit",
@@ -113,9 +114,8 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
   "torch",  # requires passing '--extra-index-url' to work
-  "vtk",
 ]
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
@@ -130,7 +130,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.2",
+  "slepc4py==3.24.0",
 ]
 
 [build-system]
@@ -140,10 +140,11 @@ requires = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
+  "petsctools",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  "petsc4py==3.23.4",
+  "petsc4py==3.24.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"

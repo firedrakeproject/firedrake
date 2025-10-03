@@ -38,18 +38,6 @@ where :math:`\bar{\phi}^*_i` is the :math:`i`-th dual basis function to
 The interpolate operator
 ------------------------
 
-.. note::
-   The semantics for interpolation in Firedrake are in the course of changing.
-   The documentation provided here is for the new behaviour, in which the
-   `interpolate` operator is symbolic. In order to access the behaviour
-   documented here (which is recommended), users need to use the following
-   import line:
-
-   .. code-block:: python3
-
-      from firedrake.__future__ import interpolate
-
-
 The basic syntax for interpolation is:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -175,11 +163,6 @@ For more on forms, see :ref:`this section of the manual <more_complicated_forms>
 Interpolating onto other meshes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. note::
-
-   Interpolation *from* :ref:`high-order meshes <changing_coordinate_fs>` is
-   currently not supported.
-
 If the target mesh extends outside the source mesh domain, then cross-mesh
 interpolation will raise a :py:class:`~.DofNotDefinedError`.
 
@@ -234,8 +217,8 @@ we set them to be ``nan`` ('not a number') for easy identification:
 If we specify an output :py:class:`~.Function`, this overwrites the missing
 DoFs.
 
-When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
-argument is set at construction:
+If we don't set ``default_missing_val`` then any missing DoFs are left as 
+they were prior to interpolation:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -243,36 +226,20 @@ argument is set at construction:
    :start-after: [test_cross_mesh 13]
    :end-before: [test_cross_mesh 14]
 
-The ``default_missing_val`` keyword argument is then set whenever we call
-:py:meth:`~.Interpolator.interpolate`:
-
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 15]
    :end-before: [test_cross_mesh 16]
 
-If we supply an output :py:class:`~.Function` and don't set
-``default_missing_val`` then any missing DoFs are left as they were prior to
-interpolation:
+Similarly, using the :py:meth:`~.Function.interpolate` method on a :py:class:`~.Function` will not overwrite
+the pre-existing values if ``default_missing_val`` is not set:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 17]
    :end-before: [test_cross_mesh 18]
-
-.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
-   :language: python3
-   :dedent:
-   :start-after: [test_cross_mesh 19]
-   :end-before: [test_cross_mesh 20]
-
-.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
-   :language: python3
-   :dedent:
-   :start-after: [test_cross_mesh 21]
-   :end-before: [test_cross_mesh 22]
 
 .. _external_interpolation:
 

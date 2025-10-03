@@ -8,100 +8,7 @@ Point evaluation
 Firedrake can evaluate :py:class:`~.Function`\s at arbitrary physical
 points.  This feature can be useful for the evaluation of the result
 of a simulation, or for creating expressions which contain point evaluations.
-Three APIs are offered to this feature: two Firedrake-specific ones, and one
-from UFL.
-
-
-Firedrake convenience function
-------------------------------
-
-Firedrake's first API for evaluating functions at arbitrary points,
-:meth:`~.Function.at`, is designed for simple interrogation of a function with
-a few points.
-
-.. code-block:: python3
-
-   # evaluate f at a 1-dimensional point
-   f.at(0.3)
-
-   # evaluate f at two 1-dimensional points, or at one 2-dimensional point
-   # (depending on f's geometric dimension)
-   f.at(0.2, 0.4)
-
-   # evaluate f at one 2-dimensional point
-   f.at([0.2, 0.4])
-
-   # evaluate f at two 2-dimensional points
-   f.at([0.2, 0.4], [1.2, 0.5])
-
-   # evaluate f at two 2-dimensional points (same as above)
-   f.at([[0.2, 0.4], [1.2, 0.5]])
-
-While in these examples we have only shown lists, other *iterables*
-such as tuples and ``numpy`` arrays are also accepted. The following
-are equivalent:
-
-.. code-block:: python3
-
-   f.at(0.2, 0.4)
-   f.at((0.2, 0.4))
-   f.at([0.2, 0.4])
-   f.at(numpy.array([0.2, 0.4]))
-
-For a single point, the result is a ``numpy`` array, or a tuple of
-``numpy`` arrays in case of *mixed* functions.  When evaluating
-multiple points, the result is a list of values for each point.
-To summarise:
-
-* Single point, non-mixed: ``numpy`` array
-* Single point, mixed: tuple of ``numpy`` arrays
-* Multiple points, non-mixed: list of ``numpy`` arrays
-* Multiple points, mixed: list of tuples of ``numpy`` arrays
-
-
-Points outside the domain
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-When any point is outside the domain of the function,
-:py:class:`.PointNotInDomainError` exception is raised. If
-``dont_raise=True`` is passed to :meth:`~.Function.at`, the result is
-``None`` for those points which fall outside the domain.
-
-.. code-block:: python3
-
-   mesh = UnitIntervalMesh(8)
-   f = mesh.coordinates
-
-   f.at(1.2)                   # raises exception
-   f.at(1.2, dont_raise=True)  # returns None
-
-   f.at(0.5, 1.2)                   # raises exception
-   f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
-
-
-Evaluation on a moving mesh
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you move the mesh, by :doc:`changing the mesh coordinates
-<mesh-coordinates>`, then the bounding box tree that Firedrake
-maintains to ensure fast point evaluation must be rebuilt.  To do
-this, after moving the mesh, call
-:meth:`~.MeshGeometry.clear_spatial_index` on the mesh you have just
-moved.
-
-Evaluation with a distributed mesh
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-There is limited support for :meth:`~.Function.at` when running Firedrake
-in parallel. There is no special API, but there are some restrictions:
-
-* Point evaluation is a *collective* operation.
-* Each process must ask for the same list of points.
-* Each process will get the same values.
-
-If ``RuntimeError: Point evaluation gave different results across processes.``
-is raised, try lowering the :ref:`mesh tolerance <tolerance>`.
-
+Two APIs for this are offered: a Firedrake-specific one, and one from UFL.
 
 .. _primary-api:
 
@@ -145,18 +52,6 @@ on *all* the values of ``f`` evaluated at ``points``. The cell ordering of a
 at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
 shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
 create disconnected vertices at.
-
-The operator for evaluation at the points specified can be
-created by making an :py:class:`~.Interpolator` acting on a
-:py:func:`~.TestFunction`
-
-.. code-block:: python3
-
-   u = TestFunction(V)
-   Interpolator(u, P0DG)
-
-For more on :py:class:`~.Interpolator`\s and interpolation see the
-:doc:`interpolation <interpolation>` section.
 
 
 Vector and tensor valued function spaces
@@ -214,6 +109,7 @@ be a new vertex: this is true for both ``redundant = True`` and
 and switch from ``redundant = True`` to ``redundant = False`` we will get point
 duplication.
 
+.. _missing_points:
 
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -240,6 +136,51 @@ warning or switched off entirely:
    :dedent:
    :start-after: [test_vom_manual_points_outside_domain 5]
    :end-before: [test_vom_manual_points_outside_domain 6]
+
+.. _point_evaluator:
+
+``PointEvaluator`` convenience object
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The :py:class:`~.PointEvaluator` class performs point evaluation using vertex-only meshes,
+as described above. This is a convenience object for users who want to evaluate
+functions at points without writing the vertex-only mesh boilerplate code each time.
+
+First, create a :py:class:`~.PointEvaluator` object by passing the 
+parent mesh and the points to evaluate at:
+
+.. code-block:: python3
+
+   point_evaluator = PointEvaluator(mesh, points)
+
+Internally, this creates a vertex-only mesh at the given points, immersed in the given mesh.
+To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+we use :meth:`~.PointEvaluator.evaluate`:
+
+.. code-block:: python3
+
+   f_at_points = point_evaluator.evaluate(f)
+
+Under the hood, this creates the appropriate P0DG function space on the vertex-only mesh
+and performs the interpolation. The points are then reordered to match the input ordering,
+as described in :ref:`the section on the input ordering property <input_ordering>`. The result
+is a Numpy array containing the values of ``f`` at the given points, in the order the points were
+provided to the :py:class:`~.PointEvaluator` constructor.
+
+If ``redundant=True`` (the default) was used when creating the :py:class:`~.PointEvaluator`,
+then only the points given to the constructor on rank 0 will be evaluated. The result is then
+broadcast to all ranks. Use this option if the same points are given on all ranks.
+If ``redundant=False`` was used when creating the :py:class:`~.PointEvaluator`, then
+each rank will evaluate the points it was given. Use this option if different points are given
+on different ranks, for example when using external point data.
+
+The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`here <missing_points>` 
+and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
+and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
+
+If the :ref:`coordinates <changing_coordinate_fs>` or the :ref:`tolerance <tolerance>` of the parent mesh
+are changed after creating the :py:class:`~.PointEvaluator`, then the vertex-only mesh
+will be reconstructed on the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
 
 
 Expressions with point evaluations

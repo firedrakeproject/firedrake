@@ -6,6 +6,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
+from typing import Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -19,11 +20,14 @@ from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
+import petsctools
+from petsctools import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
+from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
@@ -31,9 +35,7 @@ import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import (
-    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
-)
+from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem
@@ -144,25 +146,6 @@ def _generate_default_mesh_topology_permutation_name(reorder):
     :returns: the default mesh topology permutation name.
     """
     return "_".join(["firedrake", "default", str(reorder)])
-
-
-class DistributedMeshOverlapType(enum.Enum):
-    """How should the mesh overlap be grown for distributed meshes?
-
-    Possible options are:
-
-     - :attr:`NONE`:  Don't overlap distributed meshes, only useful for problems with
-              no interior facet integrals.
-     - :attr:`FACET`: Add ghost entities in the closure of the star of
-              facets.
-     - :attr:`VERTEX`: Add ghost entities in the closure of the star
-              of vertices.
-
-    Defaults to :attr:`FACET`.
-    """
-    NONE = 1
-    FACET = 2
-    VERTEX = 3
 
 
 class _Facets(object):
@@ -498,56 +481,11 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
-@PETSc.Log.EventDecorator()
-def _from_cell_list(dim, cells, coords, comm, name=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-    This function remains for backward compatibility, but will be deprecated after 01/06/2023
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
-    :kwarg name: name of the plex
-    """
-    import warnings
-    warnings.warn(
-        "Private function `_from_cell_list` will be deprecated after 01/06/2023;"
-        "use public fuction `plex_from_cell_list()` instead.",
-        DeprecationWarning
-    )
-    assert is_pyop2_comm(comm)
-
-    # These types are /correct/, DMPlexCreateFromCellList wants int
-    # and double (not PetscInt, PetscReal).
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=np.int32)
-        coords = np.asarray(coords, dtype=np.double)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-    else:
-        cell_shape = list(comm.bcast(None, root=0))
-        coord_shape = list(comm.bcast(None, root=0))
-        cell_shape[0] = 0
-        coord_shape[0] = 0
-        # Provide empty plex on other ranks
-        # A subsequent call to plex.distribute() takes care of parallel partitioning
-        plex = PETSc.DMPlex().createFromCellList(dim,
-                                                 np.zeros(cell_shape, dtype=np.int32),
-                                                 np.zeros(coord_shape, dtype=np.double),
-                                                 comm=comm)
-    if name is not None:
-        plex.setName(name)
-    return plex
-
-
 class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm):
+    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -574,6 +512,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             Name of the entity permutation (reordering); if `None`, automatically generated.
         comm : mpi4py.MPI.Comm
             Communicator.
+        submesh_parent: AbstractMeshTopology
+            Submesh parent.
 
         """
         utils._init()
@@ -585,62 +525,56 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
-
+        self.submesh_parent = submesh_parent
         # User comm
         self.user_comm = comm
         # Internal comm
         self._comm = internal_comm(self.user_comm, self)
-
         dmcommon.label_facets(self.topology_dm)
         self._distribute()
         self._grown_halos = False
-
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
-            if self.comm.size > 1:
-                self._add_overlap()
-            if self.sfXB is not None:
-                self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
-            dmcommon.label_facets(self.topology_dm)
-            dmcommon.complete_facet_labels(self.topology_dm)
-            # TODO: Allow users to set distribution name if they want to save
-            #       conceptually the same mesh but with different distributions,
-            #       e.g., those generated by different partitioners.
-            #       This currently does not make sense since those mesh instances
-            #       of different distributions in general have different global
-            #       point numbers (so they must be saved under different mesh names
-            #       even though they are conceptually the same).
-            # The name set here almost uniquely identifies a distribution, but
-            # there is no gurantee that it really does or it continues to do so
-            # there are lots of parameters that can change distributions.
-            # Thus, when using CheckpointFile, it is recommended that the user set
-            # distribution_name explicitly.
-            # Mark OP2 entities and derive the resulting Plex renumbering
-            with PETSc.Log.Event("Mesh: numbering"):
-                self._mark_entity_classes()
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
-                if perm_is:
-                    self._dm_renumbering = perm_is
-                else:
-                    self._dm_renumbering = self._renumber_entities(reorder)
-                self._did_reordering = bool(reorder)
-                # Derive a cell numbering from the Plex renumbering
-                tdim = dmcommon.get_topological_dimension(self.topology_dm)
-                entity_dofs = np.zeros(tdim+1, dtype=IntType)
-                entity_dofs[-1] = 1
-                self._cell_numbering, _ = self.create_section(entity_dofs)
-                if tdim == 0:
-                    self._vertex_numbering = self._cell_numbering
-                else:
-                    entity_dofs[:] = 0
-                    entity_dofs[0] = 1
-                    self._vertex_numbering, _ = self.create_section(entity_dofs)
-                    entity_dofs[:] = 0
-                    entity_dofs[-2] = 1
-                    facet_numbering, _ = self.create_section(entity_dofs)
-                    self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
-        self._callback = callback
+        if self.comm.size > 1:
+            self._add_overlap()
+        if self.sfXB is not None:
+            self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
+        dmcommon.label_facets(self.topology_dm)
+        dmcommon.complete_facet_labels(self.topology_dm)
+        # TODO: Allow users to set distribution name if they want to save
+        #       conceptually the same mesh but with different distributions,
+        #       e.g., those generated by different partitioners.
+        #       This currently does not make sense since those mesh instances
+        #       of different distributions in general have different global
+        #       point numbers (so they must be saved under different mesh names
+        #       even though they are conceptually the same).
+        # The name set here almost uniquely identifies a distribution, but
+        # there is no gurantee that it really does or it continues to do so
+        # there are lots of parameters that can change distributions.
+        # Thus, when using CheckpointFile, it is recommended that the user set
+        # distribution_name explicitly.
+        # Mark OP2 entities and derive the resulting Plex renumbering
+        with PETSc.Log.Event("Mesh: numbering"):
+            self._mark_entity_classes()
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            if perm_is:
+                self._dm_renumbering = perm_is
+            else:
+                self._dm_renumbering = self._renumber_entities(reorder)
+            self._did_reordering = bool(reorder)
+            # Derive a cell numbering from the Plex renumbering
+            tdim = dmcommon.get_topological_dimension(self.topology_dm)
+            entity_dofs = np.zeros(tdim+1, dtype=IntType)
+            entity_dofs[-1] = 1
+            self._cell_numbering, _ = self.create_section(entity_dofs)
+            if tdim == 0:
+                self._vertex_numbering = self._cell_numbering
+            else:
+                entity_dofs[:] = 0
+                entity_dofs[0] = 1
+                self._vertex_numbering, _ = self.create_section(entity_dofs)
+                entity_dofs[:] = 0
+                entity_dofs[-2] = 1
+                facet_numbering, _ = self.create_section(entity_dofs)
+                self._facet_ordering = dmcommon.get_facet_ordering(self.topology_dm, facet_numbering)
         self.name = name
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
@@ -654,8 +588,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
-        # submesh
-        self.submesh_parent = None
 
     layers = None
     """No layers on unstructured mesh"""
@@ -690,12 +622,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
-
-    @PETSc.Log.EventDecorator("CreateMesh")
-    def init(self):
-        """Finish the initialisation of the mesh."""
-        if hasattr(self, '_callback'):
-            self._callback(self)
 
     @property
     def topology(self):
@@ -741,6 +667,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         """
         return self._ufl_mesh
+
+    @property
+    @abc.abstractmethod
+    def dm_cell_types(self):
+        """All DM.PolytopeTypes of cells in the mesh."""
+        pass
 
     @property
     @abc.abstractmethod
@@ -1112,7 +1044,19 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
+    def __init__(
+        self,
+        plex,
+        name,
+        reorder,
+        distribution_parameters,
+        sfXB=None,
+        perm_is=None,
+        distribution_name=None,
+        permutation_name=None,
+        submesh_parent=None,
+        comm=COMM_WORLD,
+    ):
         """Initialise a mesh topology.
 
         Parameters
@@ -1139,10 +1083,14 @@ class MeshTopology(AbstractMeshTopology):
             Name of the parallel distribution; if `None`, automatically generated.
         permutation_name : str
             Name of the entity permutation (reordering); if `None`, automatically generated.
+        submesh_parent: MeshTopology
+            Submesh parent.
         comm : mpi4py.MPI.Comm
             Communicator.
 
         """
+        if distribution_parameters is None:
+            distribution_parameters = {}
         self._distribution_parameters = {}
         distribute = distribution_parameters.get("partition")
         if distribute is None:
@@ -1156,7 +1104,7 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
+        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
 
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
@@ -1182,8 +1130,8 @@ class MeshTopology(AbstractMeshTopology):
         if overlap_type == DistributedMeshOverlapType.NONE:
             if overlap > 0:
                 raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            dmcommon.set_adjacency_callback(self.topology_dm)
+        elif overlap_type in [DistributedMeshOverlapType.FACET, DistributedMeshOverlapType.RIDGE]:
+            dmcommon.set_adjacency_callback(self.topology_dm, overlap_type)
             original_name = self.topology_dm.getName()
             sfBC = self.topology_dm.distributeOverlap(overlap)
             self.topology_dm.setName(original_name)
@@ -1247,6 +1195,11 @@ class MeshTopology(AbstractMeshTopology):
             reordering = None
         return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
 
+    @property
+    def dm_cell_types(self):
+        """All DM.PolytopeTypes of cells in the mesh."""
+        return dmcommon.get_dm_cell_types(self.topology_dm)
+
     @utils.cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
@@ -1262,12 +1215,26 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        if self.submesh_parent is not None:
-            return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
-                                                                     self.submesh_parent.topology_dm,
-                                                                     cell_numbering,
-                                                                     self.submesh_parent._cell_numbering,
-                                                                     self.submesh_parent.cell_closure)
+        if self.submesh_parent is not None and \
+                not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral"):
+            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
+            # inherit cell_closure from the hex mesh as the cell_closure
+            # must follow the special orientation restriction. This means
+            # that, when the quad submesh works with the parent hex mesh,
+            # quadrature points must be permuted (i.e. use the canonical
+            # quadrature point ordering based on the cone ordering).
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+            return dmcommon.submesh_create_cell_closure(
+                plex,
+                self.submesh_parent.topology_dm,
+                cell_numbering,
+                self.submesh_parent._cell_numbering,
+                self.submesh_parent.cell_closure,
+                entity_per_cell,
+            )
         elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
@@ -1278,9 +1245,8 @@ class MeshTopology(AbstractMeshTopology):
                                              cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
+            petsctools.cite("Homolya2016")
+            petsctools.cite("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
 
@@ -1684,9 +1650,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # TODO: refactor to call super().__init__
 
-        from firedrake_citations import Citations
-        Citations().register("McRae2016")
-        Citations().register("Bercea2016")
+        petsctools.cite("McRae2016")
+        petsctools.cite("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -1695,7 +1660,6 @@ class ExtrudedMeshTopology(MeshTopology):
         if layers.shape and periodic:
             raise ValueError("Must provide constant layer for periodic extrusion")
 
-        mesh.init()
         self._base_mesh = mesh
         self.user_comm = mesh.comm
         self._comm = internal_comm(mesh._comm, self)
@@ -1743,6 +1707,11 @@ class ExtrudedMeshTopology(MeshTopology):
     def _ufl_mesh(self):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+
+    @property
+    def dm_cell_types(self):
+        """All DM.PolytopeTypes of cells in the mesh."""
+        raise NotImplementedError("'dm_cell_types' is not implemented for ExtrudedMeshTopology")
 
     @utils.cached_property
     def cell_closure(self):
@@ -1934,8 +1903,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "partitioner_type": None,
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
-        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._parent_mesh = parentmesh
+        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
 
     def _distribute(self):
         pass
@@ -1981,6 +1950,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return perm_is
         else:
             return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+
+    @property
+    def dm_cell_types(self):
+        """All DM.PolytopeTypes of cells in the mesh."""
+        return (PETSc.DM.PolytopeType.POINT,)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -2270,20 +2244,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
+        self._bounding_box_coords = None
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
-
-    def init(self):
-        """Finish the initialisation of the mesh.  Most of the time
-        this is carried out automatically, however, in some cases (for
-        example accessing a property of the mesh directly after
-        constructing it) you need to call this manually."""
-        if hasattr(self, '_callback'):
-            self._callback(self)
 
     def _init_topology(self, topology):
         """Initialise the topology.
@@ -2299,20 +2266,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         import firedrake.function as function
 
         self._topology = topology
-
-        def callback(self):
-            """Finish initialisation."""
-            del self._callback
-            # Finish the initialisation of mesh topology
-            self.topology.init()
-            coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                         (self.num_vertices(), self.geometric_dimension()))
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name=_generate_default_mesh_coordinates_name(self.name))
-            self.__init__(coordinates)
-        self._callback = callback
+        coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
+        coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                                                     (self.num_vertices(), self.geometric_dimension()))
+        coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                      val=coordinates_data,
+                                                      name=_generate_default_mesh_coordinates_name(self.name))
+        self.__init__(coordinates)
 
     @property
     def topology(self):
@@ -2371,7 +2331,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if hasattr(self.ufl_cargo(), "_coordinates_function"):
             return self.ufl_cargo()._coordinates_function
         else:
-            self.init()
             coordinates_fs = self._coordinates.function_space()
             V = functionspaceimpl.WithGeometry.create(coordinates_fs, self)
             f = function.Function(V, val=self._coordinates)
@@ -2454,35 +2413,54 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @property
-    def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point.
+    @utils.cached_property
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
+        """Calculates bounding boxes for spatial indexing.
+
+        Returns
+        -------
+        Tuple of arrays of shape (num_cells, gdim) containing
+        the minimum and maximum coordinates of each cell's bounding box.
+
+        None if the geometric dimension is 1, since libspatialindex
+        does not support 1D.
 
         Notes
         -----
-
-        If this mesh has a :attr:`tolerance` property, which
-        should be a float, this tolerance is added to the extrama of the
-        spatial index so that points just outside the mesh, within tolerance,
-        can be found.
-
+        If we have a higher-order (bendy) mesh we project the mesh coordinates into
+        a Bernstein finite element space. Functions on a Bernstein element are
+        Bezier curves and are completely contained in the convex hull of the mesh nodes.
+        Hence the bounding box will contain the entire element.
         """
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
-
-        if (
-            self._spatial_index
-            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
-        ):
-            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
+        coord_element = self.ufl_coordinate_element()
+        coord_degree = coord_element.degree()
+        if np.all(np.asarray(coord_degree) == 1):
+            mesh = self
+        elif coord_element.family() == "Bernstein":
+            # Already have Bernstein coordinates, no need to project
+            mesh = self
+        else:
+            # For bendy meshes we project the coordinate function onto Bernstein
+            if self.extruded:
+                bernstein_fs = functionspace.VectorFunctionSpace(
+                    self, "Bernstein", coord_degree[0], vfamily="Bernstein", vdegree=coord_degree[1]
+                )
+            else:
+                bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
+            f = function.Function(bernstein_fs)
+            f.interpolate(self.coordinates)
+            mesh = Mesh(f)
+
         # Calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -2490,18 +2468,18 @@ values from f.)"""
         coords_max.dat.data.fill(-np.inf)
 
         if utils.complex_mode:
-            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+            if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
-            coords = function.Function(self.coordinates.function_space(),
-                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+            coords = function.Function(mesh.coordinates.function_space(),
+                                       val=mesh.coordinates.dat.data_ro_with_halos.real.copy(),
                                        dtype=RealType)
         else:
-            coords = self.coordinates
+            coords = mesh.coordinates
 
-        cell_node_list = self.coordinates.function_space().cell_node_list
+        cell_node_list = mesh.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
+        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
@@ -2515,9 +2493,35 @@ values from f.)"""
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
+        return coords_min, coords_max
+
+    @property
+    def spatial_index(self):
+        """Builds spatial index from bounding box coordinates, expanding
+        the bounding box by the mesh tolerance.
+
+        Returns
+        -------
+        :class:`~.spatialindex.SpatialIndex` or None if the mesh is
+        one-dimensional.
+
+        Notes
+        -----
+        If this mesh has a :attr:`tolerance` property, which
+        should be a float, this tolerance is added to the extrema of the
+        spatial index so that points just outside the mesh, within tolerance,
+        can be found.
+
+        """
+        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
+            if "bounding_box_coords" in self.__dict__:
+                del self.bounding_box_coords
+        else:
+            if self._spatial_index:
+                return self._spatial_index
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2525,11 +2529,15 @@ values from f.)"""
         # where points may be just off the mesh but should be evaluated.
         # TODO: This is perhaps unnecessary when we aren't in these special
         # cases.
-
         # We also push max and min out so we can find points on the boundary
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
+        if self.bounding_box_coords is None:
+            # This happens in 1D meshes
+            return None
+        else:
+            coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
@@ -2737,7 +2745,6 @@ values from f.)"""
         _input_ordering = make_vom_from_vom_topology(self.topology.input_ordering, self.name + "_input_ordering")
         if _input_ordering:
             _input_ordering._parent_mesh = self
-            _input_ordering.init()
             return _input_ordering
 
     def cell_orientations(self):
@@ -3069,8 +3076,7 @@ def Mesh(meshfile, **kwargs):
             from ngsPETSc import FiredrakeMesh
         except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
-        from firedrake_citations import Citations
-        Citations().register("Betteridge2024")
+        petsctools.cite("Betteridge2024")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
@@ -3096,16 +3102,19 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
+    submesh_parent = kwargs.get("submesh_parent", None)
     topology = MeshTopology(plex, name=plex.getName(), reorder=reorder,
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
+                            submesh_parent=submesh_parent.topology if submesh_parent else None,
                             comm=user_comm)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     else:
         mesh = make_mesh_from_mesh_topology(topology, name)
+    mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
     return mesh
 
@@ -3180,7 +3189,6 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if name is not None and name == mesh.name:
         raise ValueError("Extruded mesh and base mesh can not have the same name")
     name = name if name is not None else mesh.name + "_extruded"
-    mesh.init()
     layers = np.asarray(layers, dtype=IntType)
     if layers.shape:
         if periodic:
@@ -3264,7 +3272,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 class MissingPointsBehaviour(enum.Enum):
-    IGNORE = None
+    IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
 
@@ -3305,7 +3313,8 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
-        :class:`~.VertexOnlyMeshMissingPointsError`.
+        :class:`~.VertexOnlyMeshMissingPointsError`. If ``'ignore'``, will do
+        nothing. Default is ``'error'``.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
@@ -3342,14 +3351,12 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         assumed to be a new vertex.
 
     """
-    from firedrake_citations import Citations
-    Citations().register("nixonhill2023consistent")
+    petsctools.cite("nixonhill2023consistent")
 
     if tolerance is None:
         tolerance = mesh.tolerance
     else:
         mesh.tolerance = tolerance
-    mesh.init()
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
@@ -3357,11 +3364,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    # Bendy meshes require a smarter bounding box algorithm at partition and
-    # (especially) cell level. Projecting coordinates to Bernstein may be
-    # sufficient.
-    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree()) > 1):
-        raise NotImplementedError("Only straight edged meshes are supported")
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
@@ -3399,7 +3401,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     )
     vmesh_out = make_vom_from_vom_topology(topology, name, tolerance)
     vmesh_out._parent_mesh = mesh
-    vmesh_out.init()
     return vmesh_out
 
 
@@ -4619,8 +4620,24 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
 
     Notes
     -----
-    Currently, one can only make submeshes that have the same
-    topological dimension as the parent mesh.
+    Currently, one can only make submeshes of co-dimension 0 or 1.
+
+    To make a submesh of co-dimension 1, the parent mesh must have
+    been overlapped with :class:`DistributedMeshOverlapType` of
+    {``None``, `VERTEX``, ``RIDGE``}; see ``distribution_parameters``
+    kwarg of :func:`~.Mesh`.
+
+    To use interior facet integration on a submesh of co-dimension 1,
+    the parent mesh must have been overlapped with
+    ``DistributedMeshOverlapType`` of {`VERTEX``, ``RIDGE``}, and the
+    facets of the parent mesh must have been labeled such that the
+    ridges (entities of co-dim 2) to be contained in the submesh are
+    shared by at most two facets.
+
+    Currently, to make a quadrilateral submesh from a hexahedral mesh,
+    the facets of the hex mesh must have been labeled such that the
+    ridges to be contained in the quad mesh are shared by at most two
+    facets to make the quad mesh orientation algorithm work.
 
     Examples
     --------
@@ -4654,21 +4671,27 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
-    mesh.topology.init()
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim != dim:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) != parent dim ({dim})")
+    if subdim not in [dim, dim - 1]:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if label_name is None:
-        label_name = dmcommon.CELL_SETS_LABEL
+        if subdim == dim:
+            label_name = dmcommon.CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, label_name, subdomain_id)
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, False)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
-    submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
-                                                                "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
-    submesh.topology.submesh_parent = mesh.topology
-    submesh.init()
-    submesh.submesh_parent = mesh
+    submesh = Mesh(
+        subplex,
+        submesh_parent=mesh,
+        name=name,
+        distribution_parameters={
+            "partition": False,
+            "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+        },
+    )
     return submesh

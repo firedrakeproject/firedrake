@@ -70,9 +70,10 @@ and evaluate the objective function::
 
 We now turn the objective function into a reduced function so that pyadjoint
 (and UFL shape differentiation capability) can automatically compute shape
-gradients, that is, directions of steepest ascent::
+gradients, that is, directions of steepest ascent. We also set the relevant
+Riesz map for this problem::
 
-  Jred = ReducedFunctional(J, Control(dT))
+  Jred = ReducedFunctional(J, Control(dT, riesz_map="H1"))
   stop_annotating()
 
 We now have all the ingredients to implement a basic steepest descent shape
@@ -84,8 +85,7 @@ optimization algorithm with fixed step size.::
     File.write(mesh.coordinates)
 
     # compute the gradient (steepest ascent)
-    opts = {"riesz_representation": "H1"}
-    gradJ = Jred.derivative(options=opts)
+    gradJ = Jred.derivative(apply_riesz=True)
 
     # update domain
     dT -= 0.2*gradJ

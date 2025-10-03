@@ -20,22 +20,10 @@ class InvalidConfigurationException(Exception):
 
 
 def main():
-    check_firedrake_version()
     check_min_python_version()
     check_petsc_version()
     check_slepc_version()
     check_petsc_version_spec()
-
-
-def check_firedrake_version():
-    firedrake_version = check_file_contains_pattern(
-        REPO_ROOT / "pyproject.toml",
-        "version = \"(.*)\""
-    )
-    check_file_contains_pattern(
-        REPO_ROOT/"docs/source/install.rst",
-        f"https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/{firedrake_version}/scripts/firedrake-configure"
-    )
 
 
 def check_min_python_version() -> None:
@@ -70,8 +58,14 @@ def check_slepc_version() -> None:
 
 
 def check_petsc_version_spec() -> None:
-    # TODO when https://github.com/firedrakeproject/firedrake/pull/4194 is merged
-    pass
+    petsc_version_spec = check_file_contains_pattern(
+        REPO_ROOT / "firedrake/__init__.py",
+        "PETSC_SUPPORTED_VERSIONS = \"(.*)\"",
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "setup.py",
+        f"petsctools.init\\(version_spec=\"{petsc_version_spec}\"\\)",
+    )
 
 
 def check_file_contains_pattern(

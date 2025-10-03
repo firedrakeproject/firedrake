@@ -15,6 +15,10 @@ on:
         description: Whether to run the test suite
         type: boolean
         default: true
+      build_docs:
+        description: Whether to build the documentation
+        type: boolean
+        default: true
       test_macos:
         description: Whether to test using macOS
         type: boolean
@@ -25,10 +29,6 @@ on:
         default: false
       upload_pypi:
         description: Whether to upload an sdist to PyPI
-        type: boolean
-        default: false
-      upload_testpypi:
-        description: Whether to upload an sdist to TestPyPI
         type: boolean
         default: false
 
@@ -46,6 +46,10 @@ on:
         description: Whether to run the test suite
         type: boolean
         default: true
+      build_docs:
+        description: Whether to build the documentation
+        type: boolean
+        default: true
       test_macos:
         description: Whether to test using macOS
         type: boolean
@@ -56,10 +60,6 @@ on:
         default: false
       upload_pypi:
         description: Whether to upload an sdist to PyPI
-        type: boolean
-        default: false
-      upload_testpypi:
-        description: Whether to upload an sdist to TestPyPI
         type: boolean
         default: false
 
@@ -84,18 +84,16 @@ jobs:
       image: ubuntu:latest
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
-      docs_conclusion: ${{ steps.report_docs.outputs.conclusion }}
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
-      PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
       # NOTE: One should occasionally update test_durations.json by running
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -129,14 +127,17 @@ jobs:
       - name: Validate single source of truth
         run: ./firedrake-repo/scripts/check-config
 
-      # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check no 'TODO RELEASE' comments (release only)
-        if: inputs.target_branch == 'release'
-        working-directory: firedrake-repo
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
         run: |
-          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
-            exit 0
-          else
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          echo "Latest version: $latest_version"
+          echo "Docker version: $docker_version"
+          if [[ "$docker_version" != "$latest_version" ]]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
             exit 1
           fi
 
@@ -182,6 +183,7 @@ jobs:
           pip cache remove slepc4py
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_BUILD_ARGS=''
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
@@ -192,20 +194,21 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps ngsPETSc netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_BUILD_ARGS='--no-isolation'
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist
+          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
           firedrake-clean
           pip list
@@ -367,67 +370,6 @@ jobs:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
-      - name: Install system dependencies (3)
-        if: always()
-        run: apt-get -y install inkscape texlive-full
-
-      - name: Check bibtex
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs linkcheck
-
-      - name: Build documentation
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        id: build_docs
-        run: |
-          . venv/bin/activate
-          cd firedrake-repo/docs
-          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
-          make latex
-          make latexpdf
-          # : Copy manual to HTML tree
-          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
-
-      - name: Upload documentation
-        uses: actions/upload-pages-artifact@v3
-        id: upload_docs
-        if: (success() || steps.build_docs.conclusion == 'success') && matrix.arch == 'default'
-        with:
-          name: github-pages
-          path: firedrake-repo/docs/build/html
-          retention-days: 1
-
-      - name: Report docs build status
-        id: report_docs
-        if: success() || steps.upload_docs.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
-      # Some files are automatically generated when we install or build the
-      # docs (e.g. AUTHORS.rst). These files are committed to the repository
-      # so uncommitted changes at this point reflect changes in the automatically
-      # generated files that ought to be committed.
-      - name: Check no untracked files
-        if: always()
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( git status --porcelain )" ]; then
-            exit 0
-          else
-            echo Error: there are untracked files in the repository
-            echo The output from 'git status' is:
-            git status
-            echo The output from 'git diff' is:
-            git diff
-            exit 1
-          fi
-
       - name: Post-run cleanup
         if: always()
         run: find . -delete
@@ -541,16 +483,94 @@ jobs:
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
+  build_docs:
+    if: inputs.build_docs
+    name: Build documentation
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.target_branch }}
+    outputs:
+      conclusion: ${{ steps.report_docs.outputs.conclusion }}
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install inkscape texlive-full
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          CC=mpicc CXX=mpicxx \
+            pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+          firedrake-clean
+          pip list
+
+      - name: Check bibtex
+        run: make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs linkcheck
+
+      - name: Build documentation
+        if: success() || steps.install.conclusion == 'success'
+        id: build_docs
+        working-directory: firedrake-repo/docs
+        run: |
+          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
+          make latex
+          make latexpdf
+          # : Copy manual to HTML tree
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Upload documentation
+        uses: actions/upload-pages-artifact@v3
+        id: upload_docs
+        if: success() || steps.build_docs.conclusion == 'success'
+        with:
+          name: github-pages
+          path: firedrake-repo/docs/build/html
+          retention-days: 1
+
+      # Some files are automatically generated when we install or build the
+      # docs (e.g. AUTHORS.rst). These files are committed to the repository
+      # so uncommitted changes at this point reflect changes in the automatically
+      # generated files that ought to be committed.
+      - name: Check no untracked files
+        if: always()
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( git status --porcelain )" ]; then
+            exit 0
+          else
+            echo Error: there are untracked files in the repository
+            echo The output from 'git status' is:
+            git status
+            echo The output from 'git diff' is:
+            git diff
+            exit 1
+          fi
+
+      - name: Report docs build status
+        id: report_docs
+        if: success() || steps.upload_docs.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
   deploy_website:
     name: Deploy GitHub pages (optional)
-    needs: test_linux
+    needs: build_docs
     # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
       inputs.target_branch == 'main' &&
-      needs.test_linux.outputs.docs_conclusion == 'success'
+      needs.build_docs.outputs.conclusion == 'success'
     permissions:
       pages: write
       id-token: write
@@ -582,26 +602,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-
-  upload_testpypi:
-    name: Upload to TestPyPI (optional)
-    needs: test_linux
-    if: |
-      always() &&
-      inputs.upload_testpypi &&
-      inputs.target_branch == 'release' &&
-      needs.test_linux.outputs.sdist_conclusion == 'success'
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - name: Push to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
