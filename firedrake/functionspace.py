@@ -20,7 +20,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 
 @PETSc.Log.EventDecorator()
-def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
+def make_scalar_element(mesh, family, degree, vfamily, vdegree, **kwargs):
     """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Parameters
@@ -31,14 +31,15 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
         The finite element family.
     degree :
         The degree of the finite element.
-    variant :
-        The variant of the finite element.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    **kwargs :
+        Any extra kwargs are passed on to the FiniteElement constructor.
+        For details see :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Notes
     -----
@@ -59,20 +60,20 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
                                      cell=cell.sub_cells()[0],
-                                     degree=degree, variant=variant)
+                                     degree=degree, **kwargs)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
                                      cell=ufl.interval,
-                                     degree=vdegree, variant=variant)
+                                     degree=vdegree, **kwargs)
         # Now make the TensorProductElement
         return finat.ufl.TensorProductElement(la, lb)
     else:
-        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
+        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, **kwargs)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None):
+                  vfamily=None, vdegree=None, **kwargs):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -91,8 +92,9 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
-    variant :
-        The variant of the finite element.
+    **kwargs :
+        Any extra kwargs are passed on to the FiniteElement constructor.
+        For details see :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Notes
     -----
@@ -101,13 +103,13 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
 
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, **kwargs)
     return impl.WithGeometry.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def DualSpace(mesh, family, degree=None, name=None,
-              vfamily=None, vdegree=None, variant=None):
+              vfamily=None, vdegree=None, **kwargs):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -126,8 +128,9 @@ def DualSpace(mesh, family, degree=None, name=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
-    variant :
-        The variant of the finite element.
+    **kwargs :
+        Any extra kwargs are passed on to the FiniteElement constructor.
+        For details see :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Notes
     -----
@@ -136,13 +139,13 @@ def DualSpace(mesh, family, degree=None, name=None,
     other arguments are ignored and the appropriate :class:`.FunctionSpace` is
     returned.
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, **kwargs)
     return impl.FiredrakeDualSpace.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None, variant=None):
+                        name=None, vfamily=None, vdegree=None, **kwargs):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -164,8 +167,9 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
-    variant :
-        The variant of the finite element.
+    **kwargs :
+        Any extra kwargs are passed on to the FiniteElement constructor.
+        For details see :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Notes
     -----
@@ -178,7 +182,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     pass it to :class:`.FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, **kwargs)
     if dim is None:
         dim = mesh.geometric_dimension()
     if not isinstance(dim, numbers.Integral) and dim > 0:
@@ -190,7 +194,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 @PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
-                        vdegree=None, variant=None):
+                        vdegree=None, **kwargs):
     """Create a rank-2 FunctionSpace.
 
     Parameters
@@ -215,8 +219,9 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
-    variant :
-        The variant of the finite element.
+    **kwargs :
+        Any extra kwargs are passed on to the FiniteElement constructor.
+        For details see :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Notes
     -----
@@ -230,7 +235,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     `FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, **kwargs)
     if shape is None:
         shape = (mesh.geometric_dimension(),) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
