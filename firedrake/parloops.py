@@ -693,8 +693,13 @@ def _needs_static_permutation(element) -> bool:
 def construct_switch_statement(self, mats, n, args, var_list):
     string = []
     #string += "printf(\"mat[0,0]: %f\\n\", mat0_0_0[0]); \n"
-    #string += "printf(\"a[0,0]: %f\\n\", a[0]); \n"
-    string += ["\nswitch (dim) { \n"] #(INDIA NOTE removing for now)
+    string += "a = iden; \n "
+    string += "printf(\"a[0,0]: %f\\n\", a[0]); \n"
+    string += "\nswitch (dim) { \n"
+    
+    var_list += ["iden"]
+    args += [loopy.TemporaryVariable("iden", initializer=np.identity(n), dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     indent = 0
@@ -716,8 +721,8 @@ def construct_switch_statement(self, mats, n, args, var_list):
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
                 args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
             indent -= 1
-            string += indent*"\t" + f"default: printf(\" failure dim: {dim} i:{i} closure_size_acc: %d o_val: %d\\n\", closure_size_acc, o_val); break;}}\n"
-        #string += indent*"\t" + "printf(\"o_val %d\\n\", o_val); \n"
+            string += indent*"\t" + f"default: break;}}\n"
+        string += indent*"\t" + "printf(\"b (before) %f\\n\", b[0]); \n"
         #string += indent*"\t" + "printf(\"dim: %d\\n\", dim); \n"
         #string += indent*"\t" + "printf(\"i: %d\\n\", i); \n"
         #string += indent*"\t" + "printf(\"a[0,0]: %f\\n\", a[0]); \n"
@@ -777,34 +782,42 @@ def fuse_orientations(space: WithGeometry):
         string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
         transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign")
 
-        printb_insn = loopy.CInstruction(tuple(), "printf(\"b: %f\\n\", b[0]);", assignees=(), read_variables=frozenset(["b"]))
+        printa_insn = loopy.CInstruction(tuple(), "printf(\"a (after): %f\\n\", a[0, 0]);", assignees=(), read_variables=frozenset(["a"]), depends_on="set")
+        printb_insn = loopy.CInstruction(tuple(), "printf(\"b (after): %f\\n\", b[0]);", assignees=(), read_variables=frozenset(["b"]), depends_on="set")
+        printres_insn = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="zero")
         dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
         parent_knl = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
             [transform_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
              "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}",
              "res[:] = zero(res) {id=zero, dep=set, inames=i}",
-             printb_insn],
+             printa_insn,printb_insn,printres_insn],
             name="switch_on_o",
             kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
-        #loopy.Assignment("b[:]", "set(b[:], res[:])", id="set", depends_on="matmul", within_inames=frozenset({"i"})),
+        print_insn = loopy.CInstruction(tuple(), f"printf(\"b: %f\\n\", res[0]);", read_variables=frozenset({"res"}), depends_on="replace")
         closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
+        printres_insn = loopy.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         loop_knl1 = loopy.make_function(
             f"{{[dim]:0<= dim <= {space._mesh.dimension}}}",
             ["d = closure_sizes[dim] {id=closure}",
              "b[:], res[:] = switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
-             "closure_size_acc = closure_size_acc + d {dep=switch}",
-             "res[:] = set(res[:], b[:]) {id=replace, dep=switch}"],
+             "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}",
+             print_insn,
+             printres_insn],
             name="loop_over_dims",
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
-        print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]))
-        print_insn1 = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);printf(\"b: %f\\n\", b[0]);", assignees=(), id="print")
+        #"res[:] = set(res[:], b[:]) {id=replace, dep=switch}",
+        
+        print_insn = loopy.CInstruction(tuple(), "printf(\"final res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        printb_insn = loopy.CInstruction(tuple(), "printf(\"final b: %f\\n\", b[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         loop_knl2 = loopy.make_kernel(
             "{:}",
-            [print_insn1, "b[:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {dep=print}", print_insn],
+            ["b[:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {id=loop}",
+            "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
+             print_insn],
             kernel_data = args[3:7],
             target=loopy.CWithGNULibcTarget())
 

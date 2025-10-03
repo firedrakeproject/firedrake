@@ -1097,7 +1097,6 @@ class ParloopFormAssembler(FormAssembler):
                 # TODO: move this elsewhere, or avoid entirely?
                 if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                     subtensor = subtensor.buffer.mat.getPythonContext().dat
-
                 import pyop3.extras.debug
                 pyop3.extras.debug.enable_conditional_breakpoints()
 
@@ -1109,7 +1108,6 @@ class ParloopFormAssembler(FormAssembler):
 
             for bc in self._bcs:
                 self._apply_bc(tensor, bc, u=current_state)
-
             return self.result(tensor)
 
     @abc.abstractmethod
