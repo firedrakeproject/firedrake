@@ -872,13 +872,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
-
-        # Return the original BaseForm if there are no derivatives.
-        # expand_derivatives will error when the BaseForm contains SLATE objects.
-        if len(ufl.algorithms.extract_type(form, ufl.differentiation.Derivative)) == 0:
+        try:
+            return ufl.algorithms.ad.expand_derivatives(form)
+        except ValueError:
+            # Some forms (e.g. SLATE tensors) are not currently differentiable.
             return form
-
-        return ufl.algorithms.ad.expand_derivatives(form)
 
 
 class FormAssembler(AbstractFormAssembler):
