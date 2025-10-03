@@ -825,7 +825,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if isinstance(expr, ufl.BaseForm) and len(expr.arguments()) == 2 and mat_type != "matfree":
+        if mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
@@ -872,6 +872,12 @@ class BaseFormAssembler(AbstractFormAssembler):
         # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
+
+        # Return the original BaseForm if there are no derivatives.
+        # expand_derivatives will error when the BaseForm contains SLATE objects.
+        if len(ufl.algorithms.extract_type(form, ufl.differentiation.Derivative)) == 0:
+            return form
+
         return ufl.algorithms.ad.expand_derivatives(form)
 
 
