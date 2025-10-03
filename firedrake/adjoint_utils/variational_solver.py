@@ -3,7 +3,7 @@ from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, CachedSolverBlock
 from firedrake.ufl_expr import derivative, adjoint
-from ufl import replace
+import ufl
 
 
 class NonlinearVariationalProblemMixin:
@@ -58,8 +58,7 @@ class NonlinearVariationalSolverMixin:
 
     def _ad_cache_forward_solver(self):
         from firedrake import (
-            Function, Cofunction,
-            NonlinearVariationalProblem,
+            Function, NonlinearVariationalProblem,
             NonlinearVariationalSolver)
         from firedrake.adjoint_utils.blocks.solving import FORWARD
 
@@ -74,7 +73,7 @@ class NonlinearVariationalSolverMixin:
                 new_coeff = old_coeff.copy(deepcopy=True)
             replace_map[old_coeff] = new_coeff
 
-        Fnew = replace(F, replace_map)
+        Fnew = ufl.replace(F, replace_map)
         unew = replace_map[problem.u]
 
         for cnew in replace_map.values():
@@ -82,14 +81,51 @@ class NonlinearVariationalSolverMixin:
         for cold in replace_map.keys():
             assert cold not in Fnew.coefficients()
 
-        # assert False
-
         nlvp = NonlinearVariationalProblem(Fnew, unew)
         nlvs = NonlinearVariationalSolver(nlvp)
 
-        self.dependencies_to_add = tuple(replace_map.keys())
-        self.replaced_dependencies = tuple(replace_map.values())
+        self._ad_dependencies_to_add = tuple(replace_map.keys())
+        self._ad_replaced_dependencies = tuple(replace_map.values())
         self._ad_solver_cache[FORWARD] = nlvs
+
+    def _ad_cache_tlm_solver(self):
+        from firedrake import (
+            Function, Cofunction, derivative, TrialFunction,
+            LinearVariationalProblem, LinearVariationalSolver)
+        from firedrake.adjoint_utils.blocks.solving import FORWARD, TLM
+
+        nlvp = self._ad_solver_cache[FORWARD]._problem
+
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        dFdu = derivative(F, u, TrialFunction(V))
+        dFdm = Cofunction(V.dual())
+        dudm = Function(V)
+
+        lvp = LinearVariationalProblem(dFdu, dFdm, dudm)
+        lvs = LinearVariationalSolver(lvp)
+
+        self._ad_solver_cache[TLM] = lvs
+        self._ad_tlm_rhs = dFdm
+
+        replaced_tlms = []
+        dFdm_tlm_forms = []
+        for m in self._ad_replaced_dependencies:
+            if isinstance(m, Function) and m.ufl_element().family() == "Real":
+                mtlm = copy.deepcopy(m)
+            else:
+                mtlm = m.copy(deepcopy=True)
+
+            replaced_tlms.append(mtlm)
+
+            dFdm = derivative(-F, m, mtlm)
+            dFdm = ufl.algorithms.expand_derivatives(dFdm)
+            dFdm_tlm_forms.append(dFdm)
+
+        self._ad_tlm_dFdm_forms = dFdm_tlm_forms
+        self._ad_replaced_tlms = replaced_tlms
 
     @staticmethod
     def _ad_annotate_solve(solve):
@@ -99,23 +135,25 @@ class NonlinearVariationalSolverMixin:
             Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
             for the purposes of the adjoint computation (such as projecting fields to other function spaces
             for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
-            from firedrake.adjoint_utils.blocks.solving import FORWARD
             annotate = annotate_tape(kwargs)
             if annotate:
                 if kwargs.pop("bounds", None) is not None:
                     raise ValueError(
                         "MissingMathsError: we do not know how to differentiate through a variational inequality")
 
-                if FORWARD not in self._ad_solver_cache:
+                if len(self._ad_solver_cache) == 0:
                     self._ad_cache_forward_solver()
+                    self._ad_cache_tlm_solver()
 
-                block = CachedSolverBlock(self._ad_problem.u
+                block = CachedSolverBlock(self._ad_problem.u,
                                           self._ad_solver_cache,
-                                          self.replaced_dependencies,
+                                          self._ad_replaced_dependencies,
+                                          self._ad_tlm_rhs,
+                                          self._ad_replaced_tlms,
+                                          self._ad_tlm_dFdm_forms,
                                           ad_block_tag=self.ad_block_tag)
 
-                for dep in self.dependencies_to_add:
+                for dep in self._ad_dependencies_to_add:
                     block.add_dependency(dep, no_duplicates=True)
 
                 get_working_tape().add_block(block)
@@ -201,10 +239,10 @@ class NonlinearVariationalSolverMixin:
         from firedrake import NonlinearVariationalProblem
         _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
             problem.J, dependencies, F=problem.F)
-        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
+        nlvp = NonlinearVariationalProblem(ufl.replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
+                                           J=ufl.replace(problem.J, J_replace_map))
         nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
@@ -229,7 +267,7 @@ class NonlinearVariationalSolverMixin:
         _ad_count_map, J_replace_map, _ = self._build_count_map(
             adj_F, block._dependencies)
         lvp = LinearVariationalProblem(
-            replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
+            ufl.replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)

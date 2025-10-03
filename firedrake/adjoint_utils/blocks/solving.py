@@ -32,6 +32,7 @@ class SolverType(Enum):
     TLM = 2
     HESSIAN = 3
 
+
 FORWARD = SolverType.FORWARD
 ADJOINT = SolverType.ADJOINT
 TLM = SolverType.TLM
@@ -44,27 +45,46 @@ def update_dependency(replaced_dep, dep):
                                      firedrake.Constant,
                                      firedrake.Cofunction)):
         raise TypeError("Updating non-Function-y things not implemented yet.")
-    replaced_dep.assign(dep.saved_output)
+    replaced_dep.assign(dep)
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, func, cached_solvers, replaced_dependencies, ad_block_tag=None):
+    def __init__(self, func, cached_solvers,
+                 replaced_dependencies,
+                 tlm_rhs, replaced_tlms, tlm_dFdm_forms,
+                 ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
         self.func = func
         self.cached_solvers = cached_solvers
         self.replaced_dependencies = replaced_dependencies
 
-    def update_dependencies(self):
+        self.tlm_rhs = tlm_rhs
+        self.replaced_tlms = replaced_tlms
+        self.tlm_dFdm_forms = tlm_dFdm_forms
+
+    def update_dependencies(self, use_output=False):
         for replaced_dep, dep in zip(self.replaced_dependencies,
                                      self.get_dependencies()):
-            update_dependency(replaced_dep, dep)
+            update_dependency(replaced_dep, dep.saved_output)
+        if use_output:
+            output = self.get_outputs()[0].saved_output
+            self.cached_solvers[FORWARD]._problem.u.assign(output)
+
+    def update_tlm_dependencies(self):
+        for replaced_tlm, dep in zip(self.replaced_tlms,
+                                     self.get_dependencies()):
+            if dep.output == self.func:
+                continue
+            if dep.tlm_value is None:
+                continue
+            update_dependency(replaced_tlm, dep.tlm_value)
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return None
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        self.update_dependencies()
+        self.update_dependencies(use_output=False)
 
         solver = self.cached_solvers[FORWARD]
         solver.solve()
@@ -79,17 +99,16 @@ class CachedSolverBlock(Block):
         return None
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
-        self.update_dependencies()
+        self.update_dependencies(use_output=True)
         self.update_tlm_dependencies()
 
-        self.tlm_dFdm.zero()
-        for i, block_variable in enumerate(self.get_dependencies()):
-            if block_variable.tlm_value is None:
+        self.tlm_rhs.zero()
+        for dFdm, dep in zip(self.tlm_dFdm_forms, self.get_dependencies()):
+            if dep.tlm_value is None:
                 continue
-            if block_variable.output == self.func:
+            if dep.output is self.func:
                 continue
-
-            self.tlm_dFdm += self.tlm_dFdm_assemblers[i]()
+            self.tlm_rhs += firedrake.assemble(dFdm)
 
         solver = self.cached_solvers[TLM]
         solver._problem.u.zero()
@@ -352,6 +371,10 @@ class GenericSolveBlock(Block):
         return dFdm
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
+        pass
+
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
+                               prepared=None):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
 
@@ -363,16 +386,6 @@ class GenericSolveBlock(Block):
             fwd_block_variable.saved_output,
             firedrake.TrialFunction(u.function_space())
         )
-
-        return {
-            "form": F_form,
-            "dFdu": dFdu
-        }
-
-    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
-                               prepared=None):
-        F_form = prepared["form"]
-        dFdu = prepared["dFdu"]
         V = self.get_outputs()[idx].output.function_space()
 
         bcs = []
@@ -409,10 +422,11 @@ class GenericSolveBlock(Block):
         dFdm = ufl.algorithms.expand_derivatives(dFdm)
         dFdm = firedrake.assemble(dFdm)
         dudm = firedrake.Function(V)
-        return self._assemble_and_solve_tlm_eq(
+        result = self._assemble_and_solve_tlm_eq(
             firedrake.assemble(dFdu, bcs=bcs, **self.assemble_kwargs),
             dFdm, dudm, bcs
         )
+        return result
 
     def _assemble_and_solve_tlm_eq(self, dFdu, dFdm, dudm, bcs):
         return self._assembled_solve(dFdu, dFdm, dudm, bcs)
