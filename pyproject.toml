@@ -35,7 +35,7 @@ dependencies = [
   "pkgconfig",
   "progress",
   # TODO RELEASE: use a release
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint",
+  "pyadjoint-ad @ git+https://github.com/angus-g/pyadjoint@angus-g/smss-special-case",
   "pycparser",
   "pytools[siphash]",
   "requests",
