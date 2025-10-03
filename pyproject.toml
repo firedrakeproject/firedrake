@@ -35,7 +35,7 @@ dependencies = [
   "pkgconfig",
   "progress",
   # TODO RELEASE: use a release
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint",
+  "pyadjoint-ad @ git+https://github.com/angus-g/pyadjoint@angus-g/rol-arf",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -94,6 +94,9 @@ netgen = [
   # TODO RELEASE
   # "ngsPETSc",
 ]
+pyrol = [
+  "pyroltrilinos",
+]
 slepc = [
   # TODO RELEASE
   # "slepc4py==3.23.2",
@@ -114,6 +117,7 @@ ci = [
   "pdf2image",
   "pygraphviz",
   "pylit",
+  "pyroltrilinos",
   "pytest",
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
