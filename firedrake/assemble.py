@@ -876,7 +876,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         def detect_derivatives(e, *operands):
             if isinstance(e, slate.TensorBase):
                 raise TypeError("SLATE Tensors are not differentiable.")
-            elif isinstance(e, ufl.differentiation.BaseFormOperatorDerivative):
+            elif isinstance(e, ufl.differentiation.Derivative):
                 raise AssertionError("We should expand derivatives.")
         try:
             visited = {}
