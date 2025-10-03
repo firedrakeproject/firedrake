@@ -734,18 +734,6 @@ def fuse_orientations(space: WithGeometry):
     fuse_defined_space = hasattr(space.ufl_element(), "triple")
 
     if fuse_defined_space:
-        # pseudocode for desired overall loopy output (ish)
-
-        # c = 0 # placeholder for cell
-        # entity_orientations = self._mesh.entity_orientations[c]
-        # closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
-        # mats = Vs[0].ufl_element().triple.matrices
-        # closure_size_acc = 0
-        # res = b
-        # for dim in range(len(closure_sizes)):
-        #     for i in range(closure_size_acc, closure_size_acc + closure_sizes[dim]):
-        #         res = matmul(mats[dim][i - closure_size_acc][entity_orientations[i]], res)
-        #     closure_size_acc += closure_sizes[dim]
 
         fs = space
         mats = fs.ufl_element().triple.matrices
@@ -754,80 +742,77 @@ def fuse_orientations(space: WithGeometry):
         n = os[next(iter(os.keys()))].shape[0]
         closures_dict = space._mesh._closure_sizes[space._mesh.dimension]
         closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
-        child_knl = loopy.make_function(
+
+        args = [loopy.ValueArg("d", dtype=utils.IntType),
+                loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
+                loopy.ValueArg("o_val", dtype=utils.IntType),
+                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True),
+                loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False),
+                loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True, is_output=True)]
+
+        matmul = loopy.make_function(
             f"{{[i, j]:0<=i, j < {n}}}",
             """
                 res[j] =  res[j] + a[i, j]*b[i]
             """, name="matmul", target=loopy.CWithGNULibcTarget())
-        replace_insn = loopy.CInstruction(tuple(), "b[i]=res[i];", assignees=(), read_variables=frozenset(["res", "i"]))
-        args = [loopy.ValueArg("d", dtype=utils.IntType),
-                loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
-                loopy.ValueArg("o_val", dtype=utils.IntType),
-                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures))),
-                loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n)),
-                loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, )),
-                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,)),]
-        replace_insn = loopy.CInstruction(tuple(), "b[i]=res[i];", assignees=("b"), read_variables=frozenset(["res", "i"]))
+
+        set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+                    loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True)]
         set_knl = loopy.make_function(
-            f"{{[i]:0<=i < {n}}}",
-            [replace_insn], kernel_data=args[-3:], name="set", target=loopy.CWithGNULibcTarget())
+            f"{{[j]:0<=j < {n}}}",
+            ["b[j] = res[j]"],
+            kernel_data=set_args,
+            name="set", target=loopy.CWithGNULibcTarget()
+        )
 
         zero_knl = loopy.make_function(
-    "{ [i]: 0 <= i < 3 }",
-        [loopy.Assignment("res[i]", 0, within_inames=frozenset({"i"}))],
-        [loopy.GlobalArg("res", shape=(3,), dtype=int)],
-        target=loopy.CWithGNULibcTarget(),
-        name="zero",
-)
-        #""" b[i] = temp""",
-        # I just want this to be zero but loopy doesn't let me res[i] - res[i]
-        #zero_knl = loopy.make_function(
-        #    f"{{[i]:0<=i < {n}}}",
-        #    [loopy.Assignment("res[i]", 0, within_inames=frozenset(["i"]))], kernel_data=args[-1:], name="zero", target=loopy.CWithGNULibcTarget())
+            f"{{ [i]: 0 <= i < {n}}}",
+            ["res[i] = 0"],
+            [loopy.GlobalArg("res", shape=(3,), dtype=int, is_input=True, is_output=True)],
+            target=loopy.CWithGNULibcTarget(),
+            name="zero",
+        ) #loopy.Assignment("res[i]", 0, within_inames=frozenset({"i"}))
         var_list = ["o", "d", "i", "o_val", "dim"]
         string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
         transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign")
-        print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]))
+
         printb_insn = loopy.CInstruction(tuple(), "printf(\"b: %f\\n\", b[0]);", assignees=(), read_variables=frozenset(["b"]))
-        print_insn1 = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);printf(\"b: %f\\n\", b[0]);", assignees=(), id="print")
-        replace_insn = loopy.CInstruction(tuple(), f"for (int32_t i = 0;i < {n};i++){{ b[i]=res[i];}};", assignees=(), read_variables=frozenset(["res"]), id="replace", depends_on="matmul")
         dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
         parent_knl = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
-            [transform_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=assign}", 
-             "res[:] = zero(a, b, res) {dep=matmul,dep=assign}",
+            [transform_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
+             "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}",
+             "res[:] = zero(res) {id=zero, dep=set, inames=i}",
              printb_insn],
             name="switch_on_o",
             kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
-        #replace_insn,
-        #"b[:] = set(a, b, res) {dep=matmul,dep=assign}",
+        #loopy.Assignment("b[:]", "set(b[:], res[:])", id="set", depends_on="matmul", within_inames=frozenset({"i"})),
         closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
-        replace_insn = loopy.CInstruction(tuple(), f"for (int32_t i = 0;i < {n};i++){{ res[i]=b[i];}};", assignees=(), read_variables=frozenset(["res"]), id="replace", depends_on="switch")
         loop_knl1 = loopy.make_function(
             f"{{[dim]:0<= dim <= {space._mesh.dimension}}}",
             ["d = closure_sizes[dim] {id=closure}",
-             "a[:,:], res[:] = switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
+             "b[:], res[:] = switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
              "closure_size_acc = closure_size_acc + d {dep=switch}",
-             replace_insn],
+             "res[:] = set(res[:], b[:]) {id=replace, dep=switch}"],
             name="loop_over_dims",
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
-             #"res[:] = set_and_zero(res[:])Vx {dep=switch}"],
+        print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]))
+        print_insn1 = loopy.CInstruction(tuple(), "printf(\"res: %f\\n\", res[0]);printf(\"b: %f\\n\", b[0]);", assignees=(), id="print")
         loop_knl2 = loopy.make_kernel(
             "{:}",
-            [print_insn1, "a[:,:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {dep=print}", print_insn],
+            [print_insn1, "b[:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {dep=print}", print_insn],
             kernel_data = args[3:7],
-            name="overall",
             target=loopy.CWithGNULibcTarget())
 
-        knl = loopy.merge([loop_knl2, loop_knl1, parent_knl, child_knl, set_knl, zero_knl])
+        knl = loopy.merge([loop_knl2, loop_knl1, parent_knl, matmul, set_knl, zero_knl])
         
         print(loopy.generate_code_v2(knl).device_code())
         print(knl)
-        #breakpoint()
-        transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
         return transform, (n,)
     else:
         return None, ()
