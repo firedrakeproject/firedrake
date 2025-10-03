@@ -17,6 +17,7 @@ import abc
 import rtree
 from textwrap import dedent
 from pathlib import Path
+import typing
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -48,6 +49,10 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+
+
+if typing.TYPE_CHECKING:
+    from firedrake import CoordinatelessFunction, Function
 
 
 __all__ = [
@@ -2181,43 +2186,8 @@ class CellOrientationsRuntimeError(RuntimeError):
     pass
 
 
-class MeshGeometryCargo:
-    """Helper class carrying data for a :class:`MeshGeometry`.
-
-    It is required because it permits Firedrake to have stripped forms
-    that still know that they are on an extruded mesh (for example).
-    """
-
-    def __init__(self, ufl_id):
-        self._ufl_id = ufl_id
-
-    def ufl_id(self):
-        return self._ufl_id
-
-    def init(self, coordinates):
-        """Initialise the cargo.
-
-        This function is separate to __init__ because of the two-step process we have
-        for initialising a :class:`MeshGeometry`.
-        """
-        self.topology = coordinates.function_space().mesh()
-        self.coordinates = coordinates
-        self.geometric_shared_data_cache = defaultdict(dict)
-
-
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
-
-    def __new__(cls, element, comm):
-        """Create mesh geometry object."""
-        utils._init()
-        mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid(internal_comm(comm, mesh))
-        mesh.uid = uid
-        cargo = MeshGeometryCargo(uid)
-        assert isinstance(element, finat.ufl.FiniteElementBase)
-        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
-        return mesh
 
     @MeshGeometryMixin._ad_annotate_init
     def __init__(self, coordinates):
@@ -2229,17 +2199,23 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             The `CoordinatelessFunction` containing the coordinates.
 
         """
+        import firedrake.functionspaceimpl as functionspaceimpl
+        import firedrake.function as function
+
+        utils._init()
+
+        element = coordinates.ufl_element()
+        uid = utils._new_uid(internal_comm(coordinates.comm, self))
+        super().__init__(element, ufl_id=uid)
+
         topology = coordinates.function_space().mesh()
 
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
         self.variable_layers = self.extruded and topology.variable_layers
 
-        # initialise the mesh cargo
-        self.ufl_cargo().init(coordinates)
-
-        # Cache mesh object on the coordinateless coordinates function
-        coordinates._as_mesh_geometry = weakref.ref(self)
+        self.topology = topology
+        self.geometric_shared_data_cache = defaultdict(dict)
 
         # submesh
         self.submesh_parent = None
@@ -2248,98 +2224,28 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
+        # Cache mesh object on the coordinateless coordinates function
+        coordinates._as_mesh_geometry = weakref.ref(self)
+
+        # Save the coordinates as a 'CoordinatelessFunction' and as a 'Function'
+        self._coordinates = coordinates
+        V = functionspaceimpl.WithGeometry.create(coordinates.function_space(), self)
+        self._coordinates_function = function.Function(V, val=coordinates)
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
-
-    def _init_topology(self, topology):
-        """Initialise the topology.
-
-        :arg topology: The :class:`.MeshTopology` object.
-
-        A mesh is fully initialised with its topology and coordinates.
-        In this method we partially initialise the mesh by registering
-        its topology. We also set the `_callback` attribute that is
-        later called to set its coordinates and finalise the initialisation.
-        """
-        import firedrake.functionspace as functionspace
-        import firedrake.function as function
-
-        self._topology = topology
-        coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-        coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
-                                                     (self.num_vertices(), self.geometric_dimension()))
-        coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                      val=coordinates_data,
-                                                      name=_generate_default_mesh_coordinates_name(self.name))
-        self.__init__(coordinates)
-
-    @property
-    def topology(self):
-        """The underlying mesh topology object."""
-        return self.ufl_cargo().topology
-
-    @topology.setter
-    def topology(self, val):
-        self.ufl_cargo().topology = val
-
-    @property
-    def _topology(self):
-        return self.topology
-
-    @_topology.setter
-    def _topology(self, val):
-        self.topology = val
-
-    @property
-    def _parent_mesh(self):
-        return self.ufl_cargo()._parent_mesh
-
-    @_parent_mesh.setter
-    def _parent_mesh(self, val):
-        self.ufl_cargo()._parent_mesh = val
-
-    @property
-    def _coordinates(self):
-        return self.ufl_cargo().coordinates
-
-    @property
-    def _geometric_shared_data_cache(self):
-        return self.ufl_cargo().geometric_shared_data_cache
 
     @property
     def topological(self):
         """Alias of topology.
 
         This is to ensure consistent naming for some multigrid codes."""
-        return self._topology
+        return self.topology
 
     @property
-    def _topology_dm(self):
-        """Alias of topology_dm"""
-        from warnings import warn
-        warn("_topology_dm is deprecated (use topology_dm instead)", DeprecationWarning, stacklevel=2)
-        return self.topology_dm
-
-    @property
-    @MeshGeometryMixin._ad_annotate_coordinates_function
-    def _coordinates_function(self):
-        """The :class:`.Function` containing the coordinates of this mesh."""
-        import firedrake.functionspaceimpl as functionspaceimpl
-        import firedrake.function as function
-
-        if hasattr(self.ufl_cargo(), "_coordinates_function"):
-            return self.ufl_cargo()._coordinates_function
-        else:
-            coordinates_fs = self._coordinates.function_space()
-            V = functionspaceimpl.WithGeometry.create(coordinates_fs, self)
-            f = function.Function(V, val=self._coordinates)
-            self.ufl_cargo()._coordinates_function = f
-            return f
-
-    @property
-    def coordinates(self):
-        """The :class:`.Function` containing the coordinates of this mesh."""
+    def coordinates(self) -> "Function":
+        """The coordinates of the mesh."""
         return self._coordinates_function
 
     @coordinates.setter
@@ -2808,13 +2714,13 @@ values from f.)"""
         self._cell_orientations = cell_orientations.topological
 
     def __getattr__(self, name):
-        val = getattr(self._topology, name)
+        val = getattr(self.topology, name)
         setattr(self, name, val)
         return val
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
-        return list(OrderedDict.fromkeys(dir(self._topology) + current))
+        return list(OrderedDict.fromkeys(dir(self.topology) + current))
 
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
@@ -2867,8 +2773,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
     assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
 
-    mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
-    mesh.__init__(coordinates)
+    mesh = MeshGeometry(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
@@ -2902,9 +2807,9 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
         element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
-    # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
-    mesh._init_topology(topology)
+
+    coords = coordinates_from_topology(topology, element)
+    mesh = MeshGeometry(coords)
     mesh.name = name
     mesh._tolerance = tolerance
     return mesh
@@ -2935,8 +2840,11 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     gdim = topology.topology_dm.getCoordinateDim()
     cell = topology.ufl_cell()
     element = finat.ufl.VectorElement("DG", cell, 0, dim=gdim)
-    vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
-    vmesh._init_topology(topology)
+    coords = coordinates_from_topology(topology, element)
+    vmesh = MeshGeometry(coords)
+    vmesh.name = name
+    vmesh._tolerance = tolerance
+
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
     if parent_tdim > 0:
@@ -2952,8 +2860,6 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     else:
         # We can't do this in 0D so leave it undefined.
         vmesh.reference_coordinates = None
-    vmesh.name = name
-    vmesh._tolerance = tolerance
     return vmesh
 
 
@@ -4695,3 +4601,33 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         },
     )
     return submesh
+
+
+def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
+    """Convert DMPlex coordinates into Firedrake coordinates.
+
+    Parameters
+    ----------
+    topology :
+        The mesh topology.
+    element :
+        The finite element defining the coordinate function space.
+
+    Returns
+    -------
+    CoordinatelessFunction :
+        The coordinates of the DMPlex reordered to agree with Firedrake's
+        element numbering.
+
+    """
+    import firedrake.functionspace as functionspace
+    import firedrake.function as function
+
+    gdim = len(element.sub_elements)
+
+    coordinates_fs = functionspace.FunctionSpace(topology, element)
+    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+                                                 (topology.num_vertices(), gdim))
+    return function.CoordinatelessFunction(coordinates_fs,
+                                           val=coordinates_data,
+                                           name=_generate_default_mesh_coordinates_name(topology.name))
