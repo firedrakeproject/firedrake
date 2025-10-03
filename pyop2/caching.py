@@ -33,17 +33,19 @@
 
 """Provides common base classes for cached objects."""
 import cachetools
+import functools
 import hashlib
 import os
 import pickle
 import weakref
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from warnings import warn  # noqa F401
 from collections import defaultdict
 from itertools import count
 from functools import wraps
 from tempfile import mkstemp
+from typing import Any, Callable, Hashable
 
 from pyop2.configuration import configuration
 from pyop2.exceptions import CachingError, HashError  # noqa: F401
@@ -55,9 +57,6 @@ import pytools
 from petsc4py import PETSc
 
 
-# Caches created here are registered as a tuple of
-#     (creation_index, comm, comm.name, function, cache)
-# in _KNOWN_CACHES
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
 
@@ -175,9 +174,56 @@ def cache_filter(comm=None, comm_name=None, alive=True, function=None, cache_typ
     return [*caches]
 
 
-class _CacheRecord:
-    """ Object for keeping a record of Pyop2 Cache statistics.
+def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
+    """Return the collection of caches that are stored on a comm.
+
+    If a cache stash has not already been created then a new `dict` is
+    created and stored.
+
+    Parameters
+    ----------
+    comm :
+        The communicator to get the caches from.
+
+    Returns
+    -------
+    dict :
+        The collection of caches.
+
     """
+    comm_caches = comm.Get_attr(comm_cache_keyval)
+    if comm_caches is None:
+        comm_caches = {}
+        comm.Set_attr(comm_cache_keyval, comm_caches)
+    return comm_caches
+
+
+def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
+    if (
+        configuration["spmd_strict"]
+        and not pytools.is_single_valued(comm.allgather(key))
+    ):
+        raise ValueError(
+            f"Cache keys differ between ranks. On rank {comm.rank} got:\n{key}"
+        )
+
+    value = cache.get(key, CACHE_MISS)
+
+    if configuration["debug"]:
+        message = [f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "]
+        message.append(f"key={key} in cache: '{cache}' ")
+        if value is CACHE_MISS:
+            message.append("miss")
+        else:
+            message.append("hit")
+        message = "".join(message)
+        debug(message)
+
+    return value
+
+
+class _CacheRecord:
+    """Object that records cache statistics."""
     def __init__(self, cidx, comm, func, cache):
         self.cidx = cidx
         self.comm = comm
@@ -269,7 +315,16 @@ class _CacheMiss:
 CACHE_MISS = _CacheMiss()
 
 
-def _as_hexdigest(*args):
+@functools.cache
+def as_hexdigest(*args) -> str:
+    """Return ``args`` as a hash string.
+
+    Notes
+    -----
+    This function is relatively expensive to compute so one should avoid
+    calling it wherever possible.
+
+    """
     hash_ = hashlib.md5()
     for a in args:
         if isinstance(a, MPI.Comm):
@@ -290,13 +345,11 @@ class DictLikeDiskAccess(MutableMapping):
         self.cachedir = cachedir
         self.extension = extension
 
-    def __getitem__(self, key):
-        """Retrieve a value from the disk cache.
+    def __getitem__(self, key: Hashable) -> Any:
+        """Retrieve a value from the disk cache."""
+        key = as_hexdigest(key)
 
-        :arg key: The cache key, a 2-tuple of strings.
-        :returns: The cached object if found.
-        """
-        filepath = Path(self.cachedir, key[0][:2], key[0][2:] + key[1])
+        filepath = Path(self.cachedir, key[:2], key[2:])
         try:
             with self.open(filepath.with_suffix(self.extension), mode="rb") as fh:
                 value = self.read(fh)
@@ -304,13 +357,11 @@ class DictLikeDiskAccess(MutableMapping):
             raise KeyError("File not on disk, cache miss")
         return value
 
-    def __setitem__(self, key, value):
-        """Store a new value in the disk cache.
+    def __setitem__(self, key: Hashable, value: Any) -> None:
+        """Store a new value in the disk cache."""
+        key = as_hexdigest(key)
 
-        :arg key: The cache key, a 2-tuple of strings.
-        :arg value: The new item to store in the cache.
-        """
-        k1, k2 = key[0][:2], key[0][2:] + key[1]
+        k1, k2 = key[:2], key[2:]
         basedir = Path(self.cachedir, k1)
         basedir.mkdir(parents=True, exist_ok=True)
 
@@ -359,7 +410,7 @@ class DictLikeDiskAccess(MutableMapping):
         pickle.dump(value, filehandle)
 
 
-def default_comm_getter(*args, **kwargs):
+def default_get_comm(*args, **kwargs):
     """ A sensible default comm fetcher for use with `parallel_cache`.
     """
     comms = filter(
@@ -373,7 +424,7 @@ def default_comm_getter(*args, **kwargs):
     return comm
 
 
-def default_parallel_hashkey(*args, **kwargs):
+def default_parallel_hashkey(*args, **kwargs) -> Hashable:
     """ A sensible default hash key for use with `parallel_cache`.
     """
     # We now want to actively remove any comms from args and kwargs to get
@@ -434,10 +485,11 @@ if configuration["print_cache_info"]:
     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
+# TODO: One day should use the compilation comm to do the bcast
 def parallel_cache(
     hashkey=default_parallel_hashkey,
-    comm_getter=default_comm_getter,
-    cache_factory=lambda: DEFAULT_CACHE(),
+    get_comm: Callable = default_get_comm,
+    make_cache: Callable[[], Mapping] = lambda: DEFAULT_CACHE(),
     bcast=False,
 ):
     """Parallel cache decorator.
@@ -446,10 +498,10 @@ def parallel_cache(
     ----------
     hashkey :
         Callable taking ``*args`` and ``**kwargs`` and returning a hash.
-    comm_getter :
+    get_comm :
         Callable taking ``*args`` and ``**kwargs`` and returning the
         appropriate communicator.
-    cache_factory :
+    make_cache :
         Callable that will build a new cache (if one does not exist).
         This will be called every time the decorated function is called, and must return an instance
         of the same type every time it is called.
@@ -460,53 +512,32 @@ def parallel_cache(
         serial; else it will deadlock.
 
     """
+    # Store a unique integer for each 'parallel_cache' decorator so we can
+    # identify the different caches when we wrap a function in multiple of
+    # them (this happens for memory and disk caches for example). This
+    # identifier is different between ranks but that is fine as it is only
+    # used locally.
+    cache_id = next(_CACHE_CIDX)
+
     def decorator(func):
-        @PETSc.Log.EventDecorator("pyop2: cache wrapper")
+        @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Extract the key and then try the memory cache before falling back
-            # to calling the function and populating the cache.
-            k = hashkey(*args, **kwargs)
-            key = _as_hexdigest(*k), func.__qualname__
+            # Create a PyOP2 comm associated with the key, so it is decrefed
+            # when the wrapper exits
+            with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
+                # Get the right cache from the comm
+                comm_caches = get_comm_caches(comm)
+                try:
+                    cache = comm_caches[cache_id]
+                except KeyError:
+                    cache = comm_caches.setdefault(cache_id, make_cache())
+                    _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
-            # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
-            with temp_internal_comm(comm_getter(*args, **kwargs)) as comm:
-                if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(key)):
-                    raise ValueError("Cache keys differ between ranks")
+                key = hashkey(*args, **kwargs)
+                value = get_cache_entry(comm, cache, key)
 
-                # Fetch the per-comm cache_collection or set it up if not present
-                # A collection is required since different types of cache can be set up on the same comm
-                cache_collection = comm.Get_attr(comm_cache_keyval)
-                if cache_collection is None:
-                    cache_collection = {}
-                    comm.Set_attr(comm_cache_keyval, cache_collection)
-                # If this kind of cache is already present on the
-                # cache_collection, get it, otherwise create it
-                local_cache = cache_collection.setdefault(
-                    (cf := cache_factory()).__class__.__name__,
-                    cf
-                )
-                local_cache = cache_collection[cf.__class__.__name__]
-
-                # If this is a new cache or function add it to the list of known caches
-                if (comm, comm.name, func, local_cache) not in [(c.comm, c.comm_name, c.func, c.cache()) for c in _KNOWN_CACHES]:
-                    # When a comm is freed we do not hold a reference to the cache.
-                    # We attach a finalizer that extracts the stats before the cache
-                    # is deleted.
-                    _KNOWN_CACHES.append(_CacheRecord(next(_CACHE_CIDX), comm, func, local_cache))
-
-                # Grab value from all ranks cache and broadcast cache hit/miss
-                value = local_cache.get(key, CACHE_MISS)
-                debug_string = f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "
-                debug_string += f"key={k} in cache: {local_cache.__class__.__name__} cache "
-                if value is CACHE_MISS:
-                    debug(debug_string + "miss")
-                    cache_hit = False
-                else:
-                    debug(debug_string + "hit")
-                    cache_hit = True
-
-                if isinstance(local_cache, DictLikeDiskAccess):
+                if isinstance(cache, DictLikeDiskAccess):
                     if bcast:
                         # Since disk caches share state between ranks there are extra
                         # opportunities for mismatching hit/miss results and hence
@@ -528,29 +559,30 @@ def parallel_cache(
                         # will do a broadcast and others will not, ruining MPI synchronisation.
                         # To fix this we check to see if any ranks have hit cache and, if so,
                         # nominate that rank as the root of the subsequent broadcast.
-                        root = comm.rank if cache_hit else -1
+                        root = comm.rank if value is not CACHE_MISS else -1
                         root = comm.allreduce(root, op=MPI.MAX)
                         if root >= 0:
                             # Found a rank with a cache hit, broadcast 'value' from it
                             value = comm.bcast(value, root=root)
-                            cache_hit = True
-                        else:
-                            # Cache miss on all ranks, recompute below
-                            cache_hit = False
                 else:
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
-                    if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
+                    if (
+                        configuration["spmd_strict"]
+                        and not pytools.is_single_valued(
+                            comm.allgather(value is not CACHE_MISS)
+                        )
+                    ):
                         raise ValueError("Cache hit on some ranks but missed on others")
 
-            if not cache_hit:
+            if value is CACHE_MISS:
                 if bcast:
                     value = func(*args, **kwargs) if comm.rank == 0 else None
                     value = comm.bcast(value, root=0)
                 else:
                     value = func(*args, **kwargs)
 
-            return local_cache.setdefault(key, value)
+            return cache.setdefault(key, value)
         return wrapper
     return decorator
 
@@ -572,7 +604,7 @@ def serial_cache(hashkey, cache_factory=lambda: DEFAULT_CACHE()):
 
 
 def disk_only_cache(*args, cachedir=configuration["cache_dir"], **kwargs):
-    return parallel_cache(*args, **kwargs, cache_factory=lambda: DictLikeDiskAccess(cachedir))
+    return parallel_cache(*args, **kwargs, make_cache=lambda: DictLikeDiskAccess(cachedir))
 
 
 def memory_and_disk_cache(*args, cachedir=configuration["cache_dir"], **kwargs):

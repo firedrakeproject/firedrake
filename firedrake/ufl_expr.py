@@ -45,6 +45,12 @@ class Argument(ufl.argument.Argument):
                                        number, part=part)
         self._function_space = function_space
 
+    def arguments(self):
+        return (self,)
+
+    def coefficients(self):
+        return ()
+
     @utils.cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
@@ -336,13 +342,9 @@ def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
         # given.  To avoid that, always pass reordered_arguments with
         # firedrake.Argument objects.
         if reordered_arguments is None:
-            v, u = extract_arguments(form)
-            reordered_arguments = (Argument(u.function_space(),
-                                            number=v.number(),
-                                            part=v.part()),
-                                   Argument(v.function_space(),
-                                            number=u.number(),
-                                            part=u.part()))
+            v, u = form.arguments()
+            reordered_arguments = (u.reconstruct(number=v.number()),
+                                   v.reconstruct(number=u.number()))
         return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
@@ -352,7 +354,6 @@ def CellSize(mesh):
 
     :arg mesh: the mesh for which to calculate the cell size.
     """
-    mesh.init()
     return ufl.CellDiameter(mesh)
 
 
@@ -362,7 +363,6 @@ def FacetNormal(mesh):
 
     :arg mesh: the mesh over which the normal should be represented.
     """
-    mesh.init()
     return ufl.FacetNormal(mesh)
 
 

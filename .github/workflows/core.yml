@@ -183,6 +183,7 @@ jobs:
           pip cache remove slepc4py
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_BUILD_ARGS=''
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
@@ -193,15 +194,16 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps ngsPETSc netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_BUILD_ARGS='--no-isolation'
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist
+          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \

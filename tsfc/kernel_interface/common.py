@@ -6,6 +6,7 @@ from itertools import chain, product
 
 import gem
 import gem.impero_utils as impero_utils
+import petsctools
 import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
@@ -14,7 +15,7 @@ from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
-from tsfc import fem, ufl_utils
+from tsfc import fem
 from finat.element_factory import as_fiat_cell, create_element
 from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
@@ -132,9 +133,6 @@ class KernelBuilderMixin(object):
 
         See :meth:`create_context` for typical calling sequence.
         """
-        # Split Coefficients
-        if self.coefficient_split:
-            integrand = ufl_utils.split_coefficients(integrand, self.coefficient_split)
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
@@ -415,14 +413,13 @@ def lower_integral_type(fiat_cell, integral_type):
 def pick_mode(mode):
     "Return one of the specialized optimisation modules from a mode string."
     try:
-        from firedrake_citations import Citations
         cites = {"vanilla": ("Homolya2017", ),
                  "coffee": ("Luporini2016", "Homolya2017", ),
                  "spectral": ("Luporini2016", "Homolya2017", "Homolya2017a"),
                  "tensor": ("Kirby2006", "Homolya2017", )}
         for c in cites[mode]:
-            Citations().register(c)
-    except ImportError:
+            petsctools.cite(c)
+    except KeyError:
         pass
     if mode == "vanilla":
         import tsfc.vanilla as m

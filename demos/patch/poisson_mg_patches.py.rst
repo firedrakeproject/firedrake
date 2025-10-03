@@ -54,34 +54,12 @@ generated cofunction. ::
       return solver.snes.getLinearSolveIterations()
 
 
-These two dictionaries specify parameters for sparse direct method, to be used
-on the coarsest level of the multigrid hierarchy. ::
-
-  lu = {
-      "ksp_type": "preonly",
-      "pc_type": "lu"
-  }
-
-When we use a matrix-free method, there will not be an assembled matrix to factor
-on the coarse level. This forces the matrix to be assembled. ::
-
-  assembled_lu = {
-      "ksp_type": "preonly",
-      "pc_type": "python",
-      "pc_python_type": "firedrake.AssembledPC",
-      "assembled": lu
-  }
-
 This function creates multigrid parameters using a given set of
-relaxation options and matrix assembled type. ::
-
+relaxation options and matrix assembly type.  On the coarsest level of the
+multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
+solver. ::
 
   def mg_params(relax, mat_type="aij"):
-      if mat_type == "aij":
-          coarse = lu
-      else:
-          coarse = assembled_lu
-
       return {
           "mat_type": mat_type,
           "ksp_type": "cg",
@@ -91,7 +69,11 @@ relaxation options and matrix assembled type. ::
               "ksp_max_it": 1,
               **relax
           },
-          "mg_coarse": coarse
+          "mg_coarse": {
+              "mat_type": "aij",
+              "ksp_type": "preonly",
+              "pc_type": "lu"
+          }
       }
 
 The simplest parameter case will use point Jacobi smoothing on each level.

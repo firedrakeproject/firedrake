@@ -19,6 +19,7 @@ from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
 
 
@@ -60,7 +61,7 @@ def check_element(element, top=True):
     elif type(element) is finat.ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
+        inner = element.factor_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
             raise ValueError(f"{type(element).__name__} modifier must be outermost")
@@ -359,7 +360,6 @@ class WithGeometryBase(object):
     @classmethod
     def make_function_space(cls, mesh, element, name=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
-        mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
@@ -378,17 +378,36 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, name=None, **kwargs):
-        r"""Reconstruct this :class:`.WithGeometryBase` .
+    def reconstruct(
+        self,
+        mesh: MeshGeometry | None = None,
+        element: finat.ufl.FiniteElement | None = None,
+        name: str | None = None,
+        **kwargs,
+    ) -> "WithGeometryBase":
+        """Return a new function space with modified fields.
 
-        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
-        :kwarg name: the new name (defaults to None)
-        :returns: the new function space of the same class as ``self``.
+        Parameters
+        ----------
+        mesh :
+            The mesh (defaults to same mesh).
+        element :
+            The finite element (defaults to same element).
+        name :
+            The name (defaults to `None`).
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        For details see `finat.ufl.finiteelement.FiniteElement.reconstruct`.
+
         """
+        from firedrake.bcs import restricted_function_space
         V_parent = self
+
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
@@ -403,13 +422,21 @@ class WithGeometryBase(object):
 
         if mesh is None:
             mesh = V_parent.mesh()
+        if element is None:
+            element = V_parent.ufl_element()
 
-        element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
+        # Reconstruct the parent space
         V = type(self).make_function_space(mesh, element, name=name)
+
+        # Deal with RestrictedFunctionSpace
+        boundary_sets = [V_.boundary_set for V_ in V_parent]
+        if any(boundary_sets):
+            V = restricted_function_space(V, boundary_sets)
+
         for i in reversed(indices):
             V = V.sub(i)
         return V
@@ -900,8 +927,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(map(str, self.boundary_set))))
+        self.name = name or function_space.name
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)

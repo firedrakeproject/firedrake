@@ -485,7 +485,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def set_coefficients(self, coefficients):
         self.coefficients = []
-        self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
@@ -560,6 +559,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
+                                coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
