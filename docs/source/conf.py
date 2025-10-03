@@ -163,6 +163,9 @@ linkcheck_ignore = [
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
+    r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
+    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
+    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
 ]
 linkcheck_timeout = 30
 
@@ -247,10 +250,10 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # Optional header warning about docs version
 rst_prolog = """
-.. only:: master
+.. only:: main
 
     .. warning::
-        You are reading a version of the website built against the unstable ``master`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+        You are reading a version of the website built against the unstable ``main`` branch. This content is liable to change without notice and may be inappropriate for your use case.
 """
 
 # -- Options for LaTeX output --------------------------------------------
@@ -274,6 +277,7 @@ latex_elements = {
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
+\usepackage{mathrsfs}
 
 % \sphinxDUC{2730}{\ding{80}}
 \sphinxDUC{27F6}{$\rightarrow$}
@@ -423,7 +427,7 @@ bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_st
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
 extlinks = {}
-if tags.has('master'):
+if tags.has('main'):
     extlinks['demo'] = (
         'https://firedrakeproject.org/firedrake/demos/%s', None
     )
