@@ -163,7 +163,7 @@ def test_high_order_location_quad():
     assert any(c is not None for c in cells)
 
 
-@pytest.mark.parallel([1, 3])
+@pytest.mark.parallel(nprocs=3)
 def test_high_order_location_extruded():
     m = UnitSquareMesh(2, 2)
     mesh = ExtrudedMesh(m, 3)
