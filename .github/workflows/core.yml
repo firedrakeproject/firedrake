@@ -186,7 +186,7 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/connorjward/ngsPETSc.git@connorjward/move-firedrake-code netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_BUILD_ARGS='--no-isolation'

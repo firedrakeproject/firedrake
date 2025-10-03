@@ -9,6 +9,7 @@ import firedrake
 import firedrake.cython.dmcommon as dmcommon
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
+from .netgen import NetgenHierarchy
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
@@ -118,14 +119,8 @@ def MeshHierarchy(mesh, refinement_levels,
     A :py:class:`HierarchyBase` object representing the
     mesh hierarchy.
     """
-
+    # TODO: This is such a weird init procedure
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
-        try:
-            from ngsPETSc import NetgenHierarchy
-        except ImportError:
-            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
-                              "are installed and available to Firedrake (see "
-                              "https://www.firedrakeproject.org/install.html#netgen).")
         if hasattr(mesh, "netgen_mesh"):
             return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
         else:
