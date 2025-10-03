@@ -21,14 +21,18 @@ def handle_annotation():
         pause_annotation()
 
 
-def forward(ic, dt, nt):
+def forward(ic, dt, nt, bc_arg=None):
     """Burgers equation solver."""
     V = ic.function_space()
 
-    if isinstance(dt, Constant):
-        nu = Constant(0.1)
+    if bc_arg:
+        bc_val = bc_arg.copy(deepcopy=True)
+        bc = DirichletBC(V, bc_val, 1)
+        # bc.apply(ic)
     else:
-        nu = Function(dt.function_space()).assign(0.1)
+        bc = None
+
+    nu = Function(dt.function_space()).assign(0.1)
 
     u0 = Function(V)
     u1 = Function(V)
@@ -38,7 +42,7 @@ def forward(ic, dt, nt):
          + dt*u1*u1.dx(0)*v
          + dt*nu*u1.dx(0)*v.dx(0))*dx
 
-    problem = NonlinearVariationalProblem(F, u1)
+    problem = NonlinearVariationalProblem(F, u1, bcs=bc)
     solver = NonlinearVariationalSolver(problem)
 
     u1.assign(ic)
@@ -46,37 +50,59 @@ def forward(ic, dt, nt):
     for i in range(nt):
         u0.assign(u1)
         solver.solve()
-        if not isinstance(nu, Constant):
-            nu += dt
+        nu += dt
+        if bc_arg:
+            bc_val.assign(bc_val + dt)
 
     J = assemble(u1*u1*dx)
     return J
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("control_type", ["ic_control", "dt_control"])
-def test_nlvs_adjoint(control_type):
-    mesh = UnitIntervalMesh(8)
+@pytest.mark.parametrize("control_type", ["ic_control",
+                                          "dt_control",
+                                          "bc_control"])
+@pytest.mark.parametrize("bc_type", ["neumann_bc",
+                                     "dirichlet_bc"])
+def test_nlvs_adjoint(control_type, bc_type):
+    if control_type == 'bc_control' and bc_type == 'neumann_bc':
+        pytest.skip("Cannot use Neumann BCs as control")
+
+    mesh = UnitIntervalMesh(10)
     x, = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    nt = 4
+    nt = 2
     dt = Function(R).assign(0.1)
-    # dt = Constant(0.1)
     ic = Function(V).interpolate(cos(2*pi*x))
 
-    if control_type == 'ic_control':
-        control = ic
-    elif control_type == 'dt_control':
-        control = dt
-    else:
-        raise ValueError
+    dt0 = dt.copy(deepcopy=True)
+    ic0 = ic.copy(deepcopy=True)
 
+    if bc_type == 'neumann_bc':
+        bc_arg = None
+        bc_arg0 = None
+    elif bc_type == 'dirichlet_bc':
+        bc_arg = Function(R).assign(1.)
+        bc_arg0 = bc_arg.copy(deepcopy=True)
+    else:
+        raise ValueError(f"Unrecognised {bc_type = }")
+
+    if control_type == 'ic_control':
+        control = ic0
+    elif control_type == 'dt_control':
+        control = dt0
+    elif control_type == 'bc_control':
+        control = bc_arg0
+    else:
+        raise ValueError(f"Unrecognised {control_type = }")
+
+    print("record tape")
     continue_annotation()
     with set_working_tape() as tape:
-        J = forward(ic, dt, nt)
+        J = forward(ic0, dt0, nt, bc_arg=bc_arg0)
         Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
 
@@ -84,21 +110,32 @@ def test_nlvs_adjoint(control_type):
         m = Function(V).assign(0.5*ic)
         h = Function(V).interpolate(-0.5*cos(4*pi*x))
 
-        # recompute component
-        assert abs(Jhat(m) - forward(m, dt, nt)) < 1e-14
-
-        # tlm
-        assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
+        ic2 = m.copy(deepcopy=True)
+        dt2 = dt
+        bc_arg2 = bc_arg
 
     elif control_type == 'dt_control':
         m = Function(R).assign(0.05)
         h = Function(R).assign(0.01)
 
-        # recompute component
-        assert abs(Jhat(m) - forward(ic, m, nt)) < 1e-14
+        ic2 = ic
+        dt2 = m.copy(deepcopy=True)
+        bc_arg2 = bc_arg
 
-        # tlm
-        assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
+    elif control_type == 'bc_control':
+        m = Function(R).assign(0.5)
+        h = Function(R).assign(-0.1)
+
+        ic2 = ic
+        dt2 = dt
+        bc_arg2 = m.copy(deepcopy=True)
+
+    # recompute component
+    print("recompute test")
+    assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
+
+    # tlm
+    assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
 
 
 if __name__ == "__main__":

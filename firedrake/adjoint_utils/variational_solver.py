@@ -58,7 +58,8 @@ class NonlinearVariationalSolverMixin:
 
     def _ad_cache_forward_solver(self):
         from firedrake import (
-            Function, NonlinearVariationalProblem,
+            Function, DirichletBC,
+            NonlinearVariationalProblem,
             NonlinearVariationalSolver)
         from firedrake.adjoint_utils.blocks.solving import FORWARD
 
@@ -81,10 +82,19 @@ class NonlinearVariationalSolverMixin:
         for cold in replace_map.keys():
             assert cold not in Fnew.coefficients()
 
-        nlvp = NonlinearVariationalProblem(Fnew, unew)
+        bcs = problem.bcs
+        bcs_new = [
+            DirichletBC(V=bc.function_space(),
+                        g=bc.function_arg,
+                        sub_domain=bc.sub_domain)
+            for bc in bcs
+        ]
+
+        nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(nlvp)
 
-        self._ad_dependencies_to_add = tuple(replace_map.keys())
+        self._ad_bcs = bcs_new
+        self._ad_dependencies_to_add = tuple((*replace_map.keys(), *bcs))
         self._ad_replaced_dependencies = tuple(replace_map.values())
         self._ad_solver_cache[FORWARD] = nlvs
 
@@ -104,7 +114,7 @@ class NonlinearVariationalSolverMixin:
         dFdm = Cofunction(V.dual())
         dudm = Function(V)
 
-        lvp = LinearVariationalProblem(dFdu, dFdm, dudm)
+        lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_bcs)
         lvs = LinearVariationalSolver(lvp)
 
         self._ad_solver_cache[TLM] = lvs
@@ -146,6 +156,7 @@ class NonlinearVariationalSolverMixin:
                     self._ad_cache_tlm_solver()
 
                 block = CachedSolverBlock(self._ad_problem.u,
+                                          self._ad_bcs,
                                           self._ad_solver_cache,
                                           self._ad_replaced_dependencies,
                                           self._ad_tlm_rhs,

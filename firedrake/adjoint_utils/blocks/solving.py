@@ -41,21 +41,32 @@ HESSIAN = SolverType.HESSIAN
 
 # @singledispatch((Coefficient, Constant, Cofunction))
 def update_dependency(replaced_dep, dep):
-    if not isinstance(replaced_dep, (firedrake.Coefficient,
-                                     firedrake.Constant,
-                                     firedrake.Cofunction)):
-        raise TypeError("Updating non-Function-y things not implemented yet.")
-    replaced_dep.assign(dep)
+    if isinstance(replaced_dep, (firedrake.Coefficient,
+                                 firedrake.Constant,
+                                 firedrake.Cofunction)):
+        replaced_dep.assign(dep)
+
+    elif isinstance(replaced_dep, firedrake.DirichletBC):
+        if dep is None:
+            replaced_dep.set_value(0)
+        else:
+            replaced_dep.set_value(dep.function_arg)
+
+    else:
+        raise TypeError(
+            "Updating not implemented for adjoint "
+            f" dependency of type {type(replaced_dep)}")
 
 
 class CachedSolverBlock(Block):
-    def __init__(self, func, cached_solvers,
+    def __init__(self, func, bcs, cached_solvers,
                  replaced_dependencies,
                  tlm_rhs, replaced_tlms, tlm_dFdm_forms,
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
         self.func = func
+        self.bcs = bcs
         self.cached_solvers = cached_solvers
         self.replaced_dependencies = replaced_dependencies
 
@@ -67,9 +78,18 @@ class CachedSolverBlock(Block):
         for replaced_dep, dep in zip(self.replaced_dependencies,
                                      self.get_dependencies()):
             update_dependency(replaced_dep, dep.saved_output)
+
         if use_output:
             output = self.get_outputs()[0].saved_output
             self.cached_solvers[FORWARD]._problem.u.assign(output)
+
+        idx = 0
+        for dep in self.get_dependencies():
+            if isinstance(dep.output, firedrake.DirichletBC):
+                bc_arg = dep.saved_output.function_arg
+                self.bcs[idx].set_value(bc_arg)
+                idx += 1
+        assert idx == len(self.bcs)
 
     def update_tlm_dependencies(self):
         for replaced_tlm, dep in zip(self.replaced_tlms,
@@ -79,6 +99,16 @@ class CachedSolverBlock(Block):
             if dep.tlm_value is None:
                 continue
             update_dependency(replaced_tlm, dep.tlm_value)
+
+        idx = 0
+        for dep in self.get_dependencies():
+            if isinstance(dep.output, firedrake.DirichletBC):
+                if dep.tlm_value is None:
+                    bc_val = 0
+                else:
+                    bc_val = dep.tlm_value.function_arg
+                self.bcs[idx].set_value(bc_val)
+                idx += 1
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
         return None
