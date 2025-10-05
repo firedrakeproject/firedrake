@@ -1049,9 +1049,10 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         W = dual_arg.function_space()
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
         m_indices = W.dof_dset.lgmap.apply(m_.values)
+        m_shape = m_indices.shape + W.shape
         weight = firedrake.Function(W)
         with weight.dat.vec as w:
-            w.setValues(m_indices, numpy.ones(m_indices.shape), PETSc.InsertMode.ADD)
+            w.setValuesBlocked(m_indices, numpy.ones(m_shape), PETSc.InsertMode.ADD)
             w.assemble()
             w.reciprocal()
 
