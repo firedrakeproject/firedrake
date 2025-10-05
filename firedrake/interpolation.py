@@ -1047,16 +1047,12 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if needs_weight:
         # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
-        wsize = W.finat_element.space_dimension() * W.block_size
-        kernel_code = f"""
-        void multiplicity(PetscScalar *restrict w) {{
-            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
-        }}"""
-        kernel = op2.Kernel(kernel_code, "multiplicity", requires_zeroed_output_arguments=False)
-        weight = firedrake.Function(W)
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, m_))
+        m_indices = W.dof_dset.lgmap.apply(m_.values)
+        weight = firedrake.Function(W)
         with weight.dat.vec as w:
+            w.setValues(m_indices, numpy.ones(m_indices.shape), PETSc.InsertMode.ADD)
+            w.assemble()
             w.reciprocal()
 
         # Create a buffer for the weighted Cofunction and a callable to apply the weight
