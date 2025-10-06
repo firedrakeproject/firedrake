@@ -959,15 +959,14 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         def callable(loops, f):
             # Replace output buffer
             for indices in loops:
+                sub_dat = sub_tensor(f.dat, indices)
                 for l in loops[indices]:
                     if isinstance(l, op2.Parloop):
-                        l.arguments[0].data = sub_tensor(f.dat, indices)
+                        l.arguments[0].data = sub_dat
 
             # Initialise to zero if needed
             if access is op2.INC:
-                f.dat.local_to_global_begin(access)
                 f.dat.zero()
-                f.dat.local_to_global_end(access)
 
             # Execute kernels
             for indices in loops:
@@ -1073,6 +1072,9 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         # Create a buffer for the weighted Cofunction and a callable to apply the weight
         v = firedrake.Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        # Force a halo exchange on the weighted Cofunction
+        callables += (partial(v.dat.local_to_global_begin, op2.INC),
+                      partial(v.dat.local_to_global_end, op2.INC))
         with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
             callables += (partial(y.pointwiseMult, x, w),)
 

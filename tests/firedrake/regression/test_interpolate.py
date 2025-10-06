@@ -598,4 +598,3 @@ def test_reuse_interpolate(family, degree, mode):
         # Test for correctness
         y = result.dat.data
         assert np.allclose(y, expected)
-        print("pass", k)
