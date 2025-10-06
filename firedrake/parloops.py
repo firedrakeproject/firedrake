@@ -483,7 +483,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     orientation_perm = _orientations(space, perms, loop_index)
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
-
     transform_in_kernel, transform_out_kernel, form_shapes = fuse_orientations(space)
     if transform_in_kernel and transform_out_kernel:
         orientations = space.mesh().entity_orientations_dat
@@ -687,7 +686,6 @@ def _needs_static_permutation(element) -> bool:
 
 def construct_switch_statement(self, mats, n, args, var_list):
     string = []
-    #string += "printf(\"mat[0,0]: %f\\n\", mat0_0_0[0]); \n"
     string += "a = iden; \n "
     string += "\nswitch (dim) { \n"
     
@@ -709,6 +707,8 @@ def construct_switch_statement(self, mats, n, args, var_list):
             indent += 1
             for val in sorted(mats[dim][i].keys()):
                 string += indent*"\t" + f"case {val}:\n "
+                
+                string += indent*"\t" + "printf(\"dim, i, o_val: %d %d %d\\n\", dim, i, o_val); \n"
                 matname = f"mat{dim}_{i}_{val}"
                 string += indent*"\t" + f"a = {matname};break;\n"
                 var_list += [matname]
@@ -731,7 +731,6 @@ def construct_switch_statement(self, mats, n, args, var_list):
 def fuse_orientations(space: WithGeometry):
     no_dense = False
     fuse_defined_space = hasattr(space.ufl_element(), "triple")
-
     if fuse_defined_space:
 
         fs = space
@@ -826,13 +825,32 @@ def fuse_orientations(space: WithGeometry):
         in_knl = loopy.merge([overall("in"), loop_dims("in"), in_switch, matmul, set_knl, zero_knl])
         out_knl = loopy.merge([overall("out"), loop_dims("out"), out_switch, matmul, set_knl, zero_knl])
         
-        print(mats)
-        print(loopy.generate_code_v2(in_knl).device_code())
-        print(in_knl)
-        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
-        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
+       # print(mats)
+       # print(loopy.generate_code_v2(in_knl).device_code())
+       # print(in_knl)
+        
+        # b is modified in the transform functions but the result is written to res and therefore is not needed further.
+        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform_in, transform_out, (n,)
     else:
+        #n = 3
+        #args = [loopy.GlobalArg("o", dtype=utils.IntType, shape=(7,), is_input=True),
+        #        loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False),
+        #        loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+        #        loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True, is_output=True)]
+
+        #def overall(direction):
+        #    print_insn = loopy.CInstruction(tuple(), f"printf(\"NON-FUSE initial {direction} b: %f, %f, %f, %f\\n\", b[0], b[1], b[2], b[3]);", assignees=(), read_variables=frozenset([]), id="print")
+        #    return loopy.make_kernel(
+        #    "{:}",
+        #    [print_insn],
+        #    name=f"{direction}_transform",
+        #    kernel_data = args,
+        #    target=loopy.CWithGNULibcTarget())
+        #transform_in = op3.Function(overall("in"), [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        #transform_out = op3.Function(overall("out"), [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        #return transform_in, transform_out, (n,)
         return None, None, ()
     # elif len(Vs) == 2 and any(fuse_defined_spaces):
     #     raise NotImplementedError
