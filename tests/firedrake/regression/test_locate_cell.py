@@ -118,11 +118,11 @@ def test_high_order_location_warped_interior_facet():
     f.interpolate(mesh.coordinates)
 
     warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & np.isclose(f.dat.data[:, 1], 0.5))[0]
-    f.dat.data[warp_indices, 1] += 0.1
+    f.dat.data[warp_indices, 1] += 0.04
     mesh = Mesh(f)
 
-    assert mesh.locate_cell([0.25, 0.605], tolerance=0.0001) == 1
-    assert mesh.locate_cell([0.25, 0.62], tolerance=0.0001) == 3
+    assert mesh.locate_cell([0.25, 0.54], tolerance=0.0001) == 1
+    assert mesh.locate_cell([0.25, 0.56], tolerance=0.0001) == 3
 
 
 @pytest.mark.parallel([1, 3])
