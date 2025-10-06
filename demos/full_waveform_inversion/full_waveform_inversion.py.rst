@@ -83,7 +83,7 @@ for 3 wave sources. Therefore, we will have 3 emsemble members, each with 2 rank
 processes launched by mpiexec must therefore be equal to the product of number of ensemble members
 (3, in this case) with the number of processes to be used for each ensemble member (``M=2``, in this case).
 Additional details about the ensemble parallelism can be found in the
-`Firedrake documentation <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+`Firedrake documentation <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
 
 The subcommunicators in each ensemble member are: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
 ``Ensemble.comm`` is the spatial communicator. ``Ensemble.ensemble_comm`` allows communication between
