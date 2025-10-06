@@ -26,7 +26,7 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
         mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
     # Define variational problem
-    dim = mesh.ufl_cell().topological_dimension()
+    dim = mesh.ufl_cell().topological_dimension
     lmbda = 1
     u = TrialFunction(V)
     v = TestFunction(V)

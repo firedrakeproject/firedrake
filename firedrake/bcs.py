@@ -130,12 +130,12 @@ class BCBase(object):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
-            tdim = self._function_space.mesh().topological_dimension()
+            tdim = self._function_space.mesh().topological_dimension
             if isinstance(fe, finat.Hermite) and tdim == 1:
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
             elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:

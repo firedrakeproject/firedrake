@@ -65,7 +65,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     # Translate to GEM
     cell = domain.ufl_cell()
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
 
@@ -116,7 +116,7 @@ def compile_element(expression, coordinates, parameters=None):
     extruded = isinstance(cell, TensorProductCell)
 
     code = {
-        "geometric_dimension": domain.geometric_dimension(),
+        "geometric_dimension": domain.geometric_dimension,
         "layers_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
