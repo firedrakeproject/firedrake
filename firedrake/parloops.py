@@ -484,14 +484,9 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
 
-    transform_kernel, form_shapes = fuse_orientations(space)
-    if transform_kernel:
+    transform_in_kernel, transform_out_kernel, form_shapes = fuse_orientations(space)
+    if transform_in_kernel and transform_out_kernel:
         orientations = space.mesh().entity_orientations_dat
-
-        # INDIA NOTE: I would expect to have two kernels that do the transformation
-        # in either direction
-        transform_in_kernel = transform_kernel
-        transform_out_kernel = transform_kernel
 
         if form_shapes != (3,):
             raise NotImplementedError("Need a nice way to detect this")
@@ -741,6 +736,7 @@ def fuse_orientations(space: WithGeometry):
 
         fs = space
         mats = fs.ufl_element().triple.matrices
+        reversed_mats = fs.ufl_element().triple.reversed_matrices
         t_dim = fs.ufl_element().cell._tdim
         os = mats[t_dim][0]
         n = os[next(iter(os.keys()))].shape[0]
@@ -779,49 +775,65 @@ def fuse_orientations(space: WithGeometry):
         ) 
 
         var_list = ["o", "d", "i", "o_val", "dim"]
-        string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
-        transform_insn = loopy.CInstruction(tuple(), "".join(string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
+        in_string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
+        transform_in_insn = loopy.CInstruction(tuple(), "".join(in_string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
 
         dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
-        switch = loopy.make_function(
+        in_switch = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
             ["res[:] = zero(res) {id=zero, inames=i}",
-             transform_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
+             transform_in_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
              "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}"],
-            name="switch_on_o",
+            name="in_switch_on_o",
+            kernel_data=dim_arg + args,
+            target=loopy.CWithGNULibcTarget())
+
+        out_string, args, var_list = construct_switch_statement(space, reversed_mats, n, args, var_list)
+        transform_out_insn = loopy.CInstruction(tuple(), "".join(out_string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
+        out_switch = loopy.make_function(
+            f"{{[i]:0<= i <= d}}",
+            ["res[:] = zero(res) {id=zero, inames=i}",
+             transform_out_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
+             "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}"],
+            name="out_switch_on_o",
             kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
 
         closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
         printres_insn = loopy.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-        loop_dims = loopy.make_function(
+        def loop_dims(direction):
+            return loopy.make_function(
             f"{{[dim]:0<= dim <= {space._mesh.dimension}}}",
             ["d = closure_sizes[dim] {id=closure}",
-             "b[:], res[:] = switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {id=switch, dep=*}",
+             f"b[:], res[:] = {direction}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {{id=switch, dep=*}}",
              "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"],
-            name="loop_over_dims",
+            name=f"{direction}_loop_over_dims",
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
         print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f, %f\\n\", b[0], b[1], b[2], b[3]);", assignees=(), read_variables=frozenset([]), id="print")
         print_insn1 = loopy.CInstruction(tuple(), "printf(\"final res: %f, %f, %f, %f\\n\", res[0], res[1], res[2], res[3]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-        overall = loopy.make_kernel(
+        def overall(direction):
+            return loopy.make_kernel(
             "{:}",
-            [print_insn, "b[:], res[:] = loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {dep=print, id=loop}",
+            [print_insn, f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{dep=print, id=loop}}",
             "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
              print_insn1],
+            name=f"{direction}_transform",
             kernel_data = args[3:7],
             target=loopy.CWithGNULibcTarget())
 
-        knl = loopy.merge([overall, loop_dims, switch, matmul, set_knl, zero_knl])
+        in_knl = loopy.merge([overall("in"), loop_dims("in"), in_switch, matmul, set_knl, zero_knl])
+        out_knl = loopy.merge([overall("out"), loop_dims("out"), out_switch, matmul, set_knl, zero_knl])
         
         print(mats)
-        #print(loopy.generate_code_v2(knl).device_code())
-        #print(knl)
-        transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
-        return transform, (n,)
+        print(loopy.generate_code_v2(in_knl).device_code())
+        print(in_knl)
+        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
+        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.WRITE, op3.WRITE])
+        return transform_in, transform_out, (n,)
     else:
-        return None, ()
+        return None, None, ()
     # elif len(Vs) == 2 and any(fuse_defined_spaces):
     #     raise NotImplementedError
     #     if not all(fuse_defined_spaces):
