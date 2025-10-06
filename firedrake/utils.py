@@ -18,6 +18,7 @@ from pyop3.utils import (  # noqa: F401
     strictly_all,
     debug_assert,
     freeze,
+    strict_int,
     StrictlyUniqueDict,
     invert,
     split_by,

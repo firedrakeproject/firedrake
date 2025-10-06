@@ -454,6 +454,9 @@ def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
 
 
 def strict_int(num: numbers.Number) -> IntType:
+    if int(num) != num:
+        raise TypeError
+
     return strict_cast(num, IntType)
 
 

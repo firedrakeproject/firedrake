@@ -35,108 +35,6 @@ from pyop2.utils import get_petsc_dir
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
 
-class DenseSparsity(object):
-    def __init__(self, rset, cset):
-        self.shape = (1, 1)
-        self._nrows = rset.size
-        self._ncols = cset.size
-        self._dims = (((1, 1), ), )
-        self.dims = self._dims
-        self.dsets = rset, cset
-
-    def __getitem__(self, *args):
-        return self
-
-    def __contains__(self, *args):
-        return True
-
-
-class LocalPack(Pack):
-    def pick_loop_indices(self, loop_index, layer_index, entity_index):
-        return (entity_index, layer_index)
-
-
-class LocalMatPack(LocalPack, MatPack):
-    insertion_names = {False: "MatSetValues",
-                       True: "MatSetValues"}
-
-
-class LocalMatKernelArg(op2.MatKernelArg):
-
-    pack = LocalMatPack
-
-
-class LocalMatLegacyArg(op2.MatLegacyArg):
-
-    @property
-    def global_kernel_arg(self):
-        map_args = [m._global_kernel_arg for m in self.maps]
-        return LocalMatKernelArg(self.data.dims, map_args)
-
-
-class LocalMat(pyop2.types.AbstractMat):
-
-    def __init__(self, dset):
-        self._sparsity = DenseSparsity(dset, dset)
-        self.dtype = numpy.dtype(PETSc.ScalarType)
-
-    def __call__(self, access, maps):
-        return LocalMatLegacyArg(self, maps, access)
-
-
-class LocalDatPack(LocalPack, DatPack):
-    def __init__(self, needs_mask, *args, **kwargs):
-        self.needs_mask = needs_mask
-        super().__init__(*args, **kwargs)
-
-    def _mask(self, map_):
-        if self.needs_mask:
-            return Comparison(">=", map_, Literal(numpy.int32(0)))
-        else:
-            return None
-
-
-class LocalDatKernelArg(op2.DatKernelArg):
-
-    def __init__(self, *args, needs_mask, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.needs_mask = needs_mask
-
-    @property
-    def pack(self):
-        return partial(LocalDatPack, self.needs_mask)
-
-
-class LocalDatLegacyArg(op2.DatLegacyArg):
-
-    @property
-    def global_kernel_arg(self):
-        map_arg = self.map_._global_kernel_arg if self.map_ is not None else None
-        return LocalDatKernelArg(self.data.dataset.dim, map_arg,
-                                 needs_mask=self.data.needs_mask)
-
-
-class LocalDat(pyop2.types.AbstractDat):
-    def __init__(self, dset, needs_mask=False):
-        self._dataset = dset
-        self.dtype = numpy.dtype(PETSc.ScalarType)
-        self._shape = (dset.total_size,) + (() if dset.cdim == 1 else dset.dim)
-        self.needs_mask = needs_mask
-
-    @cached_property
-    def _wrapper_cache_key_(self):
-        return super()._wrapper_cache_key_ + (self.needs_mask, )
-
-    def __call__(self, access, map_=None):
-        return LocalDatLegacyArg(self, map_, access)
-
-    def increment_dat_version(self):
-        pass
-
-
-register_petsc_function("MatSetValues")
-
-
 CompiledKernel = namedtuple('CompiledKernel', ["funptr", "kinfo"])
 
 
@@ -205,7 +103,7 @@ def matrix_funptr(form, state):
         #
         # The size of the matrix doesn't matter as it's just a pointer
         mat = op3.Mat.empty(test.axes, trial.axes, buffer_kwargs={"name": "out"})
-        arg = pack_pyop3_tensor(mat, test, trial, loop_index, kinfo.integral_type)
+        arg = pack_pyop3_tensor(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
         args.append(arg)
 
         # NOT IMPLEMENTED
@@ -356,25 +254,10 @@ def residual_funptr(form, state):
 # just wrap up everything as a C function pointer and use that
 # directly.
 def make_struct(code, jacobian=False):
-    # Need to be able to map the signature to the specific bits and pieces coming in. The order is less deterministic now.
-    buffers = tuple(
-        buffer_ref.buffer for buffer_ref, _ in code.funptr.buffer_map.values()
-    )
-    # Currently this value is very hard to introspect, use the fact that this is always the
-    # first argument. This is very fragile though.
-    npoints_index = 0
-    subset_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "subset")
-    out_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "out")
-    coeff_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.ScalarType and i != out_index)
-    map_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.IntType and i != subset_index)
+    npoints_index, subset_index, out_index, Vmap_index, coeff_indices, map_indices = extract_argument_indices(code.funptr)
 
     ncoeffs = len(coeff_indices)
     nmaps = len(map_indices)
-
-    try:
-        assert ncoeffs + nmaps + 3 == len(buffers)
-    except:
-        breakpoint()
 
     # # TODO: if jacobian=False then we can have state and results polluting the coeffs here, this is fragile
     # state_index, coeff_indices, map_indices = extract_argument_indices(code.funptr)
@@ -414,15 +297,18 @@ def make_struct(code, jacobian=False):
         f"ctx->m{i}" for i in range(nmaps)
     )
 
-    # 'npoints' + 'subset' + 'out' + coeffs + maps (?)
-    nargs = ncoeffs + nmaps + 3
+    # 'npoints' + 'subset' + 'out' + 'dofArray' + coeffs + maps (?)
+    nargs = ncoeffs + nmaps + 4
     function_signature = numpy.empty(nargs, dtype=object)
     call_args = numpy.empty(nargs, dtype=object)
 
     function_signature[out_index] = "Mat" if jacobian else "PetscScalar * restrict"
     call_args[out_index] = "out"
 
-    function_signature[npoints_index] = "int*"
+    function_signature[Vmap_index] = "const PetscInt * restrict"
+    call_args[Vmap_index] = "dofArray"
+
+    function_signature[npoints_index] = "const PetscInt * restrict"
     call_args[npoints_index] = "&npoints"
 
     function_signature[subset_index] = "const PetscInt * restrict"
@@ -440,14 +326,14 @@ def make_struct(code, jacobian=False):
     call = f"pyop3_call({', '.join(call_args)})"
 
     fields = []
-    for _ in range(ncoeffs):
+    for i in range(ncoeffs):
         # if c != "state":
         #     fields.append((c, ctypes.c_voidp))
-        fields.append(("huh?", ctypes.c_voidp))
-    for _ in range(nmaps):
+        fields.append((f"c{i}", ctypes.c_voidp))
+    for i in range(nmaps):
         # if m != "dofArrayWithAll":
         #     fields.append((m, ctypes.c_voidp))
-        fields.append(("huh?", ctypes.c_voidp))
+        fields.append((f"m{i}", ctypes.c_voidp))
     fields.append(("point2facet", ctypes.c_voidp))
     fields.append(("pyop3_call", ctypes.c_voidp))
 
@@ -648,7 +534,7 @@ def make_c_arguments(form, kernel, state, get_map, require_state=False,
 
 
 def make_c_struct(function, struct, point2facet=None):
-    state_index, coeff_indices, map_indices = extract_argument_indices(function)
+    npoints_idx, subset_idx, out_idx, Vmap_index, coeff_indices, map_indices = extract_argument_indices(function)
     selector = [*coeff_indices, *map_indices]
     args = numpy.array(function._default_exec_arguments)[selector]
     args = list(map(int, args))  # undo numpy dtyping
@@ -660,19 +546,23 @@ def make_c_struct(function, struct, point2facet=None):
 
 
 def extract_argument_indices(code):
-    assert False, "old code"
-    state_index = None  # TODO
-    coeff_indices = tuple(
-        i
-        for i, (buffer_ref, _) in enumerate(code.buffer_map.values())
-        if isinstance(buffer_ref.buffer, op3.ArrayBuffer) and buffer_ref.buffer.dtype == ScalarType
+    # Need to be able to map the signature to the specific bits and pieces coming in. The order is less deterministic now.
+    buffers = tuple(
+        buffer_ref.buffer for buffer_ref, _ in code.buffer_map.values()
     )
-    map_indices = tuple(
-        i
-        for i, (buffer_ref, _) in enumerate(code.buffer_map.values())
-        if isinstance(buffer_ref.buffer, op3.ArrayBuffer) and buffer_ref.buffer.dtype == IntType
-    )
-    return state_index, coeff_indices, map_indices
+    # Currently this value is very hard to introspect, use the fact that this is always the
+    # first argument. This is very fragile though.
+    npoints_index = 0
+    subset_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "subset")
+    out_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "out")
+    coeff_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.ScalarType and i != out_index)
+    map_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.IntType and i != subset_index)
+
+    # the last map is always the dof one
+    *map_indices, Vmap_index = map_indices
+
+    assert len(coeff_indices) + len(map_indices) + 4 == len(buffers)
+    return npoints_index, subset_index, out_index, Vmap_index, coeff_indices, map_indices
 
 
 def bcdofs(bc, ghost=True):

@@ -1062,17 +1062,14 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_map(self) -> op3.Map:
-        map_data = self.cell_node_list
-        ncells, arity = map_data.shape
-        cells_axis = self.mesh().cells.owned.root
-        assert cells_axis.local_size == ncells
-        node_axis = op3.Axis(arity)
-        map_axes = op3.AxisTree.from_iterable([cells_axis, node_axis])
-        map_dat = op3.Dat(map_axes, data=self.cell_node_list.flatten(), prefix="map")
+        try:
+            cells_axis, node_axis = self.cell_node_dat.axes.nodes
+        except:
+            breakpoint()
         return op3.Map(
             {
                 idict({cells_axis.label: cells_axis.component.label}): [
-                    [op3.TabulatedMapComponent("nodes", None, map_dat)]
+                    [op3.TabulatedMapComponent("nodes", None, self.cell_node_dat)]
                 ],
             }, 
             # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
@@ -1083,6 +1080,10 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
+        return self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+
+    @cached_property
+    def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
         from firedrake.parloops import transform_packed_cell_closure_dat
@@ -1095,7 +1096,6 @@ class FunctionSpace:
 
         cell_index = self._mesh.cells.owned.iter()
 
-
         scalar_space = self
         if self.shape:
             scalar_space = self.sub(0)
@@ -1103,16 +1103,18 @@ class FunctionSpace:
         map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], scalar_space, cell_index)
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
-        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType)
-
-        # import pyop3
-        # pyop3.extras.debug.enable_conditional_breakpoints("closure")
+        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
 
-        if max(map_dat.data_ro) > 1e6:
-            breakpoint()
+        # now reshape things because we want to have 2 axes: cells and nodes
+        ncells = mesh.cells.owned.local_size
+        arity = map_axes.local_size // ncells
+        cells_axis = map_axes.root
+        node_axis = op3.Axis(arity)
+        map_axes = op3.AxisTree.from_iterable([cells_axis, node_axis])
+        map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
 
-        return map_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        return map_dat
 
     @utils.cached_property
     def topological(self):

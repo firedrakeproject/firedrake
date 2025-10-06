@@ -352,7 +352,7 @@ def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str, **kwargs)
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None):
+def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None, nodes=False):
     return pack_pyop3_tensor(
         func.dat, func.function_space(), index, integral_type, target_mesh=target_mesh
     )
@@ -379,7 +379,8 @@ def _(
     loop_index: op3.LoopIndex,
     integral_type: str,
     *,
-    target_mesh=None
+    target_mesh=None,
+    nodes: bool = False,
 ):
     """
     Consider:
@@ -418,19 +419,33 @@ def _(
         # I think that the easiest approach here is to index the full thing before passing it
         # down. We can then combine everything at the top-level
 
-    if integral_type == "cell":
-        cell = loop_index
-        packed_dat = dat[mesh.closure(cell)]
-        depth = 0
-    elif integral_type in {"interior_facet", "exterior_facet"}:
-        facet = loop_index
-        cell = mesh.support(facet)
-        packed_dat = dat[mesh.closure(cell)]
-        depth = 1
+    if not nodes:
+        if integral_type == "cell":
+            cell = loop_index
+            packed_dat = dat[mesh.closure(cell)]
+            depth = 0
+        elif integral_type in {"interior_facet", "exterior_facet"}:
+            facet = loop_index
+            cell = mesh.support(facet)
+            packed_dat = dat[mesh.closure(cell)]
+            depth = 1
+        else:
+            raise NotImplementedError
     else:
-        raise NotImplementedError
+        if integral_type == "cell":
+            cell = loop_index
+            packed_dat = dat[V.cell_node_map(cell)]
+            depth = 0
+        elif integral_type in {"interior_facet", "exterior_facet"}:
+            raise NotImplementedError
+            facet = loop_index
+            cell = mesh.support(facet)
+            packed_dat = dat[mesh.closure(cell)]
+            depth = 1
+        else:
+            raise NotImplementedError
 
-    return transform_packed_cell_closure_dat(packed_dat, V, cell, depth=depth)
+    return transform_packed_cell_closure_dat(packed_dat, V, cell, depth=depth, nodes=nodes)
 
 
 @pack_pyop3_tensor.register(op3.Mat)
@@ -439,7 +454,9 @@ def _(
     Vrow: WithGeometry,
     Vcol: WithGeometry,
     index: op3.LoopIndex,
-    integral_type: str
+    integral_type: str,
+    *,
+    nodes: bool = False,
 ):
     if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
         raise NotImplementedError("TODO")
@@ -452,7 +469,7 @@ def _(
             assert isinstance(mat_context, op3.ColumnDatPythonMatContext)
             space = Vcol
         dat = mat_context.dat
-        return pack_pyop3_tensor(dat, space, index, integral_type)
+        return pack_pyop3_tensor(dat, space, index, integral_type, nodes=nodes)
 
     if Vrow.mesh() is not Vcol.mesh():
         raise NotImplementedError("Think we need to have different loop indices for row+col")
@@ -460,21 +477,37 @@ def _(
     if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {Vrow, Vcol}):
         raise NotImplementedError
 
-    if integral_type == "cell":
-        cell = index
-        depth = 0
-    elif integral_type in {"interior_facet", "exterior_facet"}:
-        facet = index
-        cell = Vrow.mesh().support(facet)
-        depth = 1
+    if not nodes:
+        if integral_type == "cell":
+            cell = index
+            depth = 0
+        elif integral_type in {"interior_facet", "exterior_facet"}:
+            facet = index
+            cell = Vrow.mesh().support(facet)
+            depth = 1
+        else:
+            raise NotImplementedError
+
+        packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
     else:
-        raise NotImplementedError
+        if integral_type == "cell":
+            cell = index
+            depth = 0
+            packed_mat = mat[Vrow.cell_node_map(cell), Vcol.cell_node_map(cell)]
+        elif integral_type in {"interior_facet", "exterior_facet"}:
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
 
-    packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
-    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell, row_depth=depth, column_depth=depth)
+    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell, row_depth=depth, column_depth=depth, nodes=nodes)
 
 
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0):
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):
+    if nodes:
+        # NOTE: This is only valid for cases where runtime transformations are not required.
+        return packed_dat
+
+
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
@@ -498,7 +531,9 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     return dat_sequence[len(dat_sequence) // 2]
 
 
-def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0):
+def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0, nodes: bool = False):
+    if nodes:
+        return packed_mat
     mat_sequence = [packed_mat]
 
     row_element = row_space.finat_element
