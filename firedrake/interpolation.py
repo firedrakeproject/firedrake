@@ -929,8 +929,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
         return callable
     else:
-        loops = []
-
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(arguments) == 2:
@@ -950,31 +948,39 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             # Combine the splits by taking their action
             expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
 
+        def sub_tensor(tensor, indices):
+            return tensor[indices[0]] if rank == 1 else tensor
+
+        loops = {}
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
-            loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
+            loops[indices] = _interpolator(sub_tensor(tensor, indices), sub_expr, subset, access, bcs=bcs)
 
-        if bcs and rank == 1:
-            loops.extend(partial(bc.apply, f) for bc in bcs)
+        def callable(loops, f):
+            # Replace output buffer
+            for indices in loops:
+                for l in loops[indices]:
+                    if isinstance(l, op2.Parloop):
+                        l.arguments[0].data = sub_tensor(f.dat, indices)
 
-        def callable(loops, f, access):
-            if access is op2.WRITE:
-                for l in loops:
+            # Initialise to zero if needed
+            if access is op2.INC:
+                f.dat.local_to_global_begin(access)
+                f.dat.zero()
+                f.dat.local_to_global_end(access)
+
+            # Execute kernels
+            for indices in loops:
+                for l in loops[indices]:
                     l()
-                return f
-            # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
-            # can be skipped.
-            f.dat.local_to_global_begin(access)
-            with f.dat.frozen_halo(access):
-                if access is op2.INC:
-                    f.dat.zero()
-                for l in loops:
-                    l()
-            f.dat.local_to_global_end(access)
+
+            # Apply bcs
+            if bcs and rank == 1:
+                for bc in bcs:
+                    bc.apply(f)
             return f
 
-        return partial(callable, loops, f, access)
+        return partial(callable, loops, f)
 
 
 @utils.known_pyop2_safe

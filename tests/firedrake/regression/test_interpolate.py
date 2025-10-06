@@ -586,7 +586,7 @@ def test_reuse_interpolate(family, degree, mode):
 
     I = Interpolator(expr, V)
 
-    for k in range(2):
+    for k in range(3):
         u.assign(k+1)
         expected = u.dat.data.copy()
         result = I.assemble()
