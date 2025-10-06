@@ -85,7 +85,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._label = "a function"
 
         if isinstance(val, op3.Dat):
-            assert val.comm == self._comm
+            # assert val.comm == self._comm  # FIXME
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())

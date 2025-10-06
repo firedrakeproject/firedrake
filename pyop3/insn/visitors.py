@@ -449,7 +449,7 @@ def _(array: Tensor, /, access_type):
             assert isinstance(array, Mat)
             raxes = AxisTree(array.parent.row_axes.node_map)
             caxes = AxisTree(array.parent.caxes.node_map)
-            temp_initial = Mat.null(row_axes, caxes, dtype=array.dtype, prefix="t")
+            temp_initial = Mat.null(raxes, caxes, dtype=array.dtype, prefix="t")
             temp_reshaped = temp_initial.with_axes(array.row_axes, array.caxes)
 
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)

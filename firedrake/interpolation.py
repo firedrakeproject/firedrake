@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import enum
 import numpy
 import os
@@ -350,12 +352,12 @@ class Interpolator(abc.ABC):
 
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            if access and access != op2.INC:
+            if access and access != op3.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
-            access = op2.INC
+            access = op3.INC
         elif access is None:
             # Default access for forward 1-form or 2-form (forward and adjoint)
-            access = op2.WRITE
+            access = op3.WRITE
         self.access = access
 
     def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
@@ -854,13 +856,15 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         else:
             V_dest = arguments[0].function_space().dual()
             f = firedrake.Function(V_dest)
-            if access in {firedrake.MIN, firedrake.MAX}:
-                finfo = numpy.finfo(f.dat.dtype)
-                if access == op3.MIN_WRITE:
-                    val = firedrake.Constant(finfo.max)
-                else:
-                    val = firedrake.Constant(finfo.min)
-                f.assign(val)
+            if access not in {op3.WRITE, op3.INC}:
+                raise NotImplementedError
+            # if access in {firedrake.MIN, firedrake.MAX}:
+            #     finfo = numpy.finfo(f.dat.dtype)
+            #     if access == op3.MIN_WRITE:
+            #         val = firedrake.Constant(finfo.max)
+            #     else:
+            #         val = firedrake.Constant(finfo.min)
+            #     f.assign(val)
         tensor = f.dat
     elif rank == 2:
         if isinstance(V, firedrake.Function):
@@ -932,7 +936,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     else:
         loops = []
 
-        if access == op2.INC:
+        if access == op3.INC:
             loops.append(tensor.zero)
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
@@ -956,7 +960,10 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
+            if rank == 1 and indices != (None,):
+                sub_tensor = tensor[*indices]
+            else:
+                sub_tensor = tensor
             loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
 
         if bcs and rank == 1:
@@ -1066,8 +1073,6 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
             callables += (partial(y.pointwiseMult, x, w),)
 
-    raise NotImplementedError  # broken!
-
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
     # (e.g. L2 Piola, or tensor element with symmetries)
@@ -1086,31 +1091,30 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
     if any(c.dat == tensor for c in coefficients):
         output = tensor
-        tensor = op2.Dat(tensor.dataset)
-        if access is not op2.WRITE:
-            copyin = (partial(output.copy, tensor), )
+        tensor = op3.Dat.empty_like(tensor)
+        if access is not op3.WRITE:
+            copyin = (lambda: tensor.assign(output, eager=True),)
         else:
             copyin = ()
-        copyout = (partial(tensor.copy, output), )
+        copyout = (lambda: output.assign(tensor, eager=True),)
     else:
         copyin = ()
         copyout = ()
-    if isinstance(tensor, op2.Global):
-        parloop_args.append(tensor(access))
-    elif isinstance(tensor, op2.Dat):
+    if isinstance(tensor, op3.Scalar):
+        local_kernel_args.append(tensor)
+    elif isinstance(tensor, op3.Dat):
         V_dest = arguments[-1].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
-        m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
-        parloop_args.append(tensor(access, m_))
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
+        local_kernel_args.append(packed_tensor)
     else:
-        assert access == op2.WRITE  # Other access descriptors not done for Matrices.
+        assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
-        rows_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-        columns_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
 
         lgmaps = None
         if bcs:
+            raise NotImplementedError
             if ufl.duals.is_dual(Vrow):
                 Vrow = Vrow.dual()
             if ufl.duals.is_dual(Vcol):
@@ -1118,20 +1122,22 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
-    if oriented:
+
+        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, cell_index, "cell", target_mesh=target_mesh)
+        local_kernel_args.append(packed_tensor)
+    if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
-    if needs_cell_sizes:
+        local_kernel_args.append(pack_tensor(co, cell_index, "cell", target_mesh=target_mesh))
+    if kernel.needs_cell_sizes:
         cs = source_mesh.cell_sizes
-        parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+        local_kernel_args.append(pack_tensor(cs, cell_index, "cell", target_mesh=target_mesh))
 
     for coefficient in coefficients:
-        m_ = get_interp_node_map(source_mesh, target_mesh, coefficient.function_space())
-        parloop_args.append(coefficient.dat(op2.READ, m_))
+        packed_coeff = pack_tensor(coefficient, cell_index, "cell", target_mesh=target_mesh)
+        local_kernel_args.append(packed_coeff)
 
     for const in extract_firedrake_constants(expr):
-        parloop_args.append(const.dat(op2.READ))
+        local_kernel_args.append(const.dat)
 
     # Finally, add the target mesh reference coordinates if they appear in the kernel
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
@@ -1155,6 +1161,11 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
                 # vertex cell.)
                 coefficients.append(target_mesh.reference_coordinates)
 
+    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
+    parloop = op3.loop(
+        cell_index,expression_kernel(*local_kernel_args)
+    )
+
     if any(c.dat == tensor for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(output)
@@ -1164,7 +1175,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
             copyin = ()
         copyout = (lambda: output.assign(tensor, eager=True),)
     else:
-        return copyin + callables + (parloop_compute_callable, ) + copyout
+        return copyin + callables + (parloop,) + copyout
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
@@ -1268,31 +1279,6 @@ def rebuild_te(element, expr_cell, rt_var_name):
                                              expr_cell, rt_var_name),
                                      element._shape,
                                      transpose=element._transpose)
-
-
-def compose_map_and_cache(map1, map2):
-    #FIXME PYOP3
-    raise AssertionError("delete this")
-    """
-    Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
-    using map2 as the cache key. The composed map maps from the iterset
-    of map1 to the toset of map2. Makes :class:`pyop2.ComposedMap` and
-    caches the result on map1 if the composed map is not found.
-
-    :arg map1: The map with the desired iterset from which the result is
-        retrieved or cached
-    :arg map2: The map with the desired toset
-
-    :returns:  The composed map
-    """
-    cache_key = hash((map2, "composed"))
-    try:
-        cmap = map1._cache[cache_key]
-    except KeyError:
-        # Real function space case separately
-        cmap = None if map2 is None else op2.ComposedMap(map2, map1)
-        map1._cache[cache_key] = cmap
-    return cmap
 
 
 def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
