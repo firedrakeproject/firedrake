@@ -513,12 +513,6 @@ mathematically valid to do this)::
        @functools.cached_property
        def nodes(self):
            V = self.function_space()
-           if V.mesh().ufl_coordinate_element().degree() != 1:
-               # Ensure a P1 mesh
-               coordinates = V.mesh().coordinates
-               P1 = coordinates.function_space().reconstruct(degree=1)
-               P1_mesh = Mesh(Function(P1).interpolate(coordinates))
-               V = V.reconstruct(mesh=P1_mesh)
 
            point = [tuple(self.sub_domain)]
            vom = VertexOnlyMesh(V.mesh(), point)

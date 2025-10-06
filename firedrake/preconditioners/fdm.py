@@ -16,7 +16,6 @@ from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
-from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
@@ -29,6 +28,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
 import firedrake.dmhooks as dmhooks
+import petsctools
 import ufl
 import finat.ufl
 import FIAT
@@ -94,7 +94,7 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
-        Citations().register(self._citation)
+        petsctools.cite(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix() or ""
@@ -222,7 +222,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = FunctionSpace(V.mesh(), ebig)
+            Vbig = V.reconstruct(element=ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
@@ -413,9 +413,9 @@ class FDMPC(PCBase):
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
         V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
         if V0 is None:
-            V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
+            V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
         if V1 is None:
-            V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
+            V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
         if len(V) == 1:
             J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
         elif len(V) == 2:
@@ -423,7 +423,7 @@ class FDMPC(PCBase):
             ises = V.dof_dset.field_ises
             Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
             Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
-            unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
+            unindexed = {Vsub: Vsub.collapse() for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
         else:
             raise ValueError("Expecting at most 2 components")
@@ -685,7 +685,7 @@ class FDMPC(PCBase):
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if Vrow == Vcol else None
             if schur_kernel is not None:
-                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                V0 = Vrow.collapse().reconstruct(element=restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 element_kernel = schur_kernel(element_kernel,
@@ -804,7 +804,7 @@ class FDMPC(PCBase):
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
             if schur_kernel is not None:
-                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                V0 = Vrow.collapse().reconstruct(element=restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 element_kernel = schur_kernel(element_kernel,
@@ -1440,9 +1440,9 @@ class ImplicitSchurComplementKernel(ElementKernel):
         fcp = self.child.fcp
         args = form.arguments()
         Q = args[0].function_space()
-        V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
-        V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
-        V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
+        V = Q.reconstruct(element=unrestrict_element(Q.ufl_element()))
+        V0 = Q.reconstruct(element=restrict_element(V.ufl_element(), "interior"))
+        V1 = Q.reconstruct(element=restrict_element(V.ufl_element(), "facet"))
         idofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
         fdofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
         size = idofs.size + fdofs.size

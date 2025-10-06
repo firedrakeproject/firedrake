@@ -1,16 +1,15 @@
 import abc
 import numpy
 
+import petsctools
 from pyop2.utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
-from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
@@ -141,12 +140,11 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        Citations().register("Hiptmair1998")
+        petsctools.cite("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
         a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
-        mesh = V.mesh()
         element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
@@ -163,7 +161,7 @@ class HiptmairPC(TwoLevelPC):
         if domain:
             celement = restrict(celement, domain)
 
-        coarse_space = FunctionSpace(mesh, celement)
+        coarse_space = V.reconstruct(element=celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
@@ -204,7 +202,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = chop(Interpolator(dminus(trial), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 

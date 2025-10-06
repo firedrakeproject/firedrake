@@ -10,7 +10,6 @@ expressions (finite element variational forms written in UFL).
 import time
 from typing import Hashable
 
-from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
@@ -148,7 +147,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
-    Citations().register("Gibson2018")
+    petsctools.cite("Gibson2018")
 
     orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible

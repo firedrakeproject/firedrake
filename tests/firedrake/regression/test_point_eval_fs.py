@@ -118,14 +118,14 @@ def test_triangle_mixed(mesh_triangle):
     f2.project(as_vector((x[1], 0.8 + x[0])))
 
     # Single point
-    actual = f.at([0.6, 0.4])
+    actual = f._at([0.6, 0.4])
     assert isinstance(actual, tuple)
     assert len(actual) == 2
     assert np.allclose(1.08, actual[0])
     assert np.allclose([0.4, 1.4], actual[1])
 
     # Multiple points
-    actual = f.at([0.6, 0.4], [0.0, 0.9], [0.3, 0.5])
+    actual = f._at([0.6, 0.4], [0.0, 0.9], [0.3, 0.5])
     assert len(actual) == 3
     assert np.allclose(1.08, actual[0][0])
     assert np.allclose([0.4, 1.4], actual[0][1])
@@ -200,9 +200,9 @@ def test_point_eval_forces_writes():
     V = FunctionSpace(m, 'DG', 0)
     f = Function(V)
 
-    assert np.allclose([0.0], f.at((0.3, 0.3)))
+    assert np.allclose([0.0], f._at((0.3, 0.3)))
     f.assign(1)
-    assert np.allclose([1.0], f.at((0.3, 0.3)))
+    assert np.allclose([1.0], f._at((0.3, 0.3)))
 
 
 def test_point_reset_works():
@@ -210,10 +210,10 @@ def test_point_reset_works():
     V = FunctionSpace(m, 'DG', 0)
     f = Function(V)
 
-    assert np.allclose([0.0], f.at((0.3, 0.3)))
+    assert np.allclose([0.0], f._at((0.3, 0.3)))
     f.assign(1)
     m.clear_spatial_index()
-    assert np.allclose([1.0], f.at((0.3, 0.3)))
+    assert np.allclose([1.0], f._at((0.3, 0.3)))
 
 
 def test_changing_coordinates_invalidates_spatial_index():

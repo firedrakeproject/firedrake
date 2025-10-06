@@ -25,7 +25,6 @@ import ufl
 import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -523,18 +522,36 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Empty FormSum")
             if tensor:
                 tensor.zero()
+
+            # Assemble weights
+            weights = []
+            for w in expr.weights():
+                if isinstance(w, ufl.constantvalue.Zero):
+                    w = 0.0
+                elif isinstance(w, ufl.constantvalue.ScalarValue):
+                    w = w.value()
+                elif isinstance(w, (firedrake.Constant, firedrake.Function)):
+                    w = w.dat.data_ro
+
+                if isinstance(w, numpy.ndarray):
+                    # Assert singleton ndarray
+                    w = w.item()
+                if not isinstance(w, numbers.Complex):
+                    raise ValueError("Expecting a scalar weight expression")
+                weights.append(w)
+
             if all(isinstance(op, numbers.Complex) for op in args):
-                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                result = sum(weight * arg for weight, arg in zip(weights, args))
                 return tensor.assign(result) if tensor else result
             elif (all(isinstance(op, firedrake.Cofunction) for op in args)
                     or all(isinstance(op, firedrake.Function) for op in args)):
                 V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Function(V)
-                result.dat.maxpy(expr.weights(), [a.dat for a in args])
+                result.dat.maxpy(weights, [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 result = tensor.petscmat if tensor else PETSc.Mat()
-                for (op, w) in zip(args, expr.weights()):
+                for (op, w) in zip(args, weights):
                     if result:
                         # If result is not void, then accumulate on it
                         result.axpy(w, op.petscmat)
@@ -579,84 +596,20 @@ class BaseFormAssembler(AbstractFormAssembler):
             if (v, operand) != expr.argument_slots():
                 expr = reconstruct_interp(operand, v=v)
 
-            # Different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
-            # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-            # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-            # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
-            # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
-            # If argument numbers have been swapped => Adjoint.
-            arg_operand = ufl.algorithms.extract_arguments(operand)
-            is_adjoint = (arg_operand and arg_operand[0].number() == 0)
-
+            if rank > 2:
+                raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             # Get the target space
             V = v.function_space().dual()
 
-            # Dual interpolation from mixed source
-            if is_adjoint and len(V) > 1:
-                cur = 0
-                sub_operands = []
-                components = numpy.reshape(operand, (-1,))
-                for Vi in V:
-                    sub_operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
-                    cur += Vi.value_size
-
-                # Component-split of the primal operands interpolated into the dual argument-split
-                split_interp = sum(reconstruct_interp(sub_operands[i], v=vi) for (i,), vi in split_form(v))
-                return assemble(split_interp, tensor=tensor)
-
-            # Dual interpolation into mixed target
-            if is_adjoint and len(arg_operand[0].function_space()) > 1 and rank == 1:
-                V = arg_operand[0].function_space()
-                tensor = tensor or firedrake.Cofunction(V.dual())
-
-                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
-                for (i,), sub_interp in split_form(expr):
-                    assemble(sub_interp, tensor=tensor.subfunctions[i])
-                return tensor
-
-            # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-            if not is_adjoint and rank == 2:
-                _, v1 = expr.arguments()
-                operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
-            interp_data = expr.interp_data
+            interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(operand, V, **interp_data)
+            if rank == 1 and isinstance(tensor, firedrake.Function):
+                V = tensor
+            interpolator = firedrake.Interpolator(expr, V, **interp_data)
             # Assembly
-            if rank == 0:
-                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(v, Iu), tensor=tensor)
-            elif rank == 1:
-                # Assembling the action of the Jacobian adjoint.
-                if is_adjoint:
-                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
-                # Assembling the Jacobian action.
-                elif interpolator.nargs:
-                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
-                # Assembling the operator
-                elif tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
-                else:
-                    return firedrake.Interpolator(operand, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
-            elif rank == 2:
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                # Get the interpolation matrix
-                op2_mat = interpolator.callable()
-                petsc_mat = op2_mat.handle
-                if is_adjoint:
-                    # Out-of-place Hermitian transpose
-                    petsc_mat.hermitianTranspose(out=res)
-                else:
-                    # Copy the interpolation matrix into the output tensor
-                    petsc_mat.copy(result=res)
-                if tensor is None:
-                    tensor = self.assembled_matrix(expr, res)
-                return tensor
-            else:
-                # The case rank == 0 is handled via the DAG restructuring
-                raise ValueError("Incompatible number of arguments.")
+            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -1334,7 +1287,7 @@ class OneFormAssembler(ParloopFormAssembler):
             else:
                 # The residual belongs to a mixed space that is dual on the boundary nodes
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
-                r = tensor.riesz_representation("l2")
+                r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)

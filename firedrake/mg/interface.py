@@ -58,7 +58,6 @@ def prolong(coarse, fine):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
     for j in range(repeat):
         next_level += 1
@@ -66,10 +65,10 @@ def prolong(coarse, fine):
             next = fine
             Vf = fine.function_space()
         else:
-            Vf = firedrake.FunctionSpace(meshes[next_level], element)
+            Vf = Vc.reconstruct(mesh=meshes[next_level])
             next = firedrake.Function(Vf)
 
-        coarse_coords = Vc.mesh().coordinates
+        coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse)
@@ -121,7 +120,6 @@ def restrict(fine_dual, coarse_dual):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
 
     for j in range(repeat):
@@ -130,15 +128,15 @@ def restrict(fine_dual, coarse_dual):
             coarse_dual.dat.zero()
             next = coarse_dual
         else:
-            Vc = firedrake.FunctionSpace(meshes[next_level], element)
-            next = firedrake.Cofunction(Vc.dual())
+            Vc = Vf.reconstruct(mesh=meshes[next_level])
+            next = firedrake.Cofunction(Vc)
         Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf)
+        node_locations = utils.physical_node_locations(Vf.dual())
 
-        coarse_coords = Vc.mesh().coordinates
+        coarse_coords = get_coordinates(Vc.dual())
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
@@ -196,7 +194,6 @@ def inject(fine, coarse):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
 
     for j in range(repeat):
@@ -206,12 +203,12 @@ def inject(fine, coarse):
             next = coarse
             Vc = next.function_space()
         else:
-            Vc = firedrake.FunctionSpace(meshes[next_level], element)
+            Vc = Vf.reconstruct(mesh=meshes[next_level])
             next = firedrake.Function(Vc)
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
-            fine_coords = Vf.mesh().coordinates
+            fine_coords = get_coordinates(Vf)
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
@@ -257,3 +254,11 @@ def inject(fine, coarse):
         fine = next
         Vf = Vc
     return coarse
+
+
+def get_coordinates(V):
+    coords = V.mesh().coordinates
+    if V.boundary_set:
+        W = V.reconstruct(element=coords.function_space().ufl_element())
+        coords = firedrake.Function(W).interpolate(coords)
+    return coords

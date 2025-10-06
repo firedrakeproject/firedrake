@@ -56,3 +56,10 @@ def test_scalar_cofunction_zero_with_subset(V):
     assert f is g
     assert np.allclose(f.dat.data_ro[:2], 0.0)
     assert np.allclose(f.dat.data_ro[2:], 1.0)
+
+
+def test_cofunction_riesz_representation_l2_dat_version(V):
+    f = Cofunction(V.dual())
+    version = f.dat.dat_version
+    _ = f.riesz_representation(riesz_map="l2")
+    assert f.dat.dat_version == version
