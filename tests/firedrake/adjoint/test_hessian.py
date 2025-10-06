@@ -292,7 +292,6 @@ def test_burgers(solve_type, rg):
 
     h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
-    print(f"{norm(h) = }")
 
     taylor = taylor_to_dict(Jhat, g, h)
     from pprint import pprint
@@ -300,15 +299,3 @@ def test_burgers(solve_type, rg):
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
     assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
-
-    # J.block_variable.adj_value = 1.0
-    # ic.block_variable.tlm_value = h
-    # tape.evaluate_adj()
-    # tape.evaluate_tlm()
-
-    # J.block_variable.hessian_value = 0
-    # tape.evaluate_hessian()
-
-    # dJdm = J.block_variable.tlm_value
-    # Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
-    # assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9

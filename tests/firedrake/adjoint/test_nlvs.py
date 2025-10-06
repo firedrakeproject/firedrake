@@ -27,10 +27,10 @@ def forward(ic, dt, nt, bc_arg=None):
 
     if bc_arg:
         bc_val = bc_arg.copy(deepcopy=True)
-        bc = DirichletBC(V, bc_val, 1)
-        # bc.apply(ic)
+        bcs = [DirichletBC(V, bc_val, 1),
+               DirichletBC(V, 0, 2)]
     else:
-        bc = None
+        bcs = None
 
     nu = Function(dt.function_space()).assign(0.1)
 
@@ -42,7 +42,7 @@ def forward(ic, dt, nt, bc_arg=None):
          + dt*u1*u1.dx(0)*v
          + dt*nu*u1.dx(0)*v.dx(0))*dx
 
-    problem = NonlinearVariationalProblem(F, u1, bcs=bc)
+    problem = NonlinearVariationalProblem(F, u1, bcs=bcs)
     solver = NonlinearVariationalSolver(problem)
 
     u1.assign(ic)
@@ -74,7 +74,7 @@ def test_nlvs_adjoint(control_type, bc_type):
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    nt = 2
+    nt = 4
     dt = Function(R).assign(0.1)
     ic = Function(V).interpolate(cos(2*pi*x))
 
@@ -88,7 +88,7 @@ def test_nlvs_adjoint(control_type, bc_type):
         bc_arg = Function(R).assign(1.)
         bc_arg0 = bc_arg.copy(deepcopy=True)
     else:
-        raise ValueError(f"Unrecognised {bc_type = }")
+        raise ValueError(f"Unrecognised {bc_type=}")
 
     if control_type == 'ic_control':
         control = ic0
@@ -97,7 +97,7 @@ def test_nlvs_adjoint(control_type, bc_type):
     elif control_type == 'bc_control':
         control = bc_arg0
     else:
-        raise ValueError(f"Unrecognised {control_type = }")
+        raise ValueError(f"Unrecognised {control_type=}")
 
     print("record tape")
     continue_annotation()
@@ -135,10 +135,16 @@ def test_nlvs_adjoint(control_type, bc_type):
     assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
 
     # tlm
+    Jhat(m)
     assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
+
+    # adjoint
+    Jhat(m)
+    assert taylor_test(Jhat, m, h) > 1.95
 
 
 if __name__ == "__main__":
-    ctype = "ic"
-    print(f"Control type: {ctype}")
-    test_nlvs_adjoint(f"{ctype}_control")
+    control_type = "ic_control"
+    bc_type = "neumann_bc"
+    print(f"{control_type=} | {bc_type=}")
+    test_nlvs_adjoint(control_type, bc_type)

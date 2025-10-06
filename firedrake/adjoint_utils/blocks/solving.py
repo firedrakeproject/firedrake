@@ -39,29 +39,11 @@ TLM = SolverType.TLM
 HESSIAN = SolverType.HESSIAN
 
 
-# @singledispatch((Coefficient, Constant, Cofunction))
-def update_dependency(replaced_dep, dep):
-    if isinstance(replaced_dep, (firedrake.Coefficient,
-                                 firedrake.Constant,
-                                 firedrake.Cofunction)):
-        replaced_dep.assign(dep)
-
-    elif isinstance(replaced_dep, firedrake.DirichletBC):
-        if dep is None:
-            replaced_dep.set_value(0)
-        else:
-            replaced_dep.set_value(dep.function_arg)
-
-    else:
-        raise TypeError(
-            "Updating not implemented for adjoint "
-            f" dependency of type {type(replaced_dep)}")
-
-
 class CachedSolverBlock(Block):
     def __init__(self, func, bcs, cached_solvers,
                  replaced_dependencies,
                  tlm_rhs, replaced_tlms, tlm_dFdm_forms,
+                 adj_rhs, replaced_adjs, adj_dFdm_forms, adj_residual,
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
@@ -74,44 +56,72 @@ class CachedSolverBlock(Block):
         self.replaced_tlms = replaced_tlms
         self.tlm_dFdm_forms = tlm_dFdm_forms
 
-    def update_dependencies(self, use_output=False):
-        for replaced_dep, dep in zip(self.replaced_dependencies,
-                                     self.get_dependencies()):
-            update_dependency(replaced_dep, dep.saved_output)
+        self.adj_rhs = adj_rhs
+        self.replaced_adjs = replaced_adjs
+        self.adj_dFdm_forms = adj_dFdm_forms
+        self.adj_residual = adj_residual
 
+    def _coefficient_dependencies(self, dependencies=None):
+        dependencies = dependencies or self.get_dependencies()
+        return dependencies[:len(self.replaced_dependencies)]
+
+    def _bc_dependencies(self, dependencies=None):
+        dependencies = dependencies or self.get_dependencies()
+        if len(self.bcs) > 0:
+            return dependencies[-len(self.bcs):]
+        else:
+            return []
+
+    def update_dependencies(self, use_output=False):
+        """Update all dependencies of the forward solve.
+        """
+        # Update the coefficients in the form.
+        # Use the fact that zip will use the shorter length.
+        for replaced_dep, dep in zip(self.replaced_dependencies,
+                                     self._coefficient_dependencies()):
+            replaced_dep.assign(dep.saved_output)
+
+        # 1. For forward recomputation the unknown Function should use
+        # the incoming value of the dependency as the initial guess.
+        # 2. For the adjoint, TLM, and Hessian, the unknown Function
+        # should use the computed value so that the linearised
+        # Jacobian is correct.
         if use_output:
             output = self.get_outputs()[0].saved_output
             self.cached_solvers[FORWARD]._problem.u.assign(output)
 
-        idx = 0
-        for dep in self.get_dependencies():
-            if isinstance(dep.output, firedrake.DirichletBC):
-                bc_arg = dep.saved_output.function_arg
-                self.bcs[idx].set_value(bc_arg)
-                idx += 1
-        assert idx == len(self.bcs)
+        # Update the boundary conditions
+        for replaced_dep, dep in zip(self.bcs, self._bc_dependencies()):
+            replaced_dep.set_value(dep.saved_output.function_arg)
 
     def update_tlm_dependencies(self):
-        for replaced_tlm, dep in zip(self.replaced_tlms,
-                                     self.get_dependencies()):
-            if dep.output == self.func:
+        """Update all dependencies of the tlm solve.
+        """
+        for replaced_dep, dep in zip(self.replaced_tlms,
+                                     self._coefficient_dependencies()):
+            if dep.output == self.func:  # TODO: and not self.linear
                 continue
-            if dep.tlm_value is None:
+            if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            update_dependency(replaced_tlm, dep.tlm_value)
+            replaced_dep.assign(dep.tlm_value)
 
-        idx = 0
-        for dep in self.get_dependencies():
-            if isinstance(dep.output, firedrake.DirichletBC):
-                if dep.tlm_value is None:
-                    bc_val = 0
-                else:
-                    bc_val = dep.tlm_value.function_arg
-                self.bcs[idx].set_value(bc_val)
-                idx += 1
+        for replaced_dep, dep in zip(self.bcs, self._bc_dependencies()):
+            if dep.tlm_value is None:  # This dependency doesn't depend on the controls
+                bc_val = 0
+            else:
+                bc_val = dep.tlm_value.function_arg
+            replaced_dep.set_value(bc_val)
+
+    def update_adj_dependencies(self):
+        # TODO: Anything to do here?
+        pass
+
+    def _compute_boundary(self, relevant_dependencies):
+        return any(isinstance(dep.output, firedrake.DirichletBC)
+                   for _, dep in relevant_dependencies)
 
     def prepare_recompute_component(self, inputs, relevant_outputs):
-        return None
+        return
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         self.update_dependencies(use_output=False)
@@ -120,26 +130,29 @@ class CachedSolverBlock(Block):
         solver.solve()
         result = solver._problem.u.copy(deepcopy=True)
 
+        # Possibly checkpoint the result for the adjoint solve later.
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)
 
         return maybe_disk_checkpoint(result)
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
-        return None
+        return
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
         self.update_dependencies(use_output=True)
         self.update_tlm_dependencies()
 
+        # Assemble the rhs of (dF/du)(du/dm) = -dF/dm
         self.tlm_rhs.zero()
         for dFdm, dep in zip(self.tlm_dFdm_forms, self.get_dependencies()):
-            if dep.tlm_value is None:
+            if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            if dep.output is self.func:
+            if dep.output is self.func:  # Can't compute dependence on initial guess?
                 continue
             self.tlm_rhs += firedrake.assemble(dFdm)
 
+        # Solve for dudm
         solver = self.cached_solvers[TLM]
         solver._problem.u.zero()
         solver.solve()
@@ -147,10 +160,48 @@ class CachedSolverBlock(Block):
         return result
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        pass
+        self.update_dependencies(use_output=True)
+        self.update_adj_dependencies()
+
+        for bc in self.bcs:
+            bc.homogenize()
+
+        solver = self.cached_solvers[ADJOINT]
+        adj_sol = solver._problem.u
+
+        dJdu = adj_inputs[0]
+        self.adj_rhs.assign(dJdu)
+        adj_sol.zero()
+
+        solver.solve()
+
+        if self._compute_boundary(relevant_dependencies):
+            adj_sol_bc = firedrake.assemble(self.adj_residual)
+            adj_sol_bc = adj_sol_bc.riesz_representation("l2")
+        else:
+            adj_sol_bc = None
+
+        prepared = {
+            "adj_sol": adj_sol,
+            "adj_sol_bc": adj_sol_bc
+        }
+        return prepared
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        pass
+        if block_variable.output == self.func:  # and not self.linear
+            return None
+
+        if isinstance(block_variable.output, firedrake.DirichletBC):
+            bc = block_variable.output
+            adj_sol_bc = prepared["adj_sol_bc"]
+            return bc.reconstruct(
+                g=extract_subfunction(adj_sol_bc, bc.function_space())
+            )
+
+        # assemble sensititivy comment
+        dFdm = firedrake.assemble(self.adj_dFdm_forms[idx])
+
+        return dFdm
 
     def prepare_evaluate_hessian(self, inputs, hessian_inputs, adj_inputs, relevant_dependencies):
         pass
@@ -327,31 +378,6 @@ class GenericSolveBlock(Block):
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
-    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        return firedrake.assemble(dFdu_adj_form, **kwargs)
-
-    def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
-        dJdu_copy = dJdu.copy()
-        # Homogenize and apply boundary conditions on adj_dFdu.
-        bcs = self._homogenize_bcs()
-        dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
-
-        adj_sol = firedrake.Function(self.function_space)
-        firedrake.solve(
-            dFdu, adj_sol, dJdu, *self.adj_args, **self.adj_kwargs
-        )
-
-        adj_sol_bdy = None
-        if compute_bdy:
-            adj_sol_bdy = self._compute_adj_bdy(
-                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
-
-        return adj_sol, adj_sol_bdy
-
-    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
-        adj_sol_bdy = firedrake.assemble(dJdu - firedrake.action(dFdu_adj_form, adj_sol))
-        return adj_sol_bdy.riesz_representation("l2")
-
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if not self.linear and self.func == block_variable.output:
@@ -399,6 +425,31 @@ class GenericSolveBlock(Block):
             dFdm = dFdm(adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
+
+    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
+        return firedrake.assemble(dFdu_adj_form, **kwargs)
+
+    def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
+        dJdu_copy = dJdu.copy()
+        # Homogenize and apply boundary conditions on adj_dFdu.
+        bcs = self._homogenize_bcs()
+        dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
+
+        adj_sol = firedrake.Function(self.function_space)
+        firedrake.solve(
+            dFdu, adj_sol, dJdu, *self.adj_args, **self.adj_kwargs
+        )
+
+        adj_sol_bdy = None
+        if compute_bdy:
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
+
+        return adj_sol, adj_sol_bdy
+
+    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
+        adj_sol_bdy = firedrake.assemble(dJdu - firedrake.action(dFdu_adj_form, adj_sol))
+        return adj_sol_bdy.riesz_representation("l2")
 
     def prepare_evaluate_tlm(self, inputs, tlm_inputs, relevant_outputs):
         pass

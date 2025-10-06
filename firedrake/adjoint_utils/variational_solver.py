@@ -2,7 +2,7 @@ import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, CachedSolverBlock
-from firedrake.ufl_expr import derivative, adjoint
+from firedrake.ufl_expr import derivative, adjoint, action
 import ufl
 
 
@@ -65,23 +65,32 @@ class NonlinearVariationalSolverMixin:
 
         problem = self._ad_problem
 
+        # Build a new form so that we can update the coefficient
+        # values without affecting user code.
+        # We do this by copying all coefficients in the form and
+        # symbolically replacing the old values with the new.
         F = problem.F
         replace_map = {}
         for old_coeff in F.coefficients():
             if isinstance(old_coeff, Function) and old_coeff.ufl_element().family() == "Real":
+                # TODO: Does this still need to be special cased?
                 new_coeff = copy.deepcopy(old_coeff)
             else:
                 new_coeff = old_coeff.copy(deepcopy=True)
             replace_map[old_coeff] = new_coeff
 
+        # We need a handle to the new Function being
+        # solved for so that we can create an NLVS.
         Fnew = ufl.replace(F, replace_map)
         unew = replace_map[problem.u]
 
-        for cnew in replace_map.values():
-            assert cnew in Fnew.coefficients()
-        for cold in replace_map.keys():
-            assert cold not in Fnew.coefficients()
-
+        # We also need to "replace" all the bcs in
+        # the new NLVS so we can modify those values
+        # without affecting user code.
+        # Note that ``DirichletBC.reconstruct`` will
+        # return ``self`` if V, g, and sub_domain are
+        # all unchanged, so we need to explicitly
+        # instantiate a new object.
         bcs = problem.bcs
         bcs_new = [
             DirichletBC(V=bc.function_space(),
@@ -90,13 +99,20 @@ class NonlinearVariationalSolverMixin:
             for bc in bcs
         ]
 
+        # This NLVS will be used to recompute the solve.
         nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(nlvp)
 
-        self._ad_bcs = bcs_new
-        self._ad_dependencies_to_add = tuple((*replace_map.keys(), *bcs))
+        # The original coefficients will be added as
+        # dependencies to all solve blocks.
+        # The block need handles to the newly created
+        # objects to update their values when recomputing.
+        self._ad_dependencies_to_add = (*replace_map.keys(), *bcs)
         self._ad_replaced_dependencies = tuple(replace_map.values())
+        self._ad_bcs = bcs_new
         self._ad_solver_cache[FORWARD] = nlvs
+
+        print(f"{replace_map.values()=}")
 
     def _ad_cache_tlm_solver(self):
         from firedrake import (
@@ -104,26 +120,39 @@ class NonlinearVariationalSolverMixin:
             LinearVariationalProblem, LinearVariationalSolver)
         from firedrake.adjoint_utils.blocks.solving import FORWARD, TLM
 
+        # If we build the TLM form from the cached
+        # forward solve form then we can update exactly
+        # the same coefficients/boundary conditions.
         nlvp = self._ad_solver_cache[FORWARD]._problem
 
         F = nlvp.F
         u = nlvp.u
         V = u.function_space()
 
+        # We need gradient of output/input i.e. du/dm.
+        # We know F(u; m) = 0 and _total_ dF/dm = 0.
+        # Then for the _partial_ derivatives:
+        # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
+        # (dF/du)*(du/dm) = -dF/dm
         dFdu = derivative(F, u, TrialFunction(V))
         dFdm = Cofunction(V.dual())
         dudm = Function(V)
 
+        # Reuse the same bcs as the forward problem.
+        # TODO: Think about if we should use new bcs.
         lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_bcs)
         lvs = LinearVariationalSolver(lvp)
 
         self._ad_solver_cache[TLM] = lvs
         self._ad_tlm_rhs = dFdm
 
+        # Do all the symbolic work for calculating dF/dm up front
+        # so we only pay for the numeric calculations at run time.
         replaced_tlms = []
         dFdm_tlm_forms = []
         for m in self._ad_replaced_dependencies:
             if isinstance(m, Function) and m.ufl_element().family() == "Real":
+                # TODO: Does this still need to be special cased?
                 mtlm = copy.deepcopy(m)
             else:
                 mtlm = m.copy(deepcopy=True)
@@ -131,11 +160,100 @@ class NonlinearVariationalSolverMixin:
             replaced_tlms.append(mtlm)
 
             dFdm = derivative(-F, m, mtlm)
+            # TODO: Do we need expand_derivatives here? If so, why?
             dFdm = ufl.algorithms.expand_derivatives(dFdm)
             dFdm_tlm_forms.append(dFdm)
 
+        # We'll need to update the replaced_tlm
+        # values and assemble the dFdm forms
         self._ad_tlm_dFdm_forms = dFdm_tlm_forms
         self._ad_replaced_tlms = replaced_tlms
+
+    def _ad_cache_adj_solver(self):
+        from firedrake import (
+            Function, Cofunction, TrialFunction, Argument,
+            LinearVariationalProblem, LinearVariationalSolver)
+        from firedrake.adjoint_utils.blocks.solving import FORWARD, ADJOINT
+
+        # If we build the adjoint form from the cached
+        # forward solve form then we can update exactly
+        # the same coefficients/boundary conditions.
+        nlvp = self._ad_solver_cache[FORWARD]._problem
+
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        # TODO: rewrite for adjoint not TLM
+        # We need gradient of output/input i.e. du/dm.
+        # We know F(u; m) = 0 and _total_ dF/dm = 0.
+        # Then for the _partial_ derivatives:
+        # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
+        # (dF/du)*(du/dm) = -dF/dm
+        dFdu = derivative(F, u, TrialFunction(V))
+        try:
+            dFdu_adj = adjoint(dFdu)
+        except ValueError:
+            # Try again without expanding derivatives,
+            # as dFdu might have been simplied to an empty Form
+            dFdu_adj = adjoint(dFdu, derivatives_expanded=True)
+
+        dJdu = Cofunction(V.dual())
+        adj_sol = Function(V)
+
+        # Reuse the same bcs as the forward problem.
+        # TODO: Think about if we should use new bcs.
+        lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_bcs)
+        lvs = LinearVariationalSolver(lvp)
+
+        self._ad_solver_cache[ADJOINT] = lvs
+        self._ad_adj_rhs = dJdu
+
+        # Do all the symbolic work for calculating dJ/du up front
+        # so we only pay for the numeric calculations at run time.
+        replaced_adjs = []
+        dFdm_adj_forms = []
+        for m in self._ad_replaced_dependencies:
+            if isinstance(m, Function) and m.ufl_element().family() == "Real":
+                # TODO: Does this still need to be special cased?
+                adj = copy.deepcopy(m)
+            else:
+                adj = m.copy(deepcopy=True)
+
+            replaced_adjs.append(adj)
+
+            # Action of adjoint solution on dFdm
+            # TODO: Which of the two implementations should we use?
+            dFdm = derivative(-F, m, TrialFunction(m.function_space()))
+
+            # 1. from previous cached implementation
+            dFdm = adjoint(dFdm)
+            if isinstance(dFdm, Argument):
+                #  Corner case. Should be fixed more permanently upstream in UFL.
+                #  See: https://github.com/FEniCS/ufl/issues/395
+                dFdm = ufl.Action(dFdm, adj_sol)
+            else:
+                dFdm = dFdm * adj_sol
+
+            # 2. from GenericSolveBlock
+            # if isinstance(dFdm, ufl.Form):
+            #     dFdm = adjoint(dFdm)
+            #     dFdm = action(dFdm, adj_sol)
+            # else:
+            #     dFdm = dFdm(adj_sol)
+
+            dFdm_adj_forms.append(dFdm)
+
+        # To calculate the adjoint component of each DirichletBC
+        # we'll need the residual of the adjoint equation without
+        # any DirichletBC using the solution calculated with
+        # homogeneous DirichletBCs.
+        self._ad_adj_residual = dJdu - action(dFdu_adj, adj_sol)
+
+        # We'll need to update the replaced_adj
+        # values and assemble the dFdm forms
+        self._ad_adj_dFdm_forms = dFdm_adj_forms
+        self._ad_replaced_adjs = replaced_adjs
 
     @staticmethod
     def _ad_annotate_solve(solve):
@@ -154,14 +272,21 @@ class NonlinearVariationalSolverMixin:
                 if len(self._ad_solver_cache) == 0:
                     self._ad_cache_forward_solver()
                     self._ad_cache_tlm_solver()
+                    self._ad_cache_adj_solver()
 
                 block = CachedSolverBlock(self._ad_problem.u,
                                           self._ad_bcs,
                                           self._ad_solver_cache,
                                           self._ad_replaced_dependencies,
+
                                           self._ad_tlm_rhs,
                                           self._ad_replaced_tlms,
                                           self._ad_tlm_dFdm_forms,
+
+                                          self._ad_adj_rhs,
+                                          self._ad_replaced_adjs,
+                                          self._ad_adj_dFdm_forms,
+                                          self._ad_adj_residual,
                                           ad_block_tag=self.ad_block_tag)
 
                 for dep in self._ad_dependencies_to_add:
