@@ -571,8 +571,8 @@ def test_mixed_matrix(mode):
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("mode", ["forward", "adjoint"])
-@pytest.mark.parametrize("family,degree", [("CG", 1)])
-def test_reuse_interpolate(family, degree, mode):
+@pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
+def test_interpolator_reuse(family, degree, mode):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, family, degree)
     rg = RandomGenerator(PCG64(seed=123456789))
@@ -587,9 +587,12 @@ def test_reuse_interpolate(family, degree, mode):
     I = Interpolator(expr, V)
 
     for k in range(3):
-        u.assign(k+1)
+        u.assign(rg.uniform(u.function_space()))
         expected = u.dat.data.copy()
-        result = I.assemble()
+
+        tensor = Function(expr.function_space())
+        result = I.assemble(tensor=tensor)
+        assert result is tensor
 
         # Test that the input was not modified
         x = u.dat.data

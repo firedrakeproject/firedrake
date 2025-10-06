@@ -929,6 +929,11 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
         return callable
     else:
+        loops = []
+        # Initialise to zero if needed
+        if access is op2.INC:
+            loops.append(tensor.zero)
+
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(arguments) == 2:
@@ -948,35 +953,18 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             # Combine the splits by taking their action
             expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
 
-        def sub_tensor(tensor, indices):
-            return tensor[indices[0]] if rank == 1 else tensor
-
-        loops = {}
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            loops[indices] = _interpolator(sub_tensor(tensor, indices), sub_expr, subset, access, bcs=bcs)
+            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
+            loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
+
+        # Apply bcs
+        if bcs and rank == 1:
+            loops.extend(partial(bc.apply, f) for bc in bcs)
 
         def callable(loops, f):
-            # Replace output buffer
-            for indices in loops:
-                sub_dat = sub_tensor(f.dat, indices)
-                for l in loops[indices]:
-                    if isinstance(l, op2.Parloop):
-                        l.arguments[0].data = sub_dat
-
-            # Initialise to zero if needed
-            if access is op2.INC:
-                f.dat.zero()
-
-            # Execute kernels
-            for indices in loops:
-                for l in loops[indices]:
-                    l()
-
-            # Apply bcs
-            if bcs and rank == 1:
-                for bc in bcs:
-                    bc.apply(f)
+            for l in loops:
+                l()
             return f
 
         return partial(callable, loops, f)
@@ -1051,7 +1039,8 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
-    callables = ()
+    copyin = ()
+    copyout = ()
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
@@ -1073,10 +1062,10 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         v = firedrake.Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
         # Force a halo exchange on the weighted Cofunction
-        callables += (partial(v.dat.local_to_global_begin, op2.INC),
-                      partial(v.dat.local_to_global_end, op2.INC))
+        copyin += (partial(v.dat.local_to_global_begin, op2.INC),
+                   partial(v.dat.local_to_global_end, op2.INC))
         with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
-            callables += (partial(y.pointwiseMult, x, w),)
+            copyin += (partial(y.pointwiseMult, x, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -1092,7 +1081,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     coefficient_numbers = kernel.coefficient_numbers
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=(access is op2.WRITE),
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=(access is not op2.INC),
                         flop_count=kernel.flop_count, events=(kernel.event,))
 
     parloop_args = [kernel, cell_set]
@@ -1105,17 +1094,12 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         output = tensor
         tensor = op2.Dat(tensor.dataset)
         if access is not op2.WRITE:
-            copyin = (partial(output.copy, tensor), )
-        else:
-            copyin = ()
-        copyout = (partial(tensor.copy, output), )
-    else:
-        copyin = ()
-        copyout = ()
+            copyin += (partial(output.copy, tensor), )
+        copyout += (partial(tensor.copy, output), )
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
-        V_dest = arguments[0].function_space()
+        V_dest = arguments[-1].function_space()
         m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
         parloop_args.append(tensor(access, m_))
     else:
@@ -1178,7 +1162,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble
     else:
-        return copyin + callables + (parloop, ) + copyout
+        return copyin + (parloop, ) + copyout
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
