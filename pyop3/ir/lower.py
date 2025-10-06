@@ -377,10 +377,6 @@ class CompiledCodeExecutor:
 
         # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
         #     breakpoint()
-        # if "MatSetValues" in str(self):
-        #     breakpoint()
-        # if "integral" in str(self):
-        pyop3.extras.debug.maybe_breakpoint("closure")
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
