@@ -824,6 +824,9 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
+        # If not assembling a matrix, internal BaseForm nodes should be matfree by default
+        if mat_type is None and len(expr.arguments()) < 2:
+            mat_type = "matfree"
         original_expr = expr
         if mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
@@ -872,24 +875,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
-
-        def detect_derivatives(e, *operands):
-            if isinstance(e, slate.TensorBase):
-                raise TypeError("SLATE Tensors are not differentiable.")
-            elif isinstance(e, ufl.differentiation.Derivative):
-                raise AssertionError("We should expand derivatives.")
-        try:
-            visited = {}
-            BaseFormAssembler.base_form_postorder_traversal(form, detect_derivatives, visited)
-        except AssertionError:
-            # Only expand derivatives if the expression contains any
-            return ufl.algorithms.ad.expand_derivatives(form)
-        except TypeError:
-            # Some forms (e.g. SLATE tensors) are not currently differentiable.
-            return form
-        else:
-            # Return the original ufl.BaseForm if there are no derivatives.
-            return form
+        return ufl.algorithms.ad.expand_derivatives(form)
 
 
 class FormAssembler(AbstractFormAssembler):
