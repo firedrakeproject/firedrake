@@ -155,6 +155,9 @@ def get_assembler(form, *args, **kwargs):
     fc_params = kwargs.get('form_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         mat_type = kwargs.get('mat_type', None)
+        # If not assembling a matrix, internal BaseForm nodes should be matfree by default
+        if mat_type is None and len(form.arguments()) < 2:
+            mat_type = "matfree"
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
@@ -824,9 +827,6 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
-        # If not assembling a matrix, internal BaseForm nodes should be matfree by default
-        if mat_type is None and not (isinstance(expr, ufl.BaseForm) and len(expr.arguments()) == 2):
-            mat_type = "matfree"
         original_expr = expr
         if mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'

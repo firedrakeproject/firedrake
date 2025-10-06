@@ -134,7 +134,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
-                           u: firedrake.function.Function,
+                           u: Function,
                            L: ufl.BaseForm | slate.TensorBase | 0 = 0):
         """Compute the residual after lifting DirichletBCs.
 
