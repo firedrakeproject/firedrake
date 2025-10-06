@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ufl
 from itertools import chain
 from contextlib import ExitStack
@@ -131,21 +133,23 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return self.u_restrict.function_space().dm
 
     @staticmethod
-    def compute_bc_lifting(J, u, L=0):
+    def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
+                           u: firedrake.function.Function,
+                           L: ufl.BaseForm | slate.TensorBase | 0 = 0):
         """Compute the residual after lifting DirichletBCs.
 
         Parameters
         ----------
-        J : ufl.BaseForm or slate.TensorBase
+        J
             The Jacobian bilinear form.
-        u : firedrake.function.Function
+        u
             The Function on which DirichletBCs are applied.
-        L : ufl.BaseForm or slate.TensorBase
+        L
             The unlifted residual linear form.
 
         Return
         ------
-        F : ufl.BaseForm or slate.TensorBase
+        F : ufl.BaseForm | slate.TensorBase
             The residual J*u-L after lifting DirichletBCs.
         """
         if isinstance(J, MatrixBase) and J.has_bcs:
