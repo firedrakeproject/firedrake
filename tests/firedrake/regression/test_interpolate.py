@@ -327,6 +327,7 @@ def test_trace():
     assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
 
 
+@pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.parametrize("rank", (0, 1))
 @pytest.mark.parametrize("mat_type", ("matfree", "aij"))
 @pytest.mark.parametrize("degree", (1, 3))
@@ -566,3 +567,35 @@ def test_mixed_matrix(mode):
     result_explicit = assemble(action(a, u))
     for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
         assert np.allclose(x.dat.data, y.dat.data)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+@pytest.mark.parametrize("family,degree", [("CG", 1)])
+def test_reuse_interpolate(family, degree, mode):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, family, degree)
+    rg = RandomGenerator(PCG64(seed=123456789))
+    if mode == "forward":
+        u = Function(V)
+        expr = interpolate(u, V)
+
+    elif mode == "adjoint":
+        u = Function(V.dual())
+        expr = interpolate(TestFunction(V), u)
+
+    I = Interpolator(expr, V)
+
+    for k in range(2):
+        u.assign(k+1)
+        expected = u.dat.data.copy()
+        result = I.assemble()
+
+        # Test that the input was not modified
+        x = u.dat.data
+        assert np.allclose(x, expected)
+
+        # Test for correctness
+        y = result.dat.data
+        assert np.allclose(y, expected)
+        print("pass", k)

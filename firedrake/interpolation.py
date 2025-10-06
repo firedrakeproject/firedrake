@@ -931,9 +931,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     else:
         loops = []
 
-        if access == op2.INC:
-            loops.append(tensor.zero)
-
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if len(arguments) == 2:
@@ -961,12 +958,23 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
-        def callable(loops, f):
-            for l in loops:
-                l()
+        def callable(loops, f, access):
+            if access is op2.WRITE:
+                for l in loops:
+                    l()
+                return f
+            # We are repeatedly incrementing into the same Dat so intermediate halo exchanges
+            # can be skipped.
+            f.dat.local_to_global_begin(access)
+            with f.dat.frozen_halo(access):
+                if access is op2.INC:
+                    f.dat.zero()
+                for l in loops:
+                    l()
+            f.dat.local_to_global_end(access)
             return f
 
-        return partial(callable, loops, f)
+        return partial(callable, loops, f, access)
 
 
 @utils.known_pyop2_safe
@@ -1076,7 +1084,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     coefficient_numbers = kernel.coefficient_numbers
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=(access is op2.WRITE),
                         flop_count=kernel.flop_count, events=(kernel.event,))
 
     parloop_args = [kernel, cell_set]
@@ -1099,7 +1107,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
-        V_dest = arguments[-1].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
+        V_dest = arguments[0].function_space()
         m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
         parloop_args.append(tensor(access, m_))
     else:
@@ -1159,11 +1167,10 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
                 parloop_args.append(target_ref_coords.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
-    parloop_compute_callable = parloop.compute
     if isinstance(tensor, op2.Mat):
-        return parloop_compute_callable, tensor.assemble
+        return parloop, tensor.assemble
     else:
-        return copyin + callables + (parloop_compute_callable, ) + copyout
+        return copyin + callables + (parloop, ) + copyout
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
