@@ -102,7 +102,7 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     # Interpolation matrix (V2* -> V1*)
     a = assemble(adjoint(Iv1))
     res = Cofunction(V1.dual())
-    with c2.dat.vec_ro as x, res.dat.vec_ro as y:
+    with c2.vec_ro as x, res.vec_ro as y:
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 
@@ -144,7 +144,7 @@ def test_assemble_interp_rank0(V1, V2, f1):
     a = assemble(Interpolate(f1, u2))
     # Compute numerically Action(Interpolate(f1, V2), u2)
     b = assemble(Interpolate(f1, V2))
-    with b.dat.vec_ro as x, u2.dat.vec_ro as y:
+    with b.vec_ro as x, u2.vec_ro as y:
         res = x.dot(y)
     assert np.abs(a - res) < 1e-9
 

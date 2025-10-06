@@ -863,7 +863,7 @@ class SupermeshProjectBlock(Block):
 
     def apply_mixedmass(self, a):
         b = firedrake.Function(self.target_space.dual())
-        with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
+        with a.vec_ro as vsrc, b.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)
         return b
 
@@ -886,7 +886,7 @@ class SupermeshProjectBlock(Block):
         tmp = firedrake.Function(self.target_space)
         # Adjoint of step 2 (mass is self-adjoint)
         self.projector.apply_massinv(tmp, inputs[0])
-        with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:
+        with tmp.vec_ro as vtmp, out.vec_wo as vout:
             self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
         return out
 

@@ -509,7 +509,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
                 if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                     # Return scalar value
-                    with lhs.dat.vec_ro() as x, rhs.dat.vec_ro() as y:
+                    with lhs.vec_ro as x, rhs.vec_ro as y:
                         res = x.dot(y)
                     return res
                 else:

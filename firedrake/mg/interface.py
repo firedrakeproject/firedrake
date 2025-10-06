@@ -48,7 +48,7 @@ def prolong(coarse, fine):
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
-        with fine.dat.vec_wo as dest, coarse.dat.vec_ro as src:
+        with fine.vec_wo as dest, coarse.vec_ro as src:
             src.copy(dest)
         return fine
 
@@ -111,7 +111,7 @@ def restrict(fine_dual, coarse_dual):
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
-        with coarse_dual.dat.vec_wo as dest, fine_dual.dat.vec_ro as src:
+        with coarse_dual.vec_wo as dest, fine_dual.vec_ro as src:
             src.copy(dest)
         return coarse_dual
 

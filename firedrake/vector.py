@@ -19,7 +19,7 @@ class VectorShim(object):
         self._vec = vec
 
     def vec(self):
-        with self._vec.dat.vec as v:
+        with self._vec.vec as v:
             return v
 
 
@@ -164,7 +164,7 @@ class Vector(object):
 
     def array(self):
         """Return a copy of the process local data as a numpy array"""
-        with self.dat.vec_ro as v:
+        with self.vec_ro as v:
             return np.copy(v.array)
 
     def copy(self):
@@ -179,7 +179,7 @@ class Vector(object):
         """Set process local values
 
         :arg values: a numpy array of values of length :func:`Vector.local_size`"""
-        with self.dat.vec_wo as v:
+        with self.vec_wo as v:
             v.array[:] = values
 
     def local_size(self):
@@ -194,12 +194,12 @@ class Vector(object):
 
     def max(self):
         """Return the maximum entry in the vector."""
-        with self.dat.vec_ro as v:
+        with self.vec_ro as v:
             return v.max()[1]
 
     def sum(self):
         """Return global sum of vector entries."""
-        with self.dat.vec_ro as v:
+        with self.vec_ro as v:
             return v.sum()
 
     def size(self):
@@ -226,7 +226,7 @@ class Vector(object):
             v = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
             is_ = PETSc.IS().createGeneral(global_indices, comm=PETSc.COMM_SELF)
 
-        with self.dat.vec_ro as vec:
+        with self.vec_ro as vec:
             vscat = PETSc.Scatter().create(vec, is_, v, None)
             vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
             vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)

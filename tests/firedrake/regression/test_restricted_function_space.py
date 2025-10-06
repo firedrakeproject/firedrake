@@ -292,7 +292,7 @@ def test_restricted_function_space_extrusion_basics():
     local_array = 1.0 * np.arange(V_res.dof_dset.total_size)
     f = Function(V_res)
     f.dat.data_wo_with_halos[:] = local_array
-    with f.dat.vec as v:
+    with f.vec as v:
         assert np.allclose(v.getArray(), local_array[:n][local_global_filter])
         v *= 2.
     assert np.allclose(f.dat.data_ro_with_halos[:n][local_global_filter], 2. * local_array[:n][local_global_filter])

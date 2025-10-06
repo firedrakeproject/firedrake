@@ -155,7 +155,7 @@ def test_comm_manager_allreduce(blocking):
     f4 = Function(V4)
     f5 = Function(V5)
 
-    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+    with f4.vec_ro as v4, f5.vec_ro as v5:
         parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
@@ -198,11 +198,11 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
         msg=f"{error=:.5f}"
     )
 
-    # check that u_reduce dat vector is still synchronised
+    # check that u_reduce.vector is still synchronised
     spatial_rank = ensemble.comm.rank
 
     states = zeros(ensemble.comm.size, dtype=int)
-    with u_reduce.dat.vec as v:
+    with u_reduce.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
     parallel_assert(len(set(states)) == 1)
@@ -255,7 +255,7 @@ def test_comm_manager_reduce(blocking):
     f4 = Function(V4)
     f5 = Function(V5)
 
-    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+    with f4.vec_ro as v4, f5.vec_ro as v5:
         parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):

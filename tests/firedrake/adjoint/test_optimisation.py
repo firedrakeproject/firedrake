@@ -209,13 +209,13 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
                     v = Function(space)
                 else:
                     raise ValueError(f"Unrecognized transform_type: {transform_type}")
-                with v.dat.vec_wo as v_v:
+                with v.vec_wo as v_v:
                     x.copy(result=v_v)
                 u = v.riesz_representation(*args, **kwargs)
-                with u.dat.vec_ro as u_v:
+                with u.vec_ro as u_v:
                     u_v.copy(result=y)
 
-        with v.dat.vec_ro as v_v:
+        with v.vec_ro as v_v:
             n, N = v_v.getSizes()
         M_mat = PETSc.Mat().createPython(((n, N), (n, N)),
                                          M(), comm=comm)
@@ -234,7 +234,7 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         if mfn.getFN().getType() != SLEPc.FN.Type.SQRT:
             raise ValueError("Invalid FN type")
 
-        with v.dat.vec_ro as v_v:
+        with v.vec_ro as v_v:
             x = v_v.copy()
             y = v_v.copy()
 
@@ -250,7 +250,7 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
             u = Function(space)
         else:
             u = Cofunction(space.dual())
-        with u.dat.vec_wo as u_v:
+        with u.vec_wo as u_v:
             x.copy(result=u_v)
 
     if annotate_tape():

@@ -204,10 +204,10 @@ on each ensemble member.
 Internally, the :class:`~.EnsembleFunction` creates a ``PETSc.Vec``
 on the ``Ensemble.global_comm`` which contains the data for all
 local components on all ensemble members. This ``Vec`` can be accessed
-with a context manager, similarly to the ``Function.dat.vec`` context
+with a context manager, similarly to the ``Function.vec`` context
 managers used to access :class:`~.Function` data. There are also
 analogous ``vec_ro`` and ``vec_wo`` context managers for read/write
-only accesses. However note that, unlike the ``Function.dat.vec``
+only accesses. However note that, unlike the ``Function.vec``
 context managers, the ``EnsembleFunction.vec`` context managers
 need braces i.e. ``vec()`` not ``vec``.
 

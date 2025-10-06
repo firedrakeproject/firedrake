@@ -277,7 +277,7 @@ class PMGBase(PCSNESBase):
             inject = cdm.createInjection(fdm)
 
             def inject_state():
-                with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                with cu.vec_wo as xc, fu.vec_ro as xf:
                     inject.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
@@ -347,7 +347,7 @@ class PMGBase(PCSNESBase):
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(cV)
-                    with wc.dat.vec_wo as xc:
+                    with wc.vec_wo as xc:
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
@@ -1230,7 +1230,7 @@ class StandaloneInterpolationMatrix(object):
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
         op2.par_loop(kernel, weight.cell_set, weight.dat(op2.INC, weight.cell_node_map()))
-        with weight.dat.vec as w:
+        with weight.vec as w:
             w.reciprocal()
         return weight
 
@@ -1267,12 +1267,12 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        with self.uf.dat.vec_wo as uf:
+        with self.uf.vec_wo as uf:
             uf.set(0.0E0)
         self._kernels[0]()
 
     def _restrict(self):
-        with self.uc.dat.vec_wo as uc:
+        with self.uc.vec_wo as uc:
             uc.set(0.0E0)
         self._kernels[1]()
 
@@ -1494,7 +1494,7 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
-        with self.uf.dat.vec_wo as uf:
+        with self.uf.vec_wo as uf:
             rf.copy(uf)
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1503,14 +1503,14 @@ class StandaloneInterpolationMatrix(object):
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
-        with self.uc.dat.vec_ro as uc:
+        with self.uc.vec_ro as uc:
             uc.copy(rc)
 
     def mult(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-        with self.uc.dat.vec_wo as uc:
+        with self.uc.vec_wo as uc:
             xc.copy(uc)
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1520,10 +1520,10 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
         if inc:
-            with self.uf.dat.vec_ro as uf:
+            with self.uf.vec_ro as uf:
                 xf.axpy(1.0, uf)
         else:
-            with self.uf.dat.vec_ro as uf:
+            with self.uf.vec_ro as uf:
                 uf.copy(xf)
 
     def multAdd(self, mat, x, y, w):

@@ -122,10 +122,10 @@ def test_matrixfree_action(a, V, bcs):
     A = assemble(a, bcs=bcs)
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
 
-    with f.dat.vec_ro as x:
-        with expect.dat.vec as y:
+    with f.vec_ro as x:
+        with expect.vec as y:
             A.petscmat.mult(x, y)
-        with actual.dat.vec as y:
+        with actual.vec as y:
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
@@ -311,11 +311,11 @@ def test_duplicate(a, bcs):
     solution2 = Function(test.function_space())
 
     # Solve system with original matrix A
-    with rhs.dat.vec_ro as b, solution1.dat.vec as x:
+    with rhs.vec_ro as b, solution1.vec as x:
         ksp.solve(b, x)
 
     # Multiply with copied matrix B
-    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+    with solution1.vec_ro as x, solution2.vec_ro as y:
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
     assert np.allclose(rhs.vector().array(), solution2.vector().array())

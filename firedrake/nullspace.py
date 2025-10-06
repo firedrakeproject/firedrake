@@ -46,7 +46,7 @@ class VectorSpaceBasis(object):
             self._vecs = tuple(vecs)
         petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 petsc_vecs.append(v_)
         self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
@@ -109,7 +109,7 @@ class VectorSpaceBasis(object):
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec as v:
+        with b.vec as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -261,7 +261,7 @@ class MixedVectorSpaceBasis(object):
 
         self._petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
         # orthonormalize:

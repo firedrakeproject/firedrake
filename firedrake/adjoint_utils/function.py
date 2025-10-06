@@ -391,11 +391,11 @@ class FunctionMixin(FloatingType):
         vec.set_local(npdata)
 
     def _ad_from_petsc(self, vec):
-        with self.dat.vec_wo as self_v:
+        with self.vec_wo as self_v:
             vec.copy(result=self_v)
 
     def _ad_to_petsc(self, vec=None):
-        with self.dat.vec_ro as self_v:
+        with self.vec_ro as self_v:
             if vec:
                 self_v.copy(result=vec)
             else:

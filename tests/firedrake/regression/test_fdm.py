@@ -330,7 +330,7 @@ def test_ipdg_direct_solver(fs):
 
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
-        with uh.dat.vec_ro as uvec:
+        with uh.vec_ro as uvec:
             assert uvec.norm() < 1E-8
     else:
         assert norm(u_exact-uh, "H1") < 1.0E-8
