@@ -825,7 +825,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         # If not assembling a matrix, internal BaseForm nodes should be matfree by default
-        if mat_type is None and len(expr.arguments()) < 2:
+        if mat_type is None and not (isinstance(expr, ufl.BaseForm) and len(expr.arguments()) == 2):
             mat_type = "matfree"
         original_expr = expr
         if mat_type != "matfree":
