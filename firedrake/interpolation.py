@@ -1047,25 +1047,25 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
-        # Compute the reciprocal of the DOF multiplicity
+        # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
+        v = firedrake.Function(W)
+        expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        copyin += (partial(dual_arg.dat.copy, v.dat),)
+
+        # Compute the reciprocal of the DOF multiplicity
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
         m_indices = W.dof_dset.scalar_lgmap.apply(m_.values)
         m_shape = m_indices.shape + W.shape
-        weight = firedrake.Function(W)
-        with weight.dat.vec as w:
+        wdat = W.make_dat()
+        with wdat.vec as w:
             w.setValuesBlocked(m_indices, numpy.ones(m_shape), PETSc.InsertMode.ADD)
             w.assemble()
             w.reciprocal()
 
-        # Create a buffer for the weighted Cofunction and a callable to apply the weight
-        v = firedrake.Function(W)
-        expr = expr._ufl_expr_reconstruct_(operand, v=v)
-        # Force a halo exchange on the weighted Cofunction
-        copyin += (partial(v.dat.local_to_global_begin, op2.INC),
-                   partial(v.dat.local_to_global_end, op2.INC))
-        with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
-            copyin += (partial(y.pointwiseMult, x, w),)
+        # Create a callable to apply the weight
+        with wdat.vec_ro as w, v.dat.vec as y:
+            copyin += (partial(y.pointwiseMult, y, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
