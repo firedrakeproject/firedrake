@@ -49,7 +49,6 @@ from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem
-from fuse import constructCellComplex
 
 try:
     import netgen
@@ -3309,7 +3308,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return constructCellComplex(_cells[0][0])
+        return as_cell(_cells[0][0])
 
     @utils.cached_property
     def _ufl_mesh(self):
