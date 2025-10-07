@@ -15,6 +15,10 @@ on:
         description: Whether to run the test suite
         type: boolean
         default: true
+      build_docs:
+        description: Whether to build the documentation
+        type: boolean
+        default: true
       test_macos:
         description: Whether to test using macOS
         type: boolean
@@ -40,6 +44,10 @@ on:
         required: true
       run_tests:
         description: Whether to run the test suite
+        type: boolean
+        default: true
+      build_docs:
+        description: Whether to build the documentation
         type: boolean
         default: true
       test_macos:
@@ -195,7 +203,7 @@ jobs:
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist "$EXTRA_BUILD_ARGS"
+          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
@@ -476,6 +484,7 @@ jobs:
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
   build_docs:
+    if: inputs.build_docs
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:
