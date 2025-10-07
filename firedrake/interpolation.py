@@ -1055,7 +1055,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
         # Compute the reciprocal of the DOF multiplicity
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        m_indices = W.dof_dset.scalar_lgmap.apply(m_.values)
+        m_indices = W.dof_dset.scalar_lgmap.apply(m_.values_with_halo[cell_set.indices])
         m_shape = m_indices.shape + W.shape
         wdat = W.make_dat()
         with wdat.vec as w:
