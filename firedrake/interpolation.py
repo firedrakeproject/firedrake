@@ -1050,7 +1050,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        m_indices = W.dof_dset.lgmap.apply(m_.values)
+        m_indices = W.dof_dset.scalar_lgmap.apply(m_.values)
         m_shape = m_indices.shape + W.shape
         weight = firedrake.Function(W)
         with weight.dat.vec as w:
