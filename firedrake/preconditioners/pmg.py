@@ -156,11 +156,10 @@ class PMGBase(PCSNESBase):
 
         ppc.incrementTabLevel(1, parent=obj)
         ppc.setFromOptions()
-        ppc.setUp()
         self.ppc = ppc
 
     def update(self, obj):
-        self.ppc.setUp()
+        pass
 
     def view(self, obj, viewer=None):
         if viewer is None:
