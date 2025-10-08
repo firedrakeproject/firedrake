@@ -680,6 +680,12 @@ def test_interpolate_matrix_cross_mesh():
     f_interp2.dat.data_wo[:] = f_at_points_correct_order3.dat.data_ro[:]
     assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
 
+    interp_mat2 = assemble(interpolate(TrialFunction(U), V))
+    assert interp_mat2.arguments() == (TestFunction(V.dual()), TrialFunction(U))
+    f_interp3 = assemble(interp_mat2 @ f)
+    assert f_interp3.function_space() == V
+    assert np.allclose(f_interp3.dat.data_ro, g.dat.data_ro)
+
 
 @pytest.mark.parallel([2, 3, 4])
 def test_voting_algorithm_edgecases():
