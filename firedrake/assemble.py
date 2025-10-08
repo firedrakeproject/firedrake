@@ -572,12 +572,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # Get the target space
-            V = v.function_space().dual()
 
-            if rank == 1 and isinstance(tensor, firedrake.Function):
-                V = tensor
-            interpolator = _get_interpolator(expr, V)
+            interpolator = _get_interpolator(expr)
             return interpolator.assemble(tensor=tensor)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
