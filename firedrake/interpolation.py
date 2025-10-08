@@ -957,7 +957,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         for indices, sub_expr in expressions.items():
             sub_tensor = tensor[indices[0]] if rank == 1 else tensor
             loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
-
         # Apply bcs
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
@@ -1054,14 +1053,25 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         copyin += (partial(dual_arg.dat.copy, v.dat),)
 
         # Compute the reciprocal of the DOF multiplicity
-        m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        m_local_indices = m_.values_with_halo[cell_set.indices[:cell_set.size]]
-        m_indices = W.dof_dset.scalar_lgmap.apply(m_local_indices)
-        m_shape = m_indices.shape + W.shape
         wdat = W.make_dat()
+        m_ = get_interp_node_map(source_mesh, target_mesh, W)
+        if m_.offset is None:
+            m_indices = m_.values_with_halo[cell_set.indices[:cell_set.size]]
+            m_shape = m_indices.shape + W.shape
+            with wdat.vec as w:
+                w.setLGMap(W.dof_dset.scalar_lgmap)
+                w.setValuesBlockedLocal(m_indices, numpy.ones(m_shape), PETSc.InsertMode.ADD)
+                w.assemble()
+        else:
+            # Need a parloop for extruded/extruded-periodic case
+            wsize = W.finat_element.space_dimension() * W.block_size
+            kernel_code = f"""
+            void multiplicity(PetscScalar *restrict w) {{
+                for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
+            }}"""
+            kernel = op2.Kernel(kernel_code, "multiplicity")
+            op2.par_loop(kernel, cell_set, wdat(op2.INC, m_))
         with wdat.vec as w:
-            w.setValuesBlocked(m_indices, numpy.ones(m_shape), PETSc.InsertMode.ADD)
-            w.assemble()
             w.reciprocal()
 
         # Create a callable to apply the weight
