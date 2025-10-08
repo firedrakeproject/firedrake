@@ -350,7 +350,7 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
 
-        self.arguments = extract_arguments(self.expr_renumbered)
+        self.arguments = self.ufl_interpolate_renumbered.arguments()
         self.nargs = len(self.arguments)
 
         if self.allow_missing_dofs:
@@ -378,6 +378,8 @@ class CrossMeshInterpolator(Interpolator):
         else:
             # scalar fiat/finat element
             self.dest_element = dest_element
+        if self.nargs == 2:
+            self.matfree = False
         self._get_symbolic_expressions()
 
     def _get_symbolic_expressions(self):
@@ -419,18 +421,27 @@ class CrossMeshInterpolator(Interpolator):
 
         # Interpolate into the input-ordering VOM
         P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
-        self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
+        self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o, matfree=self.matfree)
+
+        if self.nargs == 2:
+            # The cross-mesh interpolation matrix is the product of the
+            # `self.point_eval_interpolate` and the permutation
+            # given by `self.to_input_ordering_interpolate`.
+            self.handle = assemble(action(self.point_eval_input_ordering, self.point_eval)).petscmat
+            self.callable = lambda: self
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
         """Compute the interpolation.
         """
         from firedrake.assemble import assemble
-        if adjoint and not self.nargs:
+        expr_args = extract_arguments(self.expr_renumbered)
+        nargs = len(expr_args)
+        if adjoint and not nargs:
             raise ValueError("Can currently only apply adjoint interpolation with arguments.")
-        if self.nargs != len(function):
+        if nargs != len(function):
             raise ValueError(f"Passed {len(function)} Functions to interpolate, expected {self.nargs}")
-        if self.nargs:
+        if nargs:
             (f_src,) = function
             if not hasattr(f_src, "dat"):
                 raise ValueError(
@@ -443,8 +454,8 @@ class CrossMeshInterpolator(Interpolator):
             try:
                 V_dest = self.expr.function_space().dual()
             except AttributeError:
-                if self.nargs:
-                    V_dest = self.arguments[-1].function_space().dual()
+                if nargs:
+                    V_dest = expr_args[-1].function_space().dual()
                 else:
                     coeffs = extract_coefficients(self.expr)
                     if len(coeffs):
@@ -470,7 +481,7 @@ class CrossMeshInterpolator(Interpolator):
         if not adjoint:
             if f_src is self.expr:
                 # f_src is already contained in self.point_eval_interpolate
-                assert not self.nargs
+                assert not nargs
                 f_src_at_dest_node_coords_src_mesh_decomp = (
                     assemble(self.point_eval)
                 )
