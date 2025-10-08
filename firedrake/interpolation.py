@@ -109,11 +109,11 @@ class Interpolate(ufl.Interpolate):
             Additional interpolation options. See :class:`InterpolateOptions`
             for available parameters and their descriptions.
         """
+        expr_args = extract_arguments(ufl.as_ufl(expr))
+        self.is_adjoint = len(expr_args) and expr_args[0].number() == 0
         if isinstance(V, WithGeometry):
             # Need to create a Firedrake Coargument so it has a .function_space() method
-            expr_args = extract_arguments(ufl.as_ufl(expr))
-            is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            V = Argument(V.dual(), 1 if is_adjoint else 0)
+            V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
         target_shape = V.arguments()[0].function_space().value_shape
         if expr.ufl_shape != target_shape:
@@ -201,8 +201,7 @@ class Interpolator(abc.ABC):
             if not isinstance(dual_arg, ufl.Coargument):
                 # Drop the Cofunction
                 expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
-            expr_args = extract_arguments(operand)
-            if expr_args and expr_args[0].number() == 0:
+            if expr.is_adjoint:
                 # Construct the symbolic forward Interpolate
                 v0, v1 = expr.arguments()
                 expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
@@ -243,10 +242,7 @@ class Interpolator(abc.ABC):
             # Get the interpolation matrix
             op2mat = self.callable()
             petsc_mat = op2mat.handle
-            if needs_adjoint:
-                # Out-of-place Hermitian transpose
-                petsc_mat.hermitianTranspose(out=res)
-            elif tensor:
+            if tensor:
                 petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
@@ -427,7 +423,10 @@ class CrossMeshInterpolator(Interpolator):
             # The cross-mesh interpolation matrix is the product of the
             # `self.point_eval_interpolate` and the permutation
             # given by `self.to_input_ordering_interpolate`.
-            self.handle = assemble(action(self.point_eval_input_ordering, self.point_eval)).petscmat
+            symbolic = action(self.point_eval_input_ordering, self.point_eval)
+            if self.ufl_interpolate.is_adjoint:
+                symbolic = expr_adjoint(symbolic)
+            self.handle = assemble(symbolic).petscmat
             self.callable = lambda: self
 
     @PETSc.Log.EventDecorator()

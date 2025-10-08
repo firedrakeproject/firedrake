@@ -687,6 +687,25 @@ def test_interpolate_matrix_cross_mesh():
     assert np.allclose(f_interp3.dat.data_ro, g.dat.data_ro)
 
 
+def test_interpolate_matrix_cross_mesh_adjoint():
+    mesh_fine = UnitSquareMesh(4, 4)
+    mesh_coarse = UnitSquareMesh(2, 2)
+
+    V_coarse = FunctionSpace(mesh_coarse, "CG", 1)
+    V_fine = FunctionSpace(mesh_fine, "CG", 1)
+
+    cofunc_fine = assemble(TestFunction(V_fine) * dx)
+
+    interp = assemble(interpolate(TestFunction(V_coarse), TrialFunction(V_fine.dual())))
+    cofunc_coarse = assemble(Action(interp, cofunc_fine))
+    assert interp.arguments() == (TestFunction(V_coarse), TrialFunction(V_fine.dual()))
+    assert cofunc_coarse.function_space() == V_coarse.dual()
+
+    # Compare cofunc_fine with direct interpolation
+    cofunc_coarse_direct = assemble(TestFunction(V_coarse) * dx)
+    assert np.allclose(cofunc_coarse.dat.data_ro, cofunc_coarse_direct.dat.data_ro)
+
+
 @pytest.mark.parallel([2, 3, 4])
 def test_voting_algorithm_edgecases():
     # this triggers lots of cases where the VOM voting algorithm has to deal
