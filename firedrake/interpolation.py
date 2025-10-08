@@ -161,24 +161,20 @@ def interpolate(expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs):
 
 class Interpolator(abc.ABC):
 
-    def __init__(self, expr: Interpolate, V, bcs=None):
+    def __init__(self, expr: Interpolate, bcs=None):
         """Initialise Interpolator.
 
         Parameters
         ----------
         expr : Interpolate
             The symbolic interpolation expression.
-        V : FunctionSpace or Function to interpolate into.
-            _description_
         bcs : list, optional
             List of boundary conditions to zero-out in the output function space. By default None.
         """
-        if not isinstance(expr, ufl.Interpolate):
-            expr = interpolate(expr, V if isinstance(V, ufl.FunctionSpace) else V.function_space())
         dual_arg, operand = expr.argument_slots()
         self.ufl_interpolate = expr
         self.expr = operand
-        self.V = V
+        self.V = dual_arg.function_space().dual()
         self.subset = expr.options.subset
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
@@ -272,15 +268,13 @@ class Interpolator(abc.ABC):
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint)
 
 
-def _get_interpolator(expr: Interpolate | Expr, V, bcs=None) -> Interpolator:
-    V_target = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-    if not isinstance(expr, ufl.Interpolate):
-        expr = interpolate(expr, V_target)
+def _get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
+    V = expr.argument_slots()[0].function_space().dual()  # Target function space
 
     arguments = expr.arguments()
     has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
     if len(arguments) == 2 and has_mixed_arguments:
-        return MixedInterpolator(expr, V, bcs=bcs)
+        return MixedInterpolator(expr, bcs=bcs)
 
     operand, = expr.ufl_operands
     target_mesh = as_domain(V)
@@ -290,16 +284,16 @@ def _get_interpolator(expr: Interpolate | Expr, V, bcs=None) -> Interpolator:
         target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
         target_mesh.topological_dimension() == source_mesh.topological_dimension()
     if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr, V, bcs=bcs)
+        return SameMeshInterpolator(expr, bcs=bcs)
     else:
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
             if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-                return VomOntoVomInterpolator(expr, V, bcs=bcs)
-            return SameMeshInterpolator(expr, V, bcs=bcs)
-        elif has_mixed_arguments or len(V_target) > 1:
-            return MixedInterpolator(expr, V, bcs=bcs)
+                return VomOntoVomInterpolator(expr, bcs=bcs)
+            return SameMeshInterpolator(expr, bcs=bcs)
+        elif has_mixed_arguments or len(V) > 1:
+            return MixedInterpolator(expr, bcs=bcs)
         else:
-            return CrossMeshInterpolator(expr, V, bcs=bcs)
+            return CrossMeshInterpolator(expr, bcs=bcs)
 
 
 class DofNotDefinedError(Exception):
@@ -339,15 +333,15 @@ class CrossMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr: Interpolate, V, bcs=None):
-        super().__init__(expr, V, bcs)
+    def __init__(self, expr: Interpolate, bcs=None):
+        super().__init__(expr, bcs)
         if self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
             )
         if self.bcs:
             raise NotImplementedError("bcs not implemented.")
-        if V.ufl_element().mapping() != "identity":
+        if self.V.ufl_element().mapping() != "identity":
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes. A more general version would
             # require finding the global coordinates of all quadrature points
@@ -364,13 +358,12 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        self.V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         self.src_mesh = extract_unique_domain(self.expr_renumbered)
-        self.dest_mesh = as_domain(self.V_dest)
+        self.dest_mesh = as_domain(self.V)
         if self.src_mesh.geometric_dimension() != self.dest_mesh.geometric_dimension():
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
-        dest_element = self.V_dest.ufl_element()
+        dest_element = self.V.ufl_element()
         if isinstance(dest_element, finat.ufl.MixedElement):
             if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
                 # In this case all sub elements are equal
@@ -412,7 +405,7 @@ class CrossMeshInterpolator(Interpolator):
             raise DofNotDefinedError(self.src_mesh, self.dest_mesh)
 
         # Get the correct type of function space
-        shape = self.V_dest.ufl_function_space().value_shape
+        shape = self.V.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
@@ -570,8 +563,8 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, bcs=None):
-        super().__init__(expr, V, bcs=bcs)
+    def __init__(self, expr, bcs=None):
+        super().__init__(expr, bcs=bcs)
         subset = self.subset
         if subset is None:
             if isinstance(expr, ufl.Interpolate):
@@ -757,8 +750,8 @@ class SameMeshInterpolator(Interpolator):
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    def __init__(self, expr: Interpolate, V, bcs=None):
-        super().__init__(expr, V, bcs=bcs)
+    def __init__(self, expr: Interpolate, bcs=None):
+        super().__init__(expr, bcs=bcs)
 
     def _get_callable(self):
         expr = self.ufl_interpolate_renumbered
@@ -1520,8 +1513,8 @@ class MixedInterpolator(Interpolator):
     bcs
         A list of boundary conditions.
     """
-    def __init__(self, expr, V, bcs=None):
-        super().__init__(expr, V, bcs=bcs)
+    def __init__(self, expr, bcs=None):
+        super().__init__(expr, bcs=bcs)
         expr = self.ufl_interpolate
         self.arguments = expr.arguments()
         rank = len(self.arguments)
@@ -1532,7 +1525,7 @@ class MixedInterpolator(Interpolator):
             # Split the dual argument
             dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
             # Create the Jacobian to be split into blocks
-            expr = expr._ufl_expr_reconstruct_(operand, V)
+            expr = expr._ufl_expr_reconstruct_(operand, self.V)
 
         Isub = {}
         for indices, form in firedrake.formmanipulation.split_form(expr):
@@ -1543,7 +1536,7 @@ class MixedInterpolator(Interpolator):
             Vtarget = vi.function_space().dual()
             if bcs and rank != 0:
                 args = form.arguments()
-                Vsource = args[1-vi.number()].function_space()
+                Vsource = args[1 - vi.number()].function_space()
                 sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
             else:
                 sub_bcs = None
@@ -1551,7 +1544,7 @@ class MixedInterpolator(Interpolator):
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
 
-            Isub[indices] = _get_interpolator(form, Vtarget, bcs=sub_bcs)
+            Isub[indices] = _get_interpolator(form, bcs=sub_bcs)
 
         self._sub_interpolators = Isub
         self.callable = self._get_callable
