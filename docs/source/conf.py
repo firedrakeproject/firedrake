@@ -414,6 +414,7 @@ texinfo_documents = [(
 # -- Options for intersphinx ---------------------------------------------
 
 intersphinx_mapping = {
+    'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
