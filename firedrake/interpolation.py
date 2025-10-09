@@ -205,7 +205,6 @@ class Interpolator(abc.ABC):
 
     def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
-        needs_adjoint = self.ufl_interpolate.is_adjoint
         arguments = self.ufl_interpolate.arguments()
         if len(arguments) == 2:
             # Assembling the operator
@@ -219,14 +218,7 @@ class Interpolator(abc.ABC):
                 res = petsc_mat
             return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
         else:
-            # Assembling the action
-            dual_arg, _ = self.ufl_interpolate.argument_slots()
-            cofunctions = (dual_arg,)
-            if len(arguments) == 0:
-                Iu = self._interpolate()
-                return firedrake.assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
-            else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint)
+            return self._interpolate(output=tensor)
 
 
 def _get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
@@ -409,26 +401,17 @@ class CrossMeshInterpolator(Interpolator):
         self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o, matfree=self.matfree)
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, adjoint=False):
+    def _interpolate(self, output=None):
         """Compute the interpolation.
         """
         from firedrake.assemble import assemble
-        expr_args = extract_arguments(self.expr)
+        expr_args = self.ufl_interpolate.arguments()
         nargs = len(expr_args)
+        adjoint = self.ufl_interpolate.is_adjoint
         if adjoint and not nargs:
             raise ValueError("Can currently only apply adjoint interpolation with arguments.")
-        if self.nargs != len(function):
-            raise ValueError(f"Passed {len(function)} Functions to interpolate, expected {self.nargs}")
-        if nargs:
-            (f_src,) = function
-            if not hasattr(f_src, "dat"):
-                raise ValueError(
-                    "The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!"
-                )
-        else:
-            f_src = self.expr
-
         if adjoint:
+            f_src = self.ufl_interpolate.argument_slots()[0]
             try:
                 V_dest = self.expr.function_space().dual()
             except AttributeError:
@@ -443,6 +426,7 @@ class CrossMeshInterpolator(Interpolator):
                             "Can't adjoint interpolate an expression with no coefficients or arguments."
                         )
         else:
+            f_src = self.expr
             V_dest = self.V
 
         if output:
@@ -454,7 +438,6 @@ class CrossMeshInterpolator(Interpolator):
         if not adjoint:
             if f_src is self.expr:
                 # f_src is already contained in self.point_eval_interpolate
-                assert not nargs
                 f_src_at_dest_node_coords_src_mesh_decomp = assemble(self.point_eval)
             else:
                 f_src_at_dest_node_coords_src_mesh_decomp = assemble(action(self.point_eval, f_src))
@@ -667,15 +650,19 @@ class SameMeshInterpolator(Interpolator):
         return partial(callable, loops, f)
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, adjoint=False):
+    def _interpolate(self, output=None):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
         """
         assembled_interpolator = self.callable()
-
-        if len(self.arguments) == 2 and len(function) > 0:
-            function, = function
+        adjoint = self.ufl_interpolate.is_adjoint
+        dual_arg, operand = self.ufl_interpolate.argument_slots()
+        if adjoint:
+            function = dual_arg
+        else:
+            function = operand
+        if len(self.arguments) == 2:
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if adjoint:
@@ -701,13 +688,10 @@ class SameMeshInterpolator(Interpolator):
             if output:
                 output.assign(assembled_interpolator)
                 return output
-            if isinstance(self.V, firedrake.Function):
-                return self.V
+            if len(self.arguments) == 0:
+                return assembled_interpolator.dat.data.item()
             else:
-                if len(self.arguments) == 0:
-                    return assembled_interpolator.dat.data.item()
-                else:
-                    return assembled_interpolator
+                return assembled_interpolator
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -1544,7 +1528,7 @@ class MixedInterpolator(Interpolator):
         tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
         return tensor.M
 
-    def _interpolate(self, *function, output=None, adjoint=False, **kwargs):
+    def _interpolate(self, output=None, **kwargs):
         """Assemble the action."""
         rank = len(self.arguments)
         if rank == 0:
@@ -1559,6 +1543,7 @@ class MixedInterpolator(Interpolator):
                 sub_tensor.assign(sum(self[i].assemble(**kwargs) for i in self if i[0] == k))
         elif rank == 2:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i]._interpolate(*function, adjoint=adjoint, **kwargs)
+                sub_tensor.assign(sum(self[i]._interpolate(**kwargs)
                                       for i in self if i[0] == k))
         return output
+ 
