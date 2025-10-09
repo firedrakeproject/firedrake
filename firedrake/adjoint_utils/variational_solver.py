@@ -72,11 +72,7 @@ class NonlinearVariationalSolverMixin:
         F = problem.F
         replace_map = {}
         for old_coeff in F.coefficients():
-            if isinstance(old_coeff, Function) and old_coeff.ufl_element().family() == "Real":
-                # TODO: Does this still need to be special cased?
-                new_coeff = copy.deepcopy(old_coeff)
-            else:
-                new_coeff = old_coeff.copy(deepcopy=True)
+            new_coeff = old_coeff.copy(deepcopy=True)
             replace_map[old_coeff] = new_coeff
 
         # We need a handle to the new Function being
@@ -100,6 +96,7 @@ class NonlinearVariationalSolverMixin:
         ]
 
         # This NLVS will be used to recompute the solve.
+        # TODO: solver_parameters
         nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
         nlvs = NonlinearVariationalSolver(nlvp)
 
@@ -111,8 +108,6 @@ class NonlinearVariationalSolverMixin:
         self._ad_replaced_dependencies = tuple(replace_map.values())
         self._ad_bcs = bcs_new
         self._ad_solver_cache[FORWARD] = nlvs
-
-        print(f"{replace_map.values()=}")
 
     def _ad_cache_tlm_solver(self):
         from firedrake import (
@@ -140,6 +135,7 @@ class NonlinearVariationalSolverMixin:
 
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
+        # TODO: solver_parameters
         lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_bcs)
         lvs = LinearVariationalSolver(lvp)
 
@@ -151,12 +147,7 @@ class NonlinearVariationalSolverMixin:
         replaced_tlms = []
         dFdm_tlm_forms = []
         for m in self._ad_replaced_dependencies:
-            if isinstance(m, Function) and m.ufl_element().family() == "Real":
-                # TODO: Does this still need to be special cased?
-                mtlm = copy.deepcopy(m)
-            else:
-                mtlm = m.copy(deepcopy=True)
-
+            mtlm = m.copy(deepcopy=True)
             replaced_tlms.append(mtlm)
 
             dFdm = derivative(-F, m, mtlm)
@@ -198,11 +189,13 @@ class NonlinearVariationalSolverMixin:
             # as dFdu might have been simplied to an empty Form
             dFdu_adj = adjoint(dFdu, derivatives_expanded=True)
 
+        # This will be the rhs of the adjoint problem
         dJdu = Cofunction(V.dual())
         adj_sol = Function(V)
 
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
+        # TODO: solver_parameters
         lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_bcs)
         lvs = LinearVariationalSolver(lvp)
 
@@ -211,17 +204,8 @@ class NonlinearVariationalSolverMixin:
 
         # Do all the symbolic work for calculating dJ/du up front
         # so we only pay for the numeric calculations at run time.
-        replaced_adjs = []
         dFdm_adj_forms = []
         for m in self._ad_replaced_dependencies:
-            if isinstance(m, Function) and m.ufl_element().family() == "Real":
-                # TODO: Does this still need to be special cased?
-                adj = copy.deepcopy(m)
-            else:
-                adj = m.copy(deepcopy=True)
-
-            replaced_adjs.append(adj)
-
             # Action of adjoint solution on dFdm
             # TODO: Which of the two implementations should we use?
             dFdm = derivative(-F, m, TrialFunction(m.function_space()))
@@ -250,10 +234,9 @@ class NonlinearVariationalSolverMixin:
         # homogeneous DirichletBCs.
         self._ad_adj_residual = dJdu - action(dFdu_adj, adj_sol)
 
-        # We'll need to update the replaced_adj
-        # values and assemble the dFdm forms
+        # We'll need to assemble these forms to calculate
+        # the adj_component for each dependency.
         self._ad_adj_dFdm_forms = dFdm_adj_forms
-        self._ad_replaced_adjs = replaced_adjs
 
     @staticmethod
     def _ad_annotate_solve(solve):
@@ -284,7 +267,6 @@ class NonlinearVariationalSolverMixin:
                                           self._ad_tlm_dFdm_forms,
 
                                           self._ad_adj_rhs,
-                                          self._ad_replaced_adjs,
                                           self._ad_adj_dFdm_forms,
                                           self._ad_adj_residual,
                                           ad_block_tag=self.ad_block_tag)

@@ -43,7 +43,7 @@ class CachedSolverBlock(Block):
     def __init__(self, func, bcs, cached_solvers,
                  replaced_dependencies,
                  tlm_rhs, replaced_tlms, tlm_dFdm_forms,
-                 adj_rhs, replaced_adjs, adj_dFdm_forms, adj_residual,
+                 adj_rhs, adj_dFdm_forms, adj_residual,
                  ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
 
@@ -57,7 +57,6 @@ class CachedSolverBlock(Block):
         self.tlm_dFdm_forms = tlm_dFdm_forms
 
         self.adj_rhs = adj_rhs
-        self.replaced_adjs = replaced_adjs
         self.adj_dFdm_forms = adj_dFdm_forms
         self.adj_residual = adj_residual
 
