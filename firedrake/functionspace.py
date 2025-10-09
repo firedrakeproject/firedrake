@@ -46,9 +46,6 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all
     other arguments are ignored and the element is returned immediately.
 
-    As a side effect, this function finalises the initialisation of
-    the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
-    :meth:`.MeshGeometry.init`) as appropriate.
     """
     topology = mesh.topology
     cell = topology.ufl_cell()

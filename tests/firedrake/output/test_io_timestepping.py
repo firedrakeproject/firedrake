@@ -49,7 +49,7 @@ def element(request):
         return finat.ufl.FiniteElement("Real", ufl.triangle, 0)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_io_timestepping(element, tmpdir):
     filename = os.path.join(str(tmpdir), "test_io_timestepping_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
