@@ -186,26 +186,26 @@ class Interpolator(abc.ABC):
         # self.ufl_interpolate (which carries the dual argument).
         # See github issue https://github.com/firedrakeproject/firedrake/issues/4592
 
-        if isinstance(self, CrossMeshInterpolator | VomOntoVomInterpolator):
-            # For bespoke interpolation, we currently rely on different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
-            # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
-            # 3) Interpolate(Coefficient(V1), Argument(V2.dual(), 0)) -> Forward action (1-form)
-            # 4) Interpolate(Argument(V1, 0), Cofunction(V2.dual()) -> Adjoint action (1-form)
-            # 5) Interpolate(Coefficient(V1), Cofunction(V2.dual()) -> Double action (0-form)
+        # if isinstance(self, CrossMeshInterpolator | VomOntoVomInterpolator):
+        #     # For bespoke interpolation, we currently rely on different assembly procedures:
+        #     # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
+        #     # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
+        #     # 3) Interpolate(Coefficient(V1), Argument(V2.dual(), 0)) -> Forward action (1-form)
+        #     # 4) Interpolate(Argument(V1, 0), Cofunction(V2.dual()) -> Adjoint action (1-form)
+        #     # 5) Interpolate(Coefficient(V1), Cofunction(V2.dual()) -> Double action (0-form)
 
-            # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
-            # For case 2, we first redundantly assemble case 1 and then construct the transpose.
-            # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
-            # and we separately compute the action against the dropped Cofunction within assemble().
-            if not isinstance(dual_arg, ufl.Coargument):
-                # Drop the Cofunction
-                expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
-            if expr.is_adjoint:
-                # Construct the symbolic forward Interpolate
-                v0, v1 = expr.arguments()
-                expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
-                                          v1: v1.reconstruct(number=v0.number())})
+        #     # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
+        #     # For case 2, we first redundantly assemble case 1 and then construct the transpose.
+        #     # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
+        #     # and we separately compute the action against the dropped Cofunction within assemble().
+        #     if not isinstance(dual_arg, ufl.Coargument):
+        #         # Drop the Cofunction
+        #         expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
+        #     if expr.is_adjoint:
+        #         # Construct the symbolic forward Interpolate
+        #         v0, v1 = expr.arguments()
+        #         expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
+        #                                   v1: v1.reconstruct(number=v0.number())})
 
         dual_arg, operand = expr.argument_slots()
         self.expr_renumbered = operand
@@ -234,7 +234,8 @@ class Interpolator(abc.ABC):
 
     def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
-        needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
+        # needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
+        needs_adjoint = self.ufl_interpolate.is_adjoint
         arguments = self.ufl_interpolate.arguments()
         if len(arguments) == 2:
             # Assembling the operator
@@ -342,9 +343,10 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
         super().__init__(expr, bcs)
         if self.access != op2.WRITE:
-            raise NotImplementedError(
-                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
-            )
+            # raise NotImplementedError(
+            #     "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+            # )
+            self.access = op2.WRITE
         if self.bcs:
             raise NotImplementedError("bcs not implemented.")
         if self.V.ufl_element().mapping() != "identity":
@@ -562,7 +564,7 @@ class CrossMeshInterpolator(Interpolator):
             # SameMeshInterpolator.interpolate did not effect the result. For
             # now, I say in the docstring that it only applies to forward
             # interpolation.
-            interp = action(expr_adjoint(self.point_eval), f_src_at_src_node_coords)
+            interp = action(self.point_eval, f_src_at_src_node_coords)
             assemble(interp, tensor=output)
 
         return output
@@ -755,6 +757,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
         arguments = expr.arguments()
+        
         if len(arguments) == 2:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
@@ -769,10 +772,15 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             assert f.dat is tensor
             wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
             assert len(arguments) == 1
-
-            def callable():
-                wrapper.forward_operation(f.dat)
-                return f
+            if expr.is_adjoint:
+                assert isinstance(dual_arg, ufl.Cofunction)
+                def callable():
+                    wrapper.adjoint_operation(dual_arg.dat, f.dat)
+                    return f
+            else:
+                def callable():
+                    wrapper.forward_operation(f.dat)
+                    return f
         else:
             assert len(arguments) == 2
             assert tensor is None
@@ -1297,6 +1305,19 @@ class VomOntoVomWrapper(object):
         coeff = self.dummy_mat.expr_as_coeff()
         with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
             self.handle.mult(coeff_vec, target_vec)
+
+    def adjoint_operation(self, source_dat, target_dat):
+        """Apply the adjoint interpolation operation.
+
+        Parameters
+        ----------
+        source_dat : dat
+            The dat from the cofunction (on the target mesh in forward sense).
+        target_dat : dat
+            The dat to write the result to (on the source mesh in forward sense).
+        """
+        with source_dat.vec_ro as source_vec, target_dat.vec_wo as target_vec:
+            self.handle.multHermitian(source_vec, target_vec)
 
 
 class VomOntoVomDummyMat(object):
