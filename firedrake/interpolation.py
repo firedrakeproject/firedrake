@@ -1055,22 +1055,13 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         # Compute the reciprocal of the DOF multiplicity
         wdat = W.make_dat()
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        if m_.offset is None:
-            m_indices = m_.values_with_halo[cell_set.indices[:cell_set.size]]
-            m_shape = m_indices.shape + W.shape
-            with wdat.vec as w:
-                w.setLGMap(W.dof_dset.scalar_lgmap)
-                w.setValuesBlockedLocal(m_indices, numpy.ones(m_shape), PETSc.InsertMode.ADD)
-                w.assemble()
-        else:
-            # Need a parloop for extruded/extruded-periodic case
-            wsize = W.finat_element.space_dimension() * W.block_size
-            kernel_code = f"""
-            void multiplicity(PetscScalar *restrict w) {{
-                for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
-            }}"""
-            kernel = op2.Kernel(kernel_code, "multiplicity")
-            op2.par_loop(kernel, cell_set, wdat(op2.INC, m_))
+        wsize = W.finat_element.space_dimension() * W.block_size
+        kernel_code = f"""
+        void multiplicity(PetscScalar *restrict w) {{
+            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
+        }}"""
+        kernel = op2.Kernel(kernel_code, "multiplicity")
+        op2.par_loop(kernel, cell_set, wdat(op2.INC, m_))
         with wdat.vec as w:
             w.reciprocal()
 
