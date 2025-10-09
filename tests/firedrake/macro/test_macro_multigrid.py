@@ -1,7 +1,6 @@
 import numpy
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 
@@ -134,9 +133,8 @@ mg_params = {
     "pc_type": "mg",
     "mg_levels_ksp_type": "chebyshev",
     "mg_levels_pc_type": "jacobi",
-    "mg_coarse_pc_type": "python",
-    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-    "mg_coarse_assembled_pc_type": "cholesky",
+    "mg_coarse_mat_type": "aij",
+    "mg_coarse_pc_type": "cholesky",
 }
 
 

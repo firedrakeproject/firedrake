@@ -23,11 +23,11 @@ would cite the `Firedrake user manual
 The simplest way to determine any additional relevant papers to cite is
 by asking Firedrake itself.  You can ask that a list of citations
 relevant to your computation be printed when exiting by calling
-:meth:`.Citations.print_at_exit` after importing Firedrake::
+:func:`~petsctools.citation.print_citations_at_exit` after importing Firedrake::
 
-  from firedrake import *
+  import petsctools
 
-  Citations.print_at_exit()
+  petsctools.print_citations_at_exit()
 
 Alternatively, you can select that this should occur by passing the
 command-line option ``-citations``.  In both cases, you will also
@@ -56,7 +56,7 @@ preconditioning, please cite :cite:`Kirby2017`.
 If you would like to help us to keep track of research directly
 benefitting from Firedrake, please feel free to add your paper in
 bibtex format in the `bibliography for firedrake applications
-<https://github.com/firedrakeproject/firedrake/blob/master/docs/source/_static/firedrake-apps.bib>`_.
+<https://github.com/firedrakeproject/firedrake/blob/release/docs/source/_static/firedrake-apps.bib>`_.
 
 Citing other packages
 ~~~~~~~~~~~~~~~~~~~~~

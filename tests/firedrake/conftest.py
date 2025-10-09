@@ -1,13 +1,15 @@
 """Global test configuration."""
 
 import os
+import sys
 
 # Disable warnings for missing options when running with pytest as PETSc does
 # not know what to do with the pytest arguments.
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc, get_external_packages
+from firedrake.petsc import PETSc
+from petsctools import get_external_packages
 
 
 def _skip_test_dependency(dependency):
@@ -66,14 +68,6 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
-    elif dependency == "vtk":
-        try:
-            from firedrake.output import VTKFile  # noqa: F401
-            del VTKFile
-            return not skip
-        except ImportError:
-            return skip
-
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
@@ -89,7 +83,6 @@ dependency_skip_markers_and_reasons = (
     ("jax", "skipjax", "JAX is not installed"),
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
-    ("vtk", "skipvtk", "VTK is not installed")
 )
 
 
@@ -124,10 +117,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipslepc: mark as skipped if slepc4py is not installed"
-    )
-    config.addinivalue_line(
-        "markers",
-        "skipvtk: mark as skipped if vtk is not installed"
     )
     config.addinivalue_line(
         "markers",
@@ -203,8 +192,15 @@ class _petsc_raises:
         pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        if exc_type is PETSc.Error and isinstance(exc_val.__cause__, self.exc_type):
-            return True
+        # There is a bug where 'exc_val' is occasionally the wrong thing,
+        # either 'None' or some unrelated garbage collection error. In my
+        # tests this error only exists for Python < 3.12.11.
+        if exc_type is PETSc.Error:
+            if sys.version_info < (3, 12, 11):
+                return True
+            else:
+                if isinstance(exc_val.__cause__, self.exc_type):
+                    return True
 
 
 @pytest.fixture

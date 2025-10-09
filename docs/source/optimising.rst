@@ -38,8 +38,8 @@ informative flame graphs giving a lot of insight into the internals of
 Firedrake and PETSc.
 
 As an example, here is a flame graph showing the performance of the
-:demo:`scalar wave equation with higher-order mass lumping demo
-<higher_order_mass_lumping.py>`.
+:doc:`scalar wave equation with higher-order mass lumping demo
+<demos/higher_order_mass_lumping.py>`.
 It is interactive and you can zoom in on functions by clicking.
 
 .. raw:: html
@@ -136,11 +136,11 @@ Caveats
 
   .. code-block:: python
 
-    from firedrake.petsc import OptionsManager
+    import petsctools
 
     # If the -log_view flag is passed you don't need to call
     # PETSc.Log.begin because it is done automatically.
-    if "log_view" not in OptionsManager.commandline_options:
+    if "log_view" not in petsctools.get_commandline_options():
         PETSc.Log.begin()
 
 Common performance issues

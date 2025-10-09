@@ -144,7 +144,7 @@ def test_stokes(mh, variant, mixed_element):
         Z = V * Q
 
         a, L = stokes_mms(Z, as_vector(zexact))
-        bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
+        bcs = DirichletBC(Z.sub(0), as_vector(zexact[:dim]), "on_boundary")
 
         zh = Function(Z)
         nullspace = MixedVectorSpaceBasis(

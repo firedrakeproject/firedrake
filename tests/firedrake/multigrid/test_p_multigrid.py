@@ -2,14 +2,21 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[2, 3],
-                ids=["Rectangle", "Box"])
+@pytest.fixture(params=[(2, False, False), (2, True, False), (1, True, True)],
+                ids=["Rectangle", "Rectangle-Extruded", "Interval-Extruded-Periodic"])
 def tp_mesh(request):
-    nx = 4
+    dim, extruded, periodic = request.param
+
+    nx = 2
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
-    if request.param == 3:
-        m = ExtrudedMesh(m, nx)
+    if dim == 1:
+        m = UnitIntervalMesh(nx, distribution_parameters=distribution)
+    elif dim == 2:
+        m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
+    else:
+        m = UnitCubeMesh(nx, nx, nx, hexahedral=True, distribution_parameters=distribution)
+    if extruded:
+        m = ExtrudedMesh(m, nx, periodic=periodic)
 
     x = SpatialCoordinate(m)
     xnew = as_vector([acos(1-2*xj)/pi for xj in x])
@@ -66,6 +73,23 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+@pytest.mark.parametrize("family", ["Q", "NCE", "NCF", "DQ"])
+def test_prolong_basic(tp_mesh, family):
+    """ Interpolate a constant function between low-order and high-order spaces
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+    if tp_mesh.topological_dimension() == 2:
+        family = family.replace("N", "RT")
+
+    fs = [FunctionSpace(tp_mesh, family, degree) for degree in (1, 2)]
+    u, v = [Function(V) for V in fs]
+
+    u.assign(1)
+    P = prolongation_matrix_matfree(u, v).getPythonContext()
+    P._prolong()
+    assert np.allclose(v.dat.data, 1)
+
+
 def test_prolong_de_rham(tp_mesh):
     """ Interpolate a linear vector function between [H1]^d, HCurl and HDiv spaces
         where it can be exactly represented
@@ -74,13 +98,17 @@ def test_prolong_de_rham(tp_mesh):
 
     tdim = tp_mesh.topological_dimension()
     b = Constant(list(range(tdim)))
-    mat = diag(Constant([tdim+1]*tdim)) + Constant([[-1]*tdim]*tdim)
-    expr = dot(mat, SpatialCoordinate(tp_mesh)) + b
+    if tp_mesh.extruded_periodic:
+        expr = b
+    else:
+        mat = diag(Constant([tdim+1]*tdim)) + Constant([[-1]*tdim]*tdim)
+        expr = b + dot(mat, SpatialCoordinate(tp_mesh))
 
     cell = tp_mesh.ufl_cell()
     elems = [VectorElement(FiniteElement("Q", cell=cell, degree=2)),
              FiniteElement("NCE" if tdim == 3 else "RTCE", cell=cell, degree=2),
              FiniteElement("NCF" if tdim == 3 else "RTCF", cell=cell, degree=2)]
+
     fs = [FunctionSpace(tp_mesh, e) for e in elems]
     us = [Function(V) for V in fs]
     us[0].interpolate(expr)
@@ -89,7 +117,7 @@ def test_prolong_de_rham(tp_mesh):
             if u != v:
                 P = prolongation_matrix_matfree(u, v).getPythonContext()
                 P._prolong()
-                assert norm(v-expr, "L2") < 1E-14
+                assert errornorm(expr, v) < 1E-14
 
 
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
@@ -137,7 +165,8 @@ def mat_type(request):
     return request.param
 
 
-def test_p_multigrid_scalar(mesh, mat_type):
+@pytest.mark.parametrize("restrict", [False, True], ids=("unrestrict", "restrict"))
+def test_p_multigrid_scalar(mesh, mat_type, restrict):
     V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)
@@ -175,7 +204,7 @@ def test_p_multigrid_scalar(mesh, mat_type):
           "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
-    problem = NonlinearVariationalProblem(F, u, bcs)
+    problem = NonlinearVariationalProblem(F, u, bcs, restrict=restrict)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
 

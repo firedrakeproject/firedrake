@@ -1,12 +1,14 @@
 import collections
 import time
 import sys
+import numpy
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
 import ufl
-from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import extract_unique_domain
 
@@ -28,7 +30,7 @@ sys.setrecursionlimit(3000)
 TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
                                               ["domain", "integral_type", "subdomain_id", "domain_number",
                                                "arguments",
-                                               "coefficients", "coefficient_numbers"])
+                                               "coefficients", "coefficient_split", "coefficient_numbers"])
 TSFCIntegralDataInfo.__doc__ = """
     Minimal set of objects for kernel builders.
 
@@ -47,14 +49,27 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False):
+def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
-    :arg form: UFL form
-    :arg prefix: kernel name will start with this string
-    :arg parameters: parameters object
-    :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
-    :returns: list of kernels
+    Parameters
+    ----------
+    form : ufl.classes.Form
+        UFL form
+    prefix : str
+        Kernel name will start with this string
+    parameters : dict
+        Parameters object
+    dont_split_numbers : tuple
+        Coefficient numbers of coefficients that are not to be split into components by form compiler.
+    diagonal : bool
+        Are we building a kernel for the diagonal of a rank-2 element tensor?
+
+    Returns
+    -------
+    list
+        list of kernels
+
     """
     cpu_time = time.time()
 
@@ -64,13 +79,21 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
+    form_data = ufl_utils.compute_form_data(
+        form,
+        coefficients_to_split=tuple(
+            c
+            for i, c in enumerate(form.coefficients())
+            if type(c.ufl_element()) == finat.ufl.MixedElement and i not in dont_split_numbers
+        ),
+        complex_mode=complex_mode,
+    )
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
-
+    # Create local kernels.
     kernels = []
-    for integral_data in fd.integral_data:
+    for integral_data in form_data.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal)
+        kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -79,20 +102,17 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False):
+def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :arg interface: backend module for the kernel interface
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
-    if interface is None:
-        interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
     mesh = integral_data.domain
@@ -103,27 +123,38 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
-    coefficients = [form_data.function_replace_map[c] for c in integral_data.integral_coefficients]
     # This is which coefficient in the original form the
     # current coefficient is.
     # Consider f*v*dx + g*v*ds, the full form contains two
     # coefficients, but each integral only requires one.
-    coefficient_numbers = tuple(form_data.original_coefficient_positions[i]
-                                for i, (_, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients))
-                                if enabled)
-    integral_data_info = TSFCIntegralDataInfo(domain=integral_data.domain,
-                                              integral_type=integral_data.integral_type,
-                                              subdomain_id=integral_data.subdomain_id,
-                                              domain_number=domain_number,
-                                              arguments=arguments,
-                                              coefficients=coefficients,
-                                              coefficient_numbers=coefficient_numbers)
-    builder = interface(integral_data_info,
-                        scalar_type,
-                        diagonal=diagonal)
+    coefficients = []
+    coefficient_split = {}
+    coefficient_numbers = []
+    for i, (coeff_orig, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients)):
+        if enabled:
+            coeff = form_data.function_replace_map[coeff_orig]
+            coefficients.append(coeff)
+            if coeff in form_data.coefficient_split:
+                coefficient_split[coeff] = form_data.coefficient_split[coeff]
+            coefficient_numbers.append(form_data.original_coefficient_positions[i])
+    integral_data_info = TSFCIntegralDataInfo(
+        domain=integral_data.domain,
+        integral_type=integral_data.integral_type,
+        subdomain_id=integral_data.subdomain_id,
+        domain_number=domain_number,
+        arguments=arguments,
+        coefficients=coefficients,
+        coefficient_split=coefficient_split,
+        coefficient_numbers=coefficient_numbers,
+    )
+    builder = firedrake_interface_loopy.KernelBuilder(
+        integral_data_info,
+        scalar_type,
+        diagonal=diagonal,
+    )
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
-    builder.set_coefficients(integral_data, form_data)
+    builder.set_coefficients()
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
@@ -131,8 +162,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-        integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand_exprs = builder.compile_integrand(integrand, params, ctx)
+        integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
@@ -181,14 +211,21 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    orig_expression = expression
+    orig_coefficients = extract_coefficients(expression)
+    if isinstance(expression, ufl.Interpolate):
+        v, operand = expression.argument_slots()
+    else:
+        operand = expression
+        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
 
     # Map into reference space
-    expression = apply_mapping(expression, ufl_element, domain)
+    operand = apply_mapping(operand, ufl_element, domain)
 
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression,
-                                                 complex_mode=complex_mode)
+    operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+
+    # Reconstructed Interpolate with mapped operand
+    expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
     if interface is None:
@@ -196,9 +233,10 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
-    arguments = extract_arguments(expression)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
+    arguments = expression.arguments()
+    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
+                             for arg in arguments}
+    assert len(argument_multiindices) == len(arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
@@ -207,7 +245,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
-    orig_coefficients = extract_coefficients(orig_expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
@@ -227,7 +264,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
+    coeff_splitter = CoefficientSplitter(builder.coefficient_split)
+    expression = coeff_splitter(expression)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
@@ -244,24 +282,41 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
+    dual_arg, operand = expression.argument_slots()
+
     # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(expression, kernel_cfg)
+    fn = DualEvaluationCallable(operand, kernel_cfg)
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
+    # Compute the action against the dual argument
+    if dual_arg in coefficients:
+        name = f"w_{coefficients.index(dual_arg)}"
+        shape = tuple(i.extent for i in basis_indices)
+        size = numpy.prod(shape, dtype=int)
+        gem_dual = gem.reshape(gem.Variable(name, shape=(size,)), shape)
+        if complex_mode:
+            evaluation = gem.MathFunction('conj', evaluation)
+        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
+        basis_indices = ()
+    else:
+        argument_multiindices[dual_arg.number()] = basis_indices
+
+    argument_multiindices = dict(sorted(argument_multiindices.items()))
+
     # Build kernel body
-    return_indices = basis_indices + tuple(chain(*argument_multiindices))
+    return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
     return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape)
-    return_expr = gem.Indexed(return_var, return_indices)
+    return_var = gem.Variable('A', return_shape or (1,))
+    return_expr = gem.Indexed(return_var, return_indices or (0,))
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
-    index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
+    index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
@@ -324,7 +379,7 @@ class DualEvaluationCallable(object):
         gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
         # In some cases ps.indices may be dropped from expr, but nothing
         # new should now appear
-        argument_multiindices = kernel_cfg["argument_multiindices"]
+        argument_multiindices = kernel_cfg["argument_multiindices"].values()
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
