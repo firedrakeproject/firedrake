@@ -230,7 +230,7 @@ def curl_to_grad(ele):
                 degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
-                cells = ele.cell.sub_cells()
+                cells = ele.cell.sub_cells
                 elems = [finat.ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
                 return finat.ufl.TensorProductElement(*elems, cell=cell)
         return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
@@ -261,7 +261,7 @@ def div_to_curl(ele):
         degree = ele.degree()
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
-            family = "DG" if ele.cell.is_simplex() else "DQ"
+            family = "DG" if ele.cell.is_simplex else "DQ"
             degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"

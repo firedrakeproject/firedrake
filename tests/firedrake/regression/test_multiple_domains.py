@@ -73,11 +73,11 @@ def test_functional(mesh1, mesh2):
 
     val = assemble(c*dx(domain=mesh2))
 
-    assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension()))
+    assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension))
 
     val = assemble(c*dx(domain=mesh1) + c*dx(domain=mesh2))
 
-    assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension()))
+    assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension))
 
 
 @pytest.mark.parametrize("form,expect", [
@@ -91,7 +91,7 @@ def test_one_form(mesh1, mesh2, form, expect):
     v = TestFunction(V)
 
     cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
-    dim = mesh1.topological_dimension()
+    dim = mesh1.topological_dimension
 
     form = form(v, mesh1, mesh2)
     expect = expect(cell_volume, dim)
@@ -112,7 +112,7 @@ def test_two_form(mesh1, mesh2, form, expect):
     u = TrialFunction(V)
 
     cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
-    dim = mesh1.topological_dimension()
+    dim = mesh1.topological_dimension
 
     form = form(u, v, mesh1, mesh2)
     expect = expect(cell_volume, dim)

@@ -9,7 +9,7 @@ import pytest
                         ufl.triangle,
                         ufl.quadrilateral,
                         ufl.tetrahedron],
-                ids=lambda x: x.cellname())
+                ids=lambda x: x.cellname)
 def cell(request):
     return request.param
 

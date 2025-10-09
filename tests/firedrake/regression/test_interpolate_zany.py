@@ -92,7 +92,7 @@ def expr_at_vom(V, which, vom):
         P0 = VectorFunctionSpace(vom, "DG", 0)
 
     fvom = Function(P0)
-    point = Constant([0] * mesh.geometric_dimension())
+    point = Constant([0] * mesh.geometric_dimension)
     expr_at_pt = ufl.replace(expr, {SpatialCoordinate(mesh): point})
     for i, pt in enumerate(vom.coordinates.dat.data_ro):
         point.assign(pt)

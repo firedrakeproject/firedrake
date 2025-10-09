@@ -49,7 +49,7 @@ def f(mesh, V):
             fi.interpolate(as_vector([(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)] * V.value_size))
         elif fs_i.rank == 2:
             fi.interpolate(as_tensor([[(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)
-                                       for _ in range(fs_i.mesh().geometric_dimension())]
+                                       for _ in range(fs_i.mesh().geometric_dimension)]
                                       for _ in range(fs_i.rank)]))
         else:
             fi.interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))

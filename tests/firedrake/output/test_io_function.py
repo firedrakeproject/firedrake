@@ -67,7 +67,7 @@ def _get_mesh(cell_type, comm):
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)

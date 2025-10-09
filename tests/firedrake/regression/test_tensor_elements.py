@@ -35,13 +35,13 @@ def test_tensor_continuity(mesh, family, degree):
     if space == HDivDiv:
         utrace = dot(n, dot(u, n))
     elif space == HEin:
-        if mesh.topological_dimension() == 2:
+        if mesh.topological_dimension == 2:
             t = perp(n)
         else:
             t = as_matrix([[0, n[2], -n[1]], [-n[2], 0, n[0]], [n[1], -n[0], 0]])
         utrace = dot(t, dot(u, t))
     else:
-        if mesh.topological_dimension() == 2:
+        if mesh.topological_dimension == 2:
             t = perp(n)
             utrace = dot(t, dot(u, n))
         else:

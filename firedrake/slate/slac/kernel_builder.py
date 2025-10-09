@@ -194,9 +194,9 @@ class LocalLoopyKernelBuilder:
         self.bag.needs_cell_facets = True
         # Number of recerence cell facets
         if mesh.cell_set._extruded:
-            self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
+            self.num_facets = mesh._base_mesh.ufl_cell().num_facets
         else:
-            self.num_facets = mesh.ufl_cell().num_facets()
+            self.num_facets = mesh.ufl_cell().num_facets
 
         # Index for loop over cell faces of reference cell
         fidx = self.bag.index_creator((self.num_facets,))

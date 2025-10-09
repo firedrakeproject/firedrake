@@ -40,7 +40,7 @@ def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
     if not kwargs:
         fe = FiniteElement(args[0], hex_mesh.ufl_cell(), args[1], variant='equispaced')
     else:
-        A, B = hex_mesh.ufl_cell().sub_cells()
+        A, B = hex_mesh.ufl_cell().sub_cells
         hfe = FiniteElement(args[0], A, args[1], variant='equispaced')
         vfe = FiniteElement(kwargs["vfamily"], B, kwargs['vdegree'], variant='equispaced')
         fe = TensorProductElement(hfe, vfe)

@@ -591,7 +591,7 @@ class CheckpointFile(object):
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
                     # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
                     cell = base_tmesh.ufl_cell()
-                    element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                    element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
                     layers_tV = impl.FunctionSpace(base_tmesh, element)
                     self._save_function_space_topology(layers_tV)
                     # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
@@ -1050,7 +1050,7 @@ class CheckpointFile(object):
             variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
             if variable_layers:
                 cell = base_tmesh.ufl_cell()
-                element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
                 _ = self._load_function_space_topology(base_tmesh, element)
                 base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
                                                                     base_tmesh._distribution_name,
@@ -1113,7 +1113,7 @@ class CheckpointFile(object):
             path = self._path_to_mesh_immersed(tmesh.name, name)
             if path in self.h5pyfile:
                 cell = tmesh.ufl_cell()
-                element = finat.ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
+                element = finat.ufl.FiniteElement("DP" if cell.is_simplex else "DQ", cell, 0)
                 cell_orientations_tV = self._load_function_space_topology(tmesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
                                                                tmesh._distribution_name,
