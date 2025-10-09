@@ -34,7 +34,7 @@ dependencies = [
   "petsctools",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.10.0",
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git@master",
   "pycparser",
   "pytools[siphash]",
   "requests",
