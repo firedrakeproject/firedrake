@@ -275,21 +275,30 @@ def _get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
     operand, = expr.ufl_operands
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(operand) or target_mesh
-    submesh_interp_implemented = \
-        all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
-        target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-        target_mesh.topological_dimension() == source_mesh.topological_dimension()
+    submesh_interp_implemented = (
+        all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh])
+        and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+        and target_mesh.topological_dimension() == source_mesh.topological_dimension()
+    )
     if target_mesh is source_mesh or submesh_interp_implemented:
         return SameMeshInterpolator(expr, bcs=bcs)
-    else:
-        if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-            if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-                return VomOntoVomInterpolator(expr, bcs=bcs)
-            return SameMeshInterpolator(expr, bcs=bcs)
-        elif has_mixed_arguments or len(V) > 1:
-            return MixedInterpolator(expr, bcs=bcs)
-        else:
-            return CrossMeshInterpolator(expr, bcs=bcs)
+
+    target_topology = target_mesh.topology
+    source_topology = source_mesh.topology
+
+    if isinstance(target_topology, VertexOnlyMeshTopology):
+        if isinstance(source_topology, VertexOnlyMeshTopology):
+            return VomOntoVomInterpolator(expr, bcs=bcs)
+        if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+        if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+            raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+        return SameMeshInterpolator(expr, bcs=bcs)
+
+    if has_mixed_arguments or len(V) > 1:
+        return MixedInterpolator(expr, bcs=bcs)
+
+    return CrossMeshInterpolator(expr, bcs=bcs)
 
 
 class DofNotDefinedError(Exception):
@@ -608,34 +617,26 @@ class SameMeshInterpolator(Interpolator):
         source_mesh = extract_unique_domain(operand) or target_mesh
         arguments = expr.arguments()
         rank = len(arguments)
-        if rank <= 1:
-            if rank == 0:
-                R = firedrake.FunctionSpace(target_mesh, "Real", 0)
-                f = firedrake.Function(R, dtype=utils.ScalarType)
-            else:
-                V_dest = arguments[0].function_space().dual()
-                f = firedrake.Function(V_dest)
-                if self.access in {firedrake.MIN, firedrake.MAX}:
-                    finfo = numpy.finfo(f.dat.dtype)
-                    if self.access == firedrake.MIN:
-                        val = firedrake.Constant(finfo.max)
-                    else:
-                        val = firedrake.Constant(finfo.min)
-                    f.assign(val)
+        if rank == 0:
+            R = firedrake.FunctionSpace(target_mesh, "Real", 0)
+            f = firedrake.Function(R, dtype=utils.ScalarType)
+            tensor = f.dat
+        elif rank == 1:
+            V_dest = arguments[0].function_space().dual()
+            f = firedrake.Function(V_dest)
+            if self.access in {firedrake.MIN, firedrake.MAX}:
+                finfo = numpy.finfo(f.dat.dtype)
+                if self.access == firedrake.MIN:
+                    val = firedrake.Constant(finfo.max)
+                else:
+                    val = firedrake.Constant(finfo.min)
+                f.assign(val)
             tensor = f.dat
         elif rank == 2:
             Vrow = arguments[0].function_space()
             Vcol = arguments[1].function_space()
             if len(Vrow) > 1 or len(Vcol) > 1:
                 raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-            vom_onto_other_vom = isinstance(self, VomOntoVomInterpolator)
-            if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
-                if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                    raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
-                if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                    raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-                if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                    raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
             Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
             Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
             sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
@@ -814,33 +815,26 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(operand) or target_mesh
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if target_mesh is not source_mesh:
-            if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            # For trans-mesh interpolation we use a FInAT QuadratureElement as the
-            # (base) target element with runtime point set expressions as their
-            # quadrature rule point set and weights from their dual basis.
-            # NOTE: This setup is useful for thinking about future design - in the
-            # future this `rebuild` function can be absorbed into FInAT as a
-            # transformer that eats an element and gives you an equivalent (which
-            # may or may not be a QuadratureElement) that lets you do run time
-            # tabulation. Alternatively (and this all depends on future design
-            # decision about FInAT how dual evaluation should work) the
-            # to_element's dual basis (which look rather like quadrature rules) can
-            # have their pointset(s) directly replaced with run-time tabulated
-            # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
-            rt_var_name = 'rt_X'
-            try:
-                cell = operand.ufl_element().ufl_cell()
-            except AttributeError:
-                # expression must be pure function of spatial coordinates so
-                # domain has correct ufl cell
-                cell = source_mesh.ufl_cell()
-            to_element = rebuild(to_element, cell, rt_var_name)
+        # For trans-mesh interpolation we use a FInAT QuadratureElement as the
+        # (base) target element with runtime point set expressions as their
+        # quadrature rule point set and weights from their dual basis.
+        # NOTE: This setup is useful for thinking about future design - in the
+        # future this `rebuild` function can be absorbed into FInAT as a
+        # transformer that eats an element and gives you an equivalent (which
+        # may or may not be a QuadratureElement) that lets you do run time
+        # tabulation. Alternatively (and this all depends on future design
+        # decision about FInAT how dual evaluation should work) the
+        # to_element's dual basis (which look rather like quadrature rules) can
+        # have their pointset(s) directly replaced with run-time tabulated
+        # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
+        rt_var_name = 'rt_X'
+        try:
+            cell = operand.ufl_element().ufl_cell()
+        except AttributeError:
+            # expression must be pure function of spatial coordinates so
+            # domain has correct ufl cell
+            cell = source_mesh.ufl_cell()
+        to_element = rebuild(to_element, cell, rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -911,6 +905,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     else:
         copyin = ()
         copyout = ()
+
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
@@ -935,9 +930,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
         parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
+
     if oriented:
         co = target_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
+
     if needs_cell_sizes:
         cs = source_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
