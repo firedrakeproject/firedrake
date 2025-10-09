@@ -414,11 +414,8 @@ texinfo_documents = [(
 # -- Options for intersphinx ---------------------------------------------
 
 intersphinx_mapping = {
-    'pyop2': ('https://op2.github.io/PyOP2', None),
-    'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
-    'FInAT': ('https://finat.github.io/FInAT/', None),
+    'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
