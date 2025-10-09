@@ -330,6 +330,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @no_annotations
     def __init__(self, expr: Interpolate, bcs=None):
+        from firedrake.assemble import assemble
         super().__init__(expr, bcs)
         if self.access != op2.WRITE:
             raise NotImplementedError(
@@ -346,7 +347,7 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
 
-        self.arguments = self.ufl_interpolate_renumbered.arguments()
+        self.arguments = self.ufl_interpolate.arguments()
         self.nargs = len(self.arguments)
 
         if self.allow_missing_dofs:
@@ -374,9 +375,18 @@ class CrossMeshInterpolator(Interpolator):
         else:
             # scalar fiat/finat element
             self.dest_element = dest_element
-        if self.nargs == 2:
-            self.matfree = False
+
         self._get_symbolic_expressions()
+
+        if self.nargs == 2:
+            # The cross-mesh interpolation matrix is the product of the
+            # `self.point_eval_interpolate` and the permutation
+            # given by `self.to_input_ordering_interpolate`.
+            symbolic = action(self.point_eval_input_ordering, self.point_eval)
+            if self.ufl_interpolate.is_adjoint:
+                symbolic = expr_adjoint(symbolic)
+            self.handle = assemble(symbolic).petscmat
+            self.callable = lambda: self
 
     def _get_symbolic_expressions(self):
         """Constructs the symbolic Interpolate expressions for cross-mesh interpolation.
@@ -415,19 +425,13 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom = fs_type(self.vom, "DG", 0)
         self.point_eval = interpolate(self.expr_renumbered, P0DG_vom)
 
+        if self.nargs == 2:
+            # If assembling the operator, we need the concrete permutation matrix
+            self.matfree = False
+
         # Interpolate into the input-ordering VOM
         P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
         self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o, matfree=self.matfree)
-
-        if self.nargs == 2:
-            # The cross-mesh interpolation matrix is the product of the
-            # `self.point_eval_interpolate` and the permutation
-            # given by `self.to_input_ordering_interpolate`.
-            symbolic = action(self.point_eval_input_ordering, self.point_eval)
-            if self.ufl_interpolate.is_adjoint:
-                symbolic = expr_adjoint(symbolic)
-            self.handle = assemble(symbolic).petscmat
-            self.callable = lambda: self
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
@@ -464,30 +468,21 @@ class CrossMeshInterpolator(Interpolator):
                             "Can't adjoint interpolate an expression with no coefficients or arguments."
                         )
         else:
-            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
-                V_dest = self.V.function_space()
-            else:
-                V_dest = self.V
+            V_dest = self.V
+
         if output:
             if output.function_space() != V_dest:
                 raise ValueError("Given output has the wrong function space!")
         else:
-            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
-                output = self.V
-            else:
-                output = firedrake.Function(V_dest)
+            output = firedrake.Function(V_dest)
 
         if not adjoint:
             if f_src is self.expr:
                 # f_src is already contained in self.point_eval_interpolate
                 assert not nargs
-                f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(self.point_eval)
-                )
+                f_src_at_dest_node_coords_src_mesh_decomp = assemble(self.point_eval)
             else:
-                f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(action(self.point_eval, f_src))
-                )
+                f_src_at_dest_node_coords_src_mesh_decomp = assemble(action(self.point_eval, f_src))
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
                 self.point_eval_input_ordering.function_space()
             )
@@ -617,9 +612,6 @@ class SameMeshInterpolator(Interpolator):
             if rank == 0:
                 R = firedrake.FunctionSpace(target_mesh, "Real", 0)
                 f = firedrake.Function(R, dtype=utils.ScalarType)
-            elif isinstance(self.V, firedrake.Function):
-                f = self.V
-                self.V = f.function_space()
             else:
                 V_dest = arguments[0].function_space().dual()
                 f = firedrake.Function(V_dest)
@@ -632,8 +624,6 @@ class SameMeshInterpolator(Interpolator):
                     f.assign(val)
             tensor = f.dat
         elif rank == 2:
-            if isinstance(self.V, firedrake.Function):
-                raise ValueError("Cannot interpolate an expression with an argument into a Function")
             Vrow = arguments[0].function_space()
             Vcol = arguments[1].function_space()
             if len(Vrow) > 1 or len(Vcol) > 1:
@@ -646,19 +636,14 @@ class SameMeshInterpolator(Interpolator):
                     raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
                 if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                     raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-
-            if vom_onto_other_vom:
-                # We make our own linear operator for this case using PETSc SFs
-                tensor = None
-            else:
-                Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-                Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
-                sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                        [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                        name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                        nest=False,
-                                        block_sparse=True)
-                tensor = op2.Mat(sparsity)
+            Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
+            Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
+            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
+                                    name=f"{Vrow.name}_{Vcol.name}_sparsity",
+                                    nest=False,
+                                    block_sparse=True)
+            tensor = op2.Mat(sparsity)
             f = tensor
         else:
             raise ValueError(f"Cannot interpolate an expression with {rank} arguments")
@@ -769,15 +754,17 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
         arguments = expr.arguments()
-        f, tensor = self._get_tensor()
+        if len(arguments) == 2:
+            # We make our own linear operator for this case using PETSc SFs
+            tensor = None
+        else:
+            f, tensor = self._get_tensor()
         wrapper = VomOntoVomWrapper(self.V, source_mesh, target_mesh, operand, self.matfree)
         # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         if tensor is not None:
-            # Callable will do interpolation into our pre-supplied function f
-            # when it is called.
             assert f.dat is tensor
             wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
             assert len(arguments) == 1
