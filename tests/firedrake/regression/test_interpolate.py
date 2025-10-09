@@ -327,7 +327,7 @@ def test_trace():
     assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
 
 
-@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", (0, 1))
 @pytest.mark.parametrize("mat_type", ("matfree", "aij"))
 @pytest.mark.parametrize("degree", (1, 3))
@@ -569,7 +569,7 @@ def test_mixed_matrix(mode):
         assert np.allclose(x.dat.data, y.dat.data)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("mode", ["forward", "adjoint"])
 @pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
 def test_interpolator_reuse(family, degree, mode):
@@ -595,9 +595,7 @@ def test_interpolator_reuse(family, degree, mode):
         assert result is tensor
 
         # Test that the input was not modified
-        x = u.dat.data
-        assert np.allclose(x, expected)
+        assert np.allclose(u.dat.data, expected)
 
         # Test for correctness
-        y = result.dat.data
-        assert np.allclose(y, expected)
+        assert np.allclose(result.dat.data, expected)
