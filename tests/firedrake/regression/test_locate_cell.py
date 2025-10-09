@@ -112,17 +112,43 @@ def test_high_order_location():
 
 def test_high_order_location_warped_interior_facet():
     # Here we bend an interior facet and check the right cell is located.
-    mesh = UnitSquareMesh(2, 2)
+    mesh = RectangleMesh(1, 2, 1.0, 1.0, 0.0, -1.0, quadrilateral=True)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
     f = Function(V)
     f.interpolate(mesh.coordinates)
 
-    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & np.isclose(f.dat.data[:, 1], 0.5))[0]
+    coords = f.dat.data_ro
+    warp_indices = np.where((coords[:, 0] > 0.0) & (coords[:, 0] < 1.0) & np.isclose(coords[:, 1], 0.0))[0]
     f.dat.data[warp_indices, 1] += 0.1
-    mesh = Mesh(f)
 
-    assert mesh.locate_cell([0.25, 0.605], tolerance=0.0001) == 1
-    assert mesh.locate_cell([0.25, 0.62], tolerance=0.0001) == 3
+    mesh = Mesh(f)
+    mesh.tolerance = 1e-05
+
+    upper_point = [0.5, 0.15]
+    upper_point_cell = mesh.locate_cell(upper_point)
+    lower_point = [0.5, 0.05]
+    lower_point_cell = mesh.locate_cell(lower_point)
+
+    assert upper_point_cell != lower_point_cell
+
+    # Check no other cell is found when ignoring the correct cell
+    assert mesh.locate_cell(upper_point, cell_ignore=upper_point_cell) is None
+    assert mesh.locate_cell(lower_point, cell_ignore=lower_point_cell) is None
+
+    # Try point outside of Lagrange bounding box of lower cell
+    lower_point = [0.5, 0.105]
+    assert mesh.locate_cell(lower_point) == lower_point_cell
+
+    mesh.tolerance = 0.01
+    lower_point = [0.5, 0.11]
+    # Lower point is now inside the bounding box of the upper cell, but outside the cell itself
+    # It is within mesh.tolerance of the upper cell, however, so should be assigned
+    # to the upper cell if we ignore the lower cell, with a non-zero L^1 distance.
+    lower_point_closer_cell = mesh.locate_cell(lower_point)
+    assert lower_point_closer_cell == lower_point_cell
+    cells, ref_coords, dists = mesh.locate_cells_ref_coords_and_dists([lower_point], cells_ignore=[[lower_point_cell]])
+    assert cells[0] == upper_point_cell
+    assert not np.isclose(dists[0], 0.0)
 
 
 @pytest.mark.parallel([1, 3])
