@@ -182,35 +182,6 @@ class Interpolator(abc.ABC):
         self.bcs = bcs
         self.callable = None
 
-        # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
-        # self.ufl_interpolate (which carries the dual argument).
-        # See github issue https://github.com/firedrakeproject/firedrake/issues/4592
-
-        # if isinstance(self, CrossMeshInterpolator | VomOntoVomInterpolator):
-        #     # For bespoke interpolation, we currently rely on different assembly procedures:
-        #     # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
-        #     # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
-        #     # 3) Interpolate(Coefficient(V1), Argument(V2.dual(), 0)) -> Forward action (1-form)
-        #     # 4) Interpolate(Argument(V1, 0), Cofunction(V2.dual()) -> Adjoint action (1-form)
-        #     # 5) Interpolate(Coefficient(V1), Cofunction(V2.dual()) -> Double action (0-form)
-
-        #     # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
-        #     # For case 2, we first redundantly assemble case 1 and then construct the transpose.
-        #     # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
-        #     # and we separately compute the action against the dropped Cofunction within assemble().
-        #     if not isinstance(dual_arg, ufl.Coargument):
-        #         # Drop the Cofunction
-        #         expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
-        #     if expr.is_adjoint:
-        #         # Construct the symbolic forward Interpolate
-        #         v0, v1 = expr.arguments()
-        #         expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
-        #                                   v1: v1.reconstruct(number=v0.number())})
-
-        dual_arg, operand = expr.argument_slots()
-        self.expr_renumbered = operand
-        self.ufl_interpolate_renumbered = expr
-
         access = expr.options.access
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
@@ -234,7 +205,6 @@ class Interpolator(abc.ABC):
 
     def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
-        # needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
         needs_adjoint = self.ufl_interpolate.is_adjoint
         arguments = self.ufl_interpolate.arguments()
         if len(arguments) == 2:
@@ -250,15 +220,9 @@ class Interpolator(abc.ABC):
             return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
         else:
             # Assembling the action
-            cofunctions = ()
-            if needs_adjoint:
-                # The renumbered Interpolate has dropped Cofunctions.
-                # We need to explicitly operate on them.
-                dual_arg, _ = self.ufl_interpolate.argument_slots()
-                if not isinstance(dual_arg, ufl.Coargument):
-                    cofunctions = (dual_arg,)
-
-            if needs_adjoint and len(arguments) == 0:
+            dual_arg, _ = self.ufl_interpolate.argument_slots()
+            cofunctions = (dual_arg,)
+            if len(arguments) == 0:
                 Iu = self._interpolate()
                 return firedrake.assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
@@ -366,7 +330,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        self.src_mesh = extract_unique_domain(self.expr_renumbered)
+        self.src_mesh = extract_unique_domain(self.expr)
         self.dest_mesh = as_domain(self.V)
         if self.src_mesh.geometric_dimension() != self.dest_mesh.geometric_dimension():
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
@@ -434,7 +398,7 @@ class CrossMeshInterpolator(Interpolator):
 
         # Get expression for point evaluation at the dest_node_coords
         P0DG_vom = fs_type(self.vom, "DG", 0)
-        self.point_eval = interpolate(self.expr_renumbered, P0DG_vom)
+        self.point_eval = interpolate(self.expr, P0DG_vom)
 
         if self.nargs == 2:
             # If assembling the operator, we need the concrete permutation matrix
@@ -449,11 +413,11 @@ class CrossMeshInterpolator(Interpolator):
         """Compute the interpolation.
         """
         from firedrake.assemble import assemble
-        expr_args = extract_arguments(self.expr_renumbered)
+        expr_args = extract_arguments(self.expr)
         nargs = len(expr_args)
         if adjoint and not nargs:
             raise ValueError("Can currently only apply adjoint interpolation with arguments.")
-        if nargs != len(function):
+        if self.nargs != len(function):
             raise ValueError(f"Passed {len(function)} Functions to interpolate, expected {self.nargs}")
         if nargs:
             (f_src,) = function
@@ -610,10 +574,10 @@ class SameMeshInterpolator(Interpolator):
             self.callable = self._get_callable()
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces.")
-        self.arguments = self.ufl_interpolate_renumbered.arguments()
+        self.arguments = self.ufl_interpolate.arguments()
 
     def _get_tensor(self):
-        expr = self.ufl_interpolate_renumbered
+        expr = self.ufl_interpolate
         dual_arg, operand = expr.argument_slots()
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
@@ -653,7 +617,7 @@ class SameMeshInterpolator(Interpolator):
         return f, tensor
 
     def _get_callable(self):
-        expr = self.ufl_interpolate_renumbered
+        expr = self.ufl_interpolate
         dual_arg, operand = expr.argument_slots()
         arguments = expr.arguments()
         rank = len(arguments)
@@ -752,7 +716,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         super().__init__(expr, bcs=bcs)
 
     def _get_callable(self):
-        expr = self.ufl_interpolate_renumbered
+        expr = self.ufl_interpolate
         dual_arg, operand = expr.argument_slots()
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
