@@ -695,35 +695,43 @@ def construct_switch_statement(self, mats, n, args, var_list):
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     indent = 0
-    for dim in range(len(closure_sizes)):
+    for dim in range(len(closure_sizes) - 1):
         string += f"case {dim}:\n "
         indent += 1
-        string += indent*"\t" + f"o_val = o[i + closure_size_acc]; \n "
+        #string += indent*"\t" + f"o_val = o[i + closure_size_acc]; \n "
+        string += indent*"\t" + f"o_val = 5; \n "
         string += [indent*"\t" + "switch (i) { \n"]
         indent += 1
         for i in range(closure_sizes[dim]):
             string += indent*"\t" + f"case {i}:\n "
+            indent += 1
             string += indent*"\t" + "switch (o_val) { \n"
             indent += 1
             for val in sorted(mats[dim][i].keys()):
                 string += indent*"\t" + f"case {val}:\n "
-                
-                string += indent*"\t" + "printf(\"dim, i, o_val: %d %d %d\\n\", dim, i, o_val); \n"
+                indent += 1 
                 matname = f"mat{dim}_{i}_{val}"
-                string += indent*"\t" + f"a = {matname};break;\n"
+                string += indent*"\t" + f"a = {matname};\n"
+                string += indent*"\t" + f"break;\n"
                 var_list += [matname]
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
                 args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+                indent -= 1
             indent -= 1
-            string += indent*"\t" + f"default: break;}}\n"
-        #string += indent*"\t" + "printf(\"b (before) %f\\n\", b[0]); \n"
-        #string += indent*"\t" + "printf(\"dim: %d\\n\", dim); \n"
-        #string += indent*"\t" + "printf(\"i: %d\\n\", i); \n"
-        #string += indent*"\t" + "printf(\"a[0,0]: %f\\n\", a[0]); \n"
-        #string += indent*"\t" + "\n"
+            string += indent*"\t" + f"default: break;}}break;\n"
+            indent -= 1
+        string += indent*"\t" + "default: break; }\n"
+        #string += indent*"\t" + "printf(\"res (before) %f, %f, %f\\n\", res[0], res[1], res[2]); \n"
+        #string += indent*"\t" + "printf(\"b (before) %f, %f, %f\\n\", b[0], b[1], b[2]); \n"
+        #string += indent*"\t" + "printf(\"dim: %d, i: %d, o_val: %d \\n\", dim, i, o_val); \n"
+        #string += indent*"\t" + "printf(\"a row 0: %f %f %f\\n\", a[0], a[1], a[2]); \n"
+        #string += indent*"\t" + "printf(\"a row 1: %f %f %f\\n\", a[3], a[4], a[5]); \n"
+        #string += indent*"\t" + "printf(\"a row 2: %f %f %f\\n\", a[6], a[7], a[8]); \n"
+        #string += indent*"\t" + "printf(\"\\n\");\n"
+        string += indent*"\t" + "\n"
+        string += indent*"\t" + "break;\n"
         indent -= 1
 
-        string += indent*"\t" + "default: break; }\n"
     string += "default: break; }\n"
     return string, args, var_list
 
@@ -789,6 +797,7 @@ def fuse_orientations(space: WithGeometry):
 
         out_string, args, var_list = construct_switch_statement(space, reversed_mats, n, args, var_list)
         transform_out_insn = loopy.CInstruction(tuple(), "".join(out_string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
+        print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f, %f, %f\\n\", res[0], res[1], res[2]);", assignees=(), read_variables=frozenset([]), within_inames=frozenset(["i"]), id="print", depends_on="matmul")
         out_switch = loopy.make_function(
             f"{{[i]:0<= i <= d}}",
             ["res[:] = zero(res) {id=zero, inames=i}",
@@ -802,7 +811,7 @@ def fuse_orientations(space: WithGeometry):
         printres_insn = loopy.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         def loop_dims(direction):
             return loopy.make_function(
-            f"{{[dim]:0<= dim <= {space._mesh.dimension}}}",
+            f"{{[dim]:0<= dim <= {space._mesh.dimension - 1}}}",
             ["d = closure_sizes[dim] {id=closure}",
              f"b[:], res[:] = {direction}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {{id=switch, dep=*}}",
              "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"],
@@ -810,14 +819,15 @@ def fuse_orientations(space: WithGeometry):
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
-        print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f, %f\\n\", b[0], b[1], b[2], b[3]);", assignees=(), read_variables=frozenset([]), id="print")
-        print_insn1 = loopy.CInstruction(tuple(), "printf(\"final res: %f, %f, %f, %f\\n\", res[0], res[1], res[2], res[3]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f\\n\", b[0], b[1], b[2]);", assignees=(), read_variables=frozenset([]), id="print")
+        print_insn1 = loopy.CInstruction(tuple(), "printf(\"final res: %f, %f, %f\\n\", res[0], res[1], res[2]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         def overall(direction):
             return loopy.make_kernel(
             "{:}",
-            [print_insn, f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{dep=print, id=loop}}",
+            [f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{id=loop}}",
             "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
-             print_insn1],
+            "b[:] = zero(b[:]) {dep=replace, id=zerob}",
+             ],
             name=f"{direction}_transform",
             kernel_data = args[3:7],
             target=loopy.CWithGNULibcTarget())
