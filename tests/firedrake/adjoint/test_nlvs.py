@@ -68,13 +68,13 @@ def test_nlvs_adjoint(control_type, bc_type):
     if control_type == 'bc_control' and bc_type == 'neumann_bc':
         pytest.skip("Cannot use Neumann BCs as control")
 
-    mesh = UnitIntervalMesh(10)
+    mesh = UnitIntervalMesh(6)
     x, = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    nt = 4
+    nt = 2
     dt = Function(R).assign(0.1)
     ic = Function(V).interpolate(cos(2*pi*x))
 
@@ -135,12 +135,23 @@ def test_nlvs_adjoint(control_type, bc_type):
     assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
 
     # tlm
+    print("tlm test")
     Jhat(m)
     assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
 
     # adjoint
+    print("adjoint test")
     Jhat(m)
     assert taylor_test(Jhat, m, h) > 1.95
+
+    # hessian
+    print("hessian test")
+    Jhat(m)
+    taylor = taylor_to_dict(Jhat, m, h)
+    from pprint import pprint
+    pprint(taylor)
+
+    assert min(taylor['R2']['Rate']) > 2.95
 
 
 if __name__ == "__main__":

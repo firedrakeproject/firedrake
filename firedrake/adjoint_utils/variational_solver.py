@@ -3,7 +3,8 @@ from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, CachedSolverBlock
 from firedrake.ufl_expr import derivative, adjoint, action
-import ufl
+from ufl import replace, Action
+from ufl.algorithms import expand_derivatives
 
 
 class NonlinearVariationalProblemMixin:
@@ -58,7 +59,7 @@ class NonlinearVariationalSolverMixin:
 
     def _ad_cache_forward_solver(self):
         from firedrake import (
-            Function, DirichletBC,
+            DirichletBC,
             NonlinearVariationalProblem,
             NonlinearVariationalSolver)
         from firedrake.adjoint_utils.blocks.solving import FORWARD
@@ -77,7 +78,7 @@ class NonlinearVariationalSolverMixin:
 
         # We need a handle to the new Function being
         # solved for so that we can create an NLVS.
-        Fnew = ufl.replace(F, replace_map)
+        Fnew = replace(F, replace_map)
         unew = replace_map[problem.u]
 
         # We also need to "replace" all the bcs in
@@ -133,6 +134,8 @@ class NonlinearVariationalSolverMixin:
         dFdm = Cofunction(V.dual())
         dudm = Function(V)
 
+        self._ad_dFdu = dFdu
+
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
@@ -152,7 +155,7 @@ class NonlinearVariationalSolverMixin:
 
             dFdm = derivative(-F, m, mtlm)
             # TODO: Do we need expand_derivatives here? If so, why?
-            dFdm = ufl.algorithms.expand_derivatives(dFdm)
+            dFdm = expand_derivatives(dFdm)
             dFdm_tlm_forms.append(dFdm)
 
         # We'll need to update the replaced_tlm
@@ -181,13 +184,15 @@ class NonlinearVariationalSolverMixin:
         # Then for the _partial_ derivatives:
         # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
         # (dF/du)*(du/dm) = -dF/dm
-        dFdu = derivative(F, u, TrialFunction(V))
+        dFdu = self._ad_dFdu
         try:
             dFdu_adj = adjoint(dFdu)
         except ValueError:
             # Try again without expanding derivatives,
             # as dFdu might have been simplied to an empty Form
             dFdu_adj = adjoint(dFdu, derivatives_expanded=True)
+
+        self._ad_dFdu_adj = dFdu_adj
 
         # This will be the rhs of the adjoint problem
         dJdu = Cofunction(V.dual())
@@ -215,7 +220,7 @@ class NonlinearVariationalSolverMixin:
             if isinstance(dFdm, Argument):
                 #  Corner case. Should be fixed more permanently upstream in UFL.
                 #  See: https://github.com/FEniCS/ufl/issues/395
-                dFdm = ufl.Action(dFdm, adj_sol)
+                dFdm = Action(dFdm, adj_sol)
             else:
                 dFdm = dFdm * adj_sol
 
@@ -238,6 +243,86 @@ class NonlinearVariationalSolverMixin:
         # the adj_component for each dependency.
         self._ad_adj_dFdm_forms = dFdm_adj_forms
 
+    def _ad_cache_hessian_solver(self):
+        from firedrake import (
+            Function, TestFunction)
+        from firedrake.adjoint_utils.blocks.solving import FORWARD
+
+        nlvp = self._ad_solver_cache[FORWARD]._problem
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        # 1. Forms to calculate rhs of Hessian solve
+
+        # Calculate d^2F/du^2 * du/dm * dm
+        # where dm is direction for tlm action so du/dm * dm is tlm output
+        dFdu = self._ad_dFdu
+        tlm_output = Function(V)
+        d2Fdu2 = expand_derivatives(
+            derivative(dFdu, u, tlm_output))
+
+        self._ad_tlm_output = tlm_output
+
+        adj_sol = Function(V)
+        self._ad_adj_sol = adj_sol
+
+        # Contribution from tlm_output
+        if len(d2Fdu2.integrals()) > 0:
+            d2Fdu2_form = action(adjoint(d2Fdu2), adj_sol)
+        else:
+            d2Fdu2_form = d2Fdu2
+        self._ad_d2Fdu2_form = d2Fdu2_form
+
+        # Contributions from each tlm_input
+        dFdu_adj = action(self._ad_dFdu_adj, adj_sol)
+        d2Fdmdu_forms = []
+        for m, dm in zip(self._ad_replaced_dependencies,
+                         self._ad_replaced_tlms):
+            d2Fdmdu = expand_derivatives(
+                derivative(dFdu_adj, m, dm))
+
+            d2Fdmdu_forms.append(d2Fdmdu)
+
+        self._ad_d2Fdmdu_forms = d2Fdmdu_forms
+
+        # 2. Forms to calculate contribution from each control
+        adj2_sol = Function(V)
+        self._ad_adj2_sol = adj2_sol
+
+        Fadj = action(F, adj_sol)
+        Fadj2 = action(F, adj2_sol)
+
+        dFdm_adj2_forms = []
+        d2Fdm2_adj_forms = []
+        d2Fdudm_forms = []
+        for m in self._ad_replaced_dependencies:
+            dm = TestFunction(m.function_space())
+            dFdm_adj2 = expand_derivatives(
+                derivative(Fadj2, m, dm))
+
+            dFdm_adj2_forms.append(dFdm_adj2)
+
+            dFdm_adj = derivative(Fadj, m, dm)
+
+            d2Fdudm = expand_derivatives(
+                derivative(dFdm_adj, u, tlm_output))
+
+            d2Fdudm_forms.append(d2Fdudm)
+
+            d2Fdm2_adj_forms_k = []
+            for m2, dm2 in zip(self._ad_replaced_dependencies,
+                               self._ad_replaced_tlms):
+                d2Fdm2_adj = expand_derivatives(
+                    derivative(dFdm_adj, m2, dm2))
+                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+
+            d2Fdm2_adj_forms.append(d2Fdm2_adj_forms_k)
+
+        self._ad_dFdm_adj2_forms = dFdm_adj2_forms
+        self._ad_d2Fdm2_adj_forms = d2Fdm2_adj_forms
+        self._ad_d2Fdudm_forms = d2Fdudm_forms
+
     @staticmethod
     def _ad_annotate_solve(solve):
         @wraps(solve)
@@ -256,6 +341,7 @@ class NonlinearVariationalSolverMixin:
                     self._ad_cache_forward_solver()
                     self._ad_cache_tlm_solver()
                     self._ad_cache_adj_solver()
+                    self._ad_cache_hessian_solver()
 
                 block = CachedSolverBlock(self._ad_problem.u,
                                           self._ad_bcs,
@@ -269,6 +355,16 @@ class NonlinearVariationalSolverMixin:
                                           self._ad_adj_rhs,
                                           self._ad_adj_dFdm_forms,
                                           self._ad_adj_residual,
+
+                                          self._ad_adj_sol,
+                                          self._ad_adj2_sol,
+                                          self._ad_tlm_output,
+                                          self._ad_d2Fdu2_form,
+                                          self._ad_d2Fdmdu_forms,
+                                          self._ad_dFdm_adj2_forms,
+                                          self._ad_d2Fdm2_adj_forms,
+                                          self._ad_d2Fdudm_forms,
+
                                           ad_block_tag=self.ad_block_tag)
 
                 for dep in self._ad_dependencies_to_add:
@@ -357,10 +453,10 @@ class NonlinearVariationalSolverMixin:
         from firedrake import NonlinearVariationalProblem
         _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
             problem.J, dependencies, F=problem.F)
-        nlvp = NonlinearVariationalProblem(ufl.replace(problem.F, F_replace_map),
+        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u_restrict],
                                            bcs=problem.bcs,
-                                           J=ufl.replace(problem.J, J_replace_map))
+                                           J=replace(problem.J, J_replace_map))
         nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
@@ -385,7 +481,7 @@ class NonlinearVariationalSolverMixin:
         _ad_count_map, J_replace_map, _ = self._build_count_map(
             adj_F, block._dependencies)
         lvp = LinearVariationalProblem(
-            ufl.replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
+            replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
         lvp._ad_count_map_update(_ad_count_map)
