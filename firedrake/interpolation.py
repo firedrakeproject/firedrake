@@ -388,108 +388,80 @@ class CrossMeshInterpolator(Interpolator):
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
 
         # Get expression for point evaluation at the dest_node_coords
-        P0DG_vom = fs_type(self.vom, "DG", 0)
-        self.point_eval = interpolate(self.operand, P0DG_vom)
+        self.P0DG_vom = fs_type(self.vom, "DG", 0)
+        self.point_eval = interpolate(self.operand, self.P0DG_vom)
 
         if self.rank == 2:
             # If assembling the operator, we need the concrete permutation matrix
             self.matfree = False
 
         # Interpolate into the input-ordering VOM
-        P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
-        self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o, matfree=self.matfree)
+        self.P0DG_vom_input_ordering = fs_type(self.vom.input_ordering, "DG", 0)
+        self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(self.P0DG_vom), 
+                                                     self.P0DG_vom_input_ordering, matfree=self.matfree)
 
-    @PETSc.Log.EventDecorator()
     def _interpolate(self, output=None):
-        """Compute the interpolation.
-        """
         from firedrake.assemble import assemble
-        adjoint = self.expr.is_adjoint
-        if adjoint: 
-            f_src = self.dual_arg
+        if self.expr.is_adjoint: 
+            f = self.dual_arg
             V_dest = self.expr_args[0].function_space().dual()
         else:
-            f_src = self.operand
             V_dest = self.V_dest
 
         output = output or Function(V_dest)
 
-        if not adjoint:
-            # f_src is already contained in self.point_eval_interpolate
-            f_src_at_dest_node_coords_src_mesh_decomp = assemble(self.point_eval)
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.point_eval_input_ordering.function_space()
-            )
-            # We have to create the Function before interpolating so we can
-            # set default missing values (if requested).
+        if not self.expr.is_adjoint:
+            # We evaluate the operand at the node coordinates of the destination space
+            f_point_eval = assemble(self.point_eval)
+
+            # We create the input-ordering Function before interpolating so we can
+            # set default missing values if required.
+            f_point_eval_input_ordering = Function(self.P0DG_vom_input_ordering)
             if self.default_missing_val is not None:
-                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
-                    :
-                ] = self.default_missing_val
+                f_point_eval_input_ordering.dat.data_wo[:] = self.default_missing_val
             elif self.allow_missing_dofs:
-                # If we have allowed missing points we know we might end up
-                # with points in the target mesh that are not in the source
-                # mesh. However, since we haven't specified a default missing
-                # value we expect the interpolation to leave these points
-                # unchanged. By setting the dat values to NaN we can later
-                # identify these points and skip over them when assigning to
-                # the output function.
-                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
+                # If we allow missing points there may be points in the target
+                # mesh that are not in the source mesh. If we don't specify a 
+                # default missing value we set these to NaN so we can identify 
+                # them later.
+                f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
-            interp = action(self.point_eval_input_ordering, f_src_at_dest_node_coords_src_mesh_decomp)
-            assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
+            assemble(action(self.point_eval_input_ordering, f_point_eval), 
+                     tensor=f_point_eval_input_ordering)
 
-            # we can now confidently assign this to a function on V_dest
+            # We assign these values to the output function
             if self.allow_missing_dofs and self.default_missing_val is None:
-                indices = numpy.where(
-                    ~numpy.isnan(f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro)
-                )[0]
-                output.dat.data_wo[
-                    indices
-                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[indices]
+                indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
+                output.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
             else:
-                output.dat.data_wo[
-                    :
-                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[:]
-
+                output.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
+            
+            if self.rank == 0:
+                # We take the action of the dual_arg on the interpolated function
+                assert not isinstance(self.dual_arg, ufl.Coargument)
+                return assemble(action(self.dual_arg, output))
         else:
-            # adjoint interpolation
-
-            # f_src is a cofunction on V_dest.dual as originally specified when
-            # creating the interpolator. Our first adjoint operation is to
-            # assign the dat values to a P0DG cofunction on our input ordering
-            # VOM. This has the parallel decomposition V_dest on our orinally
-            # specified dest_mesh. We can therefore safely create a P0DG
-            # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
-                self.point_eval_input_ordering.function_space().dual()
-            )
-            f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
+            # f_src is a cofunction on V_dest.dual
+            assert isinstance(f, Cofunction)
+            # Our first adjoint operation is to assign the dat values to a 
+            # P0DG cofunction on our input ordering VOM.
+            f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
+            f_input_ordering.dat.data_wo[
                 :
-            ] = f_src.dat.data_ro[:]
+            ] = f.dat.data_ro[:]
 
-            # The rest of the adjoint interpolation is merely the composition
-            # of the adjoint interpolators in the reverse direction. NOTE: I
-            # don't have to worry about skipping over missing points here
-            # because I'm going from the input ordering VOM to the original VOM
+            # The rest of the adjoint interpolation is the composition
+            # of the adjoint interpolators in the reverse direction.
+            # We don't worry about skipping over missing points here
+            # because we're going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            interp = action(expr_adjoint(self.point_eval_input_ordering), f_src_at_dest_node_coords_dest_mesh_decomp)
+            interp = action(expr_adjoint(self.point_eval_input_ordering), f_input_ordering)
             f_src_at_src_node_coords = assemble(interp)
-            # NOTE: if I wanted the default missing value to be applied to
-            # adjoint interpolation I would have to do it here. However,
-            # this would require me to implement default missing values for
-            # adjoint interpolation from a point evaluation interpolator
-            # which I haven't done. I wonder if it is necessary - perhaps the
-            # adjoint operator always sets all the values of the resulting
-            # cofunction? My initial attempt to insert setting the dat values
-            # prior to performing the multHermitian operation in
-            # SameMeshInterpolator.interpolate did not effect the result. For
-            # now, I say in the docstring that it only applies to forward
-            # interpolation.
+
+            # We don't need to take the adjoint of self.point_eval because
+            # it was constructed using self.operand
             interp = action(self.point_eval, f_src_at_src_node_coords)
             assemble(interp, tensor=output)
-
         return output
 
 
@@ -1423,7 +1395,7 @@ class MixedInterpolator(Interpolator):
             self.expr = self.expr._ufl_expr_reconstruct_(self.operand, self.V_dest)
 
         Isub = {}
-        for indices, form in firedrake.formmanipulation.split_form(expr):
+        for indices, form in firedrake.formmanipulation.split_form(self.expr):
             if isinstance(form, ufl.ZeroBaseForm):
                 # Ensure block sparsity
                 continue
@@ -1460,10 +1432,10 @@ class MixedInterpolator(Interpolator):
         tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
         return tensor.M
 
-    def _interpolate(self, output=None, **kwargs):
+    def _interpolate(self, output=None):
         """Assemble the action."""
         if self.rank == 0:
-            result = sum(self[i].assemble(**kwargs) for i in self)
+            result = sum(self[i].assemble() for i in self)
             return output.assign(result) if output else result
 
         if output is None:
@@ -1471,10 +1443,10 @@ class MixedInterpolator(Interpolator):
 
         if self.rank == 1:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i].assemble(**kwargs) for i in self if i[0] == k))
+                sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
         elif self.rank == 2:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i]._interpolate(**kwargs)
+                sub_tensor.assign(sum(self[i]._interpolate()
                                       for i in self if i[0] == k))
         return output
  
