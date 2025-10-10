@@ -177,7 +177,7 @@ class Interpolator(abc.ABC):
         self.rank = len(self.expr_args)
         self.operand = operand
         self.dual_arg = dual_arg
-        self.V_dest = self.expr.target_space
+        self.V_dest = dual_arg.function_space().dual()
         self.target_mesh = as_domain(self.V_dest)
         self.source_mesh = extract_unique_domain(operand) or self.target_mesh
 
@@ -1414,7 +1414,8 @@ class MixedInterpolator(Interpolator):
     def __init__(self, expr, bcs=None):
         super().__init__(expr, bcs=bcs)
 
-        needs_action = len([a for a in self.expr_args if isinstance(a, Coargument)]) == 0
+        # We need a Coargument in order to split the Interpolate
+        needs_action = not any(isinstance(a, Coargument) for a in self.expr_args)
         if needs_action:
             # Split the dual argument
             dual_split = dict(firedrake.formmanipulation.split_form(self.dual_arg))
