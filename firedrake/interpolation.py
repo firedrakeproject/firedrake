@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms import extract_arguments
 from ufl.domain import as_domain, extract_unique_domain
 from ufl.classes import Expr
 
@@ -26,7 +26,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils
-from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
+from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
