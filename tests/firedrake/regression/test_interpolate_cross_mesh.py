@@ -696,6 +696,7 @@ def test_interpolate_matrix_cross_mesh():
     assert f_interp3.function_space() == V
     assert np.allclose(f_interp3.dat.data_ro, g.dat.data_ro)
 
+
 @pytest.mark.parallel([1, 3])
 def test_interpolate_matrix_cross_mesh_adjoint():
     mesh_fine = UnitSquareMesh(4, 4)
