@@ -350,7 +350,7 @@ def test_submesh_assemble_cell_facet_integral_various():
     #          |
     #          1
     #
-    distribution_parameters={
+    distribution_parameters = {
         "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
     }
     subdomain_id = 777
@@ -453,7 +453,7 @@ def _test_submesh_assemble_quad_triangle_base():
     ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     A_t = assemble(Constant(1) * dx_t)
     A_q = assemble(Constant(1) * dx_q)
-    assert abs(A_t + A_q -1.0) < 1.e-13
+    assert abs(A_t + A_q - 1.0) < 1.e-13
     HDiv_t = FunctionSpace(mesh_t, "BDM", 3)
     HDiv_q = FunctionSpace(mesh_q, "RTCF", 3)
     hdiv_t = Function(HDiv_t).interpolate(as_vector([x_t**2, y_t**2]))
@@ -514,8 +514,6 @@ def test_submesh_assemble_quad_triangle():
     v = TestFunction(V)
     u_t, u_q = split(u)
     v_t, v_q = split(v)
-    dx_t = Measure("dx", mesh_t)
-    dx_q = Measure("dx", mesh_q)
     ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
     ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     # Test against the base cases.

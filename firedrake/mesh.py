@@ -1848,7 +1848,6 @@ class ExtrudedMeshTopology(MeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
         label = f"{kind}_facets"
         base = getattr(self._base_mesh, label)
-        size = base.classes
         layers = self.entity_layers(1, label)
         set_ = op2.ExtrudedSet(base.set, layers=layers)
         return _Facets(self, base.facets, base.classes, set_,
@@ -4979,8 +4978,7 @@ class MeshSequenceTopology(object):
         return CellSequence([m.ufl_cell() for m in self._meshes])
 
     def ufl_mesh(self):
-        cell = self.ufl_cell()
-        dim = max(cell.topological_dimension() for cell in self.ufl_cell().cells)#???
+        dim = self.ufl_cell().topological_dimension()
         return ufl.MeshSequence(
             [ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=dim))
              for cell in self.ufl_cell().cells]

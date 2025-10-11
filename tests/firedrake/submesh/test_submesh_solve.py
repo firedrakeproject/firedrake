@@ -503,21 +503,19 @@ def _test_submesh_solve_quad_triangle_poisson(nref, degree):
     f_t = 8 * pi**2 * g_t
     f_q = 8 * pi**2 * g_q
     a = (
-        inner(grad(u_t), grad(v_t)) * dx_t +
-        inner(grad(u_q), grad(v_q)) * dx_q
-        -inner(
+        inner(grad(u_t), grad(v_t)) * dx_t + inner(grad(u_q), grad(v_q)) * dx_q
+        - inner(
             (grad(u_q) + grad(u_t)) / 2,
             (v_q * n_q + v_t * n_t)
         ) * ds_q(label_interf)
-        -inner(
+        - inner(
             (u_q * n_q + u_t * n_t),
             (grad(v_q) + grad(v_t)) / 2
         ) * ds_t(label_interf)
         + 100 / h * inner(u_q - u_t, v_q - v_t) * ds_q(label_interf)
     )
     L = (
-        inner(f_t, v_t) * dx_t +
-        inner(f_q, v_q) * dx_q
+        inner(f_t, v_t) * dx_t + inner(f_q, v_q) * dx_q
     )
     sol = Function(V)
     bc_q = DirichletBC(V.sub(1), g_q, label_ext)
@@ -525,8 +523,8 @@ def _test_submesh_solve_quad_triangle_poisson(nref, degree):
     sol_t, sol_q = split(sol)
     L2Error_t = assemble(inner(sol_t - g_t, sol_t - g_t) * dx_t)
     L2Error_q = assemble(inner(sol_q - g_q, sol_q - g_q) * dx_q)
-    H1Error_t = L2Error_t + assemble(inner(grad(sol_t - g_t), grad(sol_t - g_t))* dx_t)
-    H1Error_q = L2Error_q + assemble(inner(grad(sol_q - g_q), grad(sol_q - g_q))* dx_q)
+    H1Error_t = L2Error_t + assemble(inner(grad(sol_t - g_t), grad(sol_t - g_t)) * dx_t)
+    H1Error_q = L2Error_q + assemble(inner(grad(sol_q - g_q), grad(sol_q - g_q)) * dx_q)
     return sqrt(L2Error_t + L2Error_q), sqrt(H1Error_t + H1Error_q)
 
 
@@ -550,11 +548,11 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
         "partition": True,
         "overlap_type": (DistributedMeshOverlapType.NONE, 0),
     }
-    distribution_parameters={
+    distribution_parameters = {
         "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
     }
     dim = 3
-    interf_at = 0.499  # 0.318310
+    interf_at = 0.499
     if simplex:
         nref_simplex = 3
         mesh = BoxMesh(2 ** nref_simplex, 2 ** nref_simplex, 2 ** nref_simplex, 1., 1., 1., hexahedral=False, distribution_parameters=distribution_parameters_noop)
@@ -594,9 +592,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     mesh12 = Submesh(mesh2, dim - 1, label_interf)
     dx1 = Measure("dx", mesh1)
     dx2 = Measure("dx", mesh2)
-    dx12 = Measure("dx", mesh12)
     ds1_ds2 = Measure("ds", mesh1, intersect_measures=(Measure("ds", mesh2),))
-    ds2_dx12 = Measure("ds", mesh2, intersect_measures=(Measure("dx", mesh12),))
     dx12_ds1_ds2 = Measure(
         "dx", mesh12,
         intersect_measures=(
@@ -625,8 +621,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     n2 = FacetNormal(mesh2)
     h = 0.1 / 2**nref  # roughly
     a = (
-        inner(grad(u1), grad(v1)) * dx1 +
-        inner(grad(u2), grad(v2)) * dx2
+        inner(grad(u1), grad(v1)) * dx1 + inner(grad(u2), grad(v2)) * dx2
         - inner(
             u12,
             (v1 - v2)
@@ -642,13 +637,12 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
         ) * dx12_ds1_ds2
     )
     L = (
-        inner(f1, v1) * dx1 +
-        inner(f2, v2) * dx2
+        inner(f1, v1) * dx1 + inner(f2, v2) * dx2
     )
     sol = Function(V)
     bc1 = DirichletBC(V.sub(0), g1, [i for i in range(1, 7) if i != 2 * direction + 2])
     bc2 = DirichletBC(V.sub(2), g2, [i for i in range(1, 7) if i != 2 * direction + 1])
-    solver_parameters={
+    solver_parameters = {
         "mat_type": "matfree",
         "ksp_type": "preonly",
         "pc_type": "fieldsplit",
@@ -667,9 +661,9 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     sol1, sol12, sol2 = split(sol)
     L2Error1 = assemble(inner(sol1 - g1, sol1 - g1) * dx1)
     L2Error2 = assemble(inner(sol2 - g2, sol2 - g2) * dx2)
-    H1Error1 = L2Error1 + assemble(inner(grad(sol1 - g1), grad(sol1 - g1))* dx1)
-    H1Error2 = L2Error2 + assemble(inner(grad(sol2 - g2), grad(sol2 - g2))* dx2)
-    return sqrt(L2Error1 + L2Error2), sqrt(H1Error2 + H1Error2)
+    H1Error1 = L2Error1 + assemble(inner(grad(sol1 - g1), grad(sol1 - g1)) * dx1)
+    H1Error2 = L2Error2 + assemble(inner(grad(sol2 - g2), grad(sol2 - g2)) * dx2)
+    return sqrt(L2Error1 + L2Error2), sqrt(H1Error1 + H1Error2)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -701,13 +695,12 @@ def test_submesh_solve_3d_2d_poisson_convergence(simplex, direction, degree):
 
 
 @pytest.mark.parallel(nprocs=7)
-@pytest.mark.parametrize('quadrilateral', [True])
-def test_submesh_solve_2d_1d_poisson_hermite(quadrilateral):
+def test_submesh_solve_2d_1d_poisson_hermite():
     distribution_parameters_noop = {
         "partition": True,
         "overlap_type": (DistributedMeshOverlapType.NONE, 0),
     }
-    distribution_parameters={
+    distribution_parameters = {
         "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
     }
     mesh3d = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"), distribution_parameters=distribution_parameters_noop)

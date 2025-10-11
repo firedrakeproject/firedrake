@@ -1112,6 +1112,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
         rows_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
         columns_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
+
         lgmaps = None
         if bcs:
             if ufl.duals.is_dual(Vrow):

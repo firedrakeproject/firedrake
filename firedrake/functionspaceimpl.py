@@ -13,6 +13,7 @@ import numpy
 import ufl
 import finat.ufl
 
+from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
 from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
@@ -52,11 +53,10 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
-    if isinstance(element.cell, ufl.cell.CellSequence):
-        # vector element of mixed eleemtns
-        # tests/firedrake/regression/test_function_spaces.py::test_validation
-        pass
-    elif element.cell.cellname() == "hexahedron" and \
+    if isinstance(element.cell, CellSequence) and \
+       type(element) is not finat.ufl.MixedElement:
+        raise ValueError("MixedElement modifier must be outermost")
+    if element.cell.cellname() == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
