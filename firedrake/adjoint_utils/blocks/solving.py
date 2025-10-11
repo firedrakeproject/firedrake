@@ -176,34 +176,44 @@ class CachedSolverBlock(Block):
         result = solver._problem.u.copy(deepcopy=True)
         return result
 
-    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        self.update_dependencies(use_output=True)
-        self.update_adj_dependencies()
-
+    def solve_adj_equation(self, rhs, compute_boundary):
         for bc in self.bcs:
             bc.homogenize()
 
         solver = self.cached_solvers[ADJOINT]
         adj_sol = solver._problem.u
 
-        dJdu = adj_inputs[0]
-        self.adj_rhs.assign(dJdu)
+        self.adj_rhs.assign(rhs)
         adj_sol.zero()
 
         solver.solve()
 
-        # store this for Hessian computation
-        self.adj_sol.assign(adj_sol)
-        self.adj_sol_buf.assign(adj_sol)
-
-        if self._compute_boundary(relevant_dependencies):
+        if compute_boundary:
             adj_sol_bc = firedrake.assemble(self.adj_residual)
             adj_sol_bc = adj_sol_bc.riesz_representation("l2")
         else:
             adj_sol_bc = None
 
+        return adj_sol, adj_sol_bc
+
+    def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
+        self.update_dependencies(use_output=True)
+        self.update_adj_dependencies()
+
+        dJdu = adj_inputs[0]
+
+        compute_boundary = self._compute_boundary(relevant_dependencies)
+
+        adj_sol, adj_sol_bc = self.solve_adj_equation(dJdu, compute_boundary)
+
+        # store adj_sol for Hessian computation later.
+        # self.adj_sol is shared between all blocks that this NLVS
+        # generates so we can't store it there. Instead store it
+        # in self.adj_sol_buf which is owned by this block only.
+        self.adj_sol_buf.assign(adj_sol)
+
         prepared = {
-            "adj_sol": adj_sol,
+            "adj_sol": adj_sol.copy(deepcopy=True),
             "adj_sol_bc": adj_sol_bc
         }
         return prepared
@@ -240,11 +250,11 @@ class CachedSolverBlock(Block):
         # 1. Assemble rhs
 
         # hessian input contribution
-        self.adj_rhs.assign(hessian_input)
+        hessian_rhs = hessian_input.copy(deepcopy=True)
 
         # tlm_output contribution
         self.tlm_output.assign(tlm_output)
-        self.adj_rhs -= firedrake.assemble(self.d2Fdu2_form)
+        hessian_rhs -= firedrake.assemble(self.d2Fdu2_form)
 
         # tlm_input contribution
         for d2Fdmdu, dep in zip(self.d2Fdmdu_forms,
@@ -254,22 +264,17 @@ class CachedSolverBlock(Block):
             if dep.output is self.func:  # and not self.linear  # Can't compute dependence on initial guess
                 continue
             if len(d2Fdmdu.integrals()) > 0:
-                self.adj_rhs -= firedrake.assemble(d2Fdmdu)
+                hessian_rhs -= firedrake.assemble(d2Fdmdu)
 
         # 2. Solve adjoint system
-        for bc in self.bcs:
-            bc.homogenize()
-
-        solver = self.cached_solvers[ADJOINT]
-        adj2_sol = solver._problem.u
-        adj2_sol.zero()
-        solver.solve()
+        compute_boundary = self._compute_boundary(relevant_dependencies)
+        adj2_sol, adj2_sol_bc = self.solve_adj_equation(hessian_rhs, compute_boundary)
 
         self.adj2_sol.assign(adj2_sol)
 
         prepared = {
             "adj2_sol": adj2_sol.copy(deepcopy=True),
-            "adj2_sol_bc": None,
+            "adj2_sol_bc": adj2_sol_bc,
         }
 
         return prepared
@@ -280,9 +285,16 @@ class CachedSolverBlock(Block):
         if m is self.func:  # and not self.linear
             return None
 
+        if isinstance(m, firedrake.DirichletBC):
+            bc = block_variable.output
+            adj2_sol_bc = prepared["adj2_sol_bc"]
+            return bc.reconstruct(
+                g=extract_subfunction(adj2_sol_bc, bc.function_space())
+            )
+
         relevant_d2Fdm2_forms = []
         for i, dep in relevant_dependencies:
-            if i >= len(self.replaced_dependencies):
+            if i >= len(self._coefficient_dependencies()):
                 continue
             if dep.tlm_value is None:
                 continue
