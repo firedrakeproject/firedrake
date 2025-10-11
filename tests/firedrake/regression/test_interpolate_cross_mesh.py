@@ -339,12 +339,18 @@ def test_exact_refinement():
     expr_in_V_fine = x**2 + y**2 + 1
     f_fine = Function(V_fine).interpolate(expr_in_V_fine)
 
+    # Build interpolation matrices in both directions
+    coarse_to_fine = assemble(interpolate(TrialFunction(V_coarse), V_fine))
+    coarse_to_fine_adjoint = assemble(interpolate(TestFunction(V_coarse), TrialFunction(V_fine.dual())))
+
     # If we now interpolate f_coarse into V_fine we should get a function
     # which has no interpolation error versus f_fine because we were able to
     # exactly represent expr_in_V_coarse in V_coarse and V_coarse is a subset
     # of V_fine
     f_coarse_on_fine = assemble(interpolate(f_coarse, V_fine))
     assert np.allclose(f_coarse_on_fine.dat.data_ro, f_fine.dat.data_ro)
+    f_coarse_on_fine_mat = assemble(coarse_to_fine @ f_coarse)
+    assert np.allclose(f_coarse_on_fine_mat.dat.data_ro, f_fine.dat.data_ro)
 
     # Adjoint interpolation takes us from V_fine^* to V_coarse^* so we should
     # also get an exact result here.
@@ -353,6 +359,10 @@ def test_exact_refinement():
     cofunction_fine_on_coarse = assemble(interpolate(TestFunction(V_coarse), cofunction_fine))
     assert np.allclose(
         cofunction_fine_on_coarse.dat.data_ro, cofunction_coarse.dat.data_ro
+    )
+    cofunction_fine_on_coarse_mat = assemble(action(coarse_to_fine_adjoint, cofunction_fine))
+    assert np.allclose(
+        cofunction_fine_on_coarse_mat.dat.data_ro, cofunction_coarse.dat.data_ro
     )
 
     # Now we test with expressions which are NOT exactly representable in the
@@ -686,7 +696,7 @@ def test_interpolate_matrix_cross_mesh():
     assert f_interp3.function_space() == V
     assert np.allclose(f_interp3.dat.data_ro, g.dat.data_ro)
 
-
+@pytest.mark.parallel([1, 3])
 def test_interpolate_matrix_cross_mesh_adjoint():
     mesh_fine = UnitSquareMesh(4, 4)
     mesh_coarse = UnitSquareMesh(2, 2)
