@@ -9,7 +9,7 @@ import gem
 import numpy
 import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
-from FIAT.reference_element import UFCHexahedron, UFCSimplex, make_affine_mapping
+from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
@@ -31,9 +31,11 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
+from ufl.algorithms import extract_arguments
 
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
@@ -50,9 +52,7 @@ class ContextBase(ProxyKernelInterface):
     keywords = (
         'ufl_cell',
         'fiat_cell',
-        'integral_type',
         'integration_dim',
-        'entity_ids',
         'argument_multiindices',
         'facetarea',
         'index_cache',
@@ -74,9 +74,11 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def integration_dim(self):
-        return self.fiat_cell.get_dimension()
-
-    entity_ids = [0]
+        domain, integral_type = tuple(self.domain_integral_type_map.items())[0]
+        cell = domain.ufl_cell()
+        fiat_cell = as_fiat_cell(cell)
+        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
+        return integration_dim
 
     @cached_property
     def epsilon(self):
@@ -86,7 +88,7 @@ class ContextBase(ProxyKernelInterface):
     def complex_mode(self):
         return is_complex(self.scalar_type)
 
-    def entity_selector(self, callback, restriction):
+    def entity_selector(self, callback, domain, restriction):
         """Selects code for the correct entity at run-time.  Callback
         generates code for a specified entity.
 
@@ -97,11 +99,11 @@ class ContextBase(ProxyKernelInterface):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        if len(self.entity_ids) == 1:
-            return callback(self.entity_ids[0])
+        if len(self.entity_ids(domain)) == 1:
+            return callback(self.entity_ids(domain)[0])
         else:
-            f = self.entity_number(restriction)
-            return gem.select_expression(list(map(callback, self.entity_ids)), f)
+            f = self.entity_number(domain, restriction)
+            return gem.select_expression(list(map(callback, self.entity_ids(domain))), f)
 
     argument_multiindices = ()
 
@@ -119,7 +121,54 @@ class ContextBase(ProxyKernelInterface):
         # Directly set use_canonical_quadrature_point_ordering = False in context
         # for translation of special nodes, e.g., CellVolume, FacetArea, CellOrigin, and CellVertices,
         # as quadrature point ordering is not relevant for those node types.
-        return isinstance(self.fiat_cell, UFCHexahedron) and self.integral_type in ['exterior_facet', 'interior_facet']
+        cell_integral_type_map = {
+            as_fiat_cell(domain.ufl_cell()): integral_type
+            for domain, integral_type in self.domain_integral_type_map.items()
+            if integral_type is not None
+        }
+        if all(integral_type == 'cell' for integral_type in cell_integral_type_map.values()):
+            return False
+        elif all(integral_type in ['exterior_facet', 'interior_facet'] for integral_type in cell_integral_type_map.values()):
+            if all(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map):
+                return True
+            elif len(set(cell_integral_type_map)) > 1:  # mixed cell types
+                return True
+        elif any(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map) and \
+                any(isinstance(cell, UFCQuadrilateral) for cell in cell_integral_type_map):
+            return True
+        return False
+
+
+class CellKernelInterface(ProxyKernelInterface):
+    # For a single-domain cell integration kernel.
+
+    def __init__(self, wrapee, domain):
+        super().__init__(wrapee)
+        self._domain = domain
+
+    def entity_ids(self, domain):
+        if domain is not self._domain:
+            raise ValueError(f"{domain} != {self._domain}")
+        return (0,)
+
+    @cached_property
+    def domain_integral_type_map(self):
+        return {self._domain: "cell"}
+
+
+class CellVolumeKernelInterface(CellKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee, domain, restriction):
+        super().__init__(wrapee, domain)
+        self.restriction = restriction
+
+    def coefficient(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -144,7 +193,8 @@ class CoordinateMapping(PhysicalGeometry):
         :arg context: The translation context.
         :returns: A new UFL expression
         """
-        ifacet = self.interface.integral_type.startswith("interior_facet")
+        domain = extract_unique_domain(self.mt.terminal)
+        ifacet = self.interface.domain_integral_type_map[domain].startswith("interior_facet")
         return preprocess_expression(expr, complex_mode=context.complex_mode,
                                      do_apply_restrictions=ifacet)
 
@@ -155,7 +205,7 @@ class CoordinateMapping(PhysicalGeometry):
         config["interface"] = self.interface
         return config
 
-    def translate_point_expression(self, expr, point=None):
+    def translate_point_expression(self, expr, point=None, interface=None):
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -168,20 +218,26 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        if interface:
+            config.update(interface=interface)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
 
     def cell_size(self):
-        return self.interface.cell_size(self.mt.restriction)
+        return self.interface.cell_size(extract_unique_domain(self.mt.terminal), self.mt.restriction)
 
     def jacobian_at(self, point):
-        expr = Jacobian(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        domain = extract_unique_domain(self.mt.terminal)
+        expr = Jacobian(domain)
+        interface = CellKernelInterface(self.interface, domain)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def detJ_at(self, point):
-        expr = JacobianDeterminant(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        domain = extract_unique_domain(self.mt.terminal)
+        expr = JacobianDeterminant(domain)
+        interface = CellKernelInterface(self.interface, domain)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def reference_normals(self):
         cell = self.interface.fiat_cell
@@ -244,7 +300,7 @@ class CoordinateMapping(PhysicalGeometry):
         config.update(self.config)
         if entity is not None:
             config.update({name: getattr(self.interface, name)
-                           for name in ["integration_dim", "entity_ids"]})
+                           for name in ["integration_dim"]})
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
@@ -275,7 +331,9 @@ def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
     ufl_element = mt.terminal.ufl_element()
     domain = extract_unique_domain(mt.terminal)
     coordinate_element = domain.ufl_coordinate_element()
-    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+    # This way of caching is fragile.
+    # Should Implement _hash_key_() for ModifiedTerminal and use the entire mt as key.
+    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction, domain._ufl_hash_data_())
 
 
 class PointSetContext(ContextBase):
@@ -351,14 +409,15 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     # Can't put these in the ufl2gem mixin, since they (unlike
     # everything else) want access to the translation context.
     def cell_avg(self, o):
-        if self.context.integral_type != "cell":
+        domain = extract_unique_domain(o)
+        integral_type = self.context.domain_integral_type_map[domain]
+        if integral_type != "cell":
             # Need to create a cell-based quadrature rule and
             # translate the expression using that (c.f. CellVolume
             # below).
             raise NotImplementedError("CellAvg on non-cell integrals not yet implemented")
         integrand, = o.ufl_operands
-        domain = extract_unique_domain(o)
-        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        measure = ufl.Measure(integral_type, domain=domain)
         integrand, degree, argument_multiindices = entity_avg(integrand / CellVolume(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
@@ -369,17 +428,17 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         return expr
 
     def facet_avg(self, o):
-        if self.context.integral_type == "cell":
+        domain = extract_unique_domain(o)
+        integral_type = self.context.domain_integral_type_map[domain]
+        if integral_type == "cell":
             raise ValueError("Can't take FacetAvg in cell integral")
         integrand, = o.ufl_operands
-        domain = extract_unique_domain(o)
-        measure = ufl.Measure(self.context.integral_type, domain=domain)
+        measure = ufl.Measure(integral_type, domain=domain)
         integrand, degree, argument_multiindices = entity_avg(integrand / FacetArea(domain), measure, self.context.argument_multiindices)
 
         config = {name: getattr(self.context, name)
                   for name in ["ufl_cell", "index_cache", "scalar_type",
-                               "integration_dim", "entity_ids",
-                               "integral_type"]}
+                               "integration_dim"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
@@ -416,7 +475,7 @@ def translate_geometricquantity(terminal, mt, ctx):
 
 @translate.register(CellOrientation)
 def translate_cell_orientation(terminal, mt, ctx):
-    return ctx.cell_orientation(mt.restriction)
+    return ctx.cell_orientation(extract_unique_domain(terminal), mt.restriction)
 
 
 @translate.register(ReferenceCellVolume)
@@ -426,7 +485,7 @@ def translate_reference_cell_volume(terminal, mt, ctx):
 
 @translate.register(ReferenceFacetVolume)
 def translate_reference_facet_volume(terminal, mt, ctx):
-    assert ctx.integral_type != "cell"
+    assert ctx.domain_integral_type_map[extract_unique_domain(terminal)] != "cell"
     # Sum of quadrature weights is entity volume
     return gem.optimise.aggressive_unroll(gem.index_sum(ctx.weight_expr,
                                                         ctx.point_indices))
@@ -440,7 +499,7 @@ def translate_cell_facet_jacobian(terminal, mt, ctx):
 
     def callback(entity_id):
         return gem.Literal(make_cell_facet_jacobian(cell, facet_dim, entity_id))
-    return ctx.entity_selector(callback, mt.restriction)
+    return ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
 
 
 def make_cell_facet_jacobian(cell, facet_dim, facet_i):
@@ -462,10 +521,13 @@ def make_cell_facet_jacobian(cell, facet_dim, facet_i):
 
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
+    fiat_cell = as_fiat_cell(domain.ufl_cell())
+
     def callback(facet_i):
-        n = ctx.fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
+        n = fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
         return gem.Literal(n)
-    return ctx.entity_selector(callback, mt.restriction)
+    return ctx.entity_selector(callback, domain, mt.restriction)
 
 
 @translate.register(ReferenceCellEdgeVectors)
@@ -498,7 +560,7 @@ def translate_cell_coordinate(terminal, mt, ctx):
         data = numpy.asarray(list(map(t, ps.points)))
         return gem.Literal(data.reshape(point_shape + data.shape[1:]))
 
-    return gem.partial_indexed(ctx.entity_selector(callback, mt.restriction),
+    return gem.partial_indexed(ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction),
                                ps.indices)
 
 
@@ -520,42 +582,33 @@ def translate_spatialcoordinate(terminal, mt, ctx):
     return ctx.translator(expr)
 
 
-class CellVolumeKernelInterface(ProxyKernelInterface):
-    # Since CellVolume is evaluated as a cell integral, we must ensure
-    # that the right restriction is applied when it is used in an
-    # interior facet integral.  This proxy diverts coefficient
-    # translation to use a specified restriction.
-
-    def __init__(self, wrapee, restriction):
-        ProxyKernelInterface.__init__(self, wrapee)
-        self.restriction = restriction
-
-    def coefficient(self, ufl_coefficient, r):
-        assert r is None
-        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
-
-
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
-    integrand, degree = one_times(ufl.dx(domain=extract_unique_domain(terminal)))
-    interface = CellVolumeKernelInterface(ctx, mt.restriction)
+    domain = extract_unique_domain(terminal)
+    integrand, degree = one_times(ufl.dx(domain=domain))
+    interface = CellVolumeKernelInterface(ctx, domain, mt.restriction)
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=interface, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
+    config.update(
+        interface=interface,
+        quadrature_degree=degree,
+        use_canonical_quadrature_point_ordering=False,
+    )
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
 
 @translate.register(FacetArea)
 def translate_facetarea(terminal, mt, ctx):
-    assert ctx.integral_type != 'cell'
     domain = extract_unique_domain(terminal)
-    integrand, degree = one_times(ufl.Measure(ctx.integral_type, domain=domain))
+    integral_type = ctx.domain_integral_type_map[domain]
+    assert integral_type != 'cell'
+    integrand, degree = one_times(ufl.Measure(integral_type, domain=domain))
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "integration_dim", "scalar_type",
-                           "entity_ids", "index_cache"]}
+                           "index_cache"]}
     config.update(interface=ctx, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
@@ -577,13 +630,18 @@ def translate_cellorigin(terminal, mt, ctx):
 
 @translate.register(CellVertices)
 def translate_cell_vertices(terminal, mt, ctx):
-    coords = SpatialCoordinate(extract_unique_domain(terminal))
+    domain = extract_unique_domain(terminal)
+    coords = SpatialCoordinate(domain)
     ufl_expr = construct_modified_terminal(mt, coords)
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
-
+    interface = CellKernelInterface(ctx, domain)
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=ctx, point_set=ps, use_canonical_quadrature_point_ordering=False)
+    config.update(
+        interface=interface,
+        point_set=ps,
+        use_canonical_quadrature_point_ordering=False,
+    )
     context = PointSetContext(**config)
     expr = context.translator(ufl_expr)
 
@@ -649,10 +707,10 @@ def translate_argument(terminal, mt, ctx):
         # A numerical hack that FFC used to apply on FIAT tables still
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
-    table = ctx.entity_selector(callback, mt.restriction)
+    table = ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
@@ -666,6 +724,7 @@ def translate_constant_value(terminal, mt, ctx):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
@@ -676,7 +735,7 @@ def translate_coefficient(terminal, mt, ctx):
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
-    for entity_id in ctx.entity_ids:
+    for entity_id in ctx.entity_ids(domain):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
@@ -688,14 +747,14 @@ def translate_coefficient(terminal, mt, ctx):
                 per_derivative[alpha].append(table)
 
     # Merge entity tabulations for each derivative
-    if len(ctx.entity_ids) == 1:
+    if len(ctx.entity_ids(domain)) == 1:
         def take_singleton(xs):
             x, = xs  # asserts singleton
             return x
         per_derivative = {alpha: take_singleton(tables)
                           for alpha, tables in per_derivative.items()}
     else:
-        f = ctx.entity_number(mt.restriction)
+        f = ctx.entity_number(domain, mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
                           for alpha, tables in per_derivative.items()}
 
@@ -727,13 +786,13 @@ def translate_coefficient(terminal, mt, ctx):
 
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         result = mapper(result, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return result
 
 
-def _make_quad_multiindex_permuted(mt, ctx):
+def _make_quad_multiindex_permuted(terminal, mt, ctx):
     quad_rule = ctx.quadrature_rule
     # Note that each quad index here represents quad points on a physical
     # cell axis, but the table is indexed by indices representing the points
@@ -746,7 +805,8 @@ def _make_quad_multiindex_permuted(mt, ctx):
             if len(extents) != 1:
                 raise ValueError("Must have the same number of quadrature points in each symmetric axis")
     quad_multiindex_permuted = []
-    o = ctx.entity_orientation(mt.restriction)
+    domain = extract_unique_domain(terminal)
+    o = ctx.entity_orientation(domain, mt.restriction)
     if not isinstance(o, FIATOrientation):
         raise ValueError(f"Expecting an instance of FIATOrientation : got {o}")
     eo = cell.extract_extrinsic_orientation(o)
@@ -761,27 +821,23 @@ def _make_quad_multiindex_permuted(mt, ctx):
     return tuple(quad_multiindex_permuted)
 
 
-def compile_ufl(expression, context, interior_facet=False, point_sum=False):
+def compile_ufl(expression, context, point_sum=False):
     """Translate a UFL expression to GEM.
 
     :arg expression: The UFL expression to compile.
     :arg context: translation context - either a :class:`GemPointContext`
         or :class:`PointSetContext`
-    :arg interior_facet: If ``true``, treat expression as an interior
-        facet integral (default ``False``)
     :arg point_sum: If ``true``, return a `gem.IndexSum` of the final
         gem expression along the ``context.point_indices`` (if present).
    """
 
     # Abs-simplification
     expression = simplify_abs(expression, context.complex_mode)
-    if interior_facet:
-        expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(context.argument_multiindices)):
-            expressions.append(map_expr_dag(PickRestriction(*rs), expression))
-    else:
-        expressions = [expression]
-
+    arguments = extract_arguments(expression)
+    domains = [extract_unique_domain(argument) for argument in arguments]
+    integral_types = [context.domain_integral_type_map[domain] for domain in domains]
+    rs_tuples = [("+", "-") if integral_type.startswith("interior_facet") else (None, ) for integral_type in integral_types]
+    expressions = [map_expr_dag(PickRestriction(*rs), expression) for rs in itertools.product(*rs_tuples)]
     # Translate UFL to GEM, lowering finite element specific nodes
     result = map_expr_dags(context.translator, expressions)
     if point_sum:

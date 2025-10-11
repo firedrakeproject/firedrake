@@ -10,6 +10,7 @@ from typing import Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
+from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain
 import enum
 import numbers
@@ -56,6 +57,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'VertexOnlyMeshMissingPointsError',
+    'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
 
@@ -156,13 +158,13 @@ class _Facets(object):
        The unique_markers argument **must** be the same on all processes."""
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, facets, classes, kind, facet_cell, local_facet_number,
+    def __init__(self, mesh, facets, classes, set_, kind, facet_cell, local_facet_number,
                  unique_markers=None):
 
         self.mesh = mesh
         self.facets = facets
-        classes = as_tuple(classes, int, 3)
         self.classes = classes
+        self.set = set_
 
         self.kind = kind
         assert kind in ["interior", "exterior"]
@@ -186,17 +188,6 @@ class _Facets(object):
 
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
-
-    @utils.cached_property
-    def set(self):
-        size = self.classes
-        if isinstance(self.mesh, ExtrudedMeshTopology):
-            label = "%s_facets" % self.kind
-            layers = self.mesh.entity_layers(1, label)
-            base = getattr(self.mesh._base_mesh, label).set
-            return op2.ExtrudedSet(base, layers=layers)
-        return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
-                       comm=self.mesh.comm)
 
     @utils.cached_property
     def _null_subset(self):
@@ -317,22 +308,36 @@ class _Facets(object):
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
         # Make output data;
-        # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
-        # Halo data are required by design, but not actually used.
-        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
-        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
-        data.fill(np.iinfo(dtype).max)
-        # Set local facet orientations on the block corresponding to the owned facets; i.e., data[:shape[0], :] below.
-        local_facets = self.local_facet_dat.data_ro  # do not need halos.
-        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
-        local_facets = local_facets.reshape((-1, self._rank))
-        shape = local_facets.shape
-        map_from_owned_facet_to_cells = self.facet_cell[:shape[0], :]
-        data[:shape[0], :] = np.take_along_axis(
-            map_from_cell_to_facet_orientations[map_from_owned_facet_to_cells],
-            local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
+        # this is a map from an exterior/interior facet to the corresponding
+        # local facet orientation/orientations.
+        # The local facet orientation/orientations of a halo facet is/are also
+        # used in some submesh problems.
+        #
+        #  Example:
+        #
+        #         +-------+-------+
+        #         |       |       |
+        #  meshA  |   g   g   o   |
+        #         |       |       |
+        #         +-------+-------+
+        #                 +-------+
+        #                 |       |
+        #  meshB          o   o   |    o: owned
+        #                 |       |    g: ghost
+        #                 +-------+
+        #
+        #  form = FacetNormal(meshA)[0] * ds(meshB, interface)
+        #
+        # Reshape local_facets as (-1, self._rank) to uniformly handle exterior and interior facets.
+        local_facets = self.local_facet_dat.data_ro_with_halos.reshape((-1, self._rank))
+        # Make slice for masking out rows for which orientations are not needed.
+        slice_ = (self.facet_cell != -1).all(axis=1)
+        data = np.full_like(local_facets, np.iinfo(dtype).max)
+        data[slice_, :] = np.take_along_axis(
+            map_from_cell_to_facet_orientations[self.facet_cell[slice_, :]],
+            local_facets.reshape(local_facets.shape + (1, ))[slice_, :, :],  # reshape as required by take_along_axis.
             axis=2,
-        ).reshape(shape)
+        ).reshape((-1, self._rank))
         return op2.Dat(
             self.local_facet_dat.dataset,
             data,
@@ -704,6 +709,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
+    @property
+    @abc.abstractmethod
+    def local_cell_orientation_dat(self):
+        """Local cell orientation dat."""
+        pass
+
     @abc.abstractmethod
     def _facets(self, kind):
         pass
@@ -921,6 +932,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     @utils.cached_property
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
+
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
 
     # submesh
 
@@ -1216,7 +1233,8 @@ class MeshTopology(AbstractMeshTopology):
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
         if self.submesh_parent is not None and \
-                not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral"):
+                not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral") and \
+                len(self.submesh_parent.dm_cell_types) == 1:
             # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
             # inherit cell_closure from the hex mesh as the cell_closure
             # must follow the special orientation restriction. This means
@@ -1275,14 +1293,23 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations(self):
         return dmcommon.entity_orientations(self, self.cell_closure)
 
+    @utils.cached_property
+    def local_cell_orientation_dat(self):
+        """Local cell orientation dat."""
+        return op2.Dat(
+            op2.DataSet(self.cell_set, 1),
+            self.entity_orientations[:, [-1]],
+            gem.uint_type,
+            f"{self.name}_local_cell_orientation"
+        )
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
 
         dm = self.topology_dm
-        facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets"),
-                                                       self._facet_ordering)
+        facets, classes, set_ = getattr(self, "_" + kind + "_facet_numbers_classes_set")
         label = dmcommon.FACE_SETS_LABEL
         if dm.hasLabel(label):
             from mpi4py import MPI
@@ -1306,7 +1333,7 @@ class MeshTopology(AbstractMeshTopology):
 
         point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
-        obj = _Facets(self, facets, classes, kind,
+        obj = _Facets(self, facets, classes, set_, kind,
                       facet_cell, local_facet_number,
                       unique_markers=unique_markers)
         obj.point2facetnumber = point2facetnumber
@@ -1319,6 +1346,25 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def interior_facets(self):
         return self._facets("interior")
+
+    def _facet_numbers_classes_set(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
+        # Can not call target.{interior, exterior}_facets.facets
+        # if target is a mixed cell mesh (cell_closure etc. can not be defined),
+        # so directly call dmcommon.get_facets_by_class.
+        _numbers, _classes = dmcommon.get_facets_by_class(self.topology_dm, (kind + "_facets"), self._facet_ordering)
+        _classes = as_tuple(_classes, int, 3)
+        _set = op2.Set(_classes, f"{kind.capitalize()[:3]}Facets", comm=self.comm)
+        return _numbers, _classes, _set
+
+    @utils.cached_property
+    def _exterior_facet_numbers_classes_set(self):
+        return self._facet_numbers_classes_set("exterior")
+
+    @utils.cached_property
+    def _interior_facet_numbers_classes_set(self):
+        return self._facet_numbers_classes_set("interior")
 
     @utils.cached_property
     def cell_to_facets(self):
@@ -1486,11 +1532,15 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def submesh_child_exterior_facet_parent_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.exterior_facets.set, self.submesh_parent.exterior_facets.set, self.exterior_facets.facets, self.submesh_parent.exterior_facets.facets, True)
+        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
     @utils.cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.exterior_facets.set, self.submesh_parent.interior_facets.set, self.exterior_facets.facets, self.submesh_parent.interior_facets.facets, True)
+        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
     @utils.cached_property
     def submesh_child_interior_facet_parent_exterior_facet_map(self):
@@ -1498,7 +1548,19 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.interior_facets.set, self.submesh_parent.interior_facets.set, self.interior_facets.facets, self.submesh_parent.interior_facets.facets, True)
+        _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
+
+    @utils.cached_property
+    def submesh_child_cell_parent_interior_facet_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
+
+    @utils.cached_property
+    def submesh_child_cell_parent_exterior_facet_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
 
     @utils.cached_property
     def submesh_parent_cell_child_cell_map(self):
@@ -1506,7 +1568,9 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.submesh_parent.exterior_facets.set, self.exterior_facets.set, self.submesh_parent.exterior_facets.facets, self.exterior_facets.facets, False)
+        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
     @utils.cached_property
     def submesh_parent_exterior_facet_child_interior_facet_map(self):
@@ -1514,11 +1578,25 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets.set, self.exterior_facets.set, self.submesh_parent.interior_facets.facets, self.exterior_facets.facets, False)
+        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
     @utils.cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
-        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets.set, self.interior_facets.set, self.submesh_parent.interior_facets.facets, self.interior_facets.facets, False)
+        _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+
+    @utils.cached_property
+    def submesh_parent_exterior_facet_child_cell_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
+
+    @utils.cached_property
+    def submesh_parent_interior_facet_child_cell_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.
@@ -1548,20 +1626,52 @@ class MeshTopology(AbstractMeshTopology):
             target = self.submesh_parent
         target_dim = target.topology_dm.getDimension()
         source_dim = source.topology_dm.getDimension()
-        if source_dim != target_dim:
-            raise NotImplementedError(f"Not implemented for (source_dim, target_dim) == ({source_dim}, {target_dim})")
-        if source_integral_type == "cell":
-            target_integral_type = "cell"
-            target_subset_points = None
-        elif source_integral_type in ["interior_facet", "exterior_facet"]:
+        if target_dim == source_dim:
+            if source_integral_type == "cell":
+                target_integral_type_temp = "cell"
+            elif source_integral_type in ["interior_facet", "exterior_facet"]:
+                target_integral_type_temp = "facet"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        elif target_dim - 1 == source_dim:
+            if source_integral_type == "cell":
+                target_integral_type_temp = "facet"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        elif target_dim == source_dim - 1:
+            if source_integral_type in ["interior_facet", "exterior_facet"]:
+                target_integral_type_temp = "cell"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        else:
+            raise NotImplementedError("Unsupported combination")
+        if target_integral_type_temp == "cell":
+            _cell_numbers = target.cell_closure[:, -1]
             with self.topology_dm.getSubpointIS() as subpoints:
                 if reverse:
-                    _, target_indices_int, source_indices_int = np.intersect1d(subpoints[target.interior_facets.facets], source_subset_points, return_indices=True)
-                    _, target_indices_ext, source_indices_ext = np.intersect1d(subpoints[target.exterior_facets.facets], source_subset_points, return_indices=True)
+                    _, target_indices_cell, source_indices_cell = np.intersect1d(subpoints[_cell_numbers], source_subset_points, return_indices=True)
                 else:
                     target_subset_points = subpoints[source_subset_points]
-                    _, target_indices_int, source_indices_int = np.intersect1d(target.interior_facets.facets, target_subset_points, return_indices=True)
-                    _, target_indices_ext, source_indices_ext = np.intersect1d(target.exterior_facets.facets, target_subset_points, return_indices=True)
+                    _, target_indices_cell, source_indices_cell = np.intersect1d(_cell_numbers, target_subset_points, return_indices=True)
+            n_cell = len(source_indices_cell)
+            n_cell_max = self._comm.allreduce(n_cell, op=MPI.MAX)
+            if n_cell_max > 0:
+                if n_cell > len(source_subset_points):
+                    raise RuntimeError("Found inconsistent data")
+            target_integral_type = "cell"
+            if reverse:
+                target_subset_points = _cell_numbers[target_indices_cell]
+        elif target_integral_type_temp == "facet":
+            _exterior_facet_numbers, _, _ = target._exterior_facet_numbers_classes_set
+            _interior_facet_numbers, _, _ = target._interior_facet_numbers_classes_set
+            with self.topology_dm.getSubpointIS() as subpoints:
+                if reverse:
+                    _, target_indices_int, source_indices_int = np.intersect1d(subpoints[_interior_facet_numbers], source_subset_points, return_indices=True)
+                    _, target_indices_ext, source_indices_ext = np.intersect1d(subpoints[_exterior_facet_numbers], source_subset_points, return_indices=True)
+                else:
+                    target_subset_points = subpoints[source_subset_points]
+                    _, target_indices_int, source_indices_int = np.intersect1d(_interior_facet_numbers, target_subset_points, return_indices=True)
+                    _, target_indices_ext, source_indices_ext = np.intersect1d(_exterior_facet_numbers, target_subset_points, return_indices=True)
             n_int = len(source_indices_int)
             n_ext = len(source_indices_ext)
             n_int_max = self._comm.allreduce(n_int, op=MPI.MAX)
@@ -1582,11 +1692,11 @@ class MeshTopology(AbstractMeshTopology):
                 raise RuntimeError("Can not find a map from source to target.")
             if reverse:
                 if target_integral_type == "interior_facet":
-                    target_subset_points = target.interior_facets.facets[target_indices_int]
+                    target_subset_points = _interior_facet_numbers[target_indices_int]
                 elif target_integral_type == "exterior_facet":
-                    target_subset_points = target.exterior_facets.facets[target_indices_ext]
+                    target_subset_points = _exterior_facet_numbers[target_indices_ext]
         else:
-            raise NotImplementedError(f"Not implemented for (source_dim, target_dim, source_integral_type) == ({source_dim}, {target_dim}, {source_integral_type})")
+            raise NotImplementedError
         if reverse:
             map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
         else:
@@ -1622,13 +1732,16 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError("Currenlty can not return identity map")
         else:
             if base_integral_type == "cell":
-                base_subset_points = None
+                base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
+                base_subset_points = base_mesh.cell_closure[:, -1][base_subset.indices]
             elif base_integral_type in ["interior_facet", "exterior_facet"]:
                 base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
                 if base_integral_type == "interior_facet":
-                    base_subset_points = base_mesh.interior_facets.facets[base_subset.indices]
+                    _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
+                    base_subset_points = _interior_facet_numbers[base_subset.indices]
                 elif base_integral_type == "exterior_facet":
-                    base_subset_points = base_mesh.exterior_facets.facets[base_subset.indices]
+                    _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
+                    base_subset_points = _exterior_facet_numbers[base_subset.indices]
             else:
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
@@ -1725,11 +1838,19 @@ class ExtrudedMeshTopology(MeshTopology):
     def entity_orientations(self):
         return self._base_mesh.entity_orientations
 
+    @utils.cached_property
+    def local_cell_orientation_dat(self):
+        """Local cell orientation dat."""
+        return self._base_mesh.local_cell_orientation_dat
+
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
-        base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _Facets(self, base.facets, base.classes,
+        label = f"{kind}_facets"
+        base = getattr(self._base_mesh, label)
+        layers = self.entity_layers(1, label)
+        set_ = op2.ExtrudedSet(base.set, layers=layers)
+        return _Facets(self, base.facets, base.classes, set_,
                        kind,
                        base.facet_cell,
                        base.local_facet_dat.data_ro_with_halos,
@@ -1983,6 +2104,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          cell_numbering, entity_per_cell)
 
     entity_orientations = None
+
+    @property
+    def local_cell_orientation_dat(self):
+        """Local cell orientation dat."""
+        raise NotImplementedError("Not implemented for VertexOnlyMeshTopology")
 
     def _facets(self, kind):
         """Raises an AttributeError since cells in a
@@ -2266,6 +2392,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         import firedrake.function as function
 
         self._topology = topology
+        if len(topology.dm_cell_types) > 1:
+            return
         coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                      (self.num_vertices(), self.geometric_dimension()))
@@ -2833,6 +2961,12 @@ values from f.)"""
         one can only mark cell or facet entities.
         """
         self.topology.mark_entities(f.topological, label_value, label_name)
+
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
 
 
 @PETSc.Log.EventDecorator()
@@ -4695,3 +4829,194 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         },
     )
     return submesh
+
+
+class MeshSequenceGeometry(ufl.MeshSequence):
+    """A representation of mixed mesh geometry."""
+
+    def __init__(self, meshes, set_hierarchy=True):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshGeometry`s to make `MeshSequenceGeometry` with.
+        set_hierarchy : bool
+            Flag for making hierarchy.
+
+        """
+        for m in meshes:
+            if not isinstance(m, MeshGeometry):
+                raise ValueError(f"Got {type(m)}")
+        super().__init__(meshes)
+        self.comm = meshes[0].comm
+        # Only set hierarchy at top level.
+        if set_hierarchy:
+            self.set_hierarchy()
+
+    @utils.cached_property
+    def topology(self):
+        return MeshSequenceTopology([m.topology for m in self._meshes])
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self.topology
+
+    def init(self):
+        for m in self._meshes:
+            m.init()
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
+
+    def set_hierarchy(self):
+        """Set mesh hierarchy if needed."""
+        from firedrake.mg.utils import set_level, get_level, has_level
+
+        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
+        if all(not has_level(m) for m in self._meshes):
+            return
+        else:
+            if not all(has_level(m) for m in self._meshes):
+                raise RuntimeError("Found inconsistent component meshes")
+        hierarchy_list = []
+        level_list = []
+        for m in self:
+            hierarchy, level = get_level(m)
+            hierarchy_list.append(hierarchy)
+            level_list.append(level)
+        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
+        level, = set(level_list)
+        result = []
+        for ilevel in range(nlevels):
+            if ilevel == level:
+                result.append(self)
+            else:
+                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
+        result = tuple(result)
+        for i, m in enumerate(result):
+            set_level(m, result, i)
+
+    @property
+    def _comm(self):
+        return self.topology._comm
+
+
+class MeshSequenceTopology(object):
+    """A representation of mixed mesh topology."""
+
+    def __init__(self, meshes):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshTopology`s to make `MeshSequenceTopology` with.
+
+        """
+        for m in meshes:
+            if not isinstance(m, AbstractMeshTopology):
+                raise ValueError(f"Got {type(m)}")
+        self._meshes = tuple(meshes)
+        self.comm = meshes[0].comm
+        self._comm = internal_comm(self.comm, self)
+
+    def init(self):
+        for m in self._meshes:
+            m.init()
+
+    @property
+    def topology(self):
+        """The underlying mesh topology object."""
+        return self
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self
+
+    def ufl_cell(self):
+        return CellSequence([m.ufl_cell() for m in self._meshes])
+
+    def ufl_mesh(self):
+        dim = self.ufl_cell().topological_dimension()
+        return ufl.MeshSequence(
+            [ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=dim))
+             for cell in self.ufl_cell().cells]
+        )
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
