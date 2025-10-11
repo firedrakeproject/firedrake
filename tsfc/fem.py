@@ -134,7 +134,7 @@ class ContextBase(ProxyKernelInterface):
             elif len(set(cell_integral_type_map)) > 1:  # mixed cell types
                 return True
         elif any(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map) and \
-             any(isinstance(cell, UFCQuadrilateral) for cell in cell_integral_type_map):
+                any(isinstance(cell, UFCQuadrilateral) for cell in cell_integral_type_map):
             return True
         return False
 
@@ -523,6 +523,7 @@ def make_cell_facet_jacobian(cell, facet_dim, facet_i):
 def translate_reference_normal(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     fiat_cell = as_fiat_cell(domain.ufl_cell())
+
     def callback(facet_i):
         n = fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
         return gem.Literal(n)
