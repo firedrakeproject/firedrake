@@ -32,7 +32,6 @@ from firedrake.function import Function
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
-from firedrake.cofunction import Cofunction
 from firedrake.functionspaceimpl import WithGeometry
 from mpi4py import MPI
 
@@ -60,9 +59,9 @@ class InterpolateOptions:
         the target mesh is a :func:`.VertexOnlyMesh`.
     access : pyop2.types.access.Access, default op2.WRITE
         The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``. 
-        Only ``WRITE`` is supported at present when interpolating across meshes 
-        unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is 
+        DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
+        Only ``WRITE`` is supported at present when interpolating across meshes
+        unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is
         supported for the matrix-free adjoint interpolation.
     allow_missing_dofs : bool, default False
         For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
@@ -190,7 +189,6 @@ class Interpolator(abc.ABC):
         self.bcs = bcs
         self.callable = None
         self.access = expr.options.access
-
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -397,7 +395,7 @@ class CrossMeshInterpolator(Interpolator):
 
     def _interpolate(self, output=None):
         from firedrake.assemble import assemble
-        if self.expr.is_adjoint: 
+        if self.expr.is_adjoint:
             f = self.dual_arg
             V_dest = self.expr_args[0].function_space().dual()
         else:
@@ -416,12 +414,12 @@ class CrossMeshInterpolator(Interpolator):
                 f_point_eval_input_ordering.assign(self.default_missing_val)
             elif self.allow_missing_dofs:
                 # If we allow missing points there may be points in the target
-                # mesh that are not in the source mesh. If we don't specify a 
-                # default missing value we set these to NaN so we can identify 
+                # mesh that are not in the source mesh. If we don't specify a
+                # default missing value we set these to NaN so we can identify
                 # them later.
                 f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
-            assemble(action(self.point_eval_input_ordering, f_point_eval), 
+            assemble(action(self.point_eval_input_ordering, f_point_eval),
                      tensor=f_point_eval_input_ordering)
 
             # We assign these values to the output function
@@ -430,7 +428,7 @@ class CrossMeshInterpolator(Interpolator):
                 output.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
             else:
                 output.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
-            
+
             if self.rank == 0:
                 # We take the action of the dual_arg on the interpolated function
                 assert not isinstance(self.dual_arg, ufl.Coargument)
@@ -438,7 +436,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             # f_src is a cofunction on V_dest.dual
             assert isinstance(f, Cofunction)
-            # Our first adjoint operation is to assign the dat values to a 
+            # Our first adjoint operation is to assign the dat values to a
             # P0DG cofunction on our input ordering VOM.
             f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
             f_input_ordering.dat.data_wo[:] = f.dat.data_ro[:]
@@ -636,6 +634,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             assert self.rank == 1
             if self.expr.is_adjoint:
                 assert isinstance(self.dual_arg, ufl.Cofunction)
+
                 def callable():
                     with self.dual_arg.dat.vec_ro as source_vec, f.dat.vec_wo as target_vec:
                         self.mat.handle.multHermitian(source_vec, target_vec)
@@ -1382,4 +1381,3 @@ class MixedInterpolator(Interpolator):
                 sub_tensor.assign(sum(self[i]._interpolate()
                                       for i in self if i[0] == k))
         return output
- 
