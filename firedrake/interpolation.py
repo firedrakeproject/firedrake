@@ -2,17 +2,17 @@ import numpy
 import os
 import tempfile
 import abc
-import warnings
-from collections.abc import Iterable
-from typing import Literal
+
 from functools import partial, singledispatch
-from typing import Hashable
+from typing import Hashable, Literal, Callable
+from dataclasses import asdict, dataclass
 
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments
 from ufl.domain import as_domain, extract_unique_domain
+from ufl.classes import Expr
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
@@ -25,13 +25,14 @@ import gem
 import finat
 
 import firedrake
-import firedrake.bcs
-from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
+from firedrake import tsfc_interface, utils
+from firedrake.ufl_expr import Argument, Coargument, action
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
-from firedrake.cofunction import Cofunction
+from firedrake.functionspaceimpl import WithGeometry
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -46,328 +47,148 @@ __all__ = (
 )
 
 
+@dataclass
+class InterpolateOptions:
+    """Options for interpolation operations.
+
+    Attributes
+    ----------
+    subset : pyop2.types.set.Subset, optional
+        An optional subset to apply the interpolation over.
+        Cannot, at present, be used when interpolating across meshes unless
+        the target mesh is a :func:`.VertexOnlyMesh`.
+    access : pyop2.types.access.Access, default op2.WRITE
+        The pyop2 access descriptor for combining updates to shared
+        DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
+        Only ``WRITE`` is supported at present when interpolating across meshes
+        unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is
+        supported for the matrix-free adjoint interpolation.
+    allow_missing_dofs : bool, default False
+        For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
+        in the target mesh that cannot be defined on the source mesh.
+        For example, where nodes are point evaluations, points in the target mesh
+        that are not in the source mesh. When ``False`` this raises a ``ValueError``
+        should this occur. When ``True`` the corresponding values are either
+        (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
+        or (b) set to zero.
+        Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
+        This does not affect adjoint interpolation. Ignored if interpolating within
+        the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+        :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
+    default_missing_val : float, optional
+        For interpolation across meshes: the optional value to assign to DoFs
+        in the target mesh that are outside the source mesh. If this is not set
+        then the values are either (a) unchanged if some ``output`` is given to
+        the :meth:`interpolate` method or (b) set to zero.
+        Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
+    matfree : bool, default True
+        If ``False``, then construct the permutation matrix for interpolating
+        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+        and reduce operations.
+    """
+    subset: op2.Subset | None = None
+    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
+    allow_missing_dofs: bool = False
+    default_missing_val: float | None = None
+    matfree: bool = True
+
+
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v,
-                 subset=None,
-                 access=None,
-                 allow_missing_dofs=False,
-                 default_missing_val=None,
-                 matfree=True):
+    def __init__(self, expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs):
         """Symbolic representation of the interpolation operator.
 
         Parameters
         ----------
-        expr : ufl.core.expr.Expr or ufl.BaseForm
+        expr : ufl.core.expr.Expr
                The UFL expression to interpolate.
-        v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
+        V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
-        subset : pyop2.types.set.Subset
-                 An optional subset to apply the interpolation over.
-                 Cannot, at present, be used when interpolating across meshes unless
-                 the target mesh is a :func:`.VertexOnlyMesh`.
-        access : pyop2.types.access.Access
-                 The pyop2 access descriptor for combining updates to shared
-                 DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-                 supported at present when interpolating across meshes. See note in
-                 :func:`.interpolate` if changing this from default.
-        allow_missing_dofs : bool
-                             For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
-                             in the target mesh that cannot be defined on the source mesh.
-                             For example, where nodes are point evaluations, points in the target mesh
-                             that are not in the source mesh. When ``False`` this raises a ``ValueError``
-                             should this occur. When ``True`` the corresponding values are either
-                             (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
-                             or (b) set to zero.
-                             Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
-                             This does not affect adjoint interpolation. Ignored if interpolating within
-                             the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-                             :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
-        default_missing_val : float
-                              For interpolation across meshes: the optional value to assign to DoFs
-                              in the target mesh that are outside the source mesh. If this is not set
-                              then the values are either (a) unchanged if some ``output`` is given to
-                              the :meth:`interpolate` method or (b) set to zero.
-                              Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        matfree : bool
-                If ``False``, then construct the permutation matrix for interpolating
-                between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-                and reduce operations.
+        **kwargs
+            Additional interpolation options. See :class:`InterpolateOptions`
+            for available parameters and their descriptions.
         """
-        # Check function space
-        expr = ufl.as_ufl(expr)
-        if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(expr)
-            is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            v = Argument(v.dual(), 1 if is_adjoint else 0)
+        expr_args = extract_arguments(ufl.as_ufl(expr))
+        self.is_adjoint = len(expr_args) and expr_args[0].number() == 0
+        if isinstance(V, WithGeometry):
+            # Need to create a Firedrake Coargument so it has a .function_space() method
+            V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        V = v.arguments()[0].function_space()
-        if len(expr.ufl_shape) != len(V.value_shape):
-            raise RuntimeError(f'Rank mismatch: Expression rank {len(expr.ufl_shape)}, FunctionSpace rank {len(V.value_shape)}')
+        self.target_space = V.arguments()[0].function_space()
+        if expr.ufl_shape != self.target_space.value_shape:
+            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
-        if expr.ufl_shape != V.value_shape:
-            raise RuntimeError('Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {V.value_shape}')
-        super().__init__(expr, v)
+        super().__init__(expr, V)
 
-        # -- Interpolate data (e.g. `subset` or `access`) -- #
-        self.interp_data = {"subset": subset,
-                            "access": access,
-                            "allow_missing_dofs": allow_missing_dofs,
-                            "default_missing_val": default_missing_val,
-                            "matfree": matfree}
+        self._options = InterpolateOptions(**kwargs)
 
     function_space = ufl.Interpolate.ufl_function_space
 
-    def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
-        interp_data = interp_data or self.interp_data.copy()
+    def _ufl_expr_reconstruct_(
+            self, expr: Expr, v: WithGeometry | ufl.BaseForm | None = None, **interp_data
+    ):
+        interp_data = interp_data or asdict(self.options)
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
+
+    @property
+    def options(self):
+        return self._options
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, default_missing_val=None, matfree=True):
+def interpolate(expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
-
-    :arg expr: a UFL expression.
-    :arg V: a :class:`.FunctionSpace` to interpolate into, or a :class:`.Cofunction`,
-        or :class:`.Coargument`, or a :class:`ufl.form.Form` with one argument (a one-form).
-        If a :class:`.Cofunction` or a one-form is provided, then we do adjoint interpolation.
-    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over. Cannot, at present, be used when interpolating
-        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-    :kwarg access: The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-        supported at present when interpolating across meshes unless the target
-        mesh is a :func:`.VertexOnlyMesh`. See note below.
-    :kwarg allow_missing_dofs: For interpolation across meshes: allow
-        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-        defined on the source mesh. For example, where nodes are point
-        evaluations, points in the target mesh that are not in the source mesh.
-        When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. In either case, if ``default_missing_val`` is specified, that
-        value is used. This does not affect adjoint interpolation. Ignored if
-        interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`
-        (the behaviour of a :func:`.VertexOnlyMesh` in this scenario is, at
-        present, set when it is created).
-    :kwarg default_missing_val: For interpolation across meshes: the optional
-        value to assign to DoFs in the target mesh that are outside the source
-        mesh. If this is not set then the values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. Ignored if interpolating within the same mesh or onto a
-        :func:`.VertexOnlyMesh`.
-    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
-    :returns: A symbolic :class:`.Interpolate` object
-
-    .. note::
-
-       If you use an access descriptor other than ``WRITE``, the
-       behaviour of interpolation changes if interpolating into a
-       function space, or an existing function. If the former, then
-       the newly allocated function will be initialised with
-       appropriate values (e.g. for MIN access, it will be initialised
-       with MAX_FLOAT). On the other hand, if you provide a function,
-       then it is assumed that its values should take part in the
-       reduction (hence using MIN will compute the MIN between the
-       existing values and any new values).
-    """
-    if isinstance(V, (Cofunction, Coargument)):
-        dual_arg = V
-    elif isinstance(V, ufl.BaseForm):
-        rank = len(V.arguments())
-        if rank == 1:
-            dual_arg = V
-        else:
-            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
-    elif isinstance(V, functionspaceimpl.WithGeometry):
-        dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(ufl.as_ufl(expr))
-        if expr_args and expr_args[0].number() == 0:
-            warnings.warn("Passing argument numbered 0 in expression for forward interpolation is deprecated. "
-                          "Use a TrialFunction in the expression.")
-            v, = expr_args
-            expr = replace(expr, {v: v.reconstruct(number=1)})
-    else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
-
-    interp = Interpolate(expr, dual_arg,
-                         subset=subset, access=access,
-                         allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val,
-                         matfree=matfree)
-
-    return interp
-
-
-class Interpolator(abc.ABC):
-    """A reusable interpolation object.
-
-    This object can be used to carry out the same interpolation
-    multiple times (for example in a timestepping loop).
 
     Parameters
     ----------
-    expr
-        The underlying ufl.Interpolate or the operand to the ufl.Interpolate.
-    V
-        The :class:`.FunctionSpace` or :class:`.Function` to
-        interpolate into.
-    subset
-        An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over. Cannot, at present, be used when interpolating
-        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-    freeze_expr
-        Set to True to prevent the expression being
-        re-evaluated on each call. Cannot, at present, be used when
-        interpolating across meshes unless the target mesh is a
-        :func:`.VertexOnlyMesh`.
-    access
-        The pyop2 access descriptor for combining updates to shared DoFs.
-        Only ``op2.WRITE`` is supported at present when interpolating across meshes.
-        Only ``op2.INC`` is supported for the matrix-free adjoint interpolation.
-        See note in :func:`.interpolate` if changing this from default.
-    bcs
-        An optional list of boundary conditions to zero-out in the
-        output function space. Interpolator rows or columns which are
-        associated with boundary condition nodes are zeroed out when this is
-        specified.
-    allow_missing_dofs
-        For interpolation across meshes: allow
-        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-        defined on the source mesh. For example, where nodes are point
-        evaluations, points in the target mesh that are not in the source mesh.
-        When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. Can be overwritten with the ``default_missing_val`` kwarg
-        of :meth:`interpolate`. This does not affect adjoint interpolation.
-        Ignored if interpolating within the same mesh or onto a
-        :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
-        this scenario is, at present, set when it is created).
-    matfree
-        If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
+    expr : ufl.core.expr.Expr
+        The UFL expression to interpolate.
+    V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
+        The function space to interpolate into or the coargument defined
+        on the dual of the function space to interpolate into.
+    **kwargs
+        Additional interpolation options. See :class:`InterpolateOptions`
+        for available parameters and their descriptions.
 
-    Notes
-    -----
-
-       The :class:`Interpolator` holds a reference to the provided
-       arguments (such that they won't be collected until the
-       :class:`Interpolator` is also collected).
-
+    Returns
+    -------
+    Interpolate
+        A symbolic :class:`Interpolate` object representing the interpolation operation.
     """
+    return Interpolate(expr, V, **kwargs)
 
-    def __new__(cls, expr, V, **kwargs):
-        V_target = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-        if not isinstance(expr, ufl.Interpolate):
-            expr = interpolate(expr, V_target)
 
-        arguments = expr.arguments()
-        has_mixed_arguments = any(len(a.function_space()) > 1 for a in arguments)
-        if len(arguments) == 2 and has_mixed_arguments:
-            return object.__new__(MixedInterpolator)
+class Interpolator(abc.ABC):
 
-        operand, = expr.ufl_operands
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(operand) or target_mesh
-        submesh_interp_implemented = \
-            all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
-            target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
-        if target_mesh is source_mesh or submesh_interp_implemented:
-            return object.__new__(SameMeshInterpolator)
-        else:
-            if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                return object.__new__(SameMeshInterpolator)
-            elif has_mixed_arguments or len(V_target) > 1:
-                return object.__new__(MixedInterpolator)
-            else:
-                return object.__new__(CrossMeshInterpolator)
+    def __init__(self, expr: Interpolate, bcs=None):
+        """Initialise Interpolator.
 
-    def __init__(
-        self,
-        expr: ufl.Interpolate | ufl.classes.Expr,
-        V: ufl.FunctionSpace | firedrake.function.Function,
-        subset: op2.Subset | None = None,
-        freeze_expr: bool = False,
-        access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None,
-        bcs: Iterable[firedrake.bcs.BCBase] | None = None,
-        allow_missing_dofs: bool = False,
-        matfree: bool = True
-    ):
-        if not isinstance(expr, ufl.Interpolate):
-            expr = interpolate(expr, V if isinstance(V, ufl.FunctionSpace) else V.function_space())
+        Parameters
+        ----------
+        expr : Interpolate
+            The symbolic interpolation expression.
+        bcs : list, optional
+            List of boundary conditions to zero-out in the output function space. By default None.
+        """
         dual_arg, operand = expr.argument_slots()
-        self.ufl_interpolate = expr
-        self.expr = operand
-        self.V = V
-        self.subset = subset
-        self.freeze_expr = freeze_expr
+        self.expr = expr
+        self.expr_args = expr.arguments()
+        self.rank = len(self.expr_args)
+        self.operand = operand
+        self.dual_arg = dual_arg
+        self.V_dest = dual_arg.function_space().dual()
+        self.target_mesh = as_domain(self.V_dest)
+        self.source_mesh = extract_unique_domain(operand) or self.target_mesh
+
+        # Interpolation options
+        self.subset = expr.options.subset
+        self.allow_missing_dofs = expr.options.allow_missing_dofs
+        self.default_missing_val = expr.options.default_missing_val
+        self.matfree = expr.options.matfree
         self.bcs = bcs
-        self._allow_missing_dofs = allow_missing_dofs
-        self.matfree = matfree
         self.callable = None
-
-        # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
-        # self.ufl_interpolate (which carries the dual argument).
-        # See github issue https://github.com/firedrakeproject/firedrake/issues/4592
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(operand) or target_mesh
-        vom_onto_other_vom = ((source_mesh is not target_mesh)
-                              and isinstance(self, SameMeshInterpolator)
-                              and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                              and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
-        if isinstance(self, CrossMeshInterpolator) or vom_onto_other_vom:
-            # For bespoke interpolation, we currently rely on different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
-            # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
-            # 3) Interpolate(Coefficient(V1), Argument(V2.dual(), 0)) -> Forward action (1-form)
-            # 4) Interpolate(Argument(V1, 0), Cofunction(V2.dual()) -> Adjoint action (1-form)
-            # 5) Interpolate(Coefficient(V1), Cofunction(V2.dual()) -> Double action (0-form)
-
-            # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
-            # For case 2, we first redundantly assemble case 1 and then construct the transpose.
-            # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
-            # and we separately compute the action against the dropped Cofunction within assemble().
-            if not isinstance(dual_arg, ufl.Coargument):
-                # Drop the Cofunction
-                expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
-            expr_args = extract_arguments(operand)
-            if expr_args and expr_args[0].number() == 0:
-                # Construct the symbolic forward Interpolate
-                v0, v1 = expr.arguments()
-                expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
-                                          v1: v1.reconstruct(number=v0.number())})
-
-        dual_arg, operand = expr.argument_slots()
-        self.expr_renumbered = operand
-        self.ufl_interpolate_renumbered = expr
-
-        if not isinstance(dual_arg, ufl.Coargument):
-            # Matrix-free assembly of 0-form or 1-form requires INC access
-            if access and access != op2.INC:
-                raise ValueError("Matfree adjoint interpolation requires INC access")
-            access = op2.INC
-        elif access is None:
-            # Default access for forward 1-form or 2-form (forward and adjoint)
-            access = op2.WRITE
-        self.access = access
-
-    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
-        """
-        .. warning::
-
-            This method has been removed. Use the function :func:`interpolate` to return a symbolic
-            :class:`Interpolate` object.
-        """
-        raise FutureWarning(
-            "The 'interpolate' method on `Interpolator` objects has been "
-            "removed. Use the `interpolate` function instead."
-        )
+        self.access = expr.options.access
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -379,41 +200,57 @@ class Interpolator(abc.ABC):
         """
         pass
 
-    def assemble(self, tensor=None, default_missing_val=None):
+    def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
-        from firedrake.assemble import assemble
-        needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
-        arguments = self.ufl_interpolate.arguments()
-        if len(arguments) == 2:
+        if self.rank == 2:
             # Assembling the operator
             res = tensor.petscmat if tensor else PETSc.Mat()
             # Get the interpolation matrix
+            self._get_callable()
             op2mat = self.callable()
             petsc_mat = op2mat.handle
-            if needs_adjoint:
-                # Out-of-place Hermitian transpose
-                petsc_mat.hermitianTranspose(out=res)
-            elif tensor:
+            if tensor:
                 petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
-            return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
+            return tensor or firedrake.AssembledMatrix(self.expr_args, self.bcs, res)
         else:
-            # Assembling the action
-            cofunctions = ()
-            if needs_adjoint:
-                # The renumbered Interpolate has dropped Cofunctions.
-                # We need to explicitly operate on them.
-                dual_arg, _ = self.ufl_interpolate.argument_slots()
-                if not isinstance(dual_arg, ufl.Coargument):
-                    cofunctions = (dual_arg,)
+            return self._interpolate(output=tensor)
 
-            if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
-            else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         default_missing_val=default_missing_val)
+
+def _get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
+    arguments = expr.arguments()
+    has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
+    if len(arguments) == 2 and has_mixed_arguments:
+        return MixedInterpolator(expr, bcs=bcs)
+
+    operand, = expr.ufl_operands
+    target_mesh = as_domain(expr.target_space)
+    source_mesh = extract_unique_domain(operand) or target_mesh
+    submesh_interp_implemented = (
+        all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh])
+        and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+        and target_mesh.topological_dimension() == source_mesh.topological_dimension()
+    )
+    if target_mesh is source_mesh or submesh_interp_implemented:
+        return SameMeshInterpolator(expr, bcs=bcs)
+
+    target_topology = target_mesh.topology
+    source_topology = source_mesh.topology
+
+    if isinstance(target_topology, VertexOnlyMeshTopology):
+        if isinstance(source_topology, VertexOnlyMeshTopology):
+            return VomOntoVomInterpolator(expr, bcs=bcs)
+        if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+        if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+            raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+        return SameMeshInterpolator(expr, bcs=bcs)
+
+    if has_mixed_arguments or len(expr.target_space) > 1:
+        return MixedInterpolator(expr, bcs=bcs)
+
+    return CrossMeshInterpolator(expr, bcs=bcs)
 
 
 class DofNotDefinedError(Exception):
@@ -453,26 +290,17 @@ class CrossMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(
-        self,
-        expr,
-        V,
-        subset=None,
-        freeze_expr=False,
-        access=None,
-        bcs=None,
-        allow_missing_dofs=False,
-        matfree=True
-    ):
-        if subset:
-            raise NotImplementedError("subset not implemented")
-        if freeze_expr:
-            # Probably just need to pass freeze_expr to the various
-            # interpolators for this to work.
-            raise NotImplementedError("freeze_expr not implemented")
-        if bcs:
-            raise NotImplementedError("bcs not implemented")
-        if V.ufl_element().mapping() != "identity":
+    def __init__(self, expr: Interpolate, bcs=None):
+        super().__init__(expr, bcs)
+        if self.access and self.access != op2.WRITE:
+            raise NotImplementedError(
+                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+            )
+        else:
+            self.access = op2.WRITE
+        if self.bcs:
+            raise NotImplementedError("bcs not implemented.")
+        if self.V_dest.ufl_element().mapping() != "identity":
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes. A more general version would
             # require finding the global coordinates of all quadrature points
@@ -480,245 +308,151 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError(
                 "Can only interpolate into spaces with point evaluation nodes."
             )
-        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
-
-        if self.access != op2.WRITE:
-            raise NotImplementedError("access other than op2.WRITE not implemented")
-
-        expr = self.expr_renumbered
-        self.arguments = extract_arguments(expr)
-        self.nargs = len(self.arguments)
-
-        if self._allow_missing_dofs:
-            missing_points_behaviour = MissingPointsBehaviour.IGNORE
+        if self.allow_missing_dofs:
+            self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
         else:
-            missing_points_behaviour = MissingPointsBehaviour.ERROR
+            self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        # setup
-        V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
-        src_mesh = extract_unique_domain(expr)
-        dest_mesh = as_domain(V_dest)
-        src_mesh_gdim = src_mesh.geometric_dimension()
-        dest_mesh_gdim = dest_mesh.geometric_dimension()
-        if src_mesh_gdim != dest_mesh_gdim:
-            raise ValueError(
-                "geometric dimensions of source and destination meshes must match"
-            )
-        self.src_mesh = src_mesh
-        self.dest_mesh = dest_mesh
+        if self.source_mesh.geometric_dimension() != self.target_mesh.geometric_dimension():
+            raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
-        # Create a VOM at the nodes of V_dest in src_mesh. We don't include halo
-        # node coordinates because interpolation doesn't usually include halos.
-        # NOTE: it is very important to set redundant=False, otherwise the
-        # input ordering VOM will only contain the points on rank 0!
-        # QUESTION: Should any of the below have annotation turned off?
-        ufl_scalar_element = V_dest.ufl_element()
-        if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
-            if type(ufl_scalar_element) is finat.ufl.MixedElement:
-                raise TypeError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+        dest_element = self.V_dest.ufl_element()
+        if isinstance(dest_element, finat.ufl.MixedElement):
+            if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+                # In this case all sub elements are equal
+                base_element = dest_element.sub_elements[0]
+                if base_element.reference_value_shape != ():
+                    raise NotImplementedError(
+                        "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
+                    )
+                self.dest_element = base_element
+            else:
+                raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+        else:
+            # scalar fiat/finat element
+            self.dest_element = dest_element
 
-            # For a VectorElement or TensorElement the correct
-            # VectorFunctionSpace equivalent is built from the scalar
-            # sub-element.
-            ufl_scalar_element, = set(ufl_scalar_element.sub_elements)
-            if ufl_scalar_element.reference_value_shape != ():
-                raise NotImplementedError(
-                    "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
-                )
+        self._get_symbolic_expressions()
 
+    def _get_symbolic_expressions(self):
+        """Constructs the symbolic Interpolate expressions for cross-mesh interpolation.
+
+        Raises
+        ------
+        DofNotDefinedError
+            If some DoFs in the target function space cannot be defined
+            in the source function space.
+        """
         from firedrake.assemble import assemble
-        V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
-        f_dest_node_coords = assemble(f_dest_node_coords)
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
+        # Immerse coordinates of V_dest point evaluation dofs in src_mesh
+        V_dest_vec = firedrake.VectorFunctionSpace(self.target_mesh, self.dest_element)
+        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, V_dest_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension())
         try:
-            self.vom_dest_node_coords_in_src_mesh = firedrake.VertexOnlyMesh(
-                src_mesh,
+            self.vom = firedrake.VertexOnlyMesh(
+                self.source_mesh,
                 dest_node_coords,
                 redundant=False,
-                missing_points_behaviour=missing_points_behaviour,
+                missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(src_mesh, dest_mesh)
-        # vom_dest_node_coords_in_src_mesh uses the parallel decomposition of
-        # the global node coordinates of V_dest in the SOURCE mesh (src_mesh).
-        # I first point evaluate my expression at these locations, giving a
-        # P0DG function on the VOM. As described in the manual, this is an
-        # interpolation operation.
-        shape = V_dest.ufl_function_space().value_shape
+            raise DofNotDefinedError(self.source_mesh, self.target_mesh)
+
+        # Get the correct type of function space
+        shape = self.V_dest.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
             fs_type = partial(firedrake.VectorFunctionSpace, dim=shape[0])
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
-        P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
-        # The parallel decomposition of the nodes of V_dest in the DESTINATION
-        # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
-        # VOM. This again is an interpolation operation, which, under the hood
-        # is a PETSc SF reduce.
-        P0DG_vom_i_o = fs_type(
-            self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
-        )
-        self.to_input_ordering_interpolate = Interpolate(
-            firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
-        )
-        # The P0DG function outputted by the above interpolation has the
-        # correct parallel decomposition for the nodes of V_dest in dest_mesh so
-        # we can safely assign the dat values. This is all done in the actual
-        # interpolation method below.
 
-    @PETSc.Log.EventDecorator()
-    def _interpolate(
-        self,
-        *function,
-        output=None,
-        transpose=None,
-        adjoint=False,
-        default_missing_val=None,
-        **kwargs,
-    ):
-        """Compute the interpolation.
+        # Get expression for point evaluation at the dest_node_coords
+        self.P0DG_vom = fs_type(self.vom, "DG", 0)
+        self.point_eval = interpolate(self.operand, self.P0DG_vom)
 
-        For arguments, see :class:`.Interpolator`.
-        """
+        # If assembling the operator, we need the concrete permutation matrix
+        matfree = False if self.rank == 2 else self.matfree
+
+        # Interpolate into the input-ordering VOM
+        self.P0DG_vom_input_ordering = fs_type(self.vom.input_ordering, "DG", 0)
+
+        arg = Argument(self.P0DG_vom, 0 if self.expr.is_adjoint else 1)
+        self.point_eval_input_ordering = interpolate(arg, self.P0DG_vom_input_ordering, matfree=matfree)
+
+    def _get_callable(self):
         from firedrake.assemble import assemble
-
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
-        if adjoint and not self.nargs:
-            raise ValueError(
-                "Can currently only apply adjoint interpolation with arguments."
-            )
-        if self.nargs != len(function):
-            raise ValueError(
-                "Passed %d Functions to interpolate, expected %d"
-                % (len(function), self.nargs)
-            )
-
-        if self.nargs:
-            (f_src,) = function
-            if not hasattr(f_src, "dat"):
-                raise ValueError(
-                    "The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!"
-                )
+        assert self.rank == 2
+        # The cross-mesh interpolation matrix is the product of the
+        # `self.point_eval_interpolate` and the permutation
+        # given by `self.to_input_ordering_interpolate`.
+        if self.expr.is_adjoint:
+            symbolic = action(self.point_eval, self.point_eval_input_ordering)
         else:
-            f_src = self.expr
+            symbolic = action(self.point_eval_input_ordering, self.point_eval)
+        self.handle = assemble(symbolic).petscmat
+        self.callable = lambda: self
 
-        if adjoint:
-            try:
-                V_dest = self.expr.function_space().dual()
-            except AttributeError:
-                if self.nargs:
-                    V_dest = self.arguments[-1].function_space().dual()
-                else:
-                    coeffs = extract_coefficients(self.expr)
-                    if len(coeffs):
-                        V_dest = coeffs[0].function_space().dual()
-                    else:
-                        raise ValueError(
-                            "Can't adjoint interpolate an expression with no coefficients or arguments."
-                        )
+    def _interpolate(self, output=None):
+        from firedrake.assemble import assemble
+        if self.expr.is_adjoint:
+            f = self.dual_arg
+            V_dest = self.expr_args[0].function_space().dual()
         else:
-            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
-                V_dest = self.V.function_space()
+            V_dest = self.V_dest
+
+        output = output or Function(V_dest)
+
+        if not self.expr.is_adjoint:
+            # We evaluate the operand at the node coordinates of the destination space
+            f_point_eval = assemble(self.point_eval)
+
+            # We create the input-ordering Function before interpolating so we can
+            # set default missing values if required.
+            f_point_eval_input_ordering = Function(self.P0DG_vom_input_ordering)
+            if self.default_missing_val is not None:
+                f_point_eval_input_ordering.assign(self.default_missing_val)
+            elif self.allow_missing_dofs:
+                # If we allow missing points there may be points in the target
+                # mesh that are not in the source mesh. If we don't specify a
+                # default missing value we set these to NaN so we can identify
+                # them later.
+                f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
+
+            assemble(action(self.point_eval_input_ordering, f_point_eval),
+                     tensor=f_point_eval_input_ordering)
+
+            # We assign these values to the output function
+            if self.allow_missing_dofs and self.default_missing_val is None:
+                indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
+                output.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
             else:
-                V_dest = self.V
-        if output:
-            if output.function_space() != V_dest:
-                raise ValueError("Given output has the wrong function space!")
+                output.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
+
+            if self.rank == 0:
+                # We take the action of the dual_arg on the interpolated function
+                assert not isinstance(self.dual_arg, ufl.Coargument)
+                return assemble(action(self.dual_arg, output))
         else:
-            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
-                output = self.V
-            else:
-                output = firedrake.Function(V_dest)
+            # f_src is a cofunction on V_dest.dual
+            assert isinstance(f, Cofunction)
+            # Our first adjoint operation is to assign the dat values to a
+            # P0DG cofunction on our input ordering VOM.
+            f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
+            f_input_ordering.dat.data_wo[:] = f.dat.data_ro[:]
 
-        if not adjoint:
-            if f_src is self.expr:
-                # f_src is already contained in self.point_eval_interpolate
-                assert not self.nargs
-                f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(self.point_eval_interpolate)
-                )
-            else:
-                f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(action(self.point_eval_interpolate, f_src))
-                )
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolate.function_space()
-            )
-            # We have to create the Function before interpolating so we can
-            # set default missing values (if requested).
-            if default_missing_val is not None:
-                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
-                    :
-                ] = default_missing_val
-            elif self._allow_missing_dofs:
-                # If we have allowed missing points we know we might end up
-                # with points in the target mesh that are not in the source
-                # mesh. However, since we haven't specified a default missing
-                # value we expect the interpolation to leave these points
-                # unchanged. By setting the dat values to NaN we can later
-                # identify these points and skip over them when assigning to
-                # the output function.
-                f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
-
-            interp = action(self.to_input_ordering_interpolate, f_src_at_dest_node_coords_src_mesh_decomp)
-            assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
-
-            # we can now confidently assign this to a function on V_dest
-            if self._allow_missing_dofs and default_missing_val is None:
-                indices = numpy.where(
-                    ~numpy.isnan(f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro)
-                )[0]
-                output.dat.data_wo[
-                    indices
-                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[indices]
-            else:
-                output.dat.data_wo[
-                    :
-                ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[:]
-
-        else:
-            # adjoint interpolation
-
-            # f_src is a cofunction on V_dest.dual as originally specified when
-            # creating the interpolator. Our first adjoint operation is to
-            # assign the dat values to a P0DG cofunction on our input ordering
-            # VOM. This has the parallel decomposition V_dest on our orinally
-            # specified dest_mesh. We can therefore safely create a P0DG
-            # cofunction on the input-ordering VOM (which has this parallel
-            # decomposition and ordering) and assign the dat values.
-            f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
-                self.to_input_ordering_interpolate.function_space().dual()
-            )
-            f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
-                :
-            ] = f_src.dat.data_ro[:]
-
-            # The rest of the adjoint interpolation is merely the composition
-            # of the adjoint interpolators in the reverse direction. NOTE: I
-            # don't have to worry about skipping over missing points here
-            # because I'm going from the input ordering VOM to the original VOM
+            # The rest of the adjoint interpolation is the composition
+            # of the adjoint interpolators in the reverse direction.
+            # We don't worry about skipping over missing points here
+            # because we're going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            interp = action(expr_adjoint(self.to_input_ordering_interpolate), f_src_at_dest_node_coords_dest_mesh_decomp)
+            interp = action(self.point_eval_input_ordering, f_input_ordering)
             f_src_at_src_node_coords = assemble(interp)
-            # NOTE: if I wanted the default missing value to be applied to
-            # adjoint interpolation I would have to do it here. However,
-            # this would require me to implement default missing values for
-            # adjoint interpolation from a point evaluation interpolator
-            # which I haven't done. I wonder if it is necessary - perhaps the
-            # adjoint operator always sets all the values of the resulting
-            # cofunction? My initial attempt to insert setting the dat values
-            # prior to performing the multHermitian operation in
-            # SameMeshInterpolator.interpolate did not effect the result. For
-            # now, I say in the docstring that it only applies to forward
-            # interpolation.
-            interp = action(expr_adjoint(self.point_eval_interpolate), f_src_at_src_node_coords)
-            assemble(interp, tensor=output)
 
+            # We don't need to take the adjoint of self.point_eval because
+            # it was constructed using self.operand
+            interp = action(self.point_eval, f_src_at_src_node_coords)
+            assemble(interp, tensor=output)
         return output
 
 
@@ -731,193 +465,196 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=None,
-                 bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
+    def __init__(self, expr, bcs=None):
+        super().__init__(expr, bcs=bcs)
+        subset = self.subset
         if subset is None:
-            if isinstance(expr, ufl.Interpolate):
-                operand, = expr.ufl_operands
-            else:
-                operand = expr
-            target_mesh = as_domain(V)
-            source_mesh = extract_unique_domain(operand) or target_mesh
-            target = target_mesh.topology
-            source = source_mesh.topology
+            target = self.target_mesh.topology
+            source = self.source_mesh.topology
             if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported")
+                    raise AssertionError("Only cell-cell interpolation supported.")
                 indices_active = composed_map.indices_active_with_halo
                 make_subset = not indices_active.all()
                 make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
                 if make_subset:
-                    if not allow_missing_dofs:
-                        raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
+                    if not self.allow_missing_dofs:
+                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
                     # Do not need subset as target <= source.
                     pass
-        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
-                         access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
-        expr = self.ufl_interpolate_renumbered
-        try:
-            self.callable = make_interpolator(expr, V, subset, self.access, bcs=bcs, matfree=matfree)
-        except FIAT.hdiv_trace.TraceError:
-            raise NotImplementedError("Can't interpolate onto traces sorry")
-        self.arguments = expr.arguments()
+        self.subset = subset
+
+        if not isinstance(self.dual_arg, ufl.Coargument):
+            # Matrix-free assembly of 0-form or 1-form requires INC access
+            if self.access and self.access != op2.INC:
+                raise ValueError("Matfree adjoint interpolation requires INC access")
+            self.access = op2.INC
+        elif self.access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            self.access = op2.WRITE
+
+    def _get_tensor(self, output=None) -> op2.Mat | Function | Cofunction:
+        """Return the tensor to interpolate into.
+
+        Returns
+        -------
+        op2.Mat | Function | Cofunction
+
+        """
+        if self.rank == 0:
+            R = firedrake.FunctionSpace(self.target_mesh, "Real", 0)
+            f = Function(R, dtype=utils.ScalarType)
+        elif self.rank == 1:
+            if output:
+                V_dest = output.function_space()
+                f = output
+            else:
+                V_dest = self.expr_args[0].function_space().dual()
+                f = Function(V_dest)
+                if self.access in {firedrake.MIN, firedrake.MAX}:
+                    finfo = numpy.finfo(f.dat.dtype)
+                    if self.access == firedrake.MIN:
+                        val = firedrake.Constant(finfo.max)
+                    else:
+                        val = firedrake.Constant(finfo.min)
+                    f.assign(val)
+        elif self.rank == 2:
+            Vrow = self.expr_args[0].function_space()
+            Vcol = self.expr_args[1].function_space()
+            if len(Vrow) > 1 or len(Vcol) > 1:
+                raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+            Vrow_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vrow)
+            Vcol_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vcol)
+            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
+                                    name=f"{Vrow.name}_{Vcol.name}_sparsity",
+                                    nest=False,
+                                    block_sparse=True)
+            f = op2.Mat(sparsity)
+        else:
+            raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
+        return f
+
+    def _get_callable(self, output=None) -> Callable:
+        """Construct the callable that performs the interpolation.
+
+        Returns
+        -------
+        Callable
+        """
+        f = self._get_tensor(output=output)
+        if isinstance(f, op2.Mat):
+            tensor = f
+        else:
+            tensor = f.dat
+
+        loops = []
+
+        if self.access == op2.INC:
+            loops.append(tensor.zero)
+
+        # Arguments in the operand are allowed to be from a MixedFunctionSpace
+        # We need to split the target space V and generate separate kernels
+        if self.rank == 2:
+            expressions = {(0,): self.expr}
+        elif isinstance(self.dual_arg, Coargument):
+            # Split in the coargument
+            expressions = dict(firedrake.formmanipulation.split_form(self.expr))
+        else:
+            # Split in the cofunction: split_form can only split in the coargument
+            # Replace the cofunction with a coargument to construct the Jacobian
+            interp = self.expr._ufl_expr_reconstruct_(self.operand, self.V_dest)
+            # Split the Jacobian into blocks
+            interp_split = dict(firedrake.formmanipulation.split_form(interp))
+            # Split the cofunction
+            dual_split = dict(firedrake.formmanipulation.split_form(self.dual_arg))
+            # Combine the splits by taking their action
+            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
+
+        # Interpolate each sub expression into each function space
+        for indices, sub_expr in expressions.items():
+            if isinstance(sub_expr, ufl.ZeroBaseForm):
+                continue
+            arguments = sub_expr.arguments()
+            sub_space = sub_expr.argument_slots()[0].function_space().dual()
+            sub_tensor = tensor[indices[0]] if self.rank == 1 else tensor
+            loops.extend(_interpolator(sub_space, sub_tensor, sub_expr, self.subset, arguments, self.access, bcs=self.bcs))
+
+        if self.bcs and self.rank == 1:
+            loops.extend(partial(bc.apply, f) for bc in self.bcs)
+
+        def callable(loops, f):
+            for l in loops:
+                l()
+            return f
+
+        self.callable = partial(callable, loops, f)
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, transpose=None, adjoint=False, **kwargs):
+    def _interpolate(self, output=None):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
         """
+        assert self.rank < 2
+        self._get_callable(output=output)
+        assembled_interpolator = self.callable()
+        if output:
+            output.assign(assembled_interpolator)
+            return output
 
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
-        try:
-            assembled_interpolator = self.frozen_assembled_interpolator
-            copy_required = True
-        except AttributeError:
-            assembled_interpolator = self.callable()
-            copy_required = False  # Return the original
-            if self.freeze_expr:
-                if len(self.arguments) == 2:
-                    # Interpolation operator
-                    self.frozen_assembled_interpolator = assembled_interpolator
-                else:
-                    # Interpolation action
-                    self.frozen_assembled_interpolator = assembled_interpolator.copy()
-
-        if len(self.arguments) == 2 and len(function) > 0:
-            function, = function
-            if not hasattr(function, "dat"):
-                raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
-            if adjoint:
-                mul = assembled_interpolator.handle.multHermitian
-                col, row = self.arguments
-            else:
-                mul = assembled_interpolator.handle.mult
-                row, col = self.arguments
-            V = row.function_space().dual()
-            assert function.function_space() == col.function_space()
-
-            result = output or firedrake.Function(V)
-            with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                if x is not out:
-                    mul(x, out)
-                else:
-                    out_ = out.duplicate()
-                    mul(x, out_)
-                    out_.copy(result=out)
-            return result
-
+        if self.rank == 0:
+            return assembled_interpolator.dat.data.item()
         else:
-            if output:
-                output.assign(assembled_interpolator)
-                return output
-            if isinstance(self.V, firedrake.Function):
-                if copy_required:
-                    self.V.assign(assembled_interpolator)
-                return self.V
-            else:
-                if len(self.arguments) == 0:
-                    return assembled_interpolator.dat.data.item()
-                elif copy_required:
-                    return assembled_interpolator.copy()
-                else:
-                    return assembled_interpolator
+            return assembled_interpolator
 
 
-@PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
-    if not isinstance(expr, ufl.Interpolate):
-        raise ValueError(f"Expecting to interpolate a ufl.Interpolate, got {type(expr).__name__}.")
-    dual_arg, operand = expr.argument_slots()
-    target_mesh = as_domain(dual_arg)
-    source_mesh = extract_unique_domain(operand) or target_mesh
-    vom_onto_other_vom = ((source_mesh is not target_mesh)
-                          and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                          and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
+class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    arguments = expr.arguments()
-    rank = len(arguments)
-    if rank <= 1:
-        if rank == 0:
-            R = firedrake.FunctionSpace(target_mesh, "Real", 0)
-            f = firedrake.Function(R, dtype=utils.ScalarType)
-        elif isinstance(V, firedrake.Function):
-            f = V
-            V = f.function_space()
-        else:
-            V_dest = arguments[0].function_space().dual()
-            f = firedrake.Function(V_dest)
-            if access in {firedrake.MIN, firedrake.MAX}:
-                finfo = numpy.finfo(f.dat.dtype)
-                if access == firedrake.MIN:
-                    val = firedrake.Constant(finfo.max)
-                else:
-                    val = firedrake.Constant(finfo.min)
-                f.assign(val)
-        tensor = f.dat
-    elif rank == 2:
-        if isinstance(V, firedrake.Function):
-            raise ValueError("Cannot interpolate an expression with an argument into a Function")
-        Vrow = arguments[0].function_space()
-        Vcol = arguments[1].function_space()
-        if len(Vrow) > 1 or len(Vcol) > 1:
-            raise TypeError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-        if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
-            if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+    def __init__(self, expr: Interpolate, bcs=None):
+        super().__init__(expr, bcs=bcs)
 
-        if vom_onto_other_vom:
+    def _get_callable(self, output=None):
+        self.mat = VomOntoVomMat(self)
+        if self.rank == 2:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-            Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
-            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                    name="%s_%s_sparsity" % (Vrow.name, Vcol.name),
-                                    nest=False,
-                                    block_sparse=True)
-            tensor = op2.Mat(sparsity)
-        f = tensor
-    else:
-        raise ValueError(f"Cannot interpolate an expression with {rank} arguments")
-
-    if vom_onto_other_vom:
-        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, matfree)
+            f = self._get_tensor(output=output)
+            tensor = f.dat
         # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         if tensor is not None:
-            # Callable will do interpolation into our pre-supplied function f
-            # when it is called.
-            assert f.dat is tensor
-            wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
-            assert len(arguments) == 1
+            self.mat.mpi_type, _ = get_dat_mpi_type(f.dat)
+            assert self.rank == 1
+            if self.expr.is_adjoint:
+                assert isinstance(self.dual_arg, ufl.Cofunction)
 
-            def callable():
-                wrapper.forward_operation(f.dat)
-                return f
+                def callable():
+                    with self.dual_arg.dat.vec_ro as source_vec, f.dat.vec_wo as target_vec:
+                        self.mat.handle.multHermitian(source_vec, target_vec)
+                    return f
+            else:
+                def callable():
+                    coeff = self.mat.expr_as_coeff()
+                    with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                        self.mat.handle.mult(coeff_vec, target_vec)
+                    return f
         else:
-            assert len(arguments) == 2
-            assert tensor is None
+            assert self.rank == 2
             # we know we will be outputting either a function or a cofunction,
             # both of which will use a dat as a data carrier. At present, the
             # data type does not depend on function space dimension, so we can
             # safely use the argument function space. NOTE: If this changes
             # after cofunctions are fully implemented, this will need to be
             # reconsidered.
-            temp_source_func = firedrake.Function(Vcol)
-            wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
+            temp_source_func = firedrake.Function(self.expr_args[1].function_space())
+            self.mat.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
 
             # Leave wrapper inside a callable so we can access the handle
             # property. If matfree is True, then the handle is a PETSc SF
@@ -925,69 +662,16 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             # will be a PETSc Mat representing the equivalent permutation
             # matrix
             def callable():
-                return wrapper
+                return self.mat
 
-        return callable
-    else:
-        loops = []
-
-        if access == op2.INC:
-            loops.append(tensor.zero)
-
-        # Arguments in the operand are allowed to be from a MixedFunctionSpace
-        # We need to split the target space V and generate separate kernels
-        if len(arguments) == 2:
-            # Matrix case assumes that the spaces are not mixed
-            expressions = {(0,): expr}
-        elif isinstance(dual_arg, Coargument):
-            # Split in the coargument
-            expressions = dict(firedrake.formmanipulation.split_form(expr))
-        else:
-            # Split in the cofunction: split_form can only split in the coargument
-            # Replace the cofunction with a coargument to construct the Jacobian
-            interp = expr._ufl_expr_reconstruct_(operand, V)
-            # Split the Jacobian into blocks
-            interp_split = dict(firedrake.formmanipulation.split_form(interp))
-            # Split the cofunction
-            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
-            # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
-
-        # Interpolate each sub expression into each function space
-        for indices, sub_expr in expressions.items():
-            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
-            loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
-
-        if bcs and rank == 1:
-            loops.extend(partial(bc.apply, f) for bc in bcs)
-
-        def callable(loops, f):
-            for l in loops:
-                l()
-            return f
-
-        return partial(callable, loops, f)
+        self.callable = callable
 
 
 @utils.known_pyop2_safe
-def _interpolator(tensor, expr, subset, access, bcs=None):
-    if isinstance(expr, ufl.ZeroBaseForm):
-        # Zero simplification, avoid code-generation
-        if access is op2.INC:
-            return ()
-        elif access is op2.WRITE:
-            return (partial(tensor.zero, subset=subset),)
-        # Unclear how to avoid codegen for MIN and MAX
-        # Reconstruct the expression as an Interpolate
-        V = expr.arguments()[-1].function_space().dual()
-        expr = interpolate(ufl.zero(V.value_shape), V)
-
+def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if not isinstance(expr, ufl.Interpolate):
         raise ValueError("Expecting to interpolate a ufl.Interpolate")
-
-    arguments = expr.arguments()
     dual_arg, operand = expr.argument_slots()
-    V = dual_arg.arguments()[0].function_space()
 
     try:
         to_element = create_element(V.ufl_element())
@@ -1002,33 +686,26 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(operand) or target_mesh
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if target_mesh is not source_mesh:
-            if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-            # For trans-mesh interpolation we use a FInAT QuadratureElement as the
-            # (base) target element with runtime point set expressions as their
-            # quadrature rule point set and weights from their dual basis.
-            # NOTE: This setup is useful for thinking about future design - in the
-            # future this `rebuild` function can be absorbed into FInAT as a
-            # transformer that eats an element and gives you an equivalent (which
-            # may or may not be a QuadratureElement) that lets you do run time
-            # tabulation. Alternatively (and this all depends on future design
-            # decision about FInAT how dual evaluation should work) the
-            # to_element's dual basis (which look rather like quadrature rules) can
-            # have their pointset(s) directly replaced with run-time tabulated
-            # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
-            rt_var_name = 'rt_X'
-            try:
-                cell = operand.ufl_element().ufl_cell()
-            except AttributeError:
-                # expression must be pure function of spatial coordinates so
-                # domain has correct ufl cell
-                cell = source_mesh.ufl_cell()
-            to_element = rebuild(to_element, cell, rt_var_name)
+        # For trans-mesh interpolation we use a FInAT QuadratureElement as the
+        # (base) target element with runtime point set expressions as their
+        # quadrature rule point set and weights from their dual basis.
+        # NOTE: This setup is useful for thinking about future design - in the
+        # future this `rebuild` function can be absorbed into FInAT as a
+        # transformer that eats an element and gives you an equivalent (which
+        # may or may not be a QuadratureElement) that lets you do run time
+        # tabulation. Alternatively (and this all depends on future design
+        # decision about FInAT how dual evaluation should work) the
+        # to_element's dual basis (which look rather like quadrature rules) can
+        # have their pointset(s) directly replaced with run-time tabulated
+        # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
+        rt_var_name = 'rt_X'
+        try:
+            cell = operand.ufl_element().ufl_cell()
+        except AttributeError:
+            # expression must be pure function of spatial coordinates so
+            # domain has correct ufl cell
+            cell = source_mesh.ufl_cell()
+        to_element = rebuild(to_element, cell, rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -1099,6 +776,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     else:
         copyin = ()
         copyout = ()
+
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
@@ -1123,9 +801,11 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
         parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
+
     if oriented:
         co = target_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
+
     if needs_cell_sizes:
         cs = source_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
@@ -1420,118 +1100,54 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
-class VomOntoVomWrapper(object):
-    """Utility class for interpolating from one ``VertexOnlyMesh`` to it's
-    intput ordering ``VertexOnlyMesh``, or vice versa.
+class VomOntoVomMat:
+    """Object that facilitates interpolation between two vertex-only meshes."""
+    def __init__(self, interpolator: VomOntoVomInterpolator):
+        """Initialises the VomOntoVomMat.
 
-    Parameters
-    ----------
-    V : `.FunctionSpace`
-        The P0DG function space (which may be vector or tensor valued) on the
-        source vertex-only mesh.
-    source_vom : `.VertexOnlyMesh`
-        The vertex-only mesh we interpolate from.
-    target_vom : `.VertexOnlyMesh`
-        The vertex-only mesh we interpolate to.
-    expr : `ufl.Expr`
-        The expression to interpolate. If ``arguments`` is not empty, those
-        arguments must be present within it.
-    matfree : bool
-        If ``False``, the matrix representating the permutation of the points is
-        constructed and used to perform the interpolation. If ``True``, then the
-        interpolation is performed using the broadcast and reduce operations on the
-        PETSc Star Forest.
-    """
+        Parameters
+        ----------
+        interpolator : VomOntoVomInterpolator
+            A :class:`VomOntoVomInterpolator` object.
 
-    def __init__(self, V, source_vom, target_vom, expr, matfree):
-        arguments = extract_arguments(expr)
-        reduce = False
-        if source_vom.input_ordering is target_vom:
-            reduce = True
-            original_vom = source_vom
-        elif target_vom.input_ordering is source_vom:
-            original_vom = target_vom
+        Raises
+        ------
+        ValueError
+            If the source and target vertex-only meshes are not linked by input_ordering.
+        """
+        if interpolator.source_mesh.input_ordering is interpolator.target_mesh:
+            self.forward_reduce = True
+            self.original_vom = interpolator.source_mesh
+        elif interpolator.target_mesh.input_ordering is interpolator.source_mesh:
+            self.forward_reduce = False
+            self.original_vom = interpolator.target_mesh
         else:
             raise ValueError(
                 "The target vom and source vom must be linked by input ordering!"
             )
-        self.V = V
-        self.source_vom = source_vom
-        self.expr = expr
-        self.arguments = arguments
-        self.reduce = reduce
-        # note that interpolation doesn't include halo cells
-        self.dummy_mat = VomOntoVomDummyMat(
-            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
-        )
-        if matfree:
-            # If matfree, we use the SF to perform the interpolation
-            self.handle = self.dummy_mat._wrap_dummy_mat()
-        else:
-            # Otherwise we create the permutation matrix
-            self.handle = self.dummy_mat._create_permutation_mat()
+        self.sf = self.original_vom.input_ordering_without_halos_sf
+        self.V = interpolator.V_dest
+        self.source_vom = interpolator.source_mesh
+        self.expr = interpolator.operand
+        self.arguments = extract_arguments(self.expr)
+        self.is_adjoint = interpolator.expr.is_adjoint
 
-    @property
-    def mpi_type(self):
-        """
-        The MPI type to use for the PETSc SF.
-
-        Should correspond to the underlying data type of the PETSc Vec.
-        """
-        return self.handle.mpi_type
-
-    @mpi_type.setter
-    def mpi_type(self, val):
-        self.dummy_mat.mpi_type = val
-
-    def forward_operation(self, target_dat):
-        coeff = self.dummy_mat.expr_as_coeff()
-        with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
-            self.handle.mult(coeff_vec, target_vec)
-
-
-class VomOntoVomDummyMat(object):
-    """Dummy object to stand in for a PETSc ``Mat`` when we are interpolating
-    between vertex-only meshes.
-
-    Parameters
-    ----------
-    sf: PETSc.sf
-        The PETSc Star Forest (SF) to use for the operation
-    forward_reduce : bool
-        If ``True``, the action of the operator (accessed via the `mult`
-        method) is to perform a SF reduce from the source vec to the target
-        vec, whilst the adjoint action (accessed via the `multHermitian`
-        method) is to perform a SF broadcast from the source vec to the target
-        vec. If ``False``, the opposite is true.
-    V : `.FunctionSpace`
-        The P0DG function space (which may be vector or tensor valued) on the
-        source vertex-only mesh.
-    source_vom : `.VertexOnlyMesh`
-        The vertex-only mesh we interpolate from.
-    expr : `ufl.Expr`
-        The expression to interpolate. If ``arguments`` is not empty, those
-        arguments must be present within it.
-    arguments : list of `ufl.Argument`
-        The arguments in the expression.
-    """
-
-    def __init__(self, sf, forward_reduce, V, source_vom, expr, arguments):
-        self.sf = sf
-        self.forward_reduce = forward_reduce
-        self.V = V
-        self.source_vom = source_vom
-        self.expr = expr
-        self.arguments = arguments
         # Calculate correct local and global sizes for the matrix
-        nroots, leaves, _ = sf.getGraph()
+        nroots, leaves, _ = self.sf.getGraph()
         self.nleaves = len(leaves)
-        self._local_sizes = V.comm.allgather(nroots)
+        self._local_sizes = self.V.comm.allgather(nroots)
         self.source_size = (self.V.block_size * nroots, self.V.block_size * sum(self._local_sizes))
         self.target_size = (
             self.V.block_size * self.nleaves,
-            self.V.block_size * V.comm.allreduce(self.nleaves, op=MPI.SUM),
+            self.V.block_size * self.V.comm.allreduce(self.nleaves, op=MPI.SUM),
         )
+
+        if interpolator.matfree:
+            # If matfree, we use the SF to perform the interpolation
+            self.handle = self._wrap_python_mat()
+        else:
+            # Otherwise we create the permutation matrix
+            self.handle = self._create_permutation_mat()
 
     @property
     def mpi_type(self):
@@ -1665,11 +1281,11 @@ class VomOntoVomDummyMat(object):
         cols = (self.V.block_size * perm[:, None] + numpy.arange(self.V.block_size, dtype=utils.IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=utils.IntType))
         mat.assemble()
-        if self.forward_reduce:
+        if self.forward_reduce and not self.is_adjoint:
             mat.transpose()
         return mat
 
-    def _wrap_dummy_mat(self):
+    def _wrap_python_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
         if self.forward_reduce:
             mat_size = (self.source_size, self.target_size)
@@ -1682,7 +1298,7 @@ class VomOntoVomDummyMat(object):
         return mat
 
     def duplicate(self, mat=None, op=None):
-        return self._wrap_dummy_mat()
+        return self._wrap_python_mat()
 
 
 class MixedInterpolator(Interpolator):
@@ -1697,36 +1313,28 @@ class MixedInterpolator(Interpolator):
         interpolate into.
     bcs
         A list of boundary conditions.
-    **kwargs
-        Any extra kwargs are passed on to the sub Interpolators.
-        For details see :class:`firedrake.interpolation.Interpolator`.
     """
-    def __init__(self, expr, V, bcs=None, **kwargs):
-        super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
-        expr = self.ufl_interpolate
-        self.arguments = expr.arguments()
-        rank = len(self.arguments)
+    def __init__(self, expr, bcs=None):
+        super().__init__(expr, bcs=bcs)
 
         # We need a Coargument in order to split the Interpolate
-        needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
+        needs_action = not any(isinstance(a, Coargument) for a in self.expr_args)
         if needs_action:
-            dual_arg, operand = expr.argument_slots()
             # Split the dual argument
-            dual_split = dict(firedrake.formmanipulation.split_form(dual_arg))
+            dual_split = dict(firedrake.formmanipulation.split_form(self.dual_arg))
             # Create the Jacobian to be split into blocks
-            expr = expr._ufl_expr_reconstruct_(operand, V)
+            self.expr = self.expr._ufl_expr_reconstruct_(self.operand, self.V_dest)
 
         Isub = {}
-        # Split in the arguments of the Interpolate
-        for indices, form in firedrake.formmanipulation.split_form(expr):
+        for indices, form in firedrake.formmanipulation.split_form(self.expr):
             if isinstance(form, ufl.ZeroBaseForm):
                 # Ensure block sparsity
                 continue
             vi, _ = form.argument_slots()
             Vtarget = vi.function_space().dual()
-            if bcs and rank != 0:
+            if bcs and self.rank != 0:
                 args = form.arguments()
-                Vsource = args[1-vi.number()].function_space()
+                Vsource = args[1 - vi.number()].function_space()
                 sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
             else:
                 sub_bcs = None
@@ -1734,10 +1342,10 @@ class MixedInterpolator(Interpolator):
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
 
-            Isub[indices] = Interpolator(form, Vtarget, bcs=sub_bcs, **kwargs)
+            Isub[indices] = _get_interpolator(form, bcs=sub_bcs)
 
         self._sub_interpolators = Isub
-        self.callable = self._assemble_matnest
+        self.callable = self._get_callable
 
     def __getitem__(self, item):
         return self._sub_interpolators[item]
@@ -1745,32 +1353,31 @@ class MixedInterpolator(Interpolator):
     def __iter__(self):
         return iter(self._sub_interpolators)
 
-    def _assemble_matnest(self):
+    def _get_callable(self):
         """Assemble the operator."""
-        shape = tuple(len(a.function_space()) for a in self.arguments)
+        shape = tuple(len(a.function_space()) for a in self.expr_args)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-        # Assemble the sparse block matrix
         for i in self:
+            self[i]._get_callable()
             blocks[i] = self[i].callable().handle
         petscmat = PETSc.Mat().createNest(blocks)
-        tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
+        tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
         return tensor.M
 
-    def _interpolate(self, *function, output=None, adjoint=False, **kwargs):
+    def _interpolate(self, output=None):
         """Assemble the action."""
-        rank = len(self.arguments)
-        if rank == 0:
-            result = sum(self[i].assemble(**kwargs) for i in self)
+        if self.rank == 0:
+            result = sum(self[i].assemble() for i in self)
             return output.assign(result) if output else result
 
         if output is None:
-            output = firedrake.Function(self.arguments[-1].function_space().dual())
+            output = firedrake.Function(self.expr_args[-1].function_space().dual())
 
-        if rank == 1:
+        if self.rank == 1:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i].assemble(**kwargs) for i in self if i[0] == k))
-        elif rank == 2:
+                sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
+        elif self.rank == 2:
             for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i]._interpolate(*function, adjoint=adjoint, **kwargs)
+                sub_tensor.assign(sum(self[i]._interpolate()
                                       for i in self if i[0] == k))
         return output
