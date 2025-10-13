@@ -20,22 +20,23 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO RELEASE: use releases
+  # TODO RELEASE
   "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  # TODO RELEASE
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
   "h5py>3.12.1",
+  "immutabledict",
   "libsupermesh",
   "loopy>2024.1",
   "numpy",
   "packaging",
   # TODO RELEASE
-  # "petsc4py==3.23.4",
-  # TODO RELEASE
-  # "petsctools",
+  # "petsc4py==3.24.0",
+  "petsctools",
   "pkgconfig",
   "progress",
-  # TODO RELEASE: use a release
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint",
+  # TODO RELEASE
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint@master",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -92,11 +93,11 @@ jax = [
 ]
 netgen = [
   # TODO RELEASE
-  # "ngsPETSc",
+  # "ngsPETSc>=0.1.1",
 ]
 slepc = [
   # TODO RELEASE
-  # "slepc4py==3.23.2",
+  # "slepc4py==3.24.0",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -110,7 +111,8 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc",
+  # TODO RELEASE
+  # "ngsPETSc>=0.1.1",
   "pdf2image",
   "pygraphviz",
   "pylit",
@@ -119,7 +121,7 @@ ci = [
   "pytest-timeout",
   "pytest-xdist",
   # TODO RELEASE
-  # "slepc4py==3.23.2",
+  # "slepc4py==3.24.0",
   "torch",  # requires passing '--extra-index-url' to work
 ]
 docker = [  # Used in firedrake-vanilla container
@@ -136,7 +138,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-timeout",
   "pytest-xdist",
   # TODO RELEASE
-  # "slepc4py==3.23.2",
+  # "slepc4py==3.24.0",
 ]
 
 [build-system]
@@ -151,7 +153,7 @@ requires = [
   "pybind11",
   "setuptools>=77.0.3",
   # TODO RELEASE
-  # "petsc4py==3.23.4",
+  # "petsc4py==3.24.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
