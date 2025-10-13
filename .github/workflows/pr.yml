@@ -39,7 +39,7 @@ jobs:
         with:
           repository: firedrakeproject/notebooks
           path: notebooks
-          token: ${{ github.NOTEBOOKS_REPO_TOKEN }}
+          token: ${{ secrets.NOTEBOOKS_REPO_TOKEN }}
 
       - name: Copy notebooks
         run: cp -r firedrake/docs/notebooks/* notebooks/
