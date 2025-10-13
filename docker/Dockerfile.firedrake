@@ -43,7 +43,7 @@ RUN \
                         -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
                         -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
                         -e git+https://github.com/icepack/icepack.git#egg=icepack \
-                        -e git+https://github.com/thetisproject/thetis.git#egg=thetis \
+                        -e git+https://github.com/thetisproject/thetis.git#egg=thetis; \
         fi
 
 # Install some other niceties
