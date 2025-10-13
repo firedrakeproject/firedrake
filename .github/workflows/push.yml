@@ -27,6 +27,7 @@ jobs:
 
   colab:
     name: Update Colab notebooks
+    if: github.ref_name == 'release'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Firedrake
@@ -38,19 +39,19 @@ jobs:
         uses: actions/checkout@v5
         with:
           repo: firedrakeproject/notebooks
-          branch: ${{ github.ref_name }}
           path: notebooks
 
+      - name: Copy notebooks
+        run: cp -r firedrake/docs/notebooks/* notebooks/
+
       - name: Prepare notebooks for Colab
-        run: |
-          for $notebook in firedrake/docs/notebooks/*.ipynb; do
-            ./notebooks/??? $notebook
-          done
+        working-directory: notebooks
+        run: ./utils/firedrake-colab-notebooks *.ipynb
 
       - name: Push changes if needed
         working-directory: notebooks
         run: |
-          if [ -z $(git diff ???) ]; then
+          if [ ! -z "$( git status --porcelain )" ]; then
             git add --all .
             git commit -m "Upstream updates"
             git push

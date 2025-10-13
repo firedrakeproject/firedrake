@@ -13,3 +13,36 @@ jobs:
       # Only run macOS tests if the PR is labelled 'macOS'
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
     secrets: inherit
+
+  # UNDO ME, just for testing
+  colab:
+    name: Update Colab notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Firedrake
+        uses: actions/checkout@v5
+        with:
+          path: firedrake
+          ref: release
+
+      - name: Checkout Colab notebooks
+        uses: actions/checkout@v5
+        with:
+          repo: firedrakeproject/notebooks
+          path: notebooks
+
+      - name: Copy notebooks
+        run: cp -r firedrake/docs/notebooks/* notebooks/
+
+      - name: Prepare notebooks for Colab
+        working-directory: notebooks
+        run: ./utils/firedrake-colab-notebooks *.ipynb
+
+      - name: Push changes if needed
+        working-directory: notebooks
+        run: |
+          if [ ! -z "$( git status --porcelain )" ]; then
+            git add --all .
+            git commit -m "Upstream updates"
+            git push
+          fi
