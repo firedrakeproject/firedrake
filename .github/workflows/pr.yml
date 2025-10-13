@@ -18,6 +18,8 @@ jobs:
   colab:
     name: Update Colab notebooks
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/setup-python@v5
         with:
