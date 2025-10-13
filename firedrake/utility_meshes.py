@@ -89,7 +89,7 @@ def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, n
     dm.removeLabel("interior_facets")
     V = coords.function_space()
 
-    with coords.vec(bsize=dm.getDimension()) as coords_vec:
+    with coords.vec_rw as coords_vec:
         dmcommon._set_dg_coordinates(dm,
                                      V.finat_element,
                                      V.dm.getLocalSection(),

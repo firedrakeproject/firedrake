@@ -69,6 +69,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     layer_height = op3.Dat.from_array(layer_height)
 
     if kernel is not None:
+        raise NotImplementedError
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
                     ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
@@ -241,6 +242,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     from firedrake.parloops import pack_tensor
 
+    YES. THIS IS FAILING!
+    op3.extras.debug.enable_conditional_breakpoints()
     op3.do_loop(
         p := iterset.index(),
         kernel(

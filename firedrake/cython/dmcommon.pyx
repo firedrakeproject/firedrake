@@ -1646,6 +1646,7 @@ def facet_closure_nodes(V, sub_domain):
     else:
         label = FACE_SETS_LABEL
         if V.mesh().variable_layers:
+            raise NotImplementedError
             # We can't use the generic code in this case because we
             # need to manually take closure of facets on each external
             # face (rather than using the label completion and section
@@ -4243,3 +4244,40 @@ def get_dm_cell_types(PETSc.DM dm):
     return tuple(
         polytope_type_enum for polytope_type_enum, found in enumerate(found_all) if found
     )
+
+
+def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM:
+    cdef:
+        PETSc.DM extruded_mesh
+
+        PetscBool tensor_c = PETSC_TRUE
+        PetscBool symmetric_c = PETSC_FALSE
+        PetscReal *normal_c = NULL
+        PetscReal *thicknesses_c = NULL
+        DMLabel active_label_c = NULL
+
+    # Label the points in the base mesh with their dimension so we can determine
+    # the different facet types in the extruded mesh.
+    mesh.createLabel("base_dim")
+    base_dim_label = mesh.getLabel("base_dim")
+    for dim in range(mesh.getDimension()+1):
+        for pt in range(*mesh.getDepthStratum(dim)):
+            base_dim_label.setValue(pt, dim)
+
+    extruded_mesh = PETSc.DMPlex().create(comm=mesh.comm)
+    CHKERR(DMPlexExtrude(
+        mesh.dm,
+        nlayers,
+        thickness,
+        tensor_c,
+        symmetric_c,
+        periodic,
+        normal_c,
+        thicknesses_c,
+        active_label_c,
+        &extruded_mesh.dm,
+    ))
+
+    # CHKERR(PetscObjectReference(extruded_mesh.obj[0]))
+
+    return extruded_mesh

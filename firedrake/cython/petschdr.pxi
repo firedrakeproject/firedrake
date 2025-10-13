@@ -2,6 +2,9 @@ cimport petsc4py.PETSc as PETSc
 cimport mpi4py.MPI as MPI
 cimport numpy as np
 
+cdef extern from * nogil:
+     int PetscObjectReference(PETSc.PetscObject)
+
 cdef extern from "mpi-compat.h":
     pass
 
@@ -52,6 +55,9 @@ cdef extern from "petscdmtypes.h" nogil:
         DM_NUM_POLYTOPES
 
 cdef extern from "petscdmplex.h" nogil:
+    struct _n_DMLabel
+    ctypedef _n_DMLabel* DMLabel "DMLabel"
+
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -77,6 +83,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
+    int DMPlexExtrude(PETSc.PetscDM,PetscInt,PetscReal,PetscBool,PetscBool,PetscBool,PetscReal*,PetscReal*,DMLabel,PETSc.PetscDM*)
 
     int DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
     int DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)

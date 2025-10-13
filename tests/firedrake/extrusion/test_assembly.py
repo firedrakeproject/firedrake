@@ -18,7 +18,9 @@ def test_scalar_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(inner(u, v)*dx)
+    # import pyop3.extras.debug
+    # pyop3.extras.debug.enable_conditional_breakpoints()
+    assemble(inner(u, v)*dx)  # segfault is here!
     assemble(inner(grad(u), grad(v))*dx)
 
 

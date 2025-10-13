@@ -1243,10 +1243,8 @@ class AbstractMeshTopology(abc.ABC):
         return dmcommon.closure_ordering(self, closure_data)
 
     def _reorder_closure_fiat_quad(self, closure_data):
-        from firedrake_citations import Citations
-
-        Citations().register("Homolya2016")
-        Citations().register("McRae2016")
+        petsctools.cite("Homolya2016")
+        petsctools.cite("McRae2016")
 
         cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
         facet_orientations = dmcommon.quadrilateral_facet_orientations(self, cell_ranks)
@@ -2760,11 +2758,14 @@ class ExtrudedMeshTopology(MeshTopology):
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
+
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self.topology_dm = mesh.topology_dm
+        # self.topology_dm = mesh.topology_dm
+        self.topology_dm = dmcommon.extrude_mesh(mesh.topology_dm, layers-1, 666, periodic=periodic)
         r"The PETSc DM representation of the mesh topology."
+
         self._cell_numbering = mesh._cell_numbering
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}

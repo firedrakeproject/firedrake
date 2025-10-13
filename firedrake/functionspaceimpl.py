@@ -26,7 +26,7 @@ from pyop3.utils import just_one, single_valued
 from ufl.duals import is_dual, is_primal
 from pyop2.utils import as_tuple
 
-from firedrake import dmhooks, utils
+from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.cython import extrusion_numbering as extnum
@@ -651,6 +651,7 @@ class FunctionSpace:
         key = (nodes_per_entity, real_tensor_product, self.shape)
 
         self.layout = layout
+        self.extruded = isinstance(mesh, ExtrudedMeshTopology)
 
     @cached_property
     def offset(self):
@@ -1037,47 +1038,42 @@ class FunctionSpace:
     # TODO: cythonize
     @utils.cached_property
     def local_section(self):
+        dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
+        section.setChart(0, self._mesh._dm_renumbering.size)
+
         if self._mesh._dm_renumbering is not None:
             section.setPermutation(self._mesh._dm_renumbering)
 
         entity_dofs = flatten_entity_dofs(self.finat_element)
 
         if type(self._mesh.topology) is MeshTopology:
-            dm = self._mesh.topology_dm
-            section.setChart(*dm.getChart())
-
+            stratum_ranges = {
+            }
             for dim in range(dm.getDimension()+1):
                 ndofs = entity_dofs[dim]
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
-            # NOTE: The interfaces nearly match so this can follow dmplex now
-            dm = self._mesh.topology_dm
-            section.setChart(0, dm.getLocalSize())
-
+            stratum_ranges = {0: (0, dm.getLocalSize())}
             ndofs = entity_dofs[0]
-            for pt in range(0, dm.getLocalSize()):
+            for pt in range(dm.getLocalSize()):
                 section.setDof(pt, ndofs)
         else:
-            assert type(self._mesh.topology) is ExtrudedMeshTopology
-            base_dm = self._mesh._base_mesh.topology_dm
-            nlayers = self._mesh.layers - 1
+            assert self.extruded
 
-            section.setChart(0, self._mesh._base_mesh.num_points * (2*nlayers+1))
-
-            for base_dim in range(base_dm.getDimension()+1):
-                for base_pt in range(*base_dm.getDepthStratum(base_dim)):
-                    for col_pt in range(2*nlayers+1):
-                        pt = base_pt * (2*nlayers+1) + col_pt
-
-                        if col_pt % 2 == 0:
-                            # a 'vertex'
-                            ndofs = entity_dofs[(base_dim, 0)]
-                        else:
-                            # an 'edge'
-                            ndofs = entity_dofs[(base_dim, 1)]
-                        section.setDof(pt, ndofs)
+            dim_label = dm.getLabel("depth")
+            base_dim_label = dm.getLabel("base_dim")
+            for pt in range(*dm.getChart()):
+                dim = dim_label.getValue(pt)
+                base_dim = base_dim_label.getValue(pt)
+                if base_dim == dim:
+                    # vertex
+                    ndofs = entity_dofs[base_dim, 0]
+                else:
+                    # edge
+                    ndofs = entity_dofs[base_dim, 1]
+                section.setDof(pt, ndofs)
 
         if self._ufl_function_space.ufl_element().family() == "Real":
             p_start, p_end = section.getChart()
@@ -1108,7 +1104,11 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
-        return self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        if self.extruded:
+            return nodes[::self.mesh().layers-1]
+        else:
+            return nodes
 
     @cached_property
     def cell_node_dat(self) -> op3.Dat:
@@ -1143,6 +1143,13 @@ class FunctionSpace:
         map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
 
         return map_dat
+
+    @cached_property
+    def extr_cell_node_list(self):
+        assert self.extruded
+        if self.mesh().variable_layers:
+            raise NotImplementedError
+        return self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
 
     @utils.cached_property
     def topological(self):
@@ -1399,7 +1406,7 @@ class FunctionSpace:
         """
         V = self # fixme
         _, sub_domain, boundary_set = key
-        cell_node_list = V.cell_node_list  # ah, now for the whole thing...
+        cell_node_list = V.cell_node_list
         offset = V.offset
         if mesh.variable_layers:
             return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
@@ -1981,7 +1988,7 @@ class MixedFunctionSpace:
         from firedrake.mg.utils import get_level
 
         dm = PETSc.DMShell().create(comm=self.comm)
-        # dm.setLocalSection(self.local_section)
+        dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
