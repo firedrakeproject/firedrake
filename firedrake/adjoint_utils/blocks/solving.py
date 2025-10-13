@@ -41,7 +41,7 @@ HESSIAN = SolverType.HESSIAN
 
 class CachedSolverBlock(Block):
     def __init__(self, func, bcs, cached_solvers,
-                 replaced_dependencies,
+                 is_linear, replaced_dependencies,
                  tlm_rhs, replaced_tlms, tlm_dFdm_forms,
                  adj_rhs, adj_dFdm_forms, adj_residual,
                  adj_sol, adj2_sol, tlm_output,
@@ -55,6 +55,7 @@ class CachedSolverBlock(Block):
         self.bcs = bcs
         self.cached_solvers = cached_solvers
         self.replaced_dependencies = replaced_dependencies
+        self.is_linear = is_linear
 
         self.tlm_rhs = tlm_rhs
         self.replaced_tlms = replaced_tlms
@@ -112,7 +113,7 @@ class CachedSolverBlock(Block):
         """
         for replaced_dep, dep in zip(self.replaced_tlms,
                                      self._coefficient_dependencies()):
-            if dep.output == self.func:  # TODO: and not self.linear
+            if dep.output == self.func and not self.is_linear:
                 continue
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
@@ -165,7 +166,7 @@ class CachedSolverBlock(Block):
         for dFdm, dep in zip(self.tlm_dFdm_forms, self.get_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            if dep.output is self.func:  # and not self.linear  # Can't compute dependence on initial guess
+            if dep.output is self.func and not self.is_linear:  # Can't compute dependence on initial guess
                 continue
             self.tlm_rhs += firedrake.assemble(dFdm)
 
@@ -219,7 +220,7 @@ class CachedSolverBlock(Block):
         return prepared
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx, prepared=None):
-        if block_variable.output == self.func:  # and not self.linear
+        if block_variable.output == self.func and not self.is_linear:
             return None
 
         if isinstance(block_variable.output, firedrake.DirichletBC):
@@ -261,7 +262,7 @@ class CachedSolverBlock(Block):
                                 self._coefficient_dependencies()):
             if dep.tlm_value is None:  # This dependency doesn't depend on the controls
                 continue
-            if dep.output is self.func:  # and not self.linear  # Can't compute dependence on initial guess
+            if dep.output is self.func and not self.is_linear:  # Can't compute dependence on initial guess
                 continue
             if len(d2Fdmdu.integrals()) > 0:
                 hessian_rhs -= firedrake.assemble(d2Fdmdu)
@@ -282,7 +283,7 @@ class CachedSolverBlock(Block):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs, block_variable, idx, relevant_dependencies, prepared=None):
         m = block_variable.output
 
-        if m is self.func:  # and not self.linear
+        if m is self.func and not self.is_linear:
             return None
 
         if isinstance(m, firedrake.DirichletBC):
@@ -298,7 +299,7 @@ class CachedSolverBlock(Block):
                 continue
             if dep.tlm_value is None:
                 continue
-            if dep.output is self.func:  # and not self.linear
+            if dep.output is self.func and not self.is_linear:
                 continue
             relevant_d2Fdm2_forms.append(self.d2Fdm2_adj_forms[idx][i])
 
@@ -338,6 +339,8 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
+        # Storage for adjoint solution of this block
+        self.adj_state_buf = func.copy(deepcopy=True)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
@@ -470,6 +473,7 @@ class GenericSolveBlock(Block):
             dFdu_form, dJdu, compute_bdy
         )
         self.adj_state = adj_sol
+        self.adj_state_buf.assign(adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:

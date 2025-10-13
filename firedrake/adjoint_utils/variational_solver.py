@@ -346,6 +346,7 @@ class NonlinearVariationalSolverMixin:
                 block = CachedSolverBlock(self._ad_problem.u,
                                           self._ad_bcs,
                                           self._ad_solver_cache,
+                                          self._ad_problem.is_linear,
                                           self._ad_replaced_dependencies,
 
                                           self._ad_tlm_rhs,
