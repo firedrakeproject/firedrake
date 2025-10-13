@@ -31,17 +31,20 @@ RUN \
                 && pip install ngsPETSc; \
         fi
 
-# Install Firedrake apps
-RUN pip install --verbose --src /opt \
-        -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
-        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
-        -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
-        -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
-        -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
-        -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
-        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
-        -e git+https://github.com/icepack/icepack.git#egg=icepack \
-        -e git+https://github.com/thetisproject/thetis.git#egg=thetis
+# Install Firedrake apps (x86 only)
+RUN \
+        if [ "$(dpkg --print-architecture)" != "arm64" ]; then \
+                pip install --verbose --src /opt \
+                        -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
+                        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
+                        -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
+                        -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
+                        -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
+                        -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
+                        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
+                        -e git+https://github.com/icepack/icepack.git#egg=icepack \
+                        -e git+https://github.com/thetisproject/thetis.git#egg=thetis \
+        fi
 
 # Install some other niceties
 RUN apt-get update \
