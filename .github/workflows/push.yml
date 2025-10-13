@@ -38,7 +38,7 @@ jobs:
       - name: Checkout Colab notebooks
         uses: actions/checkout@v5
         with:
-          repo: firedrakeproject/notebooks
+          repository: firedrakeproject/notebooks
           path: notebooks
 
       - name: Copy notebooks
