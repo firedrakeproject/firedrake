@@ -39,13 +39,14 @@ jobs:
         with:
           repository: firedrakeproject/notebooks
           path: notebooks
+          token: ${{ secrets.NOTEBOOKS_REPO_TOKEN }}
 
       - name: Copy notebooks
         run: cp -r firedrake/docs/notebooks/* notebooks/
 
       - name: Prepare notebooks for Colab
         working-directory: notebooks
-        run: ./utils/firedrake-colab-notebooks *.ipynb
+        run: ./utils/firedrake-colab-notebooks ./*.ipynb
 
       - name: Push changes if needed
         working-directory: notebooks
