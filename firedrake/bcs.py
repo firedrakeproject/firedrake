@@ -23,6 +23,7 @@ from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.interpolation import get_interpolator
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -358,16 +359,13 @@ class DirichletBC(BCBase, DirichletBCMixin):
         elif isinstance(g, ufl.classes.Expr):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
-            disallowed_elements = PhysicallyMappedElement | DirectlyDefinedElement | EnrichedElement
-            if len(V.ufl_element().sub_elements) > 0:
-                elements = V.ufl_element().sub_elements
-            else:
-                elements = [V.ufl_element()]
-            if all(not isinstance(element, disallowed_elements) for element in elements):
+            try:
                 self._function_arg = firedrake.Function(V)
-                interpolate_expr = firedrake.interpolate(g, V)
-                self._function_arg_update = lambda: firedrake.assemble(interpolate_expr, tensor=self._function_arg)
-            else:
+                interpolator = get_interpolator(firedrake.interpolate(g, V))
+                # Call this here to check if the element supports interpolation 
+                interpolator._get_callable()
+                self._function_arg_update = lambda: interpolator.assemble(tensor=self._function_arg)
+            except (ValueError, NotImplementedError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
