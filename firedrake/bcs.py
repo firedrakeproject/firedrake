@@ -359,7 +359,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             disallowed_elements = PhysicallyMappedElement | DirectlyDefinedElement | EnrichedElement
-            if all(not isinstance(element, disallowed_elements) for element in V.ufl_element().sub_elements):
+            if len(V.ufl_element().sub_elements) > 0:
+                elements = V.ufl_element().sub_elements
+            else:
+                elements = [V.ufl_element()]
+            if all(not isinstance(element, disallowed_elements) for element in elements):
                 self._function_arg = firedrake.Function(V)
                 interpolate_expr = firedrake.interpolate(g, V)
                 self._function_arg_update = lambda: firedrake.assemble(interpolate_expr, tensor=self._function_arg)
