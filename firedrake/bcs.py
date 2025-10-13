@@ -6,7 +6,8 @@ import itertools
 
 import ufl
 from ufl import as_ufl, as_tensor
-from finat.ufl import VectorElement
+from finat.ufl import VectorElement, EnrichedElement
+from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 import finat
 
 import pyop2 as op2
@@ -357,14 +358,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
         elif isinstance(g, ufl.classes.Expr):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
-            try:
+            disallowed_elements = PhysicallyMappedElement | DirectlyDefinedElement | EnrichedElement
+            if all(not isinstance(element, disallowed_elements) for element in V.ufl_element().sub_elements):
                 self._function_arg = firedrake.Function(V)
-                # Use `Interpolator` instead of assembling an `Interpolate` form
-                # as the expression compilation needs to happen at this stage to
-                # determine if we should use interpolation or projection
-                #  -> e.g. interpolation may not be supported for the element.
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
-            except (NotImplementedError, AttributeError):
+                interpolate_expr = firedrake.interpolate(g, V)
+                self._function_arg_update = lambda: firedrake.assemble(interpolate_expr, tensor=self._function_arg)
+            else:
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
