@@ -25,10 +25,10 @@ RUN \
                 && export NETGENDIR=/ngsuite/netgen-install/bin \
                 && export PATH=/opt/netgen/build/bin:$PATH \
                 && export PYTHONPATH=/opt/netgen/build/lib/python3.12/site-packages:${PYTHONPATH} \
-                && pip install ngsPETSc --no-deps \
+                && pip install ngsPETSc --no-deps; \
         else \
                 export PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH \
-                && pip install ngsPETSc \
+                && pip install ngsPETSc; \
         fi
 
 # Install Firedrake apps
