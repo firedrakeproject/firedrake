@@ -15,15 +15,16 @@ RUN \
                 apt-get update \
                 && apt-get -y install python3-tk libxmu-dev tk-dev tcl-dev cmake g++ libglu1-mesa-dev liblapacke-dev libocct-data-exchange-dev libocct-draw-dev occt-misc libtbb-dev libxi-dev \
                 && rm -rf /var/lib/apt/lists/* \
-                && git clone --single-branch https://github.com/NGSolve/netgen.git /opt/netgen-src \
-                && git -C /opt/netgen-src submodule update --init --recursive \
-                && mkdir /opt/netgen-build \
-                && mkdir /opt/netgen-install \
-                && cmake -DCMAKE="-cxx-flags=-flax-vector-conversions" -DCMAKE_INSTALL_PREFIX=/opt/netgen-install /opt/netgen-src \
+                && mkdir /opt/ngsuite \
+                && git clone --branch=v6.2.2505 --single-branch https://github.com/NGSolve/netgen.git /opt/ngsuite/netgen-src \
+                && git -C /opt/ngsuite/netgen-src submodule update --init --recursive \
+                && mkdir /opt/ngsuite/netgen-build \
+                && mkdir /opt/ngsuite/netgen-install \
+                && cmake -DCMAKE="-cxx-flags=-flax-vector-conversions" -DCMAKE_INSTALL_PREFIX=/opt/ngsuite/netgen-install /opt/ngsuite/netgen-src \
                 && make \
                 && make install \
-                && export PATH=/opt/netgen-install/bin:$PATH \
-                && export PYTHONPATH=/opt/netgen-install/lib/python3.12/site-packages:$PYTHONPATH \
+                && export PATH=/opt/ngsuite/netgen-install/bin:$PATH \
+                && export PYTHONPATH=/opt/ngsuite/netgen-install/lib/python3.12/site-packages:$PYTHONPATH \
                 && pip install ngsPETSc --no-deps; \
         else \
                 export PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH \
