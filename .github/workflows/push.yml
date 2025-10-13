@@ -24,3 +24,34 @@ jobs:
       branch: ${{ github.ref_name }}
       build_dev: true
     secrets: inherit
+
+  colab:
+    name: Update Colab notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Firedrake
+        uses: actions/checkout@v5
+        with:
+          path: firedrake
+
+      - name: Checkout Colab notebooks
+        uses: actions/checkout@v5
+        with:
+          repo: firedrakeproject/notebooks
+          branch: ${{ github.ref_name }}
+          path: notebooks
+
+      - name: Prepare notebooks for Colab
+        run: |
+          for $notebook in firedrake/docs/notebooks/*.ipynb; do
+            ./notebooks/??? $notebook
+          done
+
+      - name: Push changes if needed
+        working-directory: notebooks
+        run: |
+          if [ -z $(git diff ???) ]; then
+            git add --all .
+            git commit -m "Upstream updates"
+            git push
+          fi
