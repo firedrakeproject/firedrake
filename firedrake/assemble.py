@@ -23,7 +23,7 @@ from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import _get_interpolator
+from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -573,7 +573,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
 
-            interpolator = _get_interpolator(expr)
+            interpolator = get_interpolator(expr)
             return interpolator.assemble(tensor=tensor)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)

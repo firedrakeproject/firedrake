@@ -218,7 +218,7 @@ class Interpolator(abc.ABC):
             return self._interpolate(output=tensor)
 
 
-def _get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
+def get_interpolator(expr: Interpolate, bcs=None) -> Interpolator:
     arguments = expr.arguments()
     has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
     if len(arguments) == 2 and has_mixed_arguments:
