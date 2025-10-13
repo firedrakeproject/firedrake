@@ -48,7 +48,11 @@ jobs:
       - name: Push changes if needed
         working-directory: notebooks
         run: |
+          : # debugging
+          git status
           if [ ! -z "$( git status --porcelain )" ]; then
+            git config user.name "Firedrake"
+            git config user.email "dummyemail@github.com"
             git add --all .
             git commit -m "Upstream updates"
             git push
