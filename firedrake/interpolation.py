@@ -620,7 +620,7 @@ class SameMeshInterpolator(Interpolator):
             if isinstance(sub_expr, ufl.ZeroBaseForm):
                 continue
             sub_tensor = tensor[indices[0]] if self.rank == 1 else tensor
-            loops.extend(build_interpolation_callables(sub_expr, sub_tensor, self.subset, self.access, bcs=self.bcs))
+            loops.extend(_build_interpolation_callables(sub_expr, sub_tensor, self.access, self.subset, self.bcs))
 
         if self.bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in self.bcs)
@@ -689,7 +689,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
 
 @utils.known_pyop2_safe
-def build_interpolation_callables(
+def _build_interpolation_callables(
     expr: ufl.Interpolate,
     tensor: op2.Dat | op2.Mat | op2.Global,
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC],
