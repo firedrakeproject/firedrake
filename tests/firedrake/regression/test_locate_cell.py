@@ -191,6 +191,8 @@ def test_high_order_location_quad():
 
 @pytest.mark.parallel([1, 3])
 def test_high_order_location_extruded():
+    if COMM_WORLD.size > 1:
+        pytest.skip("Issue https://github.com/firedrakeproject/firedrake/issues/4621")
     m = UnitSquareMesh(2, 2)
     mesh = ExtrudedMesh(m, 3)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
