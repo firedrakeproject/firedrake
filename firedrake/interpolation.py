@@ -44,6 +44,7 @@ from pyadjoint import stop_annotating, no_annotations
 __all__ = (
     "interpolate",
     "Interpolate",
+    "get_interpolator",
     "DofNotDefinedError",
 )
 
@@ -730,7 +731,7 @@ def build_interpolation_callables(V: WithGeometry, tensor, expr, subset, argumen
         raise ValueError("Can't have READ access for output function")
 
     # NOTE: The par_loop is always over the target mesh cells.
-    target_mesh = as_domain(V)
+    target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For trans-mesh interpolation we use a FInAT QuadratureElement as the
