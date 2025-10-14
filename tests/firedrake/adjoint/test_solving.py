@@ -33,7 +33,7 @@ def test_linear_problem(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -60,7 +60,7 @@ def test_singular_linear_problem(rg):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -85,7 +85,7 @@ def test_nonlinear_problem(pre_apply_bcs, rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -116,7 +116,7 @@ def test_mixed_boundary(rg):
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V).assign(10)
+    f = Function(V).assign(10.)
 
     def J(f):
         a = f*inner(grad(u), grad(v))*dx
@@ -165,7 +165,7 @@ def xtest_wrt_function_dirichlet_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V).assign(10)
+    f = Function(V).assign(10.)
 
     def J(bc):
         a = inner(grad(u), grad(v))*dx
@@ -195,7 +195,7 @@ def test_wrt_function_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V).assign(10)
+    f = Function(V).assign(10.)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -247,7 +247,7 @@ def test_wrt_constant_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V).assign(10)
+    f = Function(V).assign(10.)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -283,7 +283,7 @@ def test_time_dependent():
     f = Function(R, val=1)
 
     def J(f):
-        u_1 = Function(V).assign(1)
+        u_1 = Function(V).assign(1.)
 
         a = u_1*u*v*dx + dt*f*inner(grad(u), grad(v))*dx
         L = u_1*v*dx
@@ -340,7 +340,7 @@ def _test_adjoint_function_boundary(J, bc, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V).assign(1)
+    h = Function(V).assign(1.)
     g = Function(V)
     eps_ = [0.4/2.0**i for i in range(4)]
     residuals = []
