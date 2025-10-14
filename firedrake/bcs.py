@@ -6,8 +6,7 @@ import itertools
 
 import ufl
 from ufl import as_ufl, as_tensor
-from finat.ufl import VectorElement, EnrichedElement
-from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
+from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
@@ -362,7 +361,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 self._function_arg = firedrake.Function(V)
                 interpolator = get_interpolator(firedrake.interpolate(g, V))
-                # Call this here to check if the element supports interpolation 
+                # Call this here to check if the element supports interpolation
                 interpolator._build_callable()
                 self._function_arg_update = lambda: interpolator.assemble(tensor=self._function_arg)
             except (ValueError, NotImplementedError):
