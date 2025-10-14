@@ -31,7 +31,7 @@ from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from firedrake.functionspaceimpl import WithGeometry
@@ -268,7 +268,7 @@ class Interpolator(abc.ABC):
     def assemble(
             self, tensor: Function | Cofunction | MatrixBase | None = None
     ) -> Function | Cofunction | MatrixBase | Number:
-        """Assemble the interpolation. The result depends on the rank (number of arguments) 
+        """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
 
         * rank-2: assemble the operator and return a matrix
@@ -279,7 +279,7 @@ class Interpolator(abc.ABC):
         ----------
         tensor : Function | Cofunction | MatrixBase, optional
             Pre-allocated storage to receive the interpolated result. For rank-2
-            expressions this is expected to be a subclass of 
+            expressions this is expected to be a subclass of
             :class:`~firedrake.matrix.MatrixBase` whose
             ``petscmat`` will be populated. For lower-rank expressions this is
             a :class:`~firedrake.Function` or :class:`~firedrake.Cofunction`.
@@ -492,7 +492,7 @@ class CrossMeshInterpolator(Interpolator):
                     f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
                 def callable():
-                    assemble(action(self.point_eval_input_ordering, f_point_eval), 
+                    assemble(action(self.point_eval_input_ordering, f_point_eval),
                              tensor=f_point_eval_input_ordering)
 
                     # We assign these values to the output function
@@ -619,10 +619,8 @@ class SameMeshInterpolator(Interpolator):
         for indices, sub_expr in expressions.items():
             if isinstance(sub_expr, ufl.ZeroBaseForm):
                 continue
-            arguments = sub_expr.arguments()
-            sub_space = sub_expr.argument_slots()[0].function_space().dual()
             sub_tensor = tensor[indices[0]] if self.rank == 1 else tensor
-            loops.extend(build_interpolation_callables(sub_space, sub_tensor, sub_expr, self.subset, arguments, self.access, bcs=self.bcs))
+            loops.extend(build_interpolation_callables(sub_expr, sub_tensor, self.subset, self.access, bcs=self.bcs))
 
         if self.bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in self.bcs)
@@ -682,8 +680,8 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             # Leave mat inside a callable so we can access the handle
             # property. If matfree is True, then the handle is a PETSc SF
             # pretending to be a PETSc Mat. If matfree is False, then this
-            # will be a PETSc Mat representing the equivalent permutation
-            # matrix
+            # will be a PETSc Mat representing the equivalent permutation matrix
+
             def callable():
                 return self.mat
 
@@ -691,36 +689,40 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
 
 @utils.known_pyop2_safe
-def build_interpolation_callables(V: WithGeometry, tensor, expr, subset, arguments, access, bcs=None) -> tuple[Callable, ...]:
-    """Builds callables to perform interpolation.
+def build_interpolation_callables(
+    expr: ufl.Interpolate,
+    tensor: op2.Dat | op2.Mat | op2.Global,
+    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC],
+    subset: op2.Subset | None = None,
+    bcs: Iterable[BCBase] | None = None
+) -> tuple[Callable, ...]:
+    """Returns tuple of callables which calculate the interpolation.
 
     Parameters
     ----------
-    V : WithGeometry
-        _description_
-    tensor : _type_
-        _description_
-    expr : _type_
-        _description_
-    subset : _type_
-        _description_
-    arguments : _type_
-        _description_
-    access : _type_
-        _description_
-    bcs : _type_, optional
-        _description_, by default None
+    expr : ufl.Interpolate
+        The symbolic interpolation expression.
+    tensor : op2.Dat | op2.Mat | op2.Global
+        Object to hold the result of the interpolation.
+    access : Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC]
+        op2 access descriptor
+    subset : op2.Subset | None, optional
+        An optional subset to apply the interpolation over, by default None.
+    bcs : Iterable[BCBase] | None, optional
+        An optional list of boundary conditions to zero-out in the
+        output function space. Interpolator rows or columns which are
+        associated with boundary condition nodes are zeroed out when this is
+        specified. By default None, by default None.
 
     Returns
     -------
     tuple[Callable, ...]
-        Tuple of callables 
-
-    """    
+        Tuple of callables which perform the interpolation.
+    """
     if not isinstance(expr, ufl.Interpolate):
         raise ValueError("Expecting to interpolate a ufl.Interpolate")
     dual_arg, operand = expr.argument_slots()
-
+    V = dual_arg.function_space().dual()
     try:
         to_element = create_element(V.ufl_element())
     except KeyError:
@@ -825,6 +827,7 @@ def build_interpolation_callables(V: WithGeometry, tensor, expr, subset, argumen
         copyin = ()
         copyout = ()
 
+    arguments = expr.arguments()
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
@@ -897,7 +900,7 @@ def build_interpolation_callables(V: WithGeometry, tensor, expr, subset, argumen
         return copyin + callables + (parloop_compute_callable, ) + copyout
 
 
-def get_interp_node_map(source_mesh, target_mesh, fs):
+def get_interp_node_map(source_mesh: MeshGeometry, target_mesh: MeshGeometry, fs: WithGeometry) -> op2.Map | None:
     """Return the map between cells of the target mesh and nodes of the function space.
 
     If the function space is defined on the source mesh then the node map is composed
@@ -999,7 +1002,7 @@ def rebuild_te(element, expr_cell, rt_var_name):
                                      transpose=element._transpose)
 
 
-def compose_map_and_cache(map1, map2):
+def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
     """
     Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
     using map2 as the cache key. The composed map maps from the iterset
@@ -1022,7 +1025,7 @@ def compose_map_and_cache(map1, map2):
     return cmap
 
 
-def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
+def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_cell_node_map: op2.Map) -> op2.Map:
     """Build a map from the cells of a vertex only mesh to the nodes of the
     nodes on the source mesh where the source mesh is extruded.
 
@@ -1210,13 +1213,25 @@ class VomOntoVomMat:
     def mpi_type(self, val):
         self._mpi_type = val
 
-    def expr_as_coeff(self, source_vec=None):
-        """
-        Return a coefficient that corresponds to the expression used at
+    def expr_as_coeff(self, source_vec: PETSc.Vec | None = None) -> Function:
+        """Return a coefficient that corresponds to the expression used at
         construction, where the expression has been interpolated into the P0DG
         function space on the source vertex-only mesh.
 
         Will fail if there are no arguments.
+
+        Parameters
+        ----------
+        source_vec : PETSc.Vec | None, optional
+            Optional vector used to replace arguments in the expression.
+            By default None.
+
+        Returns
+        -------
+        Function
+            A Function representing the expression as a coefficient on the
+            source vertex-only mesh.
+
         """
         # Since we always output a coefficient when we don't have arguments in
         # the expression, we should evaluate the expression on the source mesh
@@ -1243,7 +1258,16 @@ class VomOntoVomMat:
             coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
         return coeff
 
-    def reduce(self, source_vec, target_vec):
+    def reduce(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
+        """Reduce data in source_vec using the PETSc SF.
+
+        Parameters
+        ----------
+        source_vec : PETSc.Vec
+            The vector to reduce.
+        target_vec : PETSc.Vec
+            The vector to store the result in.
+        """
         source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
         self.sf.reduceBegin(
@@ -1259,7 +1283,16 @@ class VomOntoVomMat:
             MPI.REPLACE,
         )
 
-    def broadcast(self, source_vec, target_vec):
+    def broadcast(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
+        """Broadcast data in source_vec using the PETSc SF.
+
+        Parameters
+        ----------
+        source_vec : PETSc.Vec
+            The vector to broadcast.
+        target_vec : PETSc.Vec
+            The vector to store the result in.
+        """
         source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
         self.sf.bcastBegin(
@@ -1275,8 +1308,20 @@ class VomOntoVomMat:
             MPI.REPLACE,
         )
 
-    def mult(self, mat, source_vec, target_vec):
-        # need to evaluate expression before doing mult
+    def mult(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
+        """Applies the interpolation operator.
+
+        Parameters
+        ----------
+        mat : PETSc.Mat
+            Required by petsc4py but unused.
+        source_vec : PETSc.Vec
+            The vector to interpolate.
+        target_vec : PETSc.Vec
+            The vector to store the result in.
+        """
+        # Need to convert the expression into a coefficient
+        # so that we can broadcast/reduce it
         coeff = self.expr_as_coeff(source_vec)
         with coeff.dat.vec_ro as coeff_vec:
             if self.forward_reduce:
@@ -1284,10 +1329,35 @@ class VomOntoVomMat:
             else:
                 self.broadcast(coeff_vec, target_vec)
 
-    def multHermitian(self, mat, source_vec, target_vec):
+    def multHermitian(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
+        """Applies the adjoint of the interpolation operator.
+        Since ``VomOntoVomMat`` represents a permutation, it is
+        real-valued and thus the adjoint is the transpose.
+
+        Parameters
+        ----------
+        mat : PETSc.Mat
+            Required by petsc4py but unused.
+        source_vec : PETSc.Vec
+            The vector to adjoint interpolate.
+        target_vec : PETSc.Vec
+            The vector to store the result in.
+        """
         self.multTranspose(mat, source_vec, target_vec)
 
-    def multTranspose(self, mat, source_vec, target_vec):
+    def multTranspose(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
+        """Applies the tranpose of the interpolation operator. Called by `self.multHermitian`.
+
+        Parameters
+        ----------
+        mat : PETSc.Mat
+            Required by petsc4py but unused.
+        source_vec : PETSc.Vec
+            The vector to transpose interpolate.
+        target_vec : PETSc.Vec
+            The vector to store the result in.
+
+        """
         # can only do adjoint if our expression exclusively contains a
         # single argument, making the application of the adjoint operator
         # straightforward (haven't worked out how to do this otherwise!)
@@ -1314,9 +1384,17 @@ class VomOntoVomMat:
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_permutation_mat(self):
+    def _create_permutation_mat(self) -> PETSc.Mat:
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
-        its input ordering vertex-only mesh"""
+        its input ordering vertex-only mesh.
+
+        Returns
+        -------
+        PETSc.Mat
+            PETSc seqaij matrix
+        """
+        # To create the permutation matrix we broadcast an array of indices contiguous across
+        # all ranks and then use these indices to set the values of the matrix directly.
         mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
         start = sum(self._local_sizes[:self.V.comm.rank])
@@ -1333,7 +1411,14 @@ class VomOntoVomMat:
             mat.transpose()
         return mat
 
-    def _wrap_python_mat(self):
+    def _wrap_python_mat(self) -> PETSc.Mat:
+        """Wraps this object as a PETSc Mat. Used for matfree interpolation.
+
+        Returns
+        -------
+        PETSc.Mat
+            A PETSc Mat of type python with this object as its context.
+        """
         mat = PETSc.Mat().create(comm=self.V.comm)
         if self.forward_reduce:
             mat_size = (self.source_size, self.target_size)
@@ -1401,7 +1486,6 @@ class MixedInterpolator(Interpolator):
         return iter(self._sub_interpolators)
 
     def _build_callable(self, output=None):
-        """Assemble the operator."""
         V_dest = self.expr.function_space() or self.target_space
         f = output or Function(V_dest)
         if self.rank == 2:
@@ -1420,6 +1504,7 @@ class MixedInterpolator(Interpolator):
                 return f
         else:
             assert self.rank == 0
+
             def callable():
                 result = sum(self[i].assemble() for i in self)
                 assert isinstance(result, Number)
