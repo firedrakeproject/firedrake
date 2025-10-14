@@ -56,7 +56,6 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
-        self.adj_state_buf = self.func.copy(deepcopy=True, annotate=False)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
@@ -164,6 +163,16 @@ class GenericSolveBlock(Block):
     def adj_sol(self):
         return self.adj_state
 
+    @adj_sol.setter
+    def adj_sol(self, value):
+        if value is None:
+            self.adj_state = None
+
+        if self.adj_state is None:
+            self.adj_state = value.copy(deepcopy=True)
+        else:
+            self.adj_state.assign(value)
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
@@ -188,13 +197,11 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
             self.adj_bdy_cb(adj_sol_bdy)
-
-        self.adj_state_buf.assign(adj_sol)
 
         r = {}
         r["form"] = F_form
@@ -402,8 +409,6 @@ class GenericSolveBlock(Block):
         if tlm_output is None:
             return
 
-        self.adj_state.assign(self.adj_state_buf)
-
         F_form = self._create_F_form()
 
         # Using the equation Form derive dF/du, d^2F/du^2 * du/dm * direction.
@@ -413,7 +418,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_state
+        adj_sol = self.adj_sol
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -731,8 +736,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
-        self.adj_state_buf.assign(adj_sol)
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
