@@ -11,7 +11,7 @@ from finat.element_factory import create_element
 
 
 @pytest.fixture(params=[interval, quadrilateral, hexahedron],
-                ids=lambda x: x.cellname())
+                ids=lambda x: x.cellname)
 def mesh(request):
     return Mesh(VectorElement("P", request.param, 1))
 
@@ -44,7 +44,7 @@ def test_sum_factorisation(mesh, element):
         flops.append(flop_count(mesh, element(int(lo)), element(int(hi))))
     flops = numpy.asarray(flops)
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
-    assert (rates < (mesh.topological_dimension()+1)).all()
+    assert (rates < (mesh.topological_dimension+1)).all()
 
 
 def test_sum_factorisation_scalar_tensor(mesh, element):

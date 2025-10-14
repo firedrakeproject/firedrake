@@ -1808,9 +1808,9 @@ def _as_global_kernel_arg_interior_facet_orientation(_, self):
 @_as_global_kernel_arg.register(CellFacetKernelArg)
 def _as_global_kernel_arg_cell_facet(_, self):
     if self._mesh.extruded:
-        num_facets = self._mesh._base_mesh.ufl_cell().num_facets()
+        num_facets = self._mesh._base_mesh.ufl_cell().num_facets
     else:
-        num_facets = self._mesh.ufl_cell().num_facets()
+        num_facets = self._mesh.ufl_cell().num_facets
     return op2.DatKernelArg((num_facets, 2))
 
 

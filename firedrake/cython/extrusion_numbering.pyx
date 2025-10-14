@@ -564,7 +564,7 @@ def top_bottom_boundary_nodes(mesh,
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
-    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets()
+    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets
     assert facet_points.shape[0] == n_vert_facet + 2
 
     bottom_facet = facet_points[n_vert_facet]

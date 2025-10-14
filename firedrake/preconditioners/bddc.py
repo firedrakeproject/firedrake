@@ -80,7 +80,7 @@ class BDDCPC(PCBase):
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
 
-        tdim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension
         degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
             B = appctx.get("divergence_mat", None)
