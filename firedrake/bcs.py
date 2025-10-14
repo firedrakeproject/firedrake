@@ -23,7 +23,6 @@ from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
-from firedrake.interpolation import get_interpolator
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -341,6 +340,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
+        from firedrake.interpolation import get_interpolator
         try:
             # Clear any previously set update function
             del self._function_arg_update
@@ -363,7 +363,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg = firedrake.Function(V)
                 interpolator = get_interpolator(firedrake.interpolate(g, V))
                 # Call this here to check if the element supports interpolation 
-                interpolator._get_callable()
+                interpolator._build_callable()
                 self._function_arg_update = lambda: interpolator.assemble(tensor=self._function_arg)
             except (ValueError, NotImplementedError):
                 # Element doesn't implement interpolation
