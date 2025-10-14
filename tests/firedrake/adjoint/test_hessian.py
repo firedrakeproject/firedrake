@@ -37,7 +37,7 @@ def test_simple_solve(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V).assign(2)
+    f = Function(V).assign(2.)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -76,10 +76,10 @@ def test_mixed_derivatives(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V).assign(2)
+    f = Function(V).assign(2.)
     control_f = Control(f)
 
-    g = Function(V).assign(3)
+    g = Function(V).assign(3.)
     control_g = Control(g)
 
     u = TrialFunction(V)
@@ -126,7 +126,7 @@ def test_function(rg):
     R = FunctionSpace(mesh, "R", 0)
     c = Function(R, val=4)
     control_c = Control(c)
-    f = Function(V).assign(3)
+    f = Function(V).assign(3.)
     control_f = Control(f)
 
     u = Function(V)
@@ -139,14 +139,14 @@ def test_function(rg):
     J = assemble(c ** 2 * u ** 2 * dx)
 
     Jhat = ReducedFunctional(J, [control_c, control_f])
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
+    dJdc, dJdf = compute_derivative(J, [control_c, control_f], apply_riesz=True)
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
     h_f = rg.uniform(V, 0, 10)
 
     # Total derivative
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
+    dJdc, dJdf = compute_derivative(J, [control_c, control_f], apply_riesz=True)
     dJdm = assemble(dJdc * h_c * dx + dJdf * h_f * dx)
 
     # Hessian
@@ -163,7 +163,7 @@ def test_nonlinear(rg):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V).assign(5)
+    f = Function(V).assign(5.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -201,11 +201,11 @@ def test_dirichlet(rg):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V).assign(30)
+    f = Function(V).assign(30.)
 
     u = Function(V)
     v = TestFunction(V)
-    c = Function(V).assign(1)
+    c = Function(V).assign(1.)
     bc = DirichletBC(V, c, "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx + u**4*v*dx - f**2 * v * dx
