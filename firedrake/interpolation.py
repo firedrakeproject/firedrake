@@ -249,29 +249,8 @@ class Interpolator(abc.ABC):
         self.access = expr.options.access
 
     @abc.abstractmethod
-    def _interpolate(
-        self, output: Function | Cofunction | MatrixBase | None = None
-    ) -> Function | Cofunction | Number:
-        """Compute the interpolation action.
-
-        Parameters
-        ----------
-        tensor : Function | Cofunction | MatrixBase, optional
-            Tensor to hold the interpolated result.
-
-        Returns
-        -------
-        Function | Cofunction | Number
-            The function, cofunction, or scalar resulting from the
-            interpolation.
-
-        """
-        pass
-
-    @abc.abstractmethod
-    def _build_callable(self) -> None:
-        """Builds callable to perform interpolation. 
-        Stores the callable in self.callable
+    def _build_callable(self, output=None) -> None:
+        """Builds callable to perform interpolation. Stored in ``self.callable``.
         """
         pass
 
@@ -300,20 +279,28 @@ class Interpolator(abc.ABC):
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
+        self._build_callable(output=tensor)
+        assembled_interpolator = self.callable()
         if self.rank == 2:
             # Assembling the operator
+            assert isinstance(tensor, MatrixBase | None)
             res = tensor.petscmat if tensor else PETSc.Mat()
             # Get the interpolation matrix
-            self._build_callable()
-            op2mat = self.callable()
-            petsc_mat = op2mat.handle
+            petsc_mat = assembled_interpolator.handle
             if tensor:
                 petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
             return tensor or firedrake.AssembledMatrix(self.expr_args, self.bcs, res)
         else:
-            return self._interpolate(output=tensor)
+            assert isinstance(tensor, Function | Cofunction | None)
+            if tensor:
+                tensor.assign(assembled_interpolator)
+                return tensor
+            if self.rank == 0:
+                return assembled_interpolator.dat.data.item()
+            else:
+                return assembled_interpolator
 
 
 class DofNotDefinedError(Exception):
@@ -399,7 +386,7 @@ class CrossMeshInterpolator(Interpolator):
         self._build_symbolic_expressions()
 
     def _build_symbolic_expressions(self) -> None:
-        """Constructs the symbolic Interpolate expressions for cross-mesh interpolation.
+        """Constructs the symbolic ``Interpolate`` expressions for cross-mesh interpolation.
 
         Raises
         ------
@@ -444,76 +431,76 @@ class CrossMeshInterpolator(Interpolator):
         arg = Argument(self.P0DG_vom, 0 if self.expr.is_adjoint else 1)
         self.point_eval_input_ordering = interpolate(arg, self.P0DG_vom_input_ordering, matfree=matfree)
 
-    def _build_callable(self):
+    def _build_callable(self, output=None):
         from firedrake.assemble import assemble
-        assert self.rank == 2
-        # The cross-mesh interpolation matrix is the product of the
-        # `self.point_eval_interpolate` and the permutation
-        # given by `self.to_input_ordering_interpolate`.
-        if self.expr.is_adjoint:
-            symbolic = action(self.point_eval, self.point_eval_input_ordering)
-        else:
-            symbolic = action(self.point_eval_input_ordering, self.point_eval)
-        self.handle = assemble(symbolic).petscmat
-        self.callable = lambda: self
-
-    def _interpolate(self, output: Function | Cofunction | None = None) -> Function | Cofunction | Number:
-        from firedrake.assemble import assemble
-
         # self.expr.function() is None in the 0-form case
         V_dest = self.expr.function_space() or self.target_space
-        output = output or Function(V_dest)
+        f = output or Function(V_dest)
 
-        if not self.expr.is_adjoint:
-            # We evaluate the operand at the node coordinates of the destination space
-            f_point_eval = assemble(self.point_eval)
-
-            # We create the input-ordering Function before interpolating so we can
-            # set default missing values if required.
-            f_point_eval_input_ordering = Function(self.P0DG_vom_input_ordering)
-            if self.default_missing_val is not None:
-                f_point_eval_input_ordering.assign(self.default_missing_val)
-            elif self.allow_missing_dofs:
-                # If we allow missing points there may be points in the target
-                # mesh that are not in the source mesh. If we don't specify a
-                # default missing value we set these to NaN so we can identify
-                # them later.
-                f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
-
-            assemble(action(self.point_eval_input_ordering, f_point_eval),
-                     tensor=f_point_eval_input_ordering)
-
-            # We assign these values to the output function
-            if self.allow_missing_dofs and self.default_missing_val is None:
-                indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
-                output.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
+        if self.rank == 2:
+            # The cross-mesh interpolation matrix is the product of the
+            # `self.point_eval_interpolate` and the permutation
+            # given by `self.to_input_ordering_interpolate`.
+            if self.expr.is_adjoint:
+                symbolic = action(self.point_eval, self.point_eval_input_ordering)
             else:
-                output.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
-
-            if self.rank == 0:
-                # We take the action of the dual_arg on the interpolated function
-                assert not isinstance(self.dual_arg, ufl.Coargument)
-                return assemble(action(self.dual_arg, output))
+                symbolic = action(self.point_eval_input_ordering, self.point_eval)
+            self.handle = assemble(symbolic).petscmat
+            self.callable = lambda: self
         else:
-            # f_src is a cofunction on V_dest.dual
-            f = self.dual_arg
-            assert isinstance(f, Cofunction)
-            # Our first adjoint operation is to assign the dat values to a
-            # P0DG cofunction on our input ordering VOM.
-            f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
-            f_input_ordering.dat.data_wo[:] = f.dat.data_ro[:]
+            if self.expr.is_adjoint:
+                assert self.rank == 1
+                # f_src is a cofunction on V_dest.dual
+                cofunc = self.dual_arg
+                assert isinstance(cofunc, Cofunction)
+                # Our first adjoint operation is to assign the dat values to a
+                # P0DG cofunction on our input ordering VOM.
+                f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
+                f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
 
-            # The rest of the adjoint interpolation is the composition
-            # of the adjoint interpolators in the reverse direction.
-            # We don't worry about skipping over missing points here
-            # because we're going from the input ordering VOM to the original VOM
-            # and all points from the input ordering VOM are in the original.
-            interp = action(self.point_eval_input_ordering, f_input_ordering)
-            f_src_at_src_node_coords = assemble(interp)
+                # The rest of the adjoint interpolation is the composition
+                # of the adjoint interpolators in the reverse direction.
+                # We don't worry about skipping over missing points here
+                # because we're going from the input ordering VOM to the original VOM
+                # and all points from the input ordering VOM are in the original.
+                def callable():
+                    f_src_at_src_node_coords = assemble(action(self.point_eval_input_ordering, f_input_ordering))
+                    assemble(action(self.point_eval, f_src_at_src_node_coords), tensor=f)
+                    return f
+            else:
+                # We evaluate the operand at the node coordinates of the destination space
+                f_point_eval = assemble(self.point_eval)
 
-            interp = action(self.point_eval, f_src_at_src_node_coords)
-            assemble(interp, tensor=output)
-        return output
+                # We create the input-ordering Function before interpolating so we can
+                # set default missing values if required.
+                f_point_eval_input_ordering = Function(self.P0DG_vom_input_ordering)
+                if self.default_missing_val is not None:
+                    f_point_eval_input_ordering.assign(self.default_missing_val)
+                elif self.allow_missing_dofs:
+                    # If we allow missing points there may be points in the target
+                    # mesh that are not in the source mesh. If we don't specify a
+                    # default missing value we set these to NaN so we can identify
+                    # them later.
+                    f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
+
+                def callable():
+                    assemble(action(self.point_eval_input_ordering, f_point_eval), 
+                            tensor=f_point_eval_input_ordering)
+
+                    # We assign these values to the output function
+                    if self.allow_missing_dofs and self.default_missing_val is None:
+                        indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
+                        f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
+                    else:
+                        f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
+
+                    if self.rank == 0:
+                        # We take the action of the dual_arg on the interpolated function
+                        assert not isinstance(self.dual_arg, ufl.Coargument)
+                        return assemble(action(self.dual_arg, f))
+                    else:
+                        return f
+            self.callable = callable
 
 
 class SameMeshInterpolator(Interpolator):
@@ -1429,31 +1416,25 @@ class MixedInterpolator(Interpolator):
     def __iter__(self):
         return iter(self._sub_interpolators)
 
-    def _build_callable(self):
+    def _build_callable(self, output=None):
         """Assemble the operator."""
-        shape = tuple(len(a.function_space()) for a in self.expr_args)
-        blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-        for i in self:
-            self[i]._build_callable()
-            blocks[i] = self[i].callable().handle
-        petscmat = PETSc.Mat().createNest(blocks)
-        tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
-        self.callable = lambda: tensor.M
-
-    def _interpolate(self, output=None):
-        """Assemble the action."""
-        if self.rank == 0:
-            result = sum(self[i].assemble() for i in self)
-            return output.assign(result) if output else result
-
-        if output is None:
-            output = firedrake.Function(self.expr_args[-1].function_space().dual())
-
-        if self.rank == 1:
-            for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
-        elif self.rank == 2:
-            for k, sub_tensor in enumerate(output.subfunctions):
-                sub_tensor.assign(sum(self[i]._interpolate()
-                                      for i in self if i[0] == k))
-        return output
+        f = output or Function(self.expr_args[-1].function_space().dual())
+        if self.rank == 2:
+            shape = tuple(len(a.function_space()) for a in self.expr_args)
+            blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
+            for i in self:
+                self[i]._build_callable()
+                blocks[i] = self[i].callable().handle
+            petscmat = PETSc.Mat().createNest(blocks)
+            tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
+            self.callable = lambda: tensor.M
+        elif self.rank == 1:
+            def callable():
+                for k, sub_tensor in enumerate(f.subfunctions):
+                    sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
+                return f
+            self.callable = callable
+        else:
+            def callable():
+                return sum(self[i].assemble() for i in self)
+            self.callable = callable
