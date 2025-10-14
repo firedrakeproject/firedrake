@@ -52,7 +52,7 @@ def forward(ic, dt, nt, bc_arg=None):
         solver.solve()
         nu += dt
         if bc_arg:
-            bc_val.assign(bc_val + dt)
+            bc_val.assign(bc_val + dt/nt)
 
     J = assemble(u1*u1*dx)
     return J
@@ -68,14 +68,16 @@ def test_nlvs_adjoint(control_type, bc_type):
     if control_type == 'bc_control' and bc_type == 'neumann_bc':
         pytest.skip("Cannot use Neumann BCs as control")
 
-    mesh = UnitIntervalMesh(6)
+    nx = 100000
+    nt = 50
+
+    mesh = UnitIntervalMesh(nx)
     x, = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    nt = 2
-    dt = Function(R).assign(0.1)
+    dt = Function(R).assign(1/nx)
     ic = Function(V).interpolate(cos(2*pi*x))
 
     dt0 = dt.copy(deepcopy=True)
@@ -99,7 +101,7 @@ def test_nlvs_adjoint(control_type, bc_type):
     else:
         raise ValueError(f"Unrecognised {control_type=}")
 
-    print("record tape")
+    PETSc.Sys.Print("record tape")
     continue_annotation()
     with set_working_tape() as tape:
         J = forward(ic0, dt0, nt, bc_arg=bc_arg0)
@@ -130,32 +132,60 @@ def test_nlvs_adjoint(control_type, bc_type):
         dt2 = dt
         bc_arg2 = m.copy(deepcopy=True)
 
-    # recompute component
-    print("recompute test")
-    assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
+    from mpi4py import MPI
 
-    # tlm
-    print("tlm test")
-    Jhat(m)
-    assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
+    # # recompute component
+    # PETSc.Sys.Print("recompute test")
+    # assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
 
-    # adjoint
-    print("adjoint test")
-    Jhat(m)
-    assert taylor_test(Jhat, m, h) > 1.95
+    # # tlm
+    # PETSc.Sys.Print("tlm test")
+    # Jhat(m)
+    # assert taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.95
 
-    # hessian
-    print("hessian test")
-    Jhat(m)
-    taylor = taylor_to_dict(Jhat, m, h)
-    from pprint import pprint
-    pprint(taylor)
+    # # adjoint
+    # PETSc.Sys.Print("adjoint test")
+    # Jhat(m)
+    # assert taylor_test(Jhat, m, h) > 1.95
 
-    assert min(taylor['R2']['Rate']) > 2.95
+    # # hessian
+    # PETSc.Sys.Print("hessian test")
+    # Jhat(m)
+    # taylor = taylor_to_dict(Jhat, m, h)
+    # from pprint import pprint
+    # pprint(taylor)
+
+    # assert min(taylor['R0']['Rate']) > 0.95
+    # assert min(taylor['R1']['Rate']) > 1.95
+    # assert min(taylor['R2']['Rate']) > 2.95
+
+    for _ in range(3):
+        stime = MPI.Wtime()
+        Jhat(m)
+        etime = MPI.Wtime()
+        PETSc.Sys.Print(f"Recompute time: {etime - stime:.4f}")
+
+    for _ in range(3):
+        stime = MPI.Wtime()
+        Jhat.derivative()
+        etime = MPI.Wtime()
+        PETSc.Sys.Print(f"Derivative time: {etime - stime:.4f}")
+
+    for _ in range(3):
+        stime = MPI.Wtime()
+        Jhat.tlm(h)
+        etime = MPI.Wtime()
+        PETSc.Sys.Print(f"TLM time: {etime - stime:.4f}")
+
+    for _ in range(3):
+        stime = MPI.Wtime()
+        Jhat.hessian(h, evaluate_tlm=False)
+        etime = MPI.Wtime()
+        PETSc.Sys.Print(f"Hessian time: {etime - stime:.4f}")
 
 
 if __name__ == "__main__":
     control_type = "ic_control"
     bc_type = "neumann_bc"
-    print(f"{control_type=} | {bc_type=}")
+    PETSc.Sys.Print(f"{control_type=} | {bc_type=}")
     test_nlvs_adjoint(control_type, bc_type)

@@ -856,6 +856,12 @@ def solve_init_params(self, args, kwargs, varform):
                 )
             self.adj_kwargs.pop("appctx", None)
 
+    if hasattr(self, "tlm_args") and len(self.tlm_args) <= 0:
+        self.tlm_args = self.adj_args
+
+    if hasattr(self, "tlm_kwargs") and len(self.tlm_kwargs) <= 0:
+        self.tlm_kwargs = self.adj_kwargs.copy()
+
     solver_params = kwargs.get("solver_parameters", None)
     if solver_params is not None and "mat_type" in solver_params:
         self.assemble_kwargs["mat_type"] = solver_params["mat_type"]

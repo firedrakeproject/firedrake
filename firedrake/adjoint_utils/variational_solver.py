@@ -1,10 +1,13 @@
 import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock, CachedSolverBlock
+from firedrake.adjoint_utils.blocks import (
+    NonlinearVariationalSolveBlock, CachedSolverBlock)
+from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
 from ufl.algorithms import expand_derivatives
+from types import SimpleNamespace
 
 
 class NonlinearVariationalProblemMixin:
@@ -55,6 +58,19 @@ class NonlinearVariationalSolverMixin:
 
             self._ad_solver_cache = {}
 
+            # process args/kwargs for cached solvers
+            self._ad_args_kwargs = SimpleNamespace(
+                forward_args=kwargs.pop("forward_args", []),
+                forward_kwargs=kwargs.pop("forward_kwargs", {}),
+                adj_args=kwargs.pop("adj_args", []),
+                adj_kwargs=kwargs.pop("adj_kwargs", {}),
+                tlm_args=kwargs.pop("tlm_args", []),
+                tlm_kwargs=kwargs.pop("tlm_kwargs", {}),
+                assemble_kwargs={}
+            )
+            solve_init_params(self._ad_args_kwargs,
+                              args, kwargs, varform=True)
+
         return wrapper
 
     def _ad_cache_forward_solver(self):
@@ -99,7 +115,10 @@ class NonlinearVariationalSolverMixin:
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
         nlvp = NonlinearVariationalProblem(Fnew, unew, bcs=bcs_new)
-        nlvs = NonlinearVariationalSolver(nlvp)
+        nlvs = NonlinearVariationalSolver(
+            nlvp,
+            *self._ad_args_kwargs.forward_args,
+            **self._ad_args_kwargs.forward_kwargs)
 
         # The original coefficients will be added as
         # dependencies to all solve blocks.
@@ -140,7 +159,10 @@ class NonlinearVariationalSolverMixin:
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
         lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_bcs)
-        lvs = LinearVariationalSolver(lvp)
+        lvs = LinearVariationalSolver(
+            lvp,
+            *self._ad_args_kwargs.tlm_args,
+            **self._ad_args_kwargs.tlm_kwargs)
 
         self._ad_solver_cache[TLM] = lvs
         self._ad_tlm_rhs = dFdm
@@ -202,7 +224,10 @@ class NonlinearVariationalSolverMixin:
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
         lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_bcs)
-        lvs = LinearVariationalSolver(lvp)
+        lvs = LinearVariationalSolver(
+            lvp,
+            *self._ad_args_kwargs.adj_args,
+            **self._ad_args_kwargs.adj_kwargs)
 
         self._ad_solver_cache[ADJOINT] = lvs
         self._ad_adj_rhs = dJdu
@@ -259,8 +284,13 @@ class NonlinearVariationalSolverMixin:
         # where dm is direction for tlm action so du/dm * dm is tlm output
         dFdu = self._ad_dFdu
         tlm_output = Function(V)
-        d2Fdu2 = expand_derivatives(
-            derivative(dFdu, u, tlm_output))
+        d2Fdu2 = derivative(dFdu, u, tlm_output)
+        # print()
+        # print(f"{dFdu = }")
+        # print()
+        # print(f"{d2Fdu2 = }")
+        # print()
+        d2Fdu2 = expand_derivatives(d2Fdu2)
 
         self._ad_tlm_output = tlm_output
 
@@ -370,6 +400,8 @@ class NonlinearVariationalSolverMixin:
 
                 for dep in self._ad_dependencies_to_add:
                     block.add_dependency(dep, no_duplicates=True)
+                # mesh = self._ad_problem.u.function_space().mesh()
+                # block.add_dependency(mesh, no_duplicates=True)
 
                 get_working_tape().add_block(block)
 
