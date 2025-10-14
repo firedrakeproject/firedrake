@@ -484,7 +484,9 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
     transform_in_kernel, transform_out_kernel, form_shapes = fuse_orientations(space)
-    if transform_in_kernel and transform_out_kernel:
+    if packed_dat.dtype == IntType:
+        warnings.warn("Int Type dats cannot be transformed using fuse transforms")
+    elif transform_in_kernel and transform_out_kernel:
         orientations = space.mesh().entity_orientations_dat
 
         if form_shapes != (3,):
@@ -695,11 +697,11 @@ def construct_switch_statement(self, mats, n, args, var_list):
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     indent = 0
-    for dim in range(len(closure_sizes) - 1):
+    for dim in range(len(closure_sizes)):
         string += f"case {dim}:\n "
         indent += 1
         #string += indent*"\t" + f"o_val = o[i + closure_size_acc]; \n "
-        string += indent*"\t" + f"o_val = 5; \n "
+        string += indent*"\t" + f"o_val = 0; \n "
         string += [indent*"\t" + "switch (i) { \n"]
         indent += 1
         for i in range(closure_sizes[dim]):
@@ -802,7 +804,8 @@ def fuse_orientations(space: WithGeometry):
             f"{{[i]:0<= i <= d}}",
             ["res[:] = zero(res) {id=zero, inames=i}",
              transform_out_insn, "res[:] = matmul(a, b, res) {id=matmul, dep=*, dep=assign}", 
-             "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}"],
+             "b[:] = set(b[:], res[:]) {id=set, dep=matmul, inames=i}"
+             ],
             name="out_switch_on_o",
             kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
@@ -814,20 +817,23 @@ def fuse_orientations(space: WithGeometry):
             f"{{[dim]:0<= dim <= {space._mesh.dimension - 1}}}",
             ["d = closure_sizes[dim] {id=closure}",
              f"b[:], res[:] = {direction}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {{id=switch, dep=*}}",
-             "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"],
+             "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"
+             ],
             name=f"{direction}_loop_over_dims",
             kernel_data=closure_arg + args,
             target=loopy.CWithGNULibcTarget())
         
         print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f\\n\", b[0], b[1], b[2]);", assignees=(), read_variables=frozenset([]), id="print")
+        print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f\\n\", b[0], b[1], b[2]);printf(\"o: %d, %d, %d, %d, %d, %d, %d\\n\", o[0], o[1], o[2], o[3], o[4],o[5], o[6]);", assignees=(), read_variables=frozenset([]), id="print")
         print_insn1 = loopy.CInstruction(tuple(), "printf(\"final res: %f, %f, %f\\n\", res[0], res[1], res[2]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         def overall(direction):
             return loopy.make_kernel(
             "{:}",
-            [f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{id=loop}}",
+            [
+            f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{id=loop}}",
             "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
             "b[:] = zero(b[:]) {dep=replace, id=zerob}",
-             ],
+            ],
             name=f"{direction}_transform",
             kernel_data = args[3:7],
             target=loopy.CWithGNULibcTarget())
