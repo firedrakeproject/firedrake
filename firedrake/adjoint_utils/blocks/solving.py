@@ -56,7 +56,7 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
-        self.adj_state_buf = self.func.copy(deepcopy=True)
+        self.adj_state_buf = self.func.copy(deepcopy=True, annotate=False)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
