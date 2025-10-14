@@ -62,13 +62,9 @@ def timestepper(V):
         "pc_type": "lu",
     }
 
-    # stepper = fd.NonlinearVariationalSolver(
-    #     fd.NonlinearVariationalProblem(eqn, un1),
-    #     solver_parameters=params)
-
-    from types import SimpleNamespace
-    stepper = SimpleNamespace(
-        solve=lambda: fd.solve(eqn == 0, un1, solver_parameters=params))
+    stepper = fd.NonlinearVariationalSolver(
+        fd.NonlinearVariationalProblem(eqn, un1),
+        solver_parameters=params)
 
     return un, un1, stepper
 

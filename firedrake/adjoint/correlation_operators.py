@@ -110,9 +110,18 @@ class FormCorrelationOperatorBase(CorrelationOperatorBase):
 
         self.Maction = inner(_x, v)*dx
         self.Msolve = inner(u, v)*dx
+        self.y = Function(V)
 
         self.Gaction = self.form(_x, v)
         self.Gsolve = self.form(u, v)
+
+        self.Gsolver = LinearVariationalSolver(
+            LinearVariationalProblem(self.Gsolve, self.Maction, self.y),
+            solver_parameters=self.solver_parameters)
+
+        self.Msolver = LinearVariationalSolver(
+            LinearVariationalProblem(self.Msolve, self.Gaction, self.y),
+            solver_parameters=self.solver_parameters)
 
         # diagonal approximation of inverse square root of mass matrix
         if Msqrt_inv is None:
@@ -126,8 +135,9 @@ class FormCorrelationOperatorBase(CorrelationOperatorBase):
         """
         w = w or Function(self.V)
         self._xaction.assign(x)
-        solve(self.Msolve == self.Gaction, w,
-              solver_parameters=self.solver_parameters)
+        self.y.assign(0.)
+        self.Msolver.solve()
+        w.assign(self.y)
         return w
 
     def _GinvM(self, x, w=None):
@@ -136,8 +146,9 @@ class FormCorrelationOperatorBase(CorrelationOperatorBase):
         """
         w = w or Function(self.V)
         self._xaction.assign(x)
-        solve(self.Gsolve == self.Maction, w,
-              solver_parameters=self.solver_parameters)
+        self.y.assign(0.)
+        self.Gsolver.solve()
+        w.assign(self.y)
         return w
 
     def riesz(self, x):
