@@ -249,8 +249,18 @@ class Interpolator(abc.ABC):
         self.access = expr.options.access
 
     @abc.abstractmethod
-    def _build_callable(self, output=None) -> None:
+    def _build_callable(self, output: Function | Cofunction | MatrixBase | None = None) -> None:
         """Builds callable to perform interpolation. Stored in ``self.callable``.
+
+        If ``self.rank == 2``, then ``self.callable()`` must return an object with a ``handle``
+        attribute that stores a PETSc matrix. If ``self.rank == 1``, then `self.callable()` must
+        return a ``Function`` or ``Cofunction`` (in the forward and adjoint cases respectively).
+        If ``self.rank == 0``, then ``self.callable()`` must return a number.
+
+        Parameters
+        ----------
+        output : Function | Cofunction | MatrixBase | None, optional
+            Optional tensor to store the result in, by default None
         """
         pass
 
@@ -268,8 +278,8 @@ class Interpolator(abc.ABC):
         ----------
         tensor : Function | Cofunction | MatrixBase, optional
             Pre-allocated storage to receive the interpolated result. For rank-2
-            expressions this is expected to be a
-            :class:`~firedrake.assemble.AssembledMatrix`-compatible object whose
+            expressions this is expected to be a subclass of 
+            :class:`~firedrake.matrix.MatrixBase` whose
             ``petscmat`` will be populated. For lower-rank expressions this is
             a :class:`~firedrake.Function` or :class:`~firedrake.Cofunction`.
 
@@ -280,13 +290,13 @@ class Interpolator(abc.ABC):
             interpolation.
         """
         self._build_callable(output=tensor)
-        assembled_interpolator = self.callable()
+        result = self.callable()
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
             res = tensor.petscmat if tensor else PETSc.Mat()
             # Get the interpolation matrix
-            petsc_mat = assembled_interpolator.handle
+            petsc_mat = result.handle
             if tensor:
                 petsc_mat.copy(tensor.petscmat)
             else:
@@ -294,13 +304,10 @@ class Interpolator(abc.ABC):
             return tensor or firedrake.AssembledMatrix(self.expr_args, self.bcs, res)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
-            if tensor:
-                tensor.assign(assembled_interpolator)
+            if tensor and isinstance(result, Function | Cofunction):
+                tensor.assign(result)
                 return tensor
-            if self.rank == 0:
-                return assembled_interpolator.dat.data.item()
-            else:
-                return assembled_interpolator
+            return result
 
 
 class DofNotDefinedError(Exception):
@@ -485,7 +492,7 @@ class CrossMeshInterpolator(Interpolator):
 
                 def callable():
                     assemble(action(self.point_eval_input_ordering, f_point_eval), 
-                            tensor=f_point_eval_input_ordering)
+                             tensor=f_point_eval_input_ordering)
 
                     # We assign these values to the output function
                     if self.allow_missing_dofs and self.default_missing_val is None:
@@ -581,12 +588,6 @@ class SameMeshInterpolator(Interpolator):
         return f
 
     def _build_callable(self, output=None) -> None:
-        """Construct the callable that performs the interpolation.
-
-        Returns
-        -------
-        Callable
-        """
         f = output or self._get_tensor()
         tensor = f if isinstance(f, op2.Mat) else f.dat
 
@@ -628,27 +629,9 @@ class SameMeshInterpolator(Interpolator):
         def callable(loops, f):
             for l in loops:
                 l()
-            return f
+            return f.dat.data.item() if self.rank == 0 else f
 
         self.callable = partial(callable, loops, f)
-
-    @PETSc.Log.EventDecorator()
-    def _interpolate(self, output=None):
-        """Compute the interpolation.
-
-        For arguments, see :class:`.Interpolator`.
-        """
-        assert self.rank < 2
-        self._build_callable(output=output)
-        assembled_interpolator = self.callable()
-        if output:
-            output.assign(assembled_interpolator)
-            return output
-
-        if self.rank == 0:
-            return assembled_interpolator.dat.data.item()
-        else:
-            return assembled_interpolator
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -1418,7 +1401,8 @@ class MixedInterpolator(Interpolator):
 
     def _build_callable(self, output=None):
         """Assemble the operator."""
-        f = output or Function(self.expr_args[-1].function_space().dual())
+        V_dest = self.expr.function_space() or self.target_space
+        f = output or Function(V_dest)
         if self.rank == 2:
             shape = tuple(len(a.function_space()) for a in self.expr_args)
             blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
@@ -1427,14 +1411,16 @@ class MixedInterpolator(Interpolator):
                 blocks[i] = self[i].callable().handle
             petscmat = PETSc.Mat().createNest(blocks)
             tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
-            self.callable = lambda: tensor.M
+            callable = lambda: tensor.M
         elif self.rank == 1:
             def callable():
                 for k, sub_tensor in enumerate(f.subfunctions):
                     sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
                 return f
-            self.callable = callable
         else:
+            assert self.rank == 0
             def callable():
-                return sum(self[i].assemble() for i in self)
-            self.callable = callable
+                result = sum(self[i].assemble() for i in self)
+                assert isinstance(result, Number)
+                return result
+        self.callable = callable
