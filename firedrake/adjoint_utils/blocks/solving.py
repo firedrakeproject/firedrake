@@ -165,8 +165,6 @@ class GenericSolveBlock(Block):
 
     @adj_sol.setter
     def adj_sol(self, value):
-        if value is None:
-            self.adj_state = None
         if self.adj_state is None:
             self.adj_state = value.copy(deepcopy=True)
         else:
