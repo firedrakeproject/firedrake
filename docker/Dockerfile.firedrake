@@ -1,4 +1,4 @@
-# Dockerfile for Firedrake with a full set of capabilities and applications installed.
+# Dockerfile for Firedrake with a full set of capabilities installed.
 
 FROM firedrakeproject/firedrake-vanilla-default:latest
 
@@ -29,21 +29,6 @@ RUN \
         else \
                 export PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH \
                 && pip install ngsPETSc; \
-        fi
-
-# Install Firedrake apps (x86 only)
-RUN \
-        if [ "$(dpkg --print-architecture)" != "arm64" ]; then \
-                pip install --verbose --src /opt \
-                        -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
-                        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
-                        -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
-                        -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
-                        -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
-                        -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
-                        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
-                        -e git+https://github.com/icepack/icepack.git#egg=icepack \
-                        -e git+https://github.com/thetisproject/thetis.git#egg=thetis; \
         fi
 
 # Install some other niceties
