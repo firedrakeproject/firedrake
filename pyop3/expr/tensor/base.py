@@ -125,13 +125,13 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
 
-    def assign(self, other, /, *, eager: bool = False, match_shape: bool = False):
-        return self._assign(other, "write", eager=eager, match_shape=match_shape)
+    def assign(self, other, /, *, eager: bool = False):
+        return self._assign(other, "write", eager=eager)
 
-    def iassign(self, other, /, *, eager=False, match_shape: bool = False):
-        return self._assign(other, "inc", eager=eager, match_shape=match_shape)
+    def iassign(self, other, /, *, eager=False):
+        return self._assign(other, "inc", eager=eager)
 
-    def _assign(self, other, mode, /, *, eager=False, match_shape: bool):
+    def _assign(self, other, mode, /, *, eager=False):
         from pyop3.insn import ArrayAssignment
         from .dat import Dat
         from .mat import Mat
@@ -141,13 +141,6 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
         # that nothing is indexed. This could also catch the case of x.assign(x).
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
-
-        # TODO: Should be a method of some kind
-        if match_shape:
-            if isinstance(self, Dat):
-                other = other.with_axes(self.axes.materialize())
-            else:
-                raise NotImplementedError
 
         expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr

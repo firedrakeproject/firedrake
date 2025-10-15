@@ -609,24 +609,6 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
       and 'U'
 
     """
-    # # start with outermost parent
-    # transforms = list(reversed(_flatten_transforms(tensor)))
-    # untransformed = transforms.pop(0)
-    #
-    # pack_insns = []
-    #
-    # while True:
-    #     try:
-    #         transform = transforms.pop(0)
-    #         transformed = transforms.pop(0)
-    #     except StopIteration:
-    #         break
-    #
-    #     pack_insns.append(transformed.assign(untransformed, match_shape=True))
-    #
-    #     untransformed = transformed
-    # return tuple(pack_insns)
-
     current_tensor = tensor
     pack_insns = ()
     while current_tensor.parent:
@@ -635,50 +617,19 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
         bare_current_tensor = current_tensor.__record_init__(_parent=None)
         bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
 
-        # Since transformations are atomic we have to make sure that they
-        # are handled as distinct instructions. This means that we have to
-        # materialise them every time. As an example consider an in-place
-        # permutation followed by a reshape:
-        #
-        #   for i < 6
-        #     t1[i] = t0[perm[i]]
-        #   for j < 3
-        #     dat[f(j)] += t1[j]
-        #   for k < 3
-        #     dat[g(k)] += t1[k+3]
-        #
-        # This cannot be represented as:
-        #
-        #   for j < 3
-        #     dat[f(j)] += t0[perm[j]]
-        #   for k < 3
-        #     dat[g(k)] += t0[perm[k+3]]
-        #
-        # because the system is not that clever: the shapes of t0 and dat[???]
-        # do not match.
-        #
-        # If we reshape then the parent tensor may not have the same shape as
-        # the current one.
-        # materialized_bare_parent_tensor = bare_parent_tensor.materialize()
-        # assign_insn = materialized_bare_parent_tensor.assign(bare_parent_tensor, match_shape=True)
-        #
-        # # TODO: This materialisation is not actually needed if we don't index
-        # # the tensor.
-        # current_temporary = bare_current_tensor.materialize()
+        bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+        assign_insn = bare_current_tensor_reshaped.assign(bare_parent_tensor)
 
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            # TODO
-            # transform_insns = current_tensor.parent.transform_in(bare_current_materialized_tensor)
-            # transform_insns = (bare_current_tensor.assign(bare_parent_tensor, match_shape=True),)
-            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-            transform_insns = (bare_current_tensor_reshaped.assign(bare_parent_tensor),)
+            # transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
+            transform_insns = ()
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
-            transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_materialized_tensor)
+            transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
 
         # NOTE: is this the right way around?
         # pack_insns = (*pack_insns, *transform_insns)
-        pack_insns = (*transform_insns, *pack_insns)
+        pack_insns = (*transform_insns, assign_insn, *pack_insns)
 
         current_tensor = parent_tensor
     return pack_insns
@@ -718,10 +669,7 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
       and 'U'
 
     """
-    # notes:
-    # want parent.assign(current), and want to materialise current or parent? doesn't really matter...
     current_tensor = tensor
-    # current_materialized_tensor = tensor
     unpack_insns = ()
     while current_tensor.parent:
         parent_tensor = current_tensor.parent.untransformed
@@ -729,35 +677,46 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         bare_current_tensor = current_tensor.__record_init__(_parent=None)
         bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
 
-        # temp = bare_current_tensor.materialize()
+        # Since transformations are atomic we have to make sure that they
+        # are handled as distinct instructions. This means that we have to
+        # materialise them every time. As an example consider an in-place
+        # permutation followed by a reshape:
+        #
+        #   for i < 6
+        #     t1[i] = t0[perm[i]]
+        #   for j < 3
+        #     dat[f(j)] = t1[j]
+        #   for k < 3
+        #     dat[g(k)] = t1[k+3]
+        #
+        # This cannot be represented as:
+        #
+        #   for j < 3
+        #     dat[f(j)] += t0[perm[j]]
+        #   for k < 3
+        #     dat[g(k)] += t0[perm[k+3]]
+        #
+        # because the system is not that clever: the shapes of t0 and dat[???]
+        # do not match.
+        #
+        # TODO: This materialisation is not actually needed if we don't index
+        # the tensor.
 
-        # # this should be 'odd' in that we should have one fewer (fencepost rule)
-        # # how do we propagate 'temp'?
-        # assign_insn = temp.assign(current_tensor, match_shape=True)
-        # materialized_bare_current_tensor = bare_current_tensor.materialize()
-        # assign_insn = materialized_bare_current_tensor.assign(bare_current_tensor, match_shape=True)
-
-        # parent_materialized_tensor = bare_parent_tensor.materialize()
-
-        # If we reshape then the parent tensor may not have the same shape as
-        # the current one.
-        # assign_insn = current_materialized_tensor.assign(bare_parent_tensor, match_shape=True)
+        # 't1'
+        bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+        # 'dat <- t1'
+        assign_insn = bare_parent_tensor.assign(bare_current_tensor_reshaped)
 
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            # assign_insn = materialized_bare_current_tensor.assign(bare_current_tensor, match_shape=True)
-            # this doesn't yet matter, always empty for identity
-            # transform_insns = current_tensor.parent.transform_out(bare_parent_tensor_materialized)
-            # bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-            transform_insns = (bare_parent_tensor.assign(bare_current_tensor, match_shape=True),)
+            transform_insns = current_tensor.parent.transform_out(bare_current_tensor)
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
             transform_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
 
         # NOTE: is this the right way around?
-        unpack_insns = (*unpack_insns, *transform_insns)
+        unpack_insns = (*unpack_insns, assign_insn, *transform_insns)
 
         current_tensor = parent_tensor
-        # current_materialized_tensor = temp.with_axes(bare_parent_tensor.axes)
     return unpack_insns
 
 

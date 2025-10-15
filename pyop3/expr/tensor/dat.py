@@ -502,6 +502,7 @@ class Dat(Tensor):
         assert isinstance(axes, AxisTree), "not indexed"
 
         return self.materialize().__record_init__(axis_forest=AxisForest([axes]), _parent=IdentityTensorTransform(self))
+        # return self.__record_init__(axis_forest=AxisForest([axes]), _parent=IdentityTensorTransform(self))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
