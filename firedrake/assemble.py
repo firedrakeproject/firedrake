@@ -19,7 +19,7 @@ import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_unique_domain
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
@@ -1029,7 +1029,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices],
+                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
                     diagonal=self.diagonal,
                 )
                 pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
@@ -1051,14 +1051,15 @@ class ParloopFormAssembler(FormAssembler):
 
         """
         try:
-            topology, = set(d.topology for d in self._form.ufl_domains())
+            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
         except ValueError:
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = extract_unique_domain(o)
-            if domain is not None and domain.topology != topology:
-                raise NotImplementedError("Assembly with multiple meshes is not supported")
+            domains = extract_domains(o)
+            for domain in domains:
+                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
+                    raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
@@ -1371,12 +1372,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             maps_and_regions = defaultdict(lambda: defaultdict(set))
             for assembler in self._all_assemblers:
-                all_meshes = assembler._form.ufl_domains()
+                all_meshes = extract_domains(assembler._form)
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number]
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
@@ -1553,6 +1554,10 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
     # N.B. Generating the global kernel is not a collective operation so the
     # communicator does not need to be a part of this cache key.
 
+    # Maps in the cached global kernel depend on concrete mesh data.
+    all_meshes = extract_domains(form)
+    domain_ids = tuple(mesh.ufl_id() for mesh in all_meshes)
+
     if isinstance(form, ufl.Form):
         sig = form.signature()
     elif isinstance(form, slate.TensorBase):
@@ -1572,7 +1577,8 @@ def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomai
                 else:
                     subdomain_key.append((k, i))
 
-    return ((sig, subdomain_id)
+    return (domain_ids
+            + (sig, subdomain_id)
             + tuple(subdomain_key)
             + tuplify(all_integer_subdomain_ids)
             + cachetools.keys.hashkey(local_knl, **kwargs))
@@ -1609,8 +1615,15 @@ class _GlobalKernelBuilder:
         self._diagonal = diagonal
         self._unroll = unroll
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
+        self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
+        self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
+        self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
         self._map_arg_cache = {}
         # Cache for holding :class:`op2.MapKernelArg` instances.
@@ -1624,8 +1637,15 @@ class _GlobalKernelBuilder:
                        for arg in self._kinfo.arguments]
 
         # we should use up all of the coefficients and constants
+        assert_empty(self._active_coordinates)
+        assert_empty(self._active_cell_orientations)
+        assert_empty(self._active_cell_sizes)
         assert_empty(self._active_coefficients)
         assert_empty(self._constants)
+        assert_empty(self._active_exterior_facets)
+        assert_empty(self._active_interior_facets)
+        assert_empty(self._active_orientations_exterior_facet)
+        assert_empty(self._active_orientations_interior_facet)
 
         iteration_regions = {"exterior_facet_top": op2.ON_TOP,
                              "exterior_facet_bottom": op2.ON_BOTTOM,
@@ -1650,7 +1670,8 @@ class _GlobalKernelBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = extract_domains(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @cached_property
     def _needs_subset(self):
@@ -1755,7 +1776,22 @@ def _as_global_kernel_arg_output(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_global_kernel_arg_coordinates(_, self):
-    V = self._mesh.coordinates.function_space()
+    coord = next(self._active_coordinates)
+    V = coord.function_space()
+    return self._make_dat_global_kernel_arg(V)
+
+
+@_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
+def _as_global_kernel_arg_cell_orientations(_, self):
+    c = next(self._active_cell_orientations)
+    V = c.function_space()
+    return self._make_dat_global_kernel_arg(V)
+
+
+@_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
+def _as_global_kernel_arg_cell_sizes(_, self):
+    c = next(self._active_cell_sizes)
+    V = c.function_space()
     return self._make_dat_global_kernel_arg(V)
 
 
@@ -1783,30 +1819,48 @@ def _as_global_kernel_arg_constant(_, self):
     return op2.GlobalKernelArg((value_size,))
 
 
-@_as_global_kernel_arg.register(kernel_args.CellSizesKernelArg)
-def _as_global_kernel_arg_cell_sizes(_, self):
-    V = self._mesh.cell_sizes.function_space()
-    return self._make_dat_global_kernel_arg(V)
-
-
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
 def _as_global_kernel_arg_exterior_facet(_, self):
-    return op2.DatKernelArg((1,))
+    mesh = next(self._active_exterior_facets)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((1,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+        return op2.DatKernelArg((1,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(kernel_args.InteriorFacetKernelArg)
 def _as_global_kernel_arg_interior_facet(_, self):
-    return op2.DatKernelArg((2,))
+    mesh = next(self._active_interior_facets)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((2,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+        return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
-@_as_global_kernel_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-def _as_global_kernel_arg_exterior_facet_orientation(_, self):
-    return op2.DatKernelArg((1,))
+@_as_global_kernel_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_exterior_facet)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((1,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+        return op2.DatKernelArg((1,), m._global_kernel_arg)
 
 
-@_as_global_kernel_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
-def _as_global_kernel_arg_interior_facet_orientation(_, self):
-    return op2.DatKernelArg((2,))
+@_as_global_kernel_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_interior_facet)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((2,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+        return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(CellFacetKernelArg)
@@ -1816,12 +1870,6 @@ def _as_global_kernel_arg_cell_facet(_, self):
     else:
         num_facets = self._mesh.ufl_cell().num_facets()
     return op2.DatKernelArg((num_facets, 2))
-
-
-@_as_global_kernel_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_global_kernel_arg_cell_orientations(_, self):
-    V = self._mesh.cell_orientations().function_space()
-    return self._make_dat_global_kernel_arg(V)
 
 
 @_as_global_kernel_arg.register(LayerCountKernelArg)
@@ -1857,8 +1905,15 @@ class ParloopBuilder:
         self._diagonal = diagonal
         self._bcs = bcs
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
+        self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
+        self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
+        self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
     def build(self, tensor: op2.Global | op2.Dat | op2.Mat) -> op2.Parloop:
         """Construct the parloop.
@@ -1994,7 +2049,8 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = extract_domains(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @cached_property
     def _iterset(self):
@@ -2066,7 +2122,21 @@ def _as_parloop_arg_output(_, self):
 
 @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
 def _as_parloop_arg_coordinates(_, self):
-    func = self._mesh.coordinates
+    func = next(self._active_coordinates)
+    map_ = self._get_map(func.function_space())
+    return op2.DatParloopArg(func.dat, map_)
+
+
+@_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
+def _as_parloop_arg_cell_orientations(_, self):
+    func = next(self._active_cell_orientations)
+    map_ = self._get_map(func.function_space())
+    return op2.DatParloopArg(func.dat, map_)
+
+
+@_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
+def _as_parloop_arg_cell_sizes(_, self):
+    func = next(self._active_cell_sizes)
     map_ = self._get_map(func.function_space())
     return op2.DatParloopArg(func.dat, map_)
 
@@ -2087,38 +2157,48 @@ def _as_parloop_arg_constant(arg, self):
     return op2.GlobalParloopArg(const.dat)
 
 
-@_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
-def _as_parloop_arg_cell_orientations(_, self):
-    func = self._mesh.cell_orientations()
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
-
-
-@_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
-def _as_parloop_arg_cell_sizes(_, self):
-    func = self._mesh.cell_sizes
-    m = self._get_map(func.function_space())
-    return op2.DatParloopArg(func.dat, m)
-
-
 @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
 def _as_parloop_arg_exterior_facet(_, self):
-    return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_dat)
+    mesh = next(self._active_exterior_facets)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+    return op2.DatParloopArg(mesh.exterior_facets.local_facet_dat, m)
 
 
 @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
 def _as_parloop_arg_interior_facet(_, self):
-    return op2.DatParloopArg(self._mesh.interior_facets.local_facet_dat)
+    mesh = next(self._active_interior_facets)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+    return op2.DatParloopArg(mesh.interior_facets.local_facet_dat, m)
 
 
-@_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-def _as_parloop_arg_exterior_facet_orientation(_, self):
-    return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
+@_as_parloop_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_exterior_facet)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "exterior_facet"
+    return op2.DatParloopArg(mesh.exterior_facets.local_facet_orientation_dat, m)
 
 
-@_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
-def _as_parloop_arg_interior_facet_orientation(_, self):
-    return op2.DatParloopArg(self._mesh.interior_facets.local_facet_orientation_dat)
+@_as_parloop_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_interior_facet)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "interior_facet"
+    return op2.DatParloopArg(mesh.interior_facets.local_facet_orientation_dat, m)
 
 
 @_as_parloop_arg.register(CellFacetKernelArg)
@@ -2141,6 +2221,27 @@ class _FormHandler:
     """Utility class for inspecting forms and local kernels."""
 
     @staticmethod
+    def iter_active_coordinates(form, kinfo):
+        """Yield the form coordinates referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.coordinates:
+            yield all_meshes[i].coordinates
+
+    @staticmethod
+    def iter_active_cell_orientations(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            yield all_meshes[i].cell_orientations()
+
+    @staticmethod
+    def iter_active_cell_sizes(form, kinfo):
+        """Yield the form cell sizes referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            yield all_meshes[i].cell_sizes
+
+    @staticmethod
     def iter_active_coefficients(form, kinfo):
         """Yield the form coefficients referenced in ``kinfo``."""
         all_coefficients = form.coefficients()
@@ -2157,6 +2258,38 @@ class _FormHandler:
             all_constants = extract_firedrake_constants(form)
         for constant_index in kinfo.constant_numbers:
             yield all_constants[constant_index]
+
+    @staticmethod
+    def iter_active_exterior_facets(form, kinfo):
+        """Yield the form exterior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.exterior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_interior_facets(form, kinfo):
+        """Yield the form interior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.interior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_exterior_facet(form, kinfo):
+        """Yield the form exterior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_exterior_facet:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_interior_facet(form, kinfo):
+        """Yield the form interior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_interior_facet:
+            mesh = all_meshes[i]
+            yield mesh
 
     @staticmethod
     def index_function_spaces(form, indices):

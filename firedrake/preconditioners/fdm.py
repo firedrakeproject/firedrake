@@ -198,7 +198,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = V.reconstruct(element=ebig)
+            Vbig = V.reconstruct(mesh=V.mesh().unique(), element=ebig)
             space_dim = Vbig.finat_element.space_dimension()
             assert space_dim == sum(Vsub.finat_element.space_dimension() for Vsub in V)
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
