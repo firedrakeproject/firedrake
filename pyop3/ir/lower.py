@@ -379,8 +379,8 @@ class CompiledCodeExecutor:
             buffers[index].inc_state()
 
         # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
-        if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
-           breakpoint()
+        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
+        #    breakpoint()
         # if "MatSetValues" in str(self):
         #     breakpoint()
         # if "integral" in str(self):

@@ -579,19 +579,9 @@ def _(array: Tensor, /, access_type):
         assert access_type == ArrayAccessType.WRITE
         insns = _expand_transforms_out(array)
         unpack_insns = [*insns, *unpack_insns]
-        breakpoint()
 
     bare_array = array.__record_init__(_parent=None)
     return bare_array, tuple(pack_insns), tuple(unpack_insns)
-
-
-def _flatten_transforms(tensor):
-    flattened_transforms = [tensor.__record_init__(_parent=None)]
-    while tensor.parent:
-        flattened_transforms.append(tensor.parent)
-        flattened_transforms.append(tensor.parent.untransformed.__record_init__(_parent=None))
-        tensor = tensor.parent.untransformed
-    return tuple(flattened_transforms)
 
 
 def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
@@ -617,44 +607,22 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
         bare_current_tensor = current_tensor.__record_init__(_parent=None)
         bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
 
-        bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-        assign_insn = bare_current_tensor_reshaped.assign(bare_parent_tensor)
-
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            # transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
-            transform_insns = ()
+            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            current_pack_insns = (
+                bare_current_tensor_reshaped.assign(bare_parent_tensor),
+                *current_tensor.parent.transform_in(bare_current_tensor),
+            )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
-            transform_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
+            current_pack_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
 
-        # NOTE: is this the right way around?
-        # pack_insns = (*pack_insns, *transform_insns)
-        pack_insns = (*transform_insns, assign_insn, *pack_insns)
-
+        pack_insns = (*pack_insns, *current_pack_insns)
         current_tensor = parent_tensor
     return pack_insns
 
 
 def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
-    # transforms = list(_flatten_transforms(tensor))
-    # untransformed = transforms.pop(0)
-    #
-    # pack_insns = []
-    #
-    # while True:
-    #     try:
-    #         transform = transforms.pop(0)
-    #         transformed = transforms.pop(0)
-    #     except IndexError:
-    #         break
-    #
-    #     temp = untransformed.materialize()
-    #
-    #     pack_insns.append(temp.assign(untransformed))
-    #     # pack_insns.append(untransformed.assign(transformed, match_shape=True))
-    #
-    #     untransformed = temp.with_axes(transformed.axes)
-    # return tuple(pack_insns)
     """
     I.e.
 
@@ -701,21 +669,17 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         #
         # TODO: This materialisation is not actually needed if we don't index
         # the tensor.
-
-        # 't1'
-        bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-        # 'dat <- t1'
-        assign_insn = bare_parent_tensor.assign(bare_current_tensor_reshaped)
-
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            transform_insns = current_tensor.parent.transform_out(bare_current_tensor)
+            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            current_unpack_insns = (
+                *current_tensor.parent.transform_out(bare_current_tensor),
+                bare_parent_tensor.assign(bare_current_tensor_reshaped),
+            )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
-            transform_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
+            current_unpack_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
 
-        # NOTE: is this the right way around?
-        unpack_insns = (*unpack_insns, assign_insn, *transform_insns)
-
+        unpack_insns = (*current_unpack_insns, *unpack_insns)
         current_tensor = parent_tensor
     return unpack_insns
 
