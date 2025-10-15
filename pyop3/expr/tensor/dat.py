@@ -15,7 +15,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from ..base import LoopIndexVar
-from .base import Tensor
+from .base import IdentityTensorTransform, Tensor
 from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,
@@ -501,7 +501,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axis_forest=AxisForest([axes]), _parent=self)
+        return self.materialize().__record_init__(axis_forest=AxisForest([axes]), _parent=IdentityTensorTransform(self))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?

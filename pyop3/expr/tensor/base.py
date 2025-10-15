@@ -125,20 +125,30 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
 
-    def assign(self, other, /, *, eager=False):
-        return self._assign(other, "write", eager=eager)
+    def assign(self, other, /, *, eager: bool = False, match_shape: bool = False):
+        return self._assign(other, "write", eager=eager, match_shape=match_shape)
 
-    def iassign(self, other, /, *, eager=False):
-        return self._assign(other, "inc", eager=eager)
+    def iassign(self, other, /, *, eager=False, match_shape: bool = False):
+        return self._assign(other, "inc", eager=eager, match_shape=match_shape)
 
-    def _assign(self, other, mode, /, *, eager=False):
+    def _assign(self, other, mode, /, *, eager=False, match_shape: bool):
         from pyop3.insn import ArrayAssignment
+        from .dat import Dat
+        from .mat import Mat
 
         # TODO: If eager should try and convert to some sort of maxpy operation
         # instead of doing a full code generation pass. Would have to make sure
         # that nothing is indexed. This could also catch the case of x.assign(x).
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
+
+        # TODO: Should be a method of some kind
+        if match_shape:
+            if isinstance(self, Dat):
+                other = other.with_axes(self.axes.materialize())
+            else:
+                raise NotImplementedError
+
         expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
 
@@ -173,14 +183,25 @@ class TensorTransform(abc.ABC):
     pass
 
 
-# TODO - the callable here should only take one arg
-@utils.frozenrecord()
-class InPlaceTensorTransform(TensorTransform):
-    ...
-
-
 @utils.frozenrecord()
 class OutOfPlaceTensorTransform(TensorTransform):
     untransformed: Tensor
     transform_in: Callable[[Tensor, Tensor], None]
     transform_out: Callable[[Tensor, Tensor], None]
+
+
+class InPlaceTensorTransform(TensorTransform):
+    pass
+
+
+@utils.frozenrecord()
+class IdentityTensorTransform(InPlaceTensorTransform):
+    untransformed: Tensor
+
+    @staticmethod
+    def transform_in(tensor):
+        return ()
+
+    @staticmethod
+    def transform_out(tensor):
+        return ()
