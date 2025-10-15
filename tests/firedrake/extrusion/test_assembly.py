@@ -13,6 +13,7 @@ hcurl = [("N1curl", 1), ("N1curl", 2), ("N2curl", 1), ("N2curl", 2)]
                          [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
 def test_scalar_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
+    # mesh = extmesh(2, 1, 2)
     fspace = FunctionSpace(mesh, hfamily, hdegree, vfamily=vfamily, vdegree=vdegree)
 
     u = TrialFunction(fspace)

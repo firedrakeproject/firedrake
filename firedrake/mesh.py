@@ -1172,6 +1172,7 @@ class AbstractMeshTopology(abc.ABC):
         closures = {}
         for dim, closure_data in closure_arrays.items():
             map_components = []
+            breakpoint()
             for map_dim, map_data in closure_data.items():
                 _, size = map_data.shape
                 if size == 0:
@@ -2881,10 +2882,25 @@ class ExtrudedMeshTopology(MeshTopology):
         # we always have 2n+1 entities when we extrude
         # TODO: duplicated in multiple places
         base_indices = self._base_mesh._dm_renumbering.indices
-        indices = np.empty((base_indices.size, (2*n_extr_cells+1)), dtype=base_indices.dtype)
-        for i in range(base_indices.size):
-            for j in range(2*n_extr_cells+1):
-                indices[i, j] = base_indices[i] * (2*n_extr_cells+1) + j
+        base_point_label = self.topology_dm.getLabel("base_point")
+        indices = np.empty(base_indices.size * (2*n_extr_cells+1), dtype=base_indices.dtype)
+        for base_pt in range(self._base_mesh.num_points):
+            extruded_points = base_point_label.getStratumIS(base_pt).indices
+            extruded_cells, extruded_verts = extruded_points[:n_extr_cells], extruded_points[n_extr_cells:]
+
+            for i, ec in enumerate(extruded_cells):
+                indices[ec] = base_indices[base_pt] * (2*n_extr_cells+1) + (2*i+1)
+
+            for i, ev in enumerate(extruded_verts):
+                indices[ev] = base_indices[base_pt] * (2*n_extr_cells+1) + 2*i
+
+
+        breakpoint()
+        # # there are n cells and n+1 verts
+        #
+        # for i in range(base_indices.size):
+        #     for j in range(2*n_extr_cells+1):
+        #         indices[i, j] = base_indices[i] * (2*n_extr_cells+1) + j
         return PETSc.IS().createGeneral(indices, comm=self._comm)
 
     @utils.cached_property

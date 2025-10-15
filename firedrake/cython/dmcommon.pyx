@@ -4258,11 +4258,15 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
 
     # Label the points in the base mesh with their dimension so we can determine
     # the different facet types in the extruded mesh.
+    # Also label with the base entity
     mesh.createLabel("base_dim")
     base_dim_label = mesh.getLabel("base_dim")
+    mesh.createLabel("base_point")
+    base_point_label = mesh.getLabel("base_point")
     for dim in range(mesh.getDimension()+1):
         for pt in range(*mesh.getDepthStratum(dim)):
             base_dim_label.setValue(pt, dim)
+            base_point_label.setValue(pt, pt)
 
     extruded_mesh = PETSc.DMPlex().create(comm=mesh.comm)
     CHKERR(DMPlexExtrude(
@@ -4280,4 +4284,46 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
 
     # CHKERR(PetscObjectReference(extruded_mesh.obj[0]))
 
+    # label_extruded_entities(extruded_mesh)
+
     return extruded_mesh
+
+
+# def label_extruded_entities(PETSc.DM plex) -> None:
+#     """Label points with a tensor-like entity label.
+#
+#     Since labels store integers the label is stored in lexicographic form. That
+#     is, (1, 1) is stored as 11 and so on.
+#
+#     Note that this routine modifies the 'entity' label of the DMPlex in-place.
+#
+#     """
+#     cdef:
+#         char          *label_name_c = <char *>"entity"
+#         DMLabel label_c, orig_label_c
+#         PetscInt      dim_c, d_c, p_start_c, p_end_c, p_c, base_entity_c, entity_c
+#
+#     CHKERR(DMGetLabel(plex.dm, label_name_c, &label_c))
+#     CHKERR(DMLabelDuplicate(label_c, &orig_label_c))
+#     CHKERR(DMLabelReset(label_c))
+#
+#     dim_c = get_topological_dimension(plex)
+#     for d_c in range(dim_c+1):
+#         get_depth_stratum(plex.dm, d_c, &p_start_c, &p_end_c)
+#         for p_c in range(p_start_c, p_end_c):
+#             CHKERR(DMLabelGetValue(orig_label_c, p_c, &base_entity_c))
+#
+#             if base_entity_c >= 10:
+#                 raise NotImplementedError("Not currently considering nested extrusion")
+#
+#             if base_entity_c == d_c:
+#                 # transformed to entity with equal dimension, append 0
+#                 entity_c = base_entity_c * 10
+#             else:
+#                 # transformed to entity with one greater dimension, append 1
+#                 assert base_entity_c + 1 == d_c
+#                 entity_c = base_entity_c * 10 + 1
+#
+#             CHKERR(DMLabelSetValue(label_c, p_c, entity_c))
+#
+#     CHKERR(DMLabelDestroy(&orig_label_c))

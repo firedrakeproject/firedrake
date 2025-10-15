@@ -375,9 +375,9 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
-        #     breakpoint()
-        pyop3.extras.debug.maybe_breakpoint()
+        if len(self.loopy_code.callables_table) > 1 and "extrusion" in str(self):
+            breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:

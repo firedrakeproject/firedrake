@@ -1074,6 +1074,7 @@ class FunctionSpace:
                     # edge
                     ndofs = entity_dofs[base_dim, 1]
                 section.setDof(pt, ndofs)
+            breakpoint()
 
         if self._ufl_function_space.ufl_element().family() == "Real":
             p_start, p_end = section.getChart()
@@ -1132,6 +1133,7 @@ class FunctionSpace:
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
         map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
+        breakpoint()
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
 
         # now reshape things because we want to have 2 axes: cells and nodes
