@@ -117,8 +117,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     integral_type = integral_data.integral_type
     mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
-    if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
-        raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
+    if integral_type.startswith("interior_facet"):
+        if mesh.ufl_cell().cellname() == "hexahedron":
+            raise NotImplementedError("Sorry, we can't assemble interior facet integrals on hexahedral meshes")
+        if diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
+            raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     kernel_name = f"{prefix}_{integral_type}_integral"
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
