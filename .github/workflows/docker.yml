@@ -6,6 +6,14 @@ on:
       tag:
         description: Docker image tag
         type: string
+      build_dev:
+        description: Whether to build a developer vanilla-default container
+        type: boolean
+        default: false
+      branch:
+        description: Which Firedrake branch to build the containers from
+        type: string
+        default: "release"
     secrets:
       DOCKERHUB_USER:
         required: true
@@ -16,6 +24,14 @@ on:
       tag:
         description: Docker image tag
         type: string
+      build_dev:
+        description: Whether to build a developer vanilla-default container
+        type: boolean
+        default: false
+      branch:
+        description: Which Firedrake branch to build the containers from
+        type: string
+        default: "release"
 
 jobs:
   # Firedrake only
@@ -26,10 +42,10 @@ jobs:
         os: [Linux, macOS]
         arch: [default, complex]
         include:
-          - os: Linux
-            platform: linux/amd64
-          - os: macOS
-            platform: linux/arm64
+        - os: Linux
+          platform: linux/amd64
+        - os: macOS
+          platform: linux/arm64
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
@@ -37,6 +53,7 @@ jobs:
       arch: ${{ matrix.arch }}
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
+      branch: ${{ inputs.branch }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
 
@@ -50,15 +67,16 @@ jobs:
     with:
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit
 
   # Firedrake and friends
   docker_build_firedrake:
+    if: ${{ ! inputs.build_dev }}
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     # Only build the 'firedrake' container for 'linux/amd64' because
-    # VTK (https://gitlab.kitware.com/vtk/vtk/-/issues/18772) and
-    # netgen-mesher do not have ARM wheels so many Firedrake apps cannot
+    # netgen-mesher does not have ARM wheels so many Firedrake apps cannot
     # be installed.
     with:
       os: Linux
@@ -69,29 +87,11 @@ jobs:
     secrets: inherit
 
   docker_merge_firedrake:
+    if: ${{ ! inputs.build_dev }}
     uses: ./.github/workflows/docker_merge.yml
     needs: docker_build_firedrake
     with:
       target: firedrake
       tag: ${{ inputs.tag }}
-    secrets: inherit
-
-  # Firedrake with Jupyter notebooks
-  docker_build_jupyter:
-    needs: docker_merge_firedrake
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: Linux
-      platform: linux/amd64
-      target: firedrake-jupyter
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.jupyter
-    secrets: inherit
-
-  docker_merge_jupyter:
-    uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_jupyter
-    with:
-      target: firedrake-jupyter
-      tag: ${{ inputs.tag }}
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit

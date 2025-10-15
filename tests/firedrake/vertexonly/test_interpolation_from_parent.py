@@ -188,15 +188,6 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     v = Function(V).interpolate(expr)
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
-    # use it again for a different Function in V
-    v = Function(V).assign(Constant(2))
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 2)
 
 
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
@@ -227,16 +218,6 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     v = Function(V).interpolate(expr)
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
-    # use it again for a different Function in V
-    expr = 4 * SpatialCoordinate(parentmesh)
-    v = Function(V).interpolate(expr)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 4*np.asarray(vertexcoords))
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
@@ -279,16 +260,6 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
         result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
-    # use it again for a different Function in V
-    expr = 2*outer(x, x)
-    v = Function(V).interpolate(expr)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), 2*result)
 
 
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
@@ -349,23 +320,6 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 
-def test_scalar_real_interpolator(parentmesh, vertexcoords):
-    # try and make reusable Interpolator from V to W
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    W = FunctionSpace(vm, "DG", 0)
-    V = FunctionSpace(parentmesh, "Real", 0)
-    # Remove below when interpolating constant onto Real works for extruded
-    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
-        with pytest.raises(ValueError):
-            assemble(interpolate(Constant(1), V))
-        return
-    v = assemble(interpolate(Constant(1), V))
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 1.)
-
-
 def test_extruded_cell_parent_cell_list():
     # If we make a function space that has 1 dof per cell, then we can use the
     # cell_parent_list directly to see if we get expected values. This is a
@@ -398,8 +352,10 @@ def test_extruded_cell_parent_cell_list():
 
     # expected values at coordinates from tests/regression/test_locate_cell.py
     expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    assert np.allclose(fs.at(coords), expected)
-    assert np.allclose(fx.at(coords), expected)
+    ms_eval = PointEvaluator(ms, coords)
+    mx_eval = PointEvaluator(mx, coords)
+    assert np.allclose(ms_eval.evaluate(fs), expected)
+    assert np.allclose(mx_eval.evaluate(fx), expected)
     assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
     assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
 

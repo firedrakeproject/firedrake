@@ -105,7 +105,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path=None):
         from pyop2.parloop import DatLegacyArg
-
         if conf.configuration["type_check"] and path and path.toset != self.dataset.set:
             raise ex.MapValueError("To Set of Map does not match Set of Dat.")
         return DatLegacyArg(self, path, access)

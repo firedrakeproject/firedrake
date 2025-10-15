@@ -5,7 +5,7 @@ Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
-Here, we demonstrate how to do this in the former case.::
+Here, we demonstrate how to do this in the former case. ::
 
   from firedrake import *
 
@@ -36,11 +36,12 @@ impose homogeneous Dirichlet boundary conditions::
       return solver.snes.getLinearSolveIterations()
 
 Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, here we simply opt for the former.
-Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions.::
+Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions. ::
 
 
-  def mg_params(relax):
+  def mg_params(relax, mat_type="aij"):
       return {
+          "mat_type": mat_type,
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
@@ -49,6 +50,7 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
               **relax
           },
           "mg_coarse": {
+              "mat_type": "aij",
               "ksp_type": "preonly",
               "pc_type": "cholesky"
           }
@@ -60,12 +62,12 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMStarPC",
           "pc_star_construct_dim": construct_dim,
-          "pc_star_backend_type": "tinyasm"
+          "pc_star_backend": "tinyasm"
       }
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
 over a range of meshes.  We see that vertex patches give lower iteration counts than
-edge patches, but they are more expensive.::
+edge patches, but they are more expensive. ::
 
 
   for cdim in (0, 1):

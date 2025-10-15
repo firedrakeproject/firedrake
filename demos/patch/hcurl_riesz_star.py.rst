@@ -5,7 +5,7 @@ Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
-Here, we demonstrate how to do this in the latter case.::
+Here, we demonstrate how to do this in the latter case. ::
 
   from firedrake import *
 
@@ -37,11 +37,12 @@ impose homogeneous Dirichlet boundary conditions::
 
 Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos,
 here we simply opt for the former. Arnold, Falk, and Winther show that vertex
-patches yield a robust method.::
+patches yield a robust method. ::
 
 
-  def mg_params(relax):
+  def mg_params(relax, mat_type="aij"):
       return {
+          "mat_type": mat_type,
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
@@ -50,6 +51,7 @@ patches yield a robust method.::
               **relax
           },
           "mg_coarse": {
+              "mat_type": "aij",
               "ksp_type": "preonly",
               "pc_type": "cholesky"
           }
@@ -61,7 +63,7 @@ patches yield a robust method.::
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMStarPC",
           "pc_star_construct_dim": construct_dim,
-          "pc_star_backend_type": "tinyasm"
+          "pc_star_backend": "tinyasm"
       }
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
@@ -84,7 +86,7 @@ using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the over
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
 over a range of meshes.  We see that vertex patches approach give lower
-iteration counts than the Hiptmair approach, but they are more expensive.::
+iteration counts than the Hiptmair approach, but they are more expensive. ::
 
   names = {
       "Vertex Star": mg_params(asm_params(0)),

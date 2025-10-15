@@ -43,9 +43,7 @@ def test_interp_self(V1):
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
     a = assemble(conj(TestFunction(V1)) * dx)
-    # We want tensor to be a dependency of the input expression for this test
-    assemble(Interpolator(f1 * TestFunction(V1), V1).interpolate(a, adjoint=True),
-             tensor=a)
+    assemble(interpolate(f1 * TestFunction(V1), a), tensor=a)
 
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V1, name="f2").interpolate(
@@ -68,15 +66,23 @@ def test_assemble_interp_operator(V2, f1):
 def test_assemble_interp_matrix(V1, V2, f1):
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
-    Iv1 = Interpolate(v1, V2)
+    Iv1 = interpolate(v1, V2)
+    assert Iv1.arguments()[0].function_space() == V2.dual()
+    assert Iv1.arguments()[1].function_space() == V1
 
     b = assemble(interpolate(f1, V2))
+    assert b.function_space() == V2
 
     # Get the interpolation matrix
     a = assemble(Iv1)
+    assert a.arguments()[0].function_space() == V2.dual()
+    assert a.arguments()[1].function_space() == V1
+    assert a.petscmat.getSize() == (V2.dim(), V1.dim())
+
     # Check that `I * f1 == b` with I the interpolation matrix
     # and b the interpolation of f1 into V2.
     res = assemble(action(a, f1))
+    assert res.function_space() == V2
     assert np.allclose(res.dat.data, b.dat.data)
 
 
@@ -100,7 +106,11 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     # Interpolation from V2* to V1*
     c1 = Cofunction(V1.dual()).interpolate(c2)
     # Interpolation matrix (V2* -> V1*)
-    a = assemble(adjoint(Iv1))
+    adj_Iv1 = adjoint(Iv1)
+    a = assemble(adj_Iv1)
+    assert a.arguments() == adj_Iv1.arguments()
+    assert a.petscmat.getSize() == (V1.dim(), V2.dim())
+
     res = Cofunction(V1.dual())
     with c2.dat.vec_ro as x, res.dat.vec_ro as y:
         a.petscmat.mult(x, y)
@@ -125,8 +135,7 @@ def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = assemble(Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True))
-
+    b = assemble(interpolate(f1 * TestFunction(V2), a))
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V2, name="f2").interpolate(
         exp(x) * y)
