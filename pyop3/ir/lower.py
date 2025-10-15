@@ -177,9 +177,7 @@ class LoopyCodegenContext(CodegenContext):
             depends_on=self._depends_on,
             depends_on_is_final=True,
         )
-        for i in range(len(expression.parameters)):
-            var = expression.parameters[i].subscript.aggregate
-            self.add_cinstruction(f"printf(\"{var} %f, %f, %f, %f  \\n \", {var}[0], {var}[1], {var}[2], {var}[3]);")
+
         self._add_instruction(insn)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:

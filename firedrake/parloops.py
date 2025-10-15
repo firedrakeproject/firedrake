@@ -489,9 +489,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     elif transform_in_kernel and transform_out_kernel:
         orientations = space.mesh().entity_orientations_dat
 
-        if form_shapes != (3,):
-            raise NotImplementedError("Need a nice way to detect this")
-        mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([3, 3]), dtype=utils.ScalarType, prefix="trans")
+        mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([packed_dat.size, packed_dat.size]), dtype=utils.ScalarType, prefix="trans")
 
         def transform_in(untransformed, transformed):
             return (
@@ -741,7 +739,8 @@ def construct_switch_statement(self, mats, n, args, var_list):
 def fuse_orientations(space: WithGeometry):
     no_dense = False
     fuse_defined_space = hasattr(space.ufl_element(), "triple")
-    if fuse_defined_space:
+    
+    if fuse_defined_space and hasattr(space.ufl_element().triple, "matrices"):
 
         fs = space
         mats = fs.ufl_element().triple.matrices
