@@ -115,25 +115,34 @@ def compile_element(expression, dual_space=None, parameters=None,
     # # Collect required coefficients
 
     try:
+        # Forward interpolation: expression has a coefficient
         arg, = extract_coefficients(expression)
         argument_multiindices = ()
         coefficient = True
-        tensor_indices = None
     except ValueError:
+        # Adjoint interpolation: expression has an argument
         arg, = extract_arguments(expression)
         finat_elem = create_element(arg.ufl_element())
-        argument_multiindices = (finat_elem.get_indices(), )
-        argument_multiindex, = argument_multiindices
-        value_shape = finat_elem.value_shape
+        argument_multiindex = finat_elem.get_indices()
+        argument_multiindices = (argument_multiindex, )
+        coefficient = False
+
+    # Map into reference values
+    domain = extract_unique_domain(expression)
+    expression = apply_mapping(expression, arg.ufl_element(), domain)
+    value_shape = expression.ufl_shape
+
+    # Get indices for the output tensor
+    if coefficient:
+        tensor_indices = tuple(gem.Index() for s in value_shape)
+    else:
         if value_shape:
             tensor_indices = argument_multiindex[-len(value_shape):]
         else:
             tensor_indices = ()
-        coefficient = False
 
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
-    domain = extract_unique_domain(expression)
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
@@ -149,10 +158,6 @@ def compile_element(expression, dual_space=None, parameters=None,
                   scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 
-    # Map into reference values
-    expression = apply_mapping(expression, arg.ufl_element(), domain)
-    if tensor_indices is None:
-        tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
     # Abs-simplification
     expression = simplify_abs(expression, complex_mode)
 
@@ -180,7 +185,6 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            value_shape = dual_space.ufl_element().reference_value_shape
             if value_shape:
                 var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
