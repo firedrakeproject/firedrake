@@ -337,7 +337,7 @@ def exact_primal_periodic(mesh, shape, degree):
                (1 - x[2]) * x[2] * x[2] * x[2]
     if shape == "vector":
         expr = as_vector([(-1)**i * expr for i in range(dim)])
-    elif shape == "symmetry":
+    elif shape == "symmetric-tensor":
         expr = as_tensor([[(-1)**(i+j) * expr for j in range(dim)] for j in range(dim)])
     return expr
 
