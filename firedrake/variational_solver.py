@@ -357,8 +357,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Make sure appcontext is attached to every coefficient DM before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        coefficients += problem.u.subfunctions
+        coefficients = list(utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None)))
+        # Include a DM for every possible view of the solution
+        for usub in problem.u.subfunctions:
+            coefficients.append(usub)
+            ncomps = usub.function_space().block_size
+            if ncomps > 1:
+                coefficients.extend(usub.sub(i) for i in range(ncomps))
+
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
