@@ -130,7 +130,7 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
     else:
         raise ValueError(f"Unrecognized shape {shape}.")
 
-    if V.value_size == 1 or shape == "mixed":
+    if V.value_size == 1:
         A = 1
     else:
         A = as_matrix([[2, -1, 0], [-1, 2, -1], [0, -1, 2]])

@@ -341,20 +341,47 @@ def masked_lgmap(lgmap, mask, block=True):
     return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
-def unghosted_lgmap(dset, node_maps):
-    if len(node_maps) == 1:
-        cmap, = node_maps
-        mask = np.setdiff1d(
-            cmap.values_with_halo[cmap.iterset.size:],
-            cmap.values[:cmap.iterset.size],
-        )
+def mask_ghost_cells(cell_node_map):
+    """Return the local indices of the nodes that belong to ghost cells."""
+    own_cells = cell_node_map.iterset.size
+    owned = cell_node_map.values[:own_cells]
+    ghost = cell_node_map.values_with_halo[own_cells:]
+    offset = cell_node_map.offset
+    if offset is None or ghost.size == 0:
+        # Non-extruded case
+        mask = np.setdiff1d(ghost, owned)
+    elif cell_node_map.iterset.constant_layers:
+        # Extruded case
+        mask_pieces = []
+        owned = owned.copy()
+        ghost = ghost.copy()
+        quotient = cell_node_map.offset_quotient
+        layers = cell_node_map.iterset.layers
+        for i in range(layers-1):
+            if quotient is not None and i == layers-2:
+                # Periodic extruded case
+                owned -= quotient
+                ghost -= quotient
+            mask_pieces.append(np.setdiff1d(ghost, owned))
+            owned += offset
+            ghost += offset
+        mask = np.concatenate(mask_pieces)
     else:
+        raise NotImplementedError("MatIS does not support variable extrusion with overlap.")
+    return mask
+
+
+def unghosted_lgmap(dset, node_maps):
+    """Return a local-to-global map where the nodes on ghost cell are masked out."""
+    if len(node_maps) == 1:
+        # Non-mixed case
+        cmap, = node_maps
+        mask = mask_ghost_cells(cmap)
+    else:
+        # Mixed case
         mask_pieces = []
         for iset, cmap in zip(dset.local_ises, node_maps):
-            to_mask = np.setdiff1d(
-                cmap.values_with_halo[cmap.iterset.size:],
-                cmap.values[:cmap.iterset.size]
-            )
+            to_mask = mask_ghost_cells(cmap)
             bs = iset.block_size
             if bs > 1:
                 to_mask = np.concatenate([i + bs * to_mask for i in range(bs)])
