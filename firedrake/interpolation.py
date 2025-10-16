@@ -305,10 +305,7 @@ class Interpolator(abc.ABC):
             return tensor or firedrake.AssembledMatrix(self.expr_args, self.bcs, res)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
-            if tensor and isinstance(result, Function | Cofunction):
-                tensor.assign(result)
-                return tensor
-            return result
+            return tensor.assign(result) if tensor else result
 
 
 class DofNotDefinedError(Exception):
@@ -454,13 +451,15 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 symbolic = action(self.point_eval_input_ordering, self.point_eval)
             self.handle = assemble(symbolic).petscmat
-            self.callable = lambda: self
+            def callable() -> CrossMeshInterpolator:
+                return self
         else:
             if self.expr.is_adjoint:
                 assert self.rank == 1
                 # f_src is a cofunction on V_dest.dual
                 cofunc = self.dual_arg
                 assert isinstance(cofunc, Cofunction)
+
                 # Our first adjoint operation is to assign the dat values to a
                 # P0DG cofunction on our input ordering VOM.
                 f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
@@ -471,7 +470,7 @@ class CrossMeshInterpolator(Interpolator):
                 # We don't worry about skipping over missing points here
                 # because we're going from the input ordering VOM to the original VOM
                 # and all points from the input ordering VOM are in the original.
-                def callable():
+                def callable() -> Cofunction:
                     f_src_at_src_node_coords = assemble(action(self.point_eval_input_ordering, f_input_ordering))
                     assemble(action(self.point_eval, f_src_at_src_node_coords), tensor=f)
                     return f
@@ -491,7 +490,7 @@ class CrossMeshInterpolator(Interpolator):
                     # them later.
                     f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
-                def callable():
+                def callable() -> Function | Number:
                     assemble(action(self.point_eval_input_ordering, f_point_eval),
                              tensor=f_point_eval_input_ordering)
 
@@ -508,7 +507,7 @@ class CrossMeshInterpolator(Interpolator):
                         return assemble(action(self.dual_arg, f))
                     else:
                         return f
-            self.callable = callable
+        self.callable = callable
 
 
 class SameMeshInterpolator(Interpolator):
@@ -645,7 +644,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             tensor = None
         else:
             f = output or self._get_tensor()
-            assert isinstance(f, Function | Cofunction)
             tensor = f.dat
         # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
@@ -656,13 +654,16 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             self.mat.mpi_type = get_dat_mpi_type(f.dat)[0]
             if self.expr.is_adjoint:
                 assert isinstance(self.dual_arg, ufl.Cofunction)
+                assert isinstance(f, Cofunction)
 
-                def callable():
+                def callable() -> Cofunction:
                     with self.dual_arg.dat.vec_ro as source_vec, f.dat.vec_wo as target_vec:
                         self.mat.handle.multHermitian(source_vec, target_vec)
                     return f
             else:
-                def callable():
+                assert isinstance(f, Function)
+
+                def callable() -> Function:
                     coeff = self.mat.expr_as_coeff()
                     with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
                         self.mat.handle.mult(coeff_vec, target_vec)
@@ -682,7 +683,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             # pretending to be a PETSc Mat. If matfree is False, then this
             # will be a PETSc Mat representing the equivalent permutation matrix
 
-            def callable():
+            def callable() -> VomOntoVomMat:
                 return self.mat
 
         self.callable = callable
@@ -1494,19 +1495,15 @@ class MixedInterpolator(Interpolator):
             for i in self:
                 self[i]._build_callable()
                 blocks[i] = self[i].callable().handle
-            petscmat = PETSc.Mat().createNest(blocks)
-            tensor = firedrake.AssembledMatrix(self.expr_args, self.bcs, petscmat)
-            callable = lambda: tensor.M
+            self.handle = PETSc.Mat().createNest(blocks)
+            def callable() -> MixedInterpolator:
+                return self
         elif self.rank == 1:
-            def callable():
+            def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):
                     sub_tensor.assign(sum(self[i].assemble() for i in self if i[0] == k))
                 return f
         else:
-            assert self.rank == 0
-
-            def callable():
-                result = sum(self[i].assemble() for i in self)
-                assert isinstance(result, Number)
-                return result
+            def callable() -> Number:
+                return sum(self[i].assemble() for i in self)
         self.callable = callable
