@@ -87,12 +87,18 @@ class InterpolateOptions:
         If ``False``, then construct the permutation matrix for interpolating
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
         and reduce operations.
+    bcs : Iterable[BCBase] | None, optional
+        An optional list of boundary conditions to zero-out in the
+        output function space. Interpolator rows or columns which are
+        associated with boundary condition nodes are zeroed out when this is
+        specified. By default None.
     """
     subset: op2.Subset | None = None
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
     matfree: bool = True
+    bcs: Iterable[BCBase] | None = None
 
 
 class Interpolate(ufl.Interpolate):
@@ -162,18 +168,13 @@ def interpolate(expr: Expr, V: WithGeometry | ufl.BaseForm, **kwargs) -> Interpo
     return Interpolate(expr, V, **kwargs)
 
 
-def get_interpolator(expr: Interpolate, bcs: Iterable[BCBase] | None = None) -> "Interpolator":
+def get_interpolator(expr: Interpolate) -> "Interpolator":
     """Create an Interpolator.
 
     Parameters
     ----------
     expr : Interpolate
         Symbolic interpolation expression.
-    bcs : Iterable[BCBase] | None, optional
-        An optional list of boundary conditions to zero-out in the
-        output function space. Interpolator rows or columns which are
-        associated with boundary condition nodes are zeroed out when this is
-        specified. By default None.
 
     Returns
     -------
@@ -183,7 +184,7 @@ def get_interpolator(expr: Interpolate, bcs: Iterable[BCBase] | None = None) -> 
     arguments = expr.arguments()
     has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
     if len(arguments) == 2 and has_mixed_arguments:
-        return MixedInterpolator(expr, bcs=bcs)
+        return MixedInterpolator(expr)
 
     operand, = expr.ufl_operands
     target_mesh = expr.target_space.mesh()
@@ -194,24 +195,24 @@ def get_interpolator(expr: Interpolate, bcs: Iterable[BCBase] | None = None) -> 
         and target_mesh.topological_dimension() == source_mesh.topological_dimension()
     )
     if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr, bcs=bcs)
+        return SameMeshInterpolator(expr)
 
     target_topology = target_mesh.topology
     source_topology = source_mesh.topology
 
     if isinstance(target_topology, VertexOnlyMeshTopology):
         if isinstance(source_topology, VertexOnlyMeshTopology):
-            return VomOntoVomInterpolator(expr, bcs=bcs)
+            return VomOntoVomInterpolator(expr)
         if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
             raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
         if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
             raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-        return SameMeshInterpolator(expr, bcs=bcs)
+        return SameMeshInterpolator(expr)
 
     if has_mixed_arguments or len(expr.target_space) > 1:
-        return MixedInterpolator(expr, bcs=bcs)
+        return MixedInterpolator(expr)
 
-    return CrossMeshInterpolator(expr, bcs=bcs)
+    return CrossMeshInterpolator(expr)
 
 
 class Interpolator(abc.ABC):
@@ -222,14 +223,9 @@ class Interpolator(abc.ABC):
     ----------
     expr : Interpolate
         The symbolic interpolation expression.
-    bcs : Iterable[BCBase], optional
-        An optional list of boundary conditions to zero-out in the
-        output function space. Interpolator rows or columns which are
-        associated with boundary condition nodes are zeroed out when this is
-        specified. By default None.
 
     """
-    def __init__(self, expr: Interpolate, bcs: Iterable[BCBase] | None = None):
+    def __init__(self, expr: Interpolate):
         dual_arg, operand = expr.argument_slots()
         self.expr = expr
         self.expr_args = expr.arguments()
@@ -245,7 +241,7 @@ class Interpolator(abc.ABC):
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         self.matfree = expr.options.matfree
-        self.bcs = bcs
+        self.bcs = expr.options.bcs
         self.callable = None
         self.access = expr.options.access
 
@@ -345,8 +341,8 @@ class CrossMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr: Interpolate, bcs: Iterable[BCBase] | None = None):
-        super().__init__(expr, bcs)
+    def __init__(self, expr: Interpolate):
+        super().__init__(expr)
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -520,8 +516,8 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, bcs=None):
-        super().__init__(expr, bcs=bcs)
+    def __init__(self, expr):
+        super().__init__(expr)
         subset = self.subset
         if subset is None:
             target = self.target_mesh.topology
@@ -594,9 +590,6 @@ class SameMeshInterpolator(Interpolator):
 
         loops = []
 
-        if self.access == op2.INC:
-            loops.append(tensor.zero)
-
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if self.rank == 2:
@@ -635,8 +628,8 @@ class SameMeshInterpolator(Interpolator):
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    def __init__(self, expr: Interpolate, bcs=None):
-        super().__init__(expr, bcs=bcs)
+    def __init__(self, expr: Interpolate):
+        super().__init__(expr)
 
     def _build_callable(self, output=None):
         self.mat = VomOntoVomMat(self)
@@ -899,7 +892,10 @@ def _build_interpolation_callables(
     if isinstance(tensor, op2.Mat):
         return parloop_compute_callable, tensor.assemble
     else:
-        return copyin + callables + (parloop_compute_callable, ) + copyout
+        extra = copyin + callables
+        if access == op2.INC:
+            extra += (tensor.zero,)
+        return extra + (parloop_compute_callable, ) + copyout
 
 
 def get_interp_node_map(source_mesh: MeshGeometry, target_mesh: MeshGeometry, fs: WithGeometry) -> op2.Map | None:
@@ -1446,11 +1442,9 @@ class MixedInterpolator(Interpolator):
     V
         The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
-    bcs
-        A list of boundary conditions.
     """
-    def __init__(self, expr, bcs=None):
-        super().__init__(expr, bcs=bcs)
+    def __init__(self, expr):
+        super().__init__(expr)
 
         # We need a Coargument in order to split the Interpolate
         needs_action = not any(isinstance(a, Coargument) for a in self.expr_args)
@@ -1467,17 +1461,17 @@ class MixedInterpolator(Interpolator):
                 continue
             vi, _ = form.argument_slots()
             Vtarget = vi.function_space().dual()
-            if bcs and self.rank != 0:
+            if self.bcs and self.rank != 0:
                 args = form.arguments()
                 Vsource = args[1 - vi.number()].function_space()
-                sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
+                sub_bcs = [bc for bc in self.bcs if bc.function_space() in {Vsource, Vtarget}]
             else:
                 sub_bcs = None
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
-
-            Isub[indices] = get_interpolator(form, bcs=sub_bcs)
+            form.options.bcs = sub_bcs
+            Isub[indices] = get_interpolator(form)
 
         self._sub_interpolators = Isub
 
