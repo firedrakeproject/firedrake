@@ -15,6 +15,10 @@ on:
         description: Whether to run the test suite
         type: boolean
         default: true
+      build_docs:
+        description: Whether to build the documentation
+        type: boolean
+        default: true
       test_macos:
         description: Whether to test using macOS
         type: boolean
@@ -40,6 +44,10 @@ on:
         required: true
       run_tests:
         description: Whether to run the test suite
+        type: boolean
+        default: true
+      build_docs:
+        description: Whether to build the documentation
         type: boolean
         default: true
       test_macos:
@@ -82,7 +90,6 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
-      PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
       # NOTE: One should occasionally update test_durations.json by running
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
@@ -131,17 +138,6 @@ jobs:
           echo "Docker version: $docker_version"
           if [[ "$docker_version" != "$latest_version" ]]; then
             echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
-            exit 1
-          fi
-
-      # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check no 'TODO RELEASE' comments (release only)
-        if: inputs.target_branch == 'release'
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
-            exit 0
-          else
             exit 1
           fi
 
@@ -207,7 +203,7 @@ jobs:
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist "$EXTRA_BUILD_ARGS"
+          python -m build ./firedrake-repo --sdist $EXTRA_BUILD_ARGS
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
@@ -488,6 +484,7 @@ jobs:
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
   build_docs:
+    if: inputs.build_docs
     name: Build documentation
     runs-on: [self-hosted, Linux]
     container:

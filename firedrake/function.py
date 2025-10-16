@@ -360,43 +360,31 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self._function_space
 
     @PETSc.Log.EventDecorator()
-    def interpolate(
-        self,
-        expression,
-        subset=None,
-        allow_missing_dofs=False,
-        default_missing_val=None,
-        ad_block_tag=None
-    ):
-        r"""Interpolate an expression onto this :class:`Function`.
+    def interpolate(self,
+                    expression: ufl.classes.Expr,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: a UFL expression to interpolate
-        :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-            interpolation over. Cannot, at present, be used when interpolating
-            across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-        :kwarg allow_missing_dofs: For interpolation across meshes: allow
-            degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-            defined on the source mesh. For example, where nodes are point
-            evaluations, points in the target mesh that are not in the source mesh.
-            When ``False`` this raises a ``ValueError`` should this occur. When
-            ``True`` the corresponding values are set to zero or to the value
-            ``default_missing_val`` if given. Ignored if interpolating within the
-            same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-            :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-            it is created).
-        :kwarg default_missing_val: For interpolation across meshes: the optional
-            value to assign to DoFs in the target mesh that are outside the source
-            mesh. If this is not set then zero is used. Ignored if interpolating
-            within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
-            the Pyadjoint tape.
-        :returns: this :class:`Function` object"""
-        from firedrake import interpolation, assemble
+        Parameters
+        ----------
+        expression
+            A UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see `firedrake.interpolation.interpolate`.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`
+        """
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V,
-                                           subset=subset,
-                                           allow_missing_dofs=allow_missing_dofs,
-                                           default_missing_val=default_missing_val)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -605,16 +593,20 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         tolerance = kwargs.get('tolerance', None)
         mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
         else:
-            mesh.tolerance = tolerance
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        if tolerance is None:
+            tolerance = mesh_unique.tolerance
+        else:
+            mesh_unique.tolerance = tolerance
 
         # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        if mesh.variable_layers:
+        if mesh_unique.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
@@ -709,7 +701,7 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -724,7 +716,7 @@ class PointEvaluator:
             The mesh on which to embed the points.
         points : numpy.ndarray | list
             Array or list of points to evaluate at.
-        tolerance : float | None
+        tolerance : Optional[float]
             Tolerance to use when checking if a point is in a cell.
             If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
         missing_points_behaviour : str
@@ -790,7 +782,7 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh()
+        function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:

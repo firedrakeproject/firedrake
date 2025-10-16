@@ -3,6 +3,8 @@ import abc
 import petsctools
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_appctx
+from firedrake.bcs import BCBase
+import ufl
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -109,24 +111,30 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         return get_appctx(pc.getDM()).appctx
 
     @staticmethod
-    def new_snes_ctx(pc, op, bcs, mat_type, fcp=None, options_prefix=None, pre_apply_bcs=True):
+    def new_snes_ctx(
+            pc: PETSc.PC,
+            Jp: ufl.BaseForm,
+            bcs: [BCBase],
+            mat_type: str,
+            fcp: dict | None = None,
+            **kwargs):
         """Create a new `_SNESContext` for nested (linear) preconditioning
 
         Parameters
         ----------
-        pc : PETSc.PC
-             The PC object.
-        op : ufl.BaseForm
-             A bilinear form.
-        bcs : DirichletBC[]
-             The boundary conditions.
-        mat_type : str
-             The matrix type for the assembly of ``op``.
-        options_prefix : str
-             The PETSc options prefix for the new `_SNESContext`.
-        pre_apply_bcs : bool
-             If ``True``, the ``bcs`` are pre applied on the solution before the solve,
-             otherwise the residual of the ``bcs`` is included in the linear system.
+        pc
+            The PC object.
+        Jp
+            A bilinear form for preconditioning.
+        bcs
+            The boundary conditions.
+        mat_type
+            The matrix type for the assembly of ``Jp``.
+        fcp
+            The form compiler parameters.
+        kwargs
+            Any extra kwargs are passed on to the new _SNESContext.
+            For details see `firedrake.solving_utils._SNESContext`.
 
         Returns
         -------
@@ -138,12 +146,13 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
 
         dm = pc.getDM()
         old_appctx = get_appctx(dm).appctx
-        u = Function(op.arguments()[-1].function_space())
+        u = Function(Jp.arguments()[-1].function_space())
         L = 0
         if bcs:
             bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=True) for bc in bcs)
-        nprob = LinearVariationalProblem(op, L, u, bcs=bcs, form_compiler_parameters=fcp)
-        return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix, pre_apply_bcs=pre_apply_bcs)
+
+        nprob = LinearVariationalProblem(Jp, L, u, bcs=bcs, form_compiler_parameters=fcp)
+        return _SNESContext(nprob, mat_type, mat_type, appctx=old_appctx, **kwargs)
 
 
 class PCBase(PCSNESBase):
