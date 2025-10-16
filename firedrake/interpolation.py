@@ -97,8 +97,7 @@ class Interpolate(ufl.Interpolate):
         if isinstance(V, functionspaceimpl.WithGeometry):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             expr_arg_numbers = {arg.number() for arg in extract_arguments(expr) if not is_dual(arg)}
-            is_adjoint = len(expr_arg_numbers) and expr_arg_numbers == {0}
-            V = Argument(V.dual(), 1 if is_adjoint else 0)
+            V = Argument(V.dual(), 1 if expr_arg_numbers == {0} else 0)
 
         target_shape = V.arguments()[0].function_space().value_shape
         if expr.ufl_shape != target_shape:
