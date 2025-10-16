@@ -354,21 +354,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to every coefficient DM before we solve.
+        # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
-        coefficients = list(utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None)))
-        # Include a DM for every possible view of the solution
-        for usub in problem.u.subfunctions:
-            coefficients.append(usub)
-            ncomps = usub.function_space().block_size
-            if ncomps > 1:
-                coefficients.extend(usub.sub(i) for i in range(ncomps))
-
+        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
-        for c in coefficients:
+        for c in chain(coefficients, problem.dirichlet_bcs()):
             dm = c.function_space().dm
             if dm == solution_dm:
                 # Make sure the solution dm is visited last
