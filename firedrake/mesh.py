@@ -1170,7 +1170,6 @@ class AbstractMeshTopology(abc.ABC):
         closures = {}
         for dim, closure_data in closure_arrays.items():
             map_components = []
-            breakpoint()
             for map_dim, map_data in closure_data.items():
                 _, size = map_data.shape
                 if size == 0:
