@@ -11,11 +11,12 @@ import collections
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
-from .ufl_expr import TestFunction
+from .ufl_expr import TestFunction, extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
@@ -34,14 +35,13 @@ tsfc_default_parameters["scalar_type_c"] = utils.ScalarType_c
 KernelInfo = collections.namedtuple("KernelInfo",
                                     ["kernel",
                                      "integral_type",
-                                     "oriented",
                                      "subdomain_id",
                                      "domain_number",
+                                     "active_domain_numbers",
                                      "coefficient_numbers",
                                      "constant_numbers",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
-                                     "needs_cell_sizes",
                                      "arguments",
                                      "events"])
 
@@ -80,6 +80,7 @@ class TSFCKernel:
         form,
         name,
         parameters,
+        domain_number_map,
         coefficient_numbers,
         constant_numbers,
         dont_split_numbers,
@@ -95,6 +96,8 @@ class TSFCKernel:
             A prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         parameters : dict
             A dict of parameters to pass to the form compiler.
+        domain_number_map : dict
+            Map from domain numbers in the provided (split) form to domain numbers in the original form.
         coefficient_numbers : dict
             Map from coefficient numbers in the provided (split) form to coefficient numbers in the original form.
         constant_numbers : dict
@@ -110,6 +113,8 @@ class TSFCKernel:
                                  diagonal=diagonal)
         kernels = []
         for kernel in tree:
+            domain_number = domain_number_map[kernel.domain_number]
+            active_domain_numbers = ActiveDomainNumbers(*(tuple(domain_number_map[dn] for dn in dn_tuple) for dn_tuple in kernel.active_domain_numbers))
             # Individual kernels do not have to use all of the coefficients
             # provided by the (split) form. Here we combine the numberings
             # of (kernel coefficients -> split form coefficients) and
@@ -130,14 +135,13 @@ class TSFCKernel:
                                                  events=events)
             kernels.append(KernelInfo(kernel=pyop2_kernel,
                                       integral_type=kernel.integral_type,
-                                      oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
-                                      domain_number=kernel.domain_number,
+                                      domain_number=domain_number,
+                                      active_domain_numbers=active_domain_numbers,
                                       coefficient_numbers=coefficient_numbers_per_kernel,
                                       constant_numbers=constant_numbers_per_kernel,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
-                                      needs_cell_sizes=kernel.needs_cell_sizes,
                                       arguments=kernel.arguments,
                                       events=events))
         self.kernels = tuple(kernels)
@@ -216,6 +220,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     kernels = []
     numbering = form.terminal_numbering()
+    all_meshes = extract_domains(form)
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -231,8 +236,10 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
             continue
-        # Map local coefficient/constant numbers (as seen inside the
+        # Map local domain/coefficient/constant numbers (as seen inside the
         # compiler) to the global coefficient/constant numbers
+        meshes = extract_domains(f)
+        domain_number_map = tuple(all_meshes.index(m) for m in meshes)
         coefficient_numbers = tuple(
             numbering[c] for c in f.coefficients()
         )
@@ -245,6 +252,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             f,
             prefix,
             parameters,
+            domain_number_map,
             coefficient_numbers,
             constant_numbers,
             dont_split_numbers,
@@ -291,20 +299,21 @@ def _ensure_cachedir(comm=None):
 
 
 def gather_integer_subdomain_ids(knls):
-    """Gather a dict of all integer subdomain IDs per integral type.
+    """Gather a dict of all integer subdomain IDs per integral type per domain.
 
     This is needed to correctly interpret the ``"otherwise"`` subdomain ID.
 
     :arg knls: Iterable of :class:`SplitKernel` objects.
     """
-    all_integer_subdomain_ids = collections.defaultdict(list)
+    all_integer_subdomain_ids = collections.defaultdict(lambda: collections.defaultdict(set))
     for _, kinfo in knls:
         for subdomain_id in kinfo.subdomain_id:
             if subdomain_id != "otherwise":
-                all_integer_subdomain_ids[kinfo.integral_type].append(subdomain_id)
+                all_integer_subdomain_ids[kinfo.domain_number][kinfo.integral_type].add(subdomain_id)
 
-    for k, v in all_integer_subdomain_ids.items():
-        all_integer_subdomain_ids[k] = tuple(sorted(v))
+    for domain_number, integral_type_subdomain_ids_dict in all_integer_subdomain_ids.items():
+        for integral_type, subdomain_ids in integral_type_subdomain_ids_dict.items():
+            all_integer_subdomain_ids[domain_number][integral_type] = tuple(sorted(subdomain_ids))
     return all_integer_subdomain_ids
 
 
