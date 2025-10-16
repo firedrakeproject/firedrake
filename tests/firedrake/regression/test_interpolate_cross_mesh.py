@@ -705,7 +705,7 @@ def test_interpolate_matrix_cross_mesh_adjoint():
     V_coarse = FunctionSpace(mesh_coarse, "CG", 1)
     V_fine = FunctionSpace(mesh_fine, "CG", 1)
 
-    cofunc_fine = assemble(TestFunction(V_fine) * dx)
+    cofunc_fine = assemble(conj(TestFunction(V_fine)) * dx)
 
     interp = assemble(interpolate(TestFunction(V_coarse), TrialFunction(V_fine.dual())))
     cofunc_coarse = assemble(Action(interp, cofunc_fine))
@@ -713,7 +713,7 @@ def test_interpolate_matrix_cross_mesh_adjoint():
     assert cofunc_coarse.function_space() == V_coarse.dual()
 
     # Compare cofunc_fine with direct interpolation
-    cofunc_coarse_direct = assemble(TestFunction(V_coarse) * dx)
+    cofunc_coarse_direct = assemble(conj(TestFunction(V_coarse)) * dx)
     assert np.allclose(cofunc_coarse.dat.data_ro, cofunc_coarse_direct.dat.data_ro)
 
 
