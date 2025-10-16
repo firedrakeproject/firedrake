@@ -291,14 +291,12 @@ class Interpolator(abc.ABC):
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
-            res = tensor.petscmat if tensor else PETSc.Mat()
             # Get the interpolation matrix
             petsc_mat = result.handle
             if tensor:
                 petsc_mat.copy(tensor.petscmat)
-            else:
-                res = petsc_mat
-            return tensor or firedrake.AssembledMatrix(self.expr_args, self.bcs, res)
+                return tensor
+            return firedrake.AssembledMatrix(self.expr_args, self.bcs, petsc_mat)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -610,8 +608,6 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            if isinstance(sub_expr, ufl.ZeroBaseForm):
-                continue
             sub_tensor = tensor[indices[0]] if self.rank == 1 else tensor
             loops.extend(_build_interpolation_callables(sub_expr, sub_tensor, self.access, self.subset, self.bcs))
 
@@ -670,7 +666,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             # safely use the argument function space. NOTE: If this changes
             # after cofunctions are fully implemented, this will need to be
             # reconsidered.
-            temp_source_func = firedrake.Function(self.expr_args[1].function_space())
+            temp_source_func = Function(self.expr_args[1].function_space())
             self.mat.mpi_type = get_dat_mpi_type(temp_source_func.dat)[0]
             # Leave mat inside a callable so we can access the handle
             # property. If matfree is True, then the handle is a PETSc SF
@@ -685,7 +681,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
 @utils.known_pyop2_safe
 def _build_interpolation_callables(
-    expr: ufl.Interpolate,
+    expr: ufl.Interpolate | ufl.ZeroBaseForm,
     tensor: op2.Dat | op2.Mat | op2.Global,
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC],
     subset: op2.Subset | None = None,
@@ -695,8 +691,9 @@ def _build_interpolation_callables(
 
     Parameters
     ----------
-    expr : ufl.Interpolate
-        The symbolic interpolation expression.
+    expr : ufl.Interpolate | ufl.ZeroBaseForm
+        The symbolic interpolation expression, or a zero form. Zero forms
+        are simplified here to avoid code generation when access is WRITE or INC.
     tensor : op2.Dat | op2.Mat | op2.Global
         Object to hold the result of the interpolation.
     access : Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC]
@@ -714,6 +711,16 @@ def _build_interpolation_callables(
     tuple[Callable, ...]
         Tuple of callables which perform the interpolation.
     """
+    if isinstance(expr, ufl.ZeroBaseForm):
+        # Zero simplification, avoid code-generation
+        if access is op2.INC:
+            return ()
+        elif access is op2.WRITE:
+            return (partial(tensor.zero, subset=subset),)
+        # Unclear how to avoid codegen for MIN and MAX
+        # Reconstruct the expression as an Interpolate
+        V = expr.arguments()[-1].function_space().dual()
+        expr = interpolate(ufl.zero(V.value_shape), V)
     if not isinstance(expr, ufl.Interpolate):
         raise ValueError("Expecting to interpolate a ufl.Interpolate")
     dual_arg, operand = expr.argument_slots()
