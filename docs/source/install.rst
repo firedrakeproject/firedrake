@@ -590,7 +590,7 @@ should be followed:
 
 #. Install Firedrake in editable mode without build isolation::
 
-   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check,docs]'
 
 
 Editing subpackages
