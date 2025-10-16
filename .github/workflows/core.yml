@@ -210,6 +210,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
+          pip uninstall firedrake-fiat -y; pip cache remove firedrake_fiat; pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/disable_temp
           firedrake-clean
           pip list
 
