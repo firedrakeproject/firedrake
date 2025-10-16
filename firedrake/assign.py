@@ -256,74 +256,82 @@ class Assigner:
             else:
                 raise ValueError("All functions in the expression must be defined on a single domain")
             if single_mesh_assign:
-                assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
-                if assign_to_halos:
-                    subset_indices = ... if subset is None else subset.indices
-                    data_ro = operator.attrgetter("data_ro_with_halos")
-                else:
-                    subset_indices = ... if subset is None else subset.owned_indices
-                    data_ro = operator.attrgetter("data_ro")
-                func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
-                rvalue = self._compute_rvalue(func_data)
-                self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
-                if assign_to_halos:
-                    lhs_func.dat.halo_valid = True
+                self._assign_single_mesh(lhs_func, subset, funcs, operator)
             else:
-                source_V, = set(f.function_space() for f in funcs)
-                composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
-                indices_active = composed_map.indices_active_with_halo
-                indices_active_all = indices_active.all()
-                indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
-                if subset is None:
-                    if not indices_active_all and not allow_missing_dofs:
-                        raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
-                    subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
-                else:
-                    subset_indices_target, perm, _ = np.intersect1d(
-                        target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
-                        subset.indices,
-                        return_indices=True,
-                    )
-                    if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
-                        raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-                    subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
-                # Use buffer array to make sure that owned DoFs are updated upon assigning.
-                # The following example illustrates the issue that a naive assignment would cause.
-                #
-                # Consider the following target/source meshes distributed over 2 processes
-                # with no partition overlap:
-                #
-                #                0----0----0----1----1
-                #                |         |         |
-                # target         0    0    0    1    1
-                # (parent mesh)  |         |         |
-                #                0----0----0----1----1  (owning ranks are shown)
-                #
-                #                          1----1----1
-                #                          |         |
-                # source                   1    1    1
-                # (submesh)                |         |
-                #                          1----1----1  (owning ranks are shown)
-                #
-                # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
-                # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
-                # only be updated on rank 1, which sees those DoFs as ghost, and those
-                # updated values on rank 1 would be overridden by the old values on rank 0
-                # upon a halo exchange.
-                #
-                # TODO: Use work array for buffer?
-                buffer = type(lhs_func)(target_V)
-                finfo = np.finfo(lhs_func.dat.dtype)
-                buffer.dat._data[:] = finfo.max
-                func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
-                rvalue = self._compute_rvalue(func_data)
-                self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
-                # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
-                buffer.dat.local_to_global_begin(op2.MIN)
-                buffer.dat.local_to_global_end(op2.MIN)
-                indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
-                lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
+                self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
+
+    def _assign_signle_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
+        assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
+        if assign_to_halos:
+            subset_indices = ... if subset is None else subset.indices
+            data_ro = operator.attrgetter("data_ro_with_halos")
+        else:
+            subset_indices = ... if subset is None else subset.owned_indices
+            data_ro = operator.attrgetter("data_ro")
+        func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+        rvalue = self._compute_rvalue(func_data)
+        self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
+        if assign_to_halos:
+            lhs_func.dat.halo_valid = True
+
+    def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
+        target_mesh = extract_unique_domain(lhs_func)
+        target_V = lhs_func.function_space()
+        source_V, = set(f.function_space() for f in funcs)
+        composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
+        indices_active = composed_map.indices_active_with_halo
+        indices_active_all = indices_active.all()
+        indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
+        if subset is None:
+            if not indices_active_all and not allow_missing_dofs:
+                raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+            subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
+            subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
+        else:
+            subset_indices_target, perm, _ = np.intersect1d(
+                target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
+                subset.indices,
+                return_indices=True,
+            )
+            if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
+                raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+            subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
+        # Use buffer array to make sure that owned DoFs are updated upon assigning.
+        # The following example illustrates the issue that a naive assignment would cause.
+        #
+        # Consider the following target/source meshes distributed over 2 processes
+        # with no partition overlap:
+        #
+        #                0----0----0----1----1
+        #                |         |         |
+        # target         0    0    0    1    1
+        # (parent mesh)  |         |         |
+        #                0----0----0----1----1  (owning ranks are shown)
+        #
+        #                          1----1----1
+        #                          |         |
+        # source                   1    1    1
+        # (submesh)                |         |
+        #                          1----1----1  (owning ranks are shown)
+        #
+        # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
+        # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
+        # only be updated on rank 1, which sees those DoFs as ghost, and those
+        # updated values on rank 1 would be overridden by the old values on rank 0
+        # upon a halo exchange.
+        #
+        # TODO: Use work array for buffer?
+        buffer = type(lhs_func)(target_V)
+        finfo = np.finfo(lhs_func.dat.dtype)
+        buffer.dat._data[:] = finfo.max
+        func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
+        rvalue = self._compute_rvalue(func_data)
+        self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
+        # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
+        buffer.dat.local_to_global_begin(op2.MIN)
+        buffer.dat.local_to_global_end(op2.MIN)
+        indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
+        lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
 
     @cached_property
     def _constants(self):
