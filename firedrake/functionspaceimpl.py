@@ -1074,7 +1074,6 @@ class FunctionSpace:
                     # edge
                     ndofs = entity_dofs[base_dim, 1]
                 section.setDof(pt, ndofs)
-            breakpoint()
 
         if self._ufl_function_space.ufl_element().family() == "Real":
             p_start, p_end = section.getChart()
@@ -1083,6 +1082,7 @@ class FunctionSpace:
         else:
             section.setUp()
 
+        breakpoint()
         return section
 
     @utils.cached_property

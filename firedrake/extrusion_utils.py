@@ -252,7 +252,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             layer_height,
             my_layer_dat[p]
         ),
-        compiler_parameters={"optimize": True},
+        # compiler_parameters={"optimize": True},
     )
     # op2.ParLoop(kernel,
     #             ext_coords.cell_set,

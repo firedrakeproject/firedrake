@@ -2403,7 +2403,7 @@ def compute_dm_renumbering(
     """
     # TODO: clean this up
     cdef:
-        PETSc.IS renumbering_is
+        PETSc.IS ordering_is, renumbering_is
         PETSc.DM dm
         np.ndarray reordering_inv
 
@@ -2412,7 +2412,7 @@ def compute_dm_renumbering(
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
         PetscInt *facets = NULL
         PetscInt *closure = NULL
-        PetscInt *renumbering = NULL
+        PetscInt *ordering = NULL
         PetscBT seen_points = NULL
         PetscInt is_ghost
         DMLabel clabel
@@ -2427,7 +2427,7 @@ def compute_dm_renumbering(
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
-    CHKERR(PetscMalloc1(nPoints_c, &renumbering))
+    CHKERR(PetscMalloc1(nPoints_c, &ordering))
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
 
     # if boundary_set:
@@ -2482,7 +2482,7 @@ def compute_dm_renumbering(
                 continue
             else:
                 PetscBTSet(seen_points, point)
-                renumbering[ptr] = point
+                ordering[ptr] = point
                 ptr += 1
 
     assert ptr == nPoints_c
@@ -2492,16 +2492,26 @@ def compute_dm_renumbering(
 
     CHKERR(PetscBTDestroy(&seen_points))
 
-    # if boundary_set:
-    #     CHKERR(PetscBTDestroy(&seen_boundary))
+    # This gives us the ordering of old points (i.e. new to old) when we want to be dealing with
+    # a mapping from old to new
+    #
+    # For example:
+    #
+    #    x-----x-----x
+    #    2  0  3  1  4
+    #   (1  0  2  3  4)   going to
+    #
+    # ordering is: [0, 2, 3, 1, 4] / [0->0, 1->2, 2->3, 3->1, 4->4]
+    #
+    # but we want: [0->0, 1->3, 2->1, 3->2, 4->4] / [0, 3, 1, 2, 4]
 
-    renumbering_is = PETSc.IS().create(comm=dm.comm)
+    ordering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
+    ordering_is.setType("general")
+    renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
     renumbering_is.setType("general")
-    CHKERR(
-        ISGeneralSetIndices(
-            renumbering_is.iset, mesh.num_points, renumbering, PETSC_OWN_POINTER
-        )
-    )
+
+    CHKERR(ISGeneralSetIndices(ordering_is.iset, mesh.num_points, ordering, PETSC_OWN_POINTER))
+    CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
     return renumbering_is
 
 
@@ -4327,3 +4337,12 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
 #             CHKERR(DMLabelSetValue(label_c, p_c, entity_c))
 #
 #     CHKERR(DMLabelDestroy(&orig_label_c))
+
+
+def filter_is(is_: PETSc.IS, start: int, end: int) -> PETSc.IS:
+    cdef:
+        PETSc.IS filtered_is
+
+    filtered_is = is_.duplicate()
+    CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
+    return filtered_is

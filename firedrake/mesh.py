@@ -717,11 +717,12 @@ class AbstractMeshTopology(abc.ABC):
                 if isinstance(self.topology_dm, PETSc.DMPlex):
                     if reorder:
                         rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
+                        # must use an inverse ordering because we want to know the map *back*
+                        # from renumbered to original cell number
+                        # FIXME: We undo this inside!
                         cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
                     else:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
-                    # must use an inverse ordering because we want to know the map *back*
-                    # from renumbered to original cell number
                     dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
                 else:
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
@@ -736,9 +737,7 @@ class AbstractMeshTopology(abc.ABC):
                         cell_id_name = swarm.getCellDMActive().getCellID()
                         swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
 
-                        # testing
-                        # parent_renum = self._parent_mesh._dm_renumbering.getIndices()
-                        parent_renum = self._parent_mesh._dm_renumbering_inv.getIndices()
+                        parent_renum = self._parent_mesh._dm_renumbering.getIndices()
 
                         pStart, _ = parent.getChart()
                         parent_renum_inv = np.empty_like(parent_renum)
@@ -753,13 +752,12 @@ class AbstractMeshTopology(abc.ABC):
             # is the part that pyop3 should ultimately be able to handle.
             dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
 
-        # These map from new to old numbers - we don't generally want this!
-        # NOTE: not sure this makes sense as an IS. The numbering is local.
-        xxx = op3.utils.invert(dm_renumbering.indices)
-        dm_renumbering_inv = PETSc.IS().createGeneral(xxx, comm=self._comm)
+        # # These map from new to old numbers - we don't generally want this!
+        # # NOTE: not sure this makes sense as an IS. The numbering is local.
+        # xxx = op3.utils.invert(dm_renumbering.indices)
+        # dm_renumbering_inv = PETSc.IS().createGeneral(xxx, comm=self._comm)
 
         self._dm_renumbering = dm_renumbering
-        self._dm_renumbering_inv = dm_renumbering_inv
 
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
@@ -880,7 +878,7 @@ class AbstractMeshTopology(abc.ABC):
         """
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
 
-        numbering = self._dm_renumbering_inv.indices[p_start:p_end]
+        numbering = self._dm_renumbering.indices[p_start:p_end]
 
         # use argsort to convert a point numbering into an entity-wise one
         # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
@@ -926,7 +924,7 @@ class AbstractMeshTopology(abc.ABC):
 
         # Start with a local numbering
         if self._dm_renumbering:
-            numbering = self._dm_renumbering_inv.indices.copy()
+            numbering = self._dm_renumbering.indices.copy()
         else:
             numbering = np.arange(self.points.size, dtype=IntType)
 
@@ -2747,10 +2745,11 @@ class ExtrudedMeshTopology(MeshTopology):
         self._shared_data_cache = defaultdict(dict)
         self._cache = self._shared_data_cache  # alias, yuck
 
+        if not isinstance(layers, numbers.Integral):
+            raise TypeError("Variable layer extrusion is no longer supported")
+
         if isinstance(mesh.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
-        if layers.shape and periodic:
-            raise ValueError("Must provide constant layer for periodic extrusion")
 
         self._base_mesh = mesh
         self.layers = layers
@@ -2808,10 +2807,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def flat_points(self):
-        if self.layers.shape:
-            raise NotImplementedError
-        else:
-            n_extr_cells = int(self.layers) - 1
+        n_extr_cells = int(self.layers) - 1
 
         base_mesh_axis = self._base_mesh.flat_points
         npoints = base_mesh_axis.component.local_size * (2*n_extr_cells+1)
@@ -2846,10 +2842,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @property
     def num_cells(self) -> int:
-        if self.layers.shape:
-            raise NotImplementedError("Gets a little more complicated when things are ragged")
-        else:
-            nlayers = int(self.layers) - 1
+        nlayers = int(self.layers) - 1
         return self._base_mesh.num_cells * nlayers
 
     @property
@@ -2866,47 +2859,32 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @property
     def num_vertices(self):
-        if self.layers.shape:
-            raise NotImplementedError("Gets a little more complicated when things are ragged")
-        else:
-            nlayers = int(self.layers) - 1
+        nlayers = int(self.layers) - 1
         return self._base_mesh.num_vertices * (nlayers+1)
 
     @utils.cached_property
     def _dm_renumbering(self):
-        if self.layers.shape:
-            raise NotImplementedError("Gets a little more complicated when things are ragged")
-        else:
-            n_extr_cells = int(self.layers) - 1
+        n_extr_cells = int(self.layers) - 1
 
         # we always have 2n+1 entities when we extrude
         # TODO: duplicated in multiple places
         base_indices = self._base_mesh._dm_renumbering.indices
         base_point_label = self.topology_dm.getLabel("base_point")
         indices = np.empty(base_indices.size * (2*n_extr_cells+1), dtype=base_indices.dtype)
-        for base_pt in range(self._base_mesh.num_points):
-            extruded_points = base_point_label.getStratumIS(base_pt).indices
-            extruded_cells, extruded_verts = extruded_points[:n_extr_cells], extruded_points[n_extr_cells:]
+        for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
+            for base_pt in range(*self._base_mesh.topology_dm.getDepthStratum(base_dim)):
+                extruded_points = base_point_label.getStratumIS(base_pt)
+                extruded_cells = dmcommon.filter_is(extruded_points, *self.topology_dm.getDepthStratum(base_dim+1))
+                extruded_verts = dmcommon.filter_is(extruded_points, *self.topology_dm.getDepthStratum(base_dim))
+                assert extruded_verts.size == extruded_cells.size + 1
 
-            for i, ec in enumerate(extruded_cells):
-                indices[ec] = base_indices[base_pt] * (2*n_extr_cells+1) + (2*i+1)
+                for i, ec in enumerate(extruded_cells.indices):
+                    indices[ec] = base_indices[base_pt] * (2*n_extr_cells+1) + (2*i+1)
 
-            for i, ev in enumerate(extruded_verts):
-                indices[ev] = base_indices[base_pt] * (2*n_extr_cells+1) + 2*i
+                for i, ev in enumerate(extruded_verts.indices):
+                    indices[ev] = base_indices[base_pt] * (2*n_extr_cells+1) + 2*i
 
-
-        breakpoint()
-        # # there are n cells and n+1 verts
-        #
-        # for i in range(base_indices.size):
-        #     for j in range(2*n_extr_cells+1):
-        #         indices[i, j] = base_indices[i] * (2*n_extr_cells+1) + j
         return PETSc.IS().createGeneral(indices, comm=self._comm)
-
-    @utils.cached_property
-    def _dm_renumbering_inv(self):
-        xxx = op3.utils.invert(self._dm_renumbering.indices)
-        return PETSc.IS().createGeneral(xxx, comm=self._comm)
 
     @cached_property
     def _entity_indices(self):
