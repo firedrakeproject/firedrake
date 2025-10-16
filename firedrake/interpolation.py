@@ -451,6 +451,7 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 symbolic = action(self.point_eval_input_ordering, self.point_eval)
             self.handle = assemble(symbolic).petscmat
+
             def callable() -> CrossMeshInterpolator:
                 return self
         else:
@@ -1496,6 +1497,7 @@ class MixedInterpolator(Interpolator):
                 self[i]._build_callable()
                 blocks[i] = self[i].callable().handle
             self.handle = PETSc.Mat().createNest(blocks)
+
             def callable() -> MixedInterpolator:
                 return self
         elif self.rank == 1:
