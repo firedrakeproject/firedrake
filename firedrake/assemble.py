@@ -464,9 +464,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             petsc_mat = mat.petscmat
             # Out-of-place Hermitian transpose
             petsc_mat.hermitianTranspose(out=res)
-            (row, col) = mat.arguments()
-            return matrix.AssembledMatrix((col, row), bcs, res,
-                                          options_prefix=self._options_prefix)
+            return self.assembled_matrix(expr, bcs, result)
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")
