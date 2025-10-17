@@ -139,11 +139,20 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
     v = TestFunction(V)
     a = inner(A * grad(u), grad(v))*dx
     if dirichlet_bcs:
-        subspaces = [V.sub(i).sub(j) for i in range(len(V)) for j in range(len(V.sub(i)))]
-        bcs = [DirichletBC(subspaces[i], 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(subspaces))]
+        subspaces = [V] if len(V) == 1 else [V.sub(i) for i in range(len(V))]
+        components = []
+        for i, Vi in enumerate(subspaces):
+            if Vi.block_size == 1:
+                components.append(Vi)
+            else:
+                components.extend(Vi.sub(j) for j in range(Vi.block_size))
+
+        assert len(components) == V.value_size
+        bcs = [DirichletBC(components[i], 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(components))]
     else:
         bcs = None
 
+    aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
     ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
 
     aij = PETSc.Mat()
