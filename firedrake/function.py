@@ -716,7 +716,7 @@ class PointEvaluator:
             The mesh on which to embed the points.
         points : numpy.ndarray | list
             Array or list of points to evaluate at.
-        tolerance : Optional[float]
+        tolerance : float | None
             Tolerance to use when checking if a point is in a cell.
             If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
         missing_points_behaviour : str

@@ -339,7 +339,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        from firedrake.interpolation import get_interpolator
         try:
             # Clear any previously set update function
             del self._function_arg_update
@@ -360,11 +359,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(V)
-                interpolator = get_interpolator(firedrake.interpolate(g, V))
+                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
                 # Call this here to check if the element supports interpolation
                 interpolator._build_callable()
                 self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
-            except (ValueError, NotImplementedError):
+            except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
