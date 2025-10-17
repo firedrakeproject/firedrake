@@ -10,6 +10,37 @@ from petsc4py import PETSc
 cwd = abspath(dirname(__file__))
 
 
+# Solve an uncoupled system of two equations in one shot.
+def test_submesh_solve_uncoupled():
+    mesh0 = UnitTriangleMesh()
+    mesh1 = UnitSquareMesh(1, 1, quadrilateral=True)
+    V0 = FunctionSpace(mesh0, "P", 1)
+    V1 = FunctionSpace(mesh1, "Q", 1)
+    V = V0 * V1
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u0, u1 = split(u)
+    v0, v1 = split(v)
+    dx0 = Measure(
+        "dx", domain=mesh0,
+    )
+    dx1 = Measure(
+        "dx", domain=mesh1,
+    )
+    a = (
+        inner(u0, v0) * dx0
+        + inner(u1, v1) * dx1
+    )
+    L = (
+        inner(Constant(3.), v0) * dx0
+        + inner(Constant(4.), v1) * dx1
+    )
+    solution = Function(V)
+    solve(a == L, solution)
+    assert np.allclose(solution.subfunctions[0].dat.data_ro, 3.)
+    assert np.allclose(solution.subfunctions[1].dat.data_ro, 4.)
+
+
 def _solve_helmholtz(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
