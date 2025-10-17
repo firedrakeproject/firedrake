@@ -238,3 +238,34 @@ def test_solve(mesh, V):
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
+
+
+def test_mixed_space():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+
+    bcs = [DirichletBC(W.sub(0), Constant(1), 2),
+           DirichletBC(W.sub(1), Constant(2), 2)]
+
+    model = Linear(W.dim(), V.dim())
+    I = torch.eye(V.dim(), V.dim())
+    model.weight.data = torch.cat([I, I], dim=1)
+    model.bias.data = torch.zeros(V.dim())
+    model.eval()
+
+    p = ml_operator(model, function_space=V, inputs_format=1)
+
+    test = TestFunction(W)
+
+    w = Function(W)
+    F = inner(w, test)*dx + inner(p(w), test[0])*ds
+    solve(F == 0, w, bcs=bcs)
+    result = w
+
+    z = Function(W)
+    F = inner(z, test)*dx + inner(z[0] + z[1], test[0])*ds
+    solve(F == 0, z, bcs=bcs)
+    expected = z
+
+    assert np.allclose(result.dat.data, expected.dat.data)

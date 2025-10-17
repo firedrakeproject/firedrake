@@ -15,6 +15,7 @@ except ImportError:
     else:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
+import numpy as np
 import collections
 from functools import partial
 
@@ -174,10 +175,10 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = torch.tensor(x.dat.global_data, **kwargs)
+            x_P = torch.tensor(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = torch.tensor(x.dat.data_ro, **kwargs)
+            x_P = torch.tensor(np.ravel(x.dat.data_ro), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to PyTorch
             return x_P[None, :]
