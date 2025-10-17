@@ -8,7 +8,7 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.utils import ScalarType_c, IntType_c, cached_property
+from firedrake.utils import IntType_c, cached_property
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
@@ -1236,23 +1236,29 @@ class StandaloneInterpolationMatrix(object):
 
     @cached_property
     def _kernels(self):
+        from firedrake.interpolation import interpolate, Interpolator
         try:
-            prolong = partial(firedrake.assemble, firedrake.interpolate(self.uc, self.Vf), tensor=self.uf)
-            prolong()
-            self.rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
-            self.rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
-            restrict = partial(firedrake.assemble, firedrake.interpolate(firedrake.TestFunction(self.Vc), self.rf), tensor=self.rc)
-        except NotImplementedError:
+            assert self.Vf.ufl_element().mapping() == self.Vc.ufl_element().mapping()
+            P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
+            prolong = partial(P.assemble, tensor=self.uf)
+
+            rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
+            rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
+            vc = firedrake.TestFunction(self.Vc)
+            R = Interpolator(interpolate(vc, rf), self.Vf)
+            restrict = partial(R.assemble, tensor=rc)
+        except (AttributeError, AssertionError, NotImplementedError):
             # We generate custom prolongation and restriction kernels because
             # dual evaluation of EnrichedElement is not yet implemented in FInAT
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
+            cell_set = self.Vf.mesh().topology.unique().cell_set
+            prolong_args = [prolong_kernel, cell_set,
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
-            restrict_args = [restrict_kernel, self.uf.cell_set,
+            restrict_args = [restrict_kernel, cell_set,
                              self.uc.dat(op2.INC, uc_map),
                              self.uf.dat(op2.READ, uf_map),
                              self._weight.dat(op2.READ, uf_map)]
@@ -1437,49 +1443,6 @@ class StandaloneInterpolationMatrix(object):
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
-
-    def make_kernels(self, Vf, Vc):
-        """
-        Interpolation and restriction kernels between arbitrary elements.
-
-        This is temporary while we wait for dual evaluation in FInAT.
-        """
-        cache = self._cache_kernels
-        key = (Vf.ufl_element(), Vc.ufl_element())
-        try:
-            return cache[key]
-        except KeyError:
-            pass
-        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TrialFunction(Vc))
-
-        # The way we transpose the prolongation kernel is suboptimal.
-        # A local matrix is generated each time the kernel is executed.
-        element_kernel = cache_generate_code(matrix_kernel, Vf._comm)
-        element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
-        coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
-        coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
-        dimc = Vc.finat_element.space_dimension() * Vc.block_size
-        dimf = Vf.finat_element.space_dimension() * Vf.block_size
-        restrict_code = f"""
-        {element_kernel}
-
-        void restriction({ScalarType_c} *restrict Rc, const {ScalarType_c} *restrict Rf, const {ScalarType_c} *restrict w{coef_decl})
-        {{
-            {ScalarType_c} Afc[{dimf}*{dimc}] = {{0}};
-            expression_kernel(Afc{coef_args});
-            for ({IntType_c} i = 0; i < {dimf}; i++)
-               for ({IntType_c} j = 0; j < {dimc}; j++)
-                   Rc[j] += Afc[i*{dimc} + j] * Rf[i] * w[i];
-        }}
-        """
-        restrict_kernel = op2.Kernel(
-            restrict_code,
-            "restriction",
-            requires_zeroed_output_arguments=True,
-            events=matrix_kernel.events,
-        )
         return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):

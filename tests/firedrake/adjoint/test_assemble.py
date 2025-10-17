@@ -89,7 +89,7 @@ def test_assemble_1_forms_tlm(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     v = TestFunction(V)
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
     w1 = assemble(inner(f, v) * dx)
     w2 = assemble(inner(f**2, v) * dx)

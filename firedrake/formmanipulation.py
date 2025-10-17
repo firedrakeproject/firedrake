@@ -2,7 +2,7 @@
 import numpy
 import collections
 
-from ufl import as_vector, split
+from ufl import as_tensor, as_vector, split
 from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake.ufl_expr import Coargument
 from firedrake.matrix import AssembledMatrix
 
 
@@ -133,6 +134,17 @@ class ExtractSubBlock(MultiFunction):
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
+    def coargument(self, o):
+        V = o.function_space()
+
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
+        indices = self.blocks[o.number()]
+        W = subspace(V, indices)
+        return Coargument(W, number=o.number(), part=o.part())
+
     def cofunction(self, o):
         V = o.function_space()
 
@@ -170,6 +182,42 @@ class ExtractSubBlock(MultiFunction):
         submat = o.petscmat.createSubMatrix(*ises)
         bcs = ()
         return AssembledMatrix(tuple(args), bcs, submat)
+
+    def zero_base_form(self, o):
+        return ZeroBaseForm(tuple(map(self, o.arguments())))
+
+    def interpolate(self, o, operand):
+        if isinstance(operand, Zero):
+            return self(ZeroBaseForm(o.arguments()))
+
+        dual_arg, _ = o.argument_slots()
+        if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
+            # The dual argument has been contracted or does not need to be split
+            return o._ufl_expr_reconstruct_(operand, dual_arg)
+
+        if not isinstance(dual_arg, Coargument):
+            raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
+
+        indices = self.blocks[dual_arg.number()]
+        V = dual_arg.function_space()
+
+        # Split the target (dual) argument
+        sub_dual_arg = self(dual_arg)
+        W = sub_dual_arg.function_space()
+
+        # Unflatten the expression into the target shape
+        cur = 0
+        components = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
+            cur += Vi.value_size
+
+        operand = as_tensor(numpy.reshape(components, W.value_shape))
+        if isinstance(operand, Zero):
+            return self(ZeroBaseForm(o.arguments()))
+
+        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
