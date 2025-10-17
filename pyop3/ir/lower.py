@@ -375,7 +375,7 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "extrusion" in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
         #     breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 

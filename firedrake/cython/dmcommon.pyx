@@ -4279,7 +4279,7 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
             base_point_label.setValue(pt, pt)
 
     extruded_mesh = PETSc.DMPlex().create(comm=mesh.comm)
-    CHKERR(DMPlexExtrude(
+    PETSc.CHKERR(DMPlexExtrude(
         mesh.dm,
         nlayers,
         thickness,

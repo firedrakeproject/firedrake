@@ -379,11 +379,11 @@ class _FacetContext:
         # )
         # # return self._facet_axis.owned  # does not work
 
-    @cached_property
-    def _facet_dat(self):
-        return op3.Dat(
-            self._facet_axis, data=self._facet_data
-        )
+    # @cached_property
+    # def _facet_dat(self):
+    #     return op3.Dat(
+    #         self._facet_axis, data=self._facet_data
+    #     )
 
     # @cached_property
     # def _owned_facet_dat(self):
@@ -411,6 +411,7 @@ class _FacetContext:
 
     @cached_property
     def facet_subset(self) -> op3.Slice:
+        # but if different facet labels...
         indices = self.facet_indices_renumbered
         subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
         subset = op3.Subset(self.mesh.facet_label, subset_dat, label=0)
@@ -711,7 +712,8 @@ class AbstractMeshTopology(abc.ABC):
         dmcommon.mark_owned_points(self.topology_dm)
 
         if perm_is:
-            dm_renumbering = perm_is
+            self._old_to_new_point_renumbering = perm_is.invertPermutation()
+            self._new_to_old_point_renumbering = perm_is
         else:
             with PETSc.Log.Event("Renumber mesh topology"):
                 if isinstance(self.topology_dm, PETSc.DMPlex):
@@ -723,14 +725,14 @@ class AbstractMeshTopology(abc.ABC):
                         cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
                     else:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
-                    dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                    old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
                 else:
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if not reorder:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
                         # must use an inverse ordering because we want to know the map *back*
                         # from renumbered to original cell number
-                        dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                        old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
                     else:
                         swarm = self.topology_dm
                         parent = self._parent_mesh.topology_dm
@@ -750,14 +752,10 @@ class AbstractMeshTopology(abc.ABC):
 
             # Now take this renumbering and partition owned and ghost points, this
             # is the part that pyop3 should ultimately be able to handle.
-            dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
+            old_to_new_point_renumbering = dmcommon.partition_renumbering(self.topology_dm, old_to_new_point_renumbering)
 
-        # # These map from new to old numbers - we don't generally want this!
-        # # NOTE: not sure this makes sense as an IS. The numbering is local.
-        # xxx = op3.utils.invert(dm_renumbering.indices)
-        # dm_renumbering_inv = PETSc.IS().createGeneral(xxx, comm=self._comm)
-
-        self._dm_renumbering = dm_renumbering
+            self._old_to_new_point_renumbering = old_to_new_point_renumbering
+            self._new_to_old_point_renumbering = old_to_new_point_renumbering.invertPermutation()
 
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
@@ -796,8 +794,6 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def flat_points(self):
-        n_points = self.num_points
-
         # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
         # would be nice to avoid this branch.
         if self.comm.size > 1:
@@ -805,12 +801,24 @@ class AbstractMeshTopology(abc.ABC):
         else:
             point_sf = op3.local_sf(self.num_points, self._comm).sf
 
-        point_sf_renum = dmcommon.renumber_sf(point_sf, self._dm_renumbering)
+        point_sf_renum = dmcommon.renumber_sf(point_sf, self._old_to_new_point_renumbering)
 
         # TODO: Allow the label here to be None
         return op3.Axis(
-            [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
+            [op3.AxisComponent(self.num_points, "mylabel", sf=point_sf_renum)],
             label="mesh",
+        )
+
+    @property
+    @utils.deprecated("_new_to_old_point_renumbering")
+    def _dm_renumbering(self):
+        breakpoint()  # undo when instances found
+        return self._new_to_old_point_renumbering
+
+    @property
+    def _is_renumbered(self) -> bool:
+        return utils.strictly_all(
+            map(bool, [self._old_to_new_point_renumbering, self._new_to_old_point_renumbering])
         )
 
     @property
@@ -876,25 +884,40 @@ class AbstractMeshTopology(abc.ABC):
             use the full plex numbering or just the numbering for a particular
             entity.
         """
+        # In this method we distinguish between 'entity' and 'point' numbering. For
+        # example, given the following mesh:
+        #
+        #     x-----x-----x
+        #     2  0  1  3  4
+        #    (2  0  3  1  4)  # canonical numbering
+        #
+        # we have point numbering
+        #
+        #     { 0->0, 1->3, 2->2, 3->1, 4->4 }
+        #
+        # and entity numberings
+        #
+        #     { 0->0, 1->1 }  # cells
+        #
+        # and
+        #
+        #     { 0->1, 1->0, 2->2 }  # vertices
+        point_to_point_numbering = self._old_to_new_point_renumbering.indices
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        entity_to_point_numbering = point_to_point_numbering[p_start:p_end]
+        # Now convert this into a fully entity-wise numbering. For the vertices in
+        # the example above this would constitute turning [2, 1, 4] into [1, 0, 2].
 
-        numbering = self._dm_renumbering.indices[p_start:p_end]
-
-        # use argsort to convert a point numbering into an entity-wise one
-        # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
-        # Previously we would return the mapping point 3 -> vertex 4 whereas now
-        # we return vertex 5 -> vertex 4
-
-        # NOTE: not using argsort any more, but the idea is the same
-
-        # this is very inefficient
-        sorted_arr = list(sorted(numbering))
-        numbering = np.asarray([sorted_arr.index(x) for x in numbering], dtype=IntType)
+        # new
+        # entity_to_entity_numbering = np.argsort(entity_to_point_numbering)
+        # old
+        sorted_arr = list(sorted(entity_to_point_numbering))
+        entity_to_entity_numbering = np.asarray([sorted_arr.index(x) for x in entity_to_point_numbering], dtype=IntType)
+        assert (entity_to_entity_numbering == np.argsort(entity_to_point_numbering)).all()
 
         if not stratum_localize:
-            numbering += p_start
-
-        return readonly(numbering)
+            entity_to_entity_numbering += p_start
+        return readonly(entity_to_entity_numbering)
 
     @cachedmethod(lambda self: self._cache["_entity_numbering_section"])
     def _entity_numbering_section(self, dim):
@@ -920,14 +943,15 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _global_numbering(self):
+        # NOTE: This doesn't quite work because I think globally we would still
+        # probably number all cells before all vertices etc...
         # NOTE: We do exactly the same thing inside pyop3, grep for 'exscan'
 
         # Start with a local numbering
-        if self._dm_renumbering:
-            numbering = self._dm_renumbering.indices.copy()
+        if self._is_renumbered:
+            numbering = self._old_to_new_point_renumbering.indices.copy()
         else:
             numbering = np.arange(self.points.size, dtype=IntType)
-
 
         if self.comm.size > 1:
             # Then offset by the number of owned points on preceding ranks
@@ -1074,19 +1098,19 @@ class AbstractMeshTopology(abc.ABC):
             return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, self.num_cells, label=0)], label=self.name)
 
         subsets = []
-        if self._dm_renumbering is None:
-            raise NotImplementedError("TODO")
-            for dim in self._plex_strata_ordering:
-                start, end = self.topology_dm.getDepthStratum(dim)
-                slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
-                subsets.append(slice_component)
-        else:
+        if self._is_renumbered:
             for dim in self._plex_strata_ordering:
                 indices = op3.ArrayBuffer(self._entity_indices[dim], ordered=True)
                 subset_axes = op3.Axis({dim: indices.size}, self.name)
                 subset_array = op3.Dat(subset_axes, buffer=indices)
                 subset = op3.Subset("mylabel", subset_array, label=dim)
                 subsets.append(subset)
+        else:
+            raise NotImplementedError("TODO")
+            for dim in self._plex_strata_ordering:
+                start, end = self.topology_dm.getDepthStratum(dim)
+                slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
+                subsets.append(slice_component)
 
         return op3.Slice("mesh", subsets, label=self.name)
 
@@ -1672,10 +1696,16 @@ class AbstractMeshTopology(abc.ABC):
             all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
         if integral_type == "cell":
             return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
-        elif integral_type in ("exterior_facet", "exterior_facet_vert",
-                               "exterior_facet_top", "exterior_facet_bottom"):
+        elif True:
+            raise NotImplementedError
+        elif integral_type == "exterior_facet":
             return self.exterior_facets.measure_set(integral_type, subdomain_id,
                                                     all_integer_subdomain_ids)
+        elif integral_type == "exterior_facet_vert":
+            return self.exterior_facets_vert.measure_set(integral_type, subdomain_id,
+                                                         all_integer_subdomain_ids)
+        # elif integral_type 
+        #                        "exterior_facet_top", "exterior_facet_bottom"):
         elif integral_type in ("interior_facet", "interior_facet_vert",
                                "interior_facet_horiz"):
             return self.interior_facets.measure_set(integral_type, subdomain_id,
@@ -1974,14 +2004,11 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def _entity_indices(self):
-        # TODO: Explain why, at this point, we only care about interleaving and the ordering
-        # does not really matter
         indices = []
-        perm = self._dm_renumbering.indices
+        renumbering = self._old_to_new_point_renumbering.indices
         for dim in range(self.dimension+1):
             p_start, p_end = self.topology_dm.getDepthStratum(dim)
-            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
-            indices.append(readonly(ixs))
+            indices.append(readonly(renumbering[p_start:p_end]))
         return tuple(indices)
 
     # @cached_property
@@ -2825,19 +2852,27 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @property
     def cell_label(self):
-        return (self._base_mesh.dimension, 1)
+        return (self._base_mesh.cell_label, 1)
 
     @property
     def facet_label(self):
-        raise NotImplementedError
+        raise TypeError("Extruded meshes do not have a unique facet label")
+
+    @property
+    def horiz_facet_label(self):
+        return (self._base_mesh.cell_label, 0)
+
+    @property
+    def vert_facet_label(self):
+        return (self._base_mesh.facet_label, 1)
 
     @property
     def edge_label(self):
         raise NotImplementedError
 
     @property
-    def vert_label(self):
-        return (0, 0)
+    def vert_label(self) -> tuple:
+        return (self._base_mesh.vert_label, 0)
 
     @property
     def num_cells(self) -> int:
@@ -2916,6 +2951,20 @@ class ExtrudedMeshTopology(MeshTopology):
             (base_dim, extr_dim)
             for base_dim in self._base_mesh._plex_strata_ordering
             for extr_dim in range(2)
+        )
+
+    @cached_property
+    def exterior_facets(self):
+        raise TypeError(
+            "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert' "
+            "or 'exterior_facets_horiz' instead"
+        )
+
+    @cached_property
+    def interior_facets(self):
+        raise TypeError(
+            "Cannot use 'interior_facets' for extruded meshes, use 'interior_facets_vert' "
+            "or 'interior_facets_horiz instead"
         )
 
     # @utils.cached_property

@@ -88,7 +88,7 @@ def check_element(element, top=True):
 
 
 @functools.lru_cache()
-def flatten_entity_dofs(element):
+def _num_entity_dofs(element):
     ndofs = {}
     for entity_key, entities in element.entity_dofs().items():
         ndofs[entity_key] = utils.single_valued(map(len, entities.values()))
@@ -768,21 +768,20 @@ class FunctionSpace:
 
         num_unconstrained_dofs = numpy.empty(num_points, dtype=IntType)
         num_constrained_dofs = numpy.empty_like(num_unconstrained_dofs)
-        for pt in range(mesh_axis.local_size):
-            if self._mesh._dm_renumbering:
-                pt_renum = self._mesh._dm_renumbering.indices[pt]
+        for old_pt in range(mesh_axis.local_size):
+            if self._mesh._is_renumbered:
+                new_pt = self._mesh._old_to_new_point_renumbering.indices[old_pt]
             else:
-                pt_renum = pt
+                new_pt = old_pt
 
-            # TODO: Don't use the section here?
-            ndofs = self.local_section.getDof(pt_renum)
+            ndofs = self.local_section.getDof(old_pt)
 
-            if pt_renum not in constrained_points:
-                num_unconstrained_dofs[pt] = ndofs
-                num_constrained_dofs[pt] = 0
+            if new_pt not in constrained_points:
+                num_unconstrained_dofs[new_pt] = ndofs
+                num_constrained_dofs[new_pt] = 0
             else:
-                num_unconstrained_dofs[pt] = 0
-                num_constrained_dofs[pt] = ndofs
+                num_unconstrained_dofs[new_pt] = 0
+                num_constrained_dofs[new_pt] = ndofs
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
@@ -1040,12 +1039,12 @@ class FunctionSpace:
     def local_section(self):
         dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, self._mesh._dm_renumbering.size)
+        section.setChart(0, self._mesh.num_points)
 
-        if self._mesh._dm_renumbering is not None:
-            section.setPermutation(self._mesh._dm_renumbering)
+        if self._mesh._new_to_old_point_renumbering is not None:
+            section.setPermutation(self._mesh._new_to_old_point_renumbering)
 
-        entity_dofs = flatten_entity_dofs(self.finat_element)
+        entity_dofs = _num_entity_dofs(self.finat_element)
 
         if type(self._mesh.topology) is MeshTopology:
             stratum_ranges = {
@@ -2211,7 +2210,7 @@ class RealFunctionSpace(FunctionSpace):
         # Get the number of DoFs per cell, it is illegal to have DoFs on
         # other entities.
         ndofs = None
-        for dim, dim_ndofs in flatten_entity_dofs(self.finat_element).items():
+        for dim, dim_ndofs in _num_entity_dofs(self.finat_element).items():
             if dim == self.mesh().cell_label:
                 ndofs = dim_ndofs
             else:

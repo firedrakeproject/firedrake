@@ -1125,14 +1125,6 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
 
 @_index_axes_index.register(ScalarIndex)
 def _(index: ScalarIndex, /, target_axes, **kwargs):
-    # target_axis, target_component_label = utils.just_one(
-    #     target_axes[immutabledict({index.label: "0"})].items()
-    # )
-    #
-    # if index.axis == "firedrake_default_immersed_vom_topology":
-    #     breakpoint()
-
-
     target_path_and_exprs = immutabledict({immutabledict(): ((just_one(just_one(index.leaf_target_paths)), immutabledict({index.axis: index.value})),)})
     return (UNIT_AXIS_TREE, target_path_and_exprs, ())
 
@@ -1246,6 +1238,8 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
             else:
                 assert isinstance(slice_component, SubsetSliceComponent)
+                # NOTE: This isn't quite right. If the array is indexed then we don't
+                # want everything here
                 indices = slice_component.array.buffer.buffer.data_ro
 
             petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
@@ -1838,8 +1832,6 @@ def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
             raise MyBadError(
                 "This means that the leaf of an indexed axis tree doesn't target the original axes")
 
-        # if orig_axes.depth == 2:
-        #     breakpoint()
         # now construct the mapping to specific *full* axis paths, not path elements
         # we need to look at the node map to get the right ordering as target_path_acc
         # is in indexed order, not the order in the original tree
@@ -1853,12 +1845,6 @@ def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
         for ax, c in ordered_target_path.items():
             acc = acc | {ax: c}
             partial_to_full_path_map[ax, c] = acc
-
-        # if len(ordered_target_path) > 1:
-        #     breakpoint()
-        #
-        # if len(partial_to_full_path_map) > 1:
-        #     breakpoint()
 
         if immutabledict() in index_info:
             # The current index information is currently done per index, rather

@@ -632,7 +632,7 @@ def clear_memory_cache(comm):
 memory_cache = parallel_cache
 
 
-def serial_cache(hashkey, cache_factory=lambda: DEFAULT_CACHE()):
+def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_CACHE()):
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 

@@ -1,6 +1,8 @@
 r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
+from __future__ import annotations
+
 import collections
 import functools
 import warnings
@@ -17,7 +19,7 @@ import ufl
 from pyop2.caching import serial_cache
 from pyop3 import READ, WRITE, RW, INC
 from pyop3.expr.visitors import evaluate as eval_expr
-from pyop3.utils import readonly, invert as invert_permutation
+from pyop3.utils import readonly
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -502,7 +504,7 @@ def _(
     return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell, row_depth=depth, column_depth=depth, nodes=nodes)
 
 
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):
     if nodes:
         # NOTE: This is only valid for cases where runtime transformations are not required.
         return packed_dat
@@ -511,11 +513,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    # TODO: Can be more fussy I think, only higher degree?
-    if space.ufl_element().cell == ufl.hexahedron:
-        perms = _entity_permutations(space)
-        orientation_perm = _orientations(space, perms, loop_index)
-        dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
+    dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index)
 
     if _needs_static_permutation(space.finat_element):
         nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
@@ -540,13 +538,7 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     column_element = column_space.finat_element
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    # TODO: Can be more fussy I think, only higher degree?
-    if utils.single_valued(space.ufl_element().cell == ufl.hexahedron for space in {row_space, column_space}):
-        row_orientation_perm = _orientations(row_space, _entity_permutations(row_space), cell_index)
-        column_orientation_perm = _orientations(column_space, _entity_permutations(column_space), cell_index)
-        row_perm = [*(slice(None),)*row_depth, row_orientation_perm]
-        column_perm = [*(slice(None),)*column_depth, column_orientation_perm]
-        mat_sequence[-1] = mat_sequence[-1][row_perm, column_perm]
+    mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index)
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
@@ -563,106 +555,102 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     return mat_sequence[len(mat_sequence) // 2]
 
 
-@serial_cache(lambda fs: fs.finat_element)
-def _entity_permutations(fs: WithGeometry):
-    mesh = fs.mesh().topology
-    elem = fs.finat_element
+# NOTE: This function will need a major do-over when FUSE lands
+@functools.singledispatch
+def _orient_dofs(packed_tensor: op3.Tensor, *args) -> op3.Tensor:
+    raise TypeError(f"No handler defined for {type(packed_tensor.__name__)}")
 
-    perm_dats = []
-    for dim in range(mesh.dimension+1):
-        perms = utils.single_valued(elem.entity_permutations[dim].values())
-        nperms = len(perms)
-        perm_size = utils.single_valued(map(len, perms.values()))
-        perms_concat = np.empty((nperms, perm_size), dtype=IntType)
-        for ip, perm in perms.items():
-            perms_concat[ip] = perm
+@_orient_dofs.register(op3.Dat)
+def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index) -> op3.Dat:
+    """
 
-        # the inner label needs to match here for codegen to resolve
-        axes = op3.AxisTree.from_iterable([op3.Axis(nperms), op3.Axis({"XXX": perm_size}, "dof")])
-        # dat = op3.Dat(axes, data=perms_concat.flatten(), constant=True, prefix=)
-        dat = op3.Dat(axes, data=perms_concat.flatten(), prefix="perm")
-        perm_dats.append(dat)
-    return tuple(perm_dats)
+    As an example, consider the edge DoFs of a Q3 function space in 2D. The
+    DoFs have two possible permutations depending on the cell orientation.
+
+    We realise this by taking the initial indexing:
+
+        t0[i_edge, i_dof] = dat[map[i_cell, i_edge], i_dof]
+
+    where 'i_cell' is the current cell (outer loop), 'i_edge' (<4) is the edge index,
+    and 'i_dof' (<2) is the DoF index.
+
+    To permute the DoFs we have to transform this expression to:
+
+        t0[i_edge, i_dof] = dat[map[i_cell, i_edge], perm[ort[i_cell, i_edge], i_dof]]
+
+    This can be achieved using indexing, but it is much easier to apply the
+    transformation
+
+        i_dof -> perm[ort[i_cell, i_edge], i_dof]
+
+    """
+    permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index)
+    return packed_dat.with_axes(permuted_axis_tree)
 
 
-def _orientations(space, perms, cell):
-    mesh = space.mesh()
-    pkey = pmap({mesh.name: mesh.cell_label})
-    # closure_dats = mesh._fiat_closure.connectivity[pkey]
-    orientations = mesh.entity_orientations_dat
+@_orient_dofs.register(op3.Mat)
+def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, cell_index: op3.Index) -> op3.Mat:
+    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, cell_index)
+    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, cell_index)
+    return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
-    subsets = []
-    subtrees = []
-    for dim in range(mesh.dimension+1):
-        perms_ = perms[dim]
 
-        # mymap = closure_dats[dim]
-        subset = op3.AffineSliceComponent(dim, label=dim)
-        subsets.append(subset)
+def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index) -> op3.IndexedAxisTree:
+    new_targets = {
+        k: (path, dict(exprs))
+        for k, (path, exprs) in axes.targets[0].items()
+    }
+    point_axis = axes.root
+    for dim_axis_component in point_axis.components:
+        dim_label = dim_axis_component.label
 
-        # Attempt to not relabel the interior axis, is this the right approach?
-        all_bits = op3.Slice("closure", [op3.AffineSliceComponent(dim, label=dim)], label="closure")
+        dof_axis_label = f"dof{dim_label}"
+        dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == dof_axis_label)
+        if dof_axis.size == 0:
+            continue
 
-        # the orientations for these entities
-        inner_subset = orientations[cell, all_bits]
-
-        # I am struggling to index this...
-        # perm = perms_[inner_subset]
-        # (root_label, root_clabel), (leaf_label, leaf_clabel) = utils.just_one(perms_.axes.ordered_leaf_paths)
-
-        # source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
-        # index_keys = [None] + [
-        #     (axis.id, cpt) for axis, cpt in source_path.items()
-        # ]
-        # target_path = op3.utils.merge_dicts(
-        #     inner_subset.axes.target_paths.get(key, {}) for key in index_keys
-        # )
-        # myindices = op3.utils.merge_dicts(
-        #     inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
-        # )
-        # inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
-        # inner_subset_var = inner_subset
+        # First create an buffer expression for the permutations that looks like:
         #
-        # mypermindices = (
-        #     op3.ScalarIndex(root_label, root_clabel, inner_subset_var),
-        #     op3.Slice(leaf_label, [op3.AffineSliceComponent(leaf_clabel)]),
-        # )
-        # perm = perms_[mypermindices]
-        root = perms_.axes.root
-        inner_subset_really  = op3.ScalarIndex(root.label, root.component.label, op3.as_linear_buffer_expression(inner_subset)),
-        perm = perms_[inner_subset_really]
+        #     'perm[i_which, i_dof]'
+        # TODO: For some cases can avoid this permutation as it's just identity
+        perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
-        perm = op3.as_linear_buffer_expression(perm)
-        # assert isinstance(perm, op3.LinearDatBufferExpression)
+        # Now replace 'i_which' with 'ort[i0, i1]'
+        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][dim_label])
+        selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis_label == "which")
+        perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr})
 
-        subtree = op3.Slice(f"dof{dim}", [op3.Subset("XXX", perm, label="XXX")], label=f"dof")  # I think the label must match 'perm'
-        subtrees.append(subtree)
+        # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
+        # now plug into 'packed_dat'
 
-    # return op3.IndexTree.from_nest({slice(None): subtrees})
+        path = idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
+        before = new_targets[path][1]["dof"]
+        new_targets[path][1]["dof"] = op3.replace(new_targets[path][1]["dof"], {op3.AxisVar(dof_axis): perm_expr})
+        assert new_targets[path][1]["dof"] != before
 
-    myroot = op3.Slice("closure", subsets, label="closure")
-    # mychildren = {myroot.id: subtrees}
-    # mynodemap = {None: (myroot,)}
-    # mynodemap.update(mychildren)
-    # return op3.IndexTree(myroot)  # dbueg
-    return op3.IndexTree.from_nest({myroot: subtrees})
+    # TODO: respect the fact that targets can contain multiple entries
+    return axes.__record_init__(targets=(new_targets,))
 
 
-def _entity_dofs_hashkey(entity_dofs: dict) -> tuple:
-    """Provide a canonical key for FInAT ``entity_dofs``."""
-    hashkey = []
-    for k in sorted(entity_dofs.keys()):
-        sub_key = [k]
-        for sk in sorted(entity_dofs[k]):
-            sub_key.append(tuple(entity_dofs[k][sk]))
-        hashkey.append(tuple(sub_key))
-    return tuple(hashkey)
+@serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
+    perms = utils.single_valued(space.finat_element.entity_permutations[dim_label].values())
+    # TODO: can optimise the dtype here to be as small as possible
+    perms_array = np.concatenate(list(perms.values()))
+    perms_buffer = op3.ArrayBuffer(perms_array, constant=True)
+
+    # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
+    perm_selector_axis = op3.Axis(len(perms), "which")
+    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
+    perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
+    perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
+    return op3.as_linear_buffer_expression(perm_dat)
 
 
-# NOTE: This needs inverting!
-@serial_cache(_entity_dofs_hashkey)
-def _flatten_entity_dofs(entity_dofs):
+@serial_cache()
+def _flatten_entity_dofs(element) -> np.ndarray:
     """Flatten FInAT element ``entity_dofs`` into an array."""
+    entity_dofs = element.entity_dofs()
     flat_entity_dofs = []
     for dim in sorted(entity_dofs.keys()):
         num_entities = len(entity_dofs[dim])
@@ -696,12 +684,12 @@ def _static_node_permutation_slice(packed_axis_tree: op3.AxisTree, space: WithGe
     return nodal_axis_tree, (*[slice(None)]*depth, dof_perm_slice)
 
 
-@functools.cache
+@serial_cache()
 def _node_permutation_from_element(element) -> np.ndarray:
-    return readonly(invert_permutation(_flatten_entity_dofs(element.entity_dofs())))
+    return readonly(utils.invert(_flatten_entity_dofs(element)))
 
 
-@functools.cache
+@serial_cache()
 def _needs_static_permutation(element) -> bool:
     perm = _node_permutation_from_element(element)
     return any(perm != np.arange(perm.size, dtype=perm.dtype))

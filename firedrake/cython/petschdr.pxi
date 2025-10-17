@@ -24,6 +24,9 @@ cdef extern from "petsc.h":
         PETSC_SCALAR,
         PETSC_COMPLEX,
         PETSC_DATATYPE_UNKNOWN
+    ctypedef enum PetscErrorCode:
+        PETSC_SUCCESS
+        PETSC_ERR_LIB
 
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
@@ -83,7 +86,7 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
-    int DMPlexExtrude(PETSc.PetscDM,PetscInt,PetscReal,PetscBool,PetscBool,PetscBool,PetscReal*,PetscReal*,DMLabel,PETSc.PetscDM*)
+    PetscErrorCode DMPlexExtrude(PETSc.PetscDM,PetscInt,PetscReal,PetscBool,PetscBool,PetscBool,PetscReal*,PetscReal*,DMLabel,PETSc.PetscDM*)
 
     int DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
     int DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)
