@@ -134,13 +134,14 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
         raise ValueError(f"Unrecognized action {action}")
 
 
-@pytest.mark.parametrize("family, degree, coefficient", [
-    ("CG", 1, "repeated"),
-    ("CG", 1, "mixed"),
-    ("CG", 1, "bcs"),
-    ("R", 0, "repeated"),
+@pytest.mark.parametrize("family, degree, shape, coefficient", [
+    ("CG", 1, "scalar", "repeated"),
+    ("CG", 1, "scalar", "mixed"),
+    ("CG", 1, "scalar", "bcs"),
+    ("CG", 1, "vector", "bcs"),
+    ("R", 0, "scalar", "repeated"),
 ])
-def test_cached_transfer(family, degree, coefficient):
+def test_cached_transfer(family, degree, shape, coefficient):
     # Test that we can properly reuse transfers within solve
     sp = {
         "mat_type": "matfree",
@@ -153,7 +154,12 @@ def test_cached_transfer(family, degree, coefficient):
     hierarchy = MeshHierarchy(base, 3)
     mesh = hierarchy[-1]
 
-    V = FunctionSpace(mesh, family, degree)
+    if shape == "scalar":
+        V = FunctionSpace(mesh, family, degree)
+    elif shape == "vector":
+        V = VectorFunctionSpace(mesh, family, degree)
+    else:
+        raise ValueError(f"Unrecognized shape {shape}")
     u = Function(V)
 
     bcs = None
@@ -174,11 +180,13 @@ def test_cached_transfer(family, degree, coefficient):
         R = FunctionSpace(mesh, "R", 0)
         R2 = R * R
         g = Function(R2).assign(1)
-        bcs = [DirichletBC(V, g[0], (1, 2)), DirichletBC(V, g[1], (3, 4))]
+        bcs = [DirichletBC(V.sub(0), g[0], (1, 2)), DirichletBC(V.sub(0), g[1], (3, 4))]
     else:
         raise ValueError(f"Unrecognized coefficient type {coefficient}")
 
-    F = inner(u - 1, (c1 + c2)*TestFunction(V)) * dx
+    f = as_tensor(numpy.ones(u.ufl_shape)) if u.ufl_shape else 1
+
+    F = inner(u - f, (c1 + c2)*TestFunction(V)) * dx
     problem = NonlinearVariationalProblem(F, u, bcs=bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
 

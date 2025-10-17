@@ -60,17 +60,23 @@ def assemble(expr, *args, **kwargs):
         `ufl.classes.Measure` in the form. For example, if a
         ``quadrature_degree`` of 4 is specified in this argument, but a degree of
         3 is requested in the measure, the latter will be used.
-    mat_type : str
+    mat_type : str | None
         String indicating how a 2-form (matrix) should be
         assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
-        a block matrix (``"nest"``), or left as a `matrix.ImplicitMatrix` giving
+        a block matrix (``"nest"``), or left as a :class:`firedrake.matrix.ImplicitMatrix` giving
         matrix-free actions (``'matfree'``). If not supplied, the default value in
-        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
-        from AIJ in that only the block sparsity rather than the dof
+        ``parameters["default_matrix_type"]`` is used.  ``"baij"``` differs
+        from ``"aij"`` in that only the block sparsity rather than the DoF
         sparsity is constructed.  This can result in some memory
         savings, but does not work with all PETSc preconditioners.
-        BAIJ matrices only make sense for non-mixed matrices.
-    sub_mat_type : str
+        ``"baij"`` matrices only make sense for non-mixed matrices with arguments
+        on a :func:`firedrake.functionspace.VectorFunctionSpace`.
+
+        NOTE
+        ----
+        For the assembly of a 0-form or 1-form arising from the action of a 2-form,
+        the default matrix type is ``"matfree"``.
+    sub_mat_type : str | None
         String indicating the matrix type to
         use *inside* a nested block matrix.  Only makes sense if
         ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
@@ -154,7 +160,10 @@ def get_assembler(form, *args, **kwargs):
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
-        mat_type = kwargs.get('mat_type', None)
+        # If not assembling a matrix, internal BaseForm nodes are matfree by default
+        # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
+        default_mat_type = "matfree" if len(form.arguments()) < 2 else None
+        mat_type = kwargs.get('mat_type', default_mat_type)
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)

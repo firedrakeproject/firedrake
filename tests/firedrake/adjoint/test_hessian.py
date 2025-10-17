@@ -249,13 +249,14 @@ def test_burgers(solve_type, rg):
     pr = project(sin(2*pi*x), V, annotate=False)
     ic = Function(V).assign(pr)
 
-    u_ = Function(V)
-    u = Function(V)
+    u_ = Function(V).assign(ic)
+    u = Function(V).assign(ic)
     v = TestFunction(V)
 
     nu = Constant(0.0001)
 
-    timestep = Constant(1.0/n)
+    dt = 0.01
+    nt = 20
 
     params = {
         'snes_rtol': 1e-10,
@@ -263,10 +264,10 @@ def test_burgers(solve_type, rg):
         'pc_type': 'lu',
     }
 
-    F = (Dt(u, ic, timestep)*v
+    F = (Dt(u, u_, dt)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
+
     bc = DirichletBC(V, 0.0, "on_boundary")
-    t = 0.0
 
     if solve_type == "nlvs":
         use_nlvs = True
@@ -285,20 +286,13 @@ def test_burgers(solve_type, rg):
     else:
         solve(F == 0, u, bc, solver_parameters=params)
     u_.assign(u)
-    t += float(timestep)
 
-    F = (Dt(u, u_, timestep)*v
-         + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
-
-    end = 0.2
-    while (t <= end):
+    for _ in range(nt):
         if use_nlvs:
             solver.solve()
         else:
             solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
-
-        t += float(timestep)
 
     J = assemble(u_*u_*dx + ic*ic*dx)
 
