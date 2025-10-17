@@ -1220,16 +1220,15 @@ class StandaloneInterpolationMatrix(object):
 
     @cached_property
     def _weight(self):
+        cell_set = self.Vf.mesh().topology.unique().cell_set
         weight = firedrake.Function(self.Vf)
-        size = self.Vf.finat_element.space_dimension() * self.Vf.block_size
+        wsize = self.Vf.finat_element.space_dimension() * self.Vf.block_size
         kernel_code = f"""
-        void weight(PetscScalar *restrict w){{
-            for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
-            return;
-        }}
-        """
-        kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
-        op2.par_loop(kernel, weight.cell_set, weight.dat(op2.INC, weight.cell_node_map()))
+        void multiplicity(PetscScalar *restrict w) {{
+            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
+        }}"""
+        kernel = op2.Kernel(kernel_code, "multiplicity")
+        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, weight.cell_node_map()))
         with weight.dat.vec as w:
             w.reciprocal()
         return weight
@@ -1238,8 +1237,8 @@ class StandaloneInterpolationMatrix(object):
     def _kernels(self):
         from firedrake.interpolation import interpolate, Interpolator
         try:
-            assert self.Vf.ufl_element().mapping() == self.Vc.ufl_element().mapping()
             P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
+            P._interpolate
             prolong = partial(P.assemble, tensor=self.uf)
 
             rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
@@ -1247,7 +1246,7 @@ class StandaloneInterpolationMatrix(object):
             vc = firedrake.TestFunction(self.Vc)
             R = Interpolator(interpolate(vc, rf), self.Vf)
             restrict = partial(R.assemble, tensor=rc)
-        except (AttributeError, AssertionError, NotImplementedError):
+        except (AssertionError, AttributeError, NotImplementedError):
             # We generate custom prolongation and restriction kernels because
             # dual evaluation of EnrichedElement is not yet implemented in FInAT
             uf_map = get_permuted_map(self.Vf)
@@ -1524,13 +1523,14 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
             return None
 
 
-def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
-    if isinstance(P1, firedrake.Function):
-        P1 = P1.function_space()
-    if isinstance(Pk, firedrake.Function):
-        Pk = Pk.function_space()
-    bcs = P1_bcs + Pk_bcs
-    mat = firedrake.assemble(firedrake.interpolate(firedrake.TrialFunction(P1), Pk), bcs=bcs)
+def prolongation_matrix_aij(Vc, Vf, Vc_bcs=(), Vf_bcs=()):
+    if isinstance(Vf, firedrake.Function):
+        Vf = Vf.function_space()
+    if isinstance(Vc, firedrake.Function):
+        Vc = Vc.function_space()
+    bcs = Vc_bcs + Vf_bcs
+    interp = firedrake.interpolate(firedrake.TrialFunction(Vc), Vf)
+    mat = firedrake.assemble(interp, bcs=bcs)
     return mat.petscmat
 
 
