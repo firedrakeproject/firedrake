@@ -411,7 +411,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor
-            if len(e.arguments()) == 2 and e.arguments() == self._form.arguments():
+            rank = len(self._form.arguments())
+            if (isinstance(e, ufl.BaseForm)
+                    and rank == 2
+                    and len(e.arguments()) == rank
+                    and e.arguments() == self._form.arguments()):
                 bcs = self._bcs
             else:
                 bcs = ()
@@ -460,11 +464,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
-            res = tensor.petscmat if tensor else PETSc.Mat()
-            petsc_mat = mat.petscmat
+            result = tensor.petscmat if tensor else PETSc.Mat()
             # Out-of-place Hermitian transpose
-            petsc_mat.hermitianTranspose(out=res)
-            return self.assembled_matrix(expr, bcs, result)
+            mat.petscmat.hermitianTranspose(out=result)
+            if tensor is None:
+                tensor = self.assembled_matrix(expr, bcs, result)
+            return tensor
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")

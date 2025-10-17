@@ -1703,7 +1703,6 @@ class MixedInterpolator(Interpolator):
         super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
         expr = self.ufl_interpolate
         self.arguments = expr.arguments()
-        rank = len(self.arguments)
         # Get the primal spaces
         spaces = tuple(a.function_space().dual() if isinstance(a, Coargument) else a.function_space()
                        for a in self.arguments)
@@ -1725,15 +1724,12 @@ class MixedInterpolator(Interpolator):
                 continue
             vi, _ = form.argument_slots()
             Vtarget = vi.function_space().dual()
-            if bcs and rank != 0:
-                sub_bcs = []
-                for fs, index in zip(spaces, indices):
-                    fs = fs.sub(index)
-                    sub_bcs.extend(bc for bc in bcs if
-                                   bc._indices[0] == index
-                                   and bc.function_space() == fs)
-            else:
-                sub_bcs = None
+            sub_bcs = []
+            for fs, index in zip(spaces, indices):
+                fs = fs.sub(index)
+                sub_bcs.extend(bc for bc in bcs if
+                               bc._indices[0] == index
+                               and bc.function_space() == fs)
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
