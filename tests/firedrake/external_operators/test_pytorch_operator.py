@@ -247,7 +247,7 @@ def test_mixed_space_bcs():
 
     test = TestFunction(W)
     bcs = [DirichletBC(W.sub(0), Constant(1), 1),
-           DirichletBC(W.sub(1), Constant(2), 2)]
+           DirichletBC(W.sub(1), Constant(2), 1)]
 
     model = Linear(W.dim(), V.dim())
     I = torch.eye(V.dim())

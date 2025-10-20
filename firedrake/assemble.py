@@ -1454,17 +1454,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if spaces[0] != spaces[1] and isinstance(bc, DirichletBC):
-            # Rectangular case
-            if (space == spaces[0]) or (space == spaces[0].dual()):
-                op2tensor.assemble()
-                for j in range(len(spaces[1])):
-                    op2tensor[index, j].zero_rows(bc.nodes, diag_val=0.0, idx=component)
-            elif (space == spaces[1]) or (space == spaces[1].dual()):
-                op2tensor.assemble()
-                for i in range(len(spaces[0])):
-                    op2tensor[i, index].zero_columns(bc.nodes, diag_val=0.0, idx=component)
-            else:
+            if not any(space == fs for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
+            # Not on a diagonal block, do nothing
         elif isinstance(bc, DirichletBC):
             if space != spaces[0]:
                 raise TypeError("bc space does not match the test function space")
