@@ -14,8 +14,8 @@ def _ensemble_mpi_dispatch(func):
     @wraps(func)
     def _mpi_dispatch(self, *args, **kwargs):
         # dispatch to either our specialised impl
-        # for # Firedrake or the default MPI impl
-        # for everything else.
+        # for Firedrake types, or to the default
+        # MPI impl for everything else.
         if any(isinstance(arg, (Function, Cofunction))
                for arg in [*args, *kwargs.values()]):
             return func(self, *args, **kwargs)

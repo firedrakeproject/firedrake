@@ -3,17 +3,24 @@ import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
 
-min_root = 1
+min_root = 0
 max_root = 1
-roots = [None] + [i for i in range(min_root, max_root + 1)]
 
 roots = []
 roots.extend([pytest.param(None, id="root_none")])
 roots.extend([pytest.param(i, id="root_%d" % (i))
               for i in range(min_root, max_root + 1)])
 
-blocking = [pytest.param(True, id="blocking"),
-            pytest.param(False, id="nonblocking")]
+blocking = [
+    pytest.param(True, id="blocking"),
+    pytest.param(False, id="nonblocking")
+]
+
+sendrecv_pairs = [
+    pytest.param((0, 1), id="ranks01"),
+    pytest.param((1, 2), id="ranks12"),
+    pytest.param((2, 0), id="ranks20")
+]
 
 
 @pytest.fixture(scope="module")
@@ -77,11 +84,11 @@ def test_ensemble_bcast(ensemble, root):
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_send_and_recv(ensemble):
+@pytest.mark.parametrize("ranks", sendrecv_pairs)
+def test_send_and_recv(ensemble, ranks):
     rank = ensemble.ensemble_rank
 
-    rank0 = 0
-    rank1 = 1
+    rank0, rank1 = ranks
 
     send_data = rank + 1
 
