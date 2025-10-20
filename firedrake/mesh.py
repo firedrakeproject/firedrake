@@ -20,9 +20,10 @@ from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
+import petsctools
 from petsctools import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
@@ -55,6 +56,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'VertexOnlyMeshMissingPointsError',
+    'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
 
@@ -475,51 +477,6 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
                                                      np.zeros(cell_shape, dtype=np.int32),
                                                      np.zeros(coord_shape, dtype=np.double),
                                                      comm=icomm)
-    if name is not None:
-        plex.setName(name)
-    return plex
-
-
-@PETSc.Log.EventDecorator()
-def _from_cell_list(dim, cells, coords, comm, name=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-    This function remains for backward compatibility, but will be deprecated after 01/06/2023
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
-    :kwarg name: name of the plex
-    """
-    import warnings
-    warnings.warn(
-        "Private function `_from_cell_list` will be deprecated after 01/06/2023;"
-        "use public fuction `plex_from_cell_list()` instead.",
-        DeprecationWarning
-    )
-    assert is_pyop2_comm(comm)
-
-    # These types are /correct/, DMPlexCreateFromCellList wants int
-    # and double (not PetscInt, PetscReal).
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=np.int32)
-        coords = np.asarray(coords, dtype=np.double)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-    else:
-        cell_shape = list(comm.bcast(None, root=0))
-        coord_shape = list(comm.bcast(None, root=0))
-        cell_shape[0] = 0
-        coord_shape[0] = 0
-        # Provide empty plex on other ranks
-        # A subsequent call to plex.distribute() takes care of parallel partitioning
-        plex = PETSc.DMPlex().createFromCellList(dim,
-                                                 np.zeros(cell_shape, dtype=np.int32),
-                                                 np.zeros(coord_shape, dtype=np.double),
-                                                 comm=comm)
     if name is not None:
         plex.setName(name)
     return plex
@@ -966,6 +923,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
 
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
+
     # submesh
 
     @utils.cached_property
@@ -1289,9 +1252,8 @@ class MeshTopology(AbstractMeshTopology):
                                              cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
+            petsctools.cite("Homolya2016")
+            petsctools.cite("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
 
@@ -1695,9 +1657,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # TODO: refactor to call super().__init__
 
-        from firedrake_citations import Citations
-        Citations().register("McRae2016")
-        Citations().register("Bercea2016")
+        petsctools.cite("McRae2016")
+        petsctools.cite("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -2880,6 +2841,12 @@ values from f.)"""
         """
         self.topology.mark_entities(f.topological, label_value, label_name)
 
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
+
 
 @PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
@@ -3122,8 +3089,7 @@ def Mesh(meshfile, **kwargs):
             from ngsPETSc import FiredrakeMesh
         except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
-        from firedrake_citations import Citations
-        Citations().register("Betteridge2024")
+        petsctools.cite("Betteridge2024")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
@@ -3398,8 +3364,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         assumed to be a new vertex.
 
     """
-    from firedrake_citations import Citations
-    Citations().register("nixonhill2023consistent")
+    petsctools.cite("nixonhill2023consistent")
 
     if tolerance is None:
         tolerance = mesh.tolerance
@@ -4743,3 +4708,185 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         },
     )
     return submesh
+
+
+class MeshSequenceGeometry(ufl.MeshSequence):
+    """A representation of mixed mesh geometry."""
+
+    def __init__(self, meshes, set_hierarchy=True):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshGeometry`s to make `MeshSequenceGeometry` with.
+        set_hierarchy : bool
+            Flag for making hierarchy.
+
+        """
+        for m in meshes:
+            if not isinstance(m, MeshGeometry):
+                raise ValueError(f"Got {type(m)}")
+        super().__init__(meshes)
+        self.comm = meshes[0].comm
+        # Only set hierarchy at top level.
+        if set_hierarchy:
+            self.set_hierarchy()
+
+    @utils.cached_property
+    def topology(self):
+        return MeshSequenceTopology([m.topology for m in self._meshes])
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self.topology
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
+
+    def set_hierarchy(self):
+        """Set mesh hierarchy if needed."""
+        from firedrake.mg.utils import set_level, get_level, has_level
+
+        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
+        if all(not has_level(m) for m in self._meshes):
+            return
+        else:
+            if not all(has_level(m) for m in self._meshes):
+                raise RuntimeError("Found inconsistent component meshes")
+        hierarchy_list = []
+        level_list = []
+        for m in self:
+            hierarchy, level = get_level(m)
+            hierarchy_list.append(hierarchy)
+            level_list.append(level)
+        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
+        level, = set(level_list)
+        result = []
+        for ilevel in range(nlevels):
+            if ilevel == level:
+                result.append(self)
+            else:
+                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
+        result = tuple(result)
+        for i, m in enumerate(result):
+            set_level(m, result, i)
+
+    @property
+    def _comm(self):
+        return self.topology._comm
+
+
+class MeshSequenceTopology(object):
+    """A representation of mixed mesh topology."""
+
+    def __init__(self, meshes):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshTopology`s to make `MeshSequenceTopology` with.
+
+        """
+        for m in meshes:
+            if not isinstance(m, AbstractMeshTopology):
+                raise ValueError(f"Got {type(m)}")
+        self._meshes = tuple(meshes)
+        self.comm = meshes[0].comm
+        self._comm = internal_comm(self.comm, self)
+
+    @property
+    def topology(self):
+        """The underlying mesh topology object."""
+        return self
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self
+
+    def ufl_cell(self):
+        cell, = set(m.ufl_cell() for m in self._meshes)
+        return cell
+
+    def ufl_mesh(self):
+        cell = self.ufl_cell()
+        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+                                 for _ in self._meshes])
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m

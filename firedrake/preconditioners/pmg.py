@@ -1229,7 +1229,7 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
-        op2.par_loop(kernel, weight.cell_set, weight.dat(op2.INC, weight.cell_node_map()))
+        op2.par_loop(kernel, weight.function_space().mesh().topology.unique().cell_set, weight.dat(op2.INC, weight.cell_node_map()))
         with weight.dat.vec as w:
             w.reciprocal()
         return weight
@@ -1243,7 +1243,7 @@ class StandaloneInterpolationMatrix(object):
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
+            prolong_args = [prolong_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
@@ -1253,11 +1253,11 @@ class StandaloneInterpolationMatrix(object):
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
+            prolong_args = [prolong_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                             self.uf.dat(op2.WRITE, uf_map),
                             self.uc.dat(op2.READ, uc_map)]
 
-        restrict_args = [restrict_kernel, self.uf.cell_set,
+        restrict_args = [restrict_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
                          self._weight.dat(op2.READ, uf_map)]
@@ -1457,7 +1457,7 @@ class StandaloneInterpolationMatrix(object):
         except KeyError:
             pass
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TrialFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -1593,9 +1593,9 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            expr = firedrake.TestFunction(P1.sub(i))
+            expr = firedrake.TrialFunction(P1.sub(i))
             kernel, coefficients = prolongation_transfer_kernel_action(Pk.sub(i), expr)
-            parloop_args = [kernel, mesh.cell_set, matarg]
+            parloop_args = [kernel, mesh.topology.unique().cell_set, matarg]
             for coefficient in coefficients:
                 m_ = coefficient.cell_node_map()
                 parloop_args.append(coefficient.dat(op2.READ, m_))
@@ -1610,9 +1610,9 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        expr = firedrake.TestFunction(P1)
+        expr = firedrake.TrialFunction(P1)
         kernel, coefficients = prolongation_transfer_kernel_action(Pk, expr)
-        parloop_args = [kernel, mesh.cell_set, matarg]
+        parloop_args = [kernel, mesh.topology.unique().cell_set, matarg]
         for coefficient in coefficients:
             m_ = coefficient.cell_node_map()
             parloop_args.append(coefficient.dat(op2.READ, m_))
