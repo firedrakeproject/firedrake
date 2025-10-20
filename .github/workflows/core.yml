@@ -156,7 +156,7 @@ jobs:
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
           else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+            git clone --depth 1 --branch jczhang/2025-10-20/fix-mumps https://gitlab.com/petsc/petsc.git
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
