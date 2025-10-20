@@ -204,7 +204,7 @@ def MeshHierarchy(mesh, refinement_levels,
 
 
 def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
-                          kernel=None, extrusion_type='uniform', gdim=None,
+                          kernel=None, extrusion_type='uniform', gdim=None, periodic=False,
                           mesh_builder=firedrake.ExtrudedMesh):
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
@@ -244,6 +244,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
 
     meshes = [mesh_builder(m, layer, kernel=kernel,
                            layer_height=height/layer,
+                           periodic=periodic,
                            extrusion_type=extrusion_type,
                            gdim=gdim)
               for (m, layer) in zip(base_hierarchy._meshes, layers)]
