@@ -1158,7 +1158,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         PetscInt *entity_cone_map_offset = NULL
         np.ndarray entity_orientations
 
-    if type(mesh) is not firedrake.mesh.MeshTopology:
+    if not isinstance(mesh, firedrake.mesh.MeshTopology):
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
 
     # Make entity-cone map for the FIAT cell.
@@ -4344,5 +4344,5 @@ def filter_is(is_: PETSc.IS, start: int, end: int) -> PETSc.IS:
         PETSc.IS filtered_is
 
     filtered_is = is_.duplicate()
-    CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
+    PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
     return filtered_is

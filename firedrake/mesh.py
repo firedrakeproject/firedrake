@@ -913,7 +913,7 @@ class AbstractMeshTopology(abc.ABC):
         # old
         sorted_arr = list(sorted(entity_to_point_numbering))
         entity_to_entity_numbering = np.asarray([sorted_arr.index(x) for x in entity_to_point_numbering], dtype=IntType)
-        assert (entity_to_entity_numbering == np.argsort(entity_to_point_numbering)).all()
+        assert (entity_to_entity_numbering == utils.invert(np.argsort(entity_to_point_numbering))).all()
 
         if not stratum_localize:
             entity_to_entity_numbering += p_start
@@ -965,6 +965,8 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def cell_closure(self):
+        assert False, "old code I think"
+        return self._fiat_cell_closures
         from pyop3.expr import NonlinearCompositeDat
         from pyop3.expr.visitors import materialize_composite_dat
 
@@ -2897,19 +2899,50 @@ class ExtrudedMeshTopology(MeshTopology):
         return self._base_mesh.num_vertices * (nlayers+1)
 
     @utils.cached_property
-    def _dm_renumbering(self):
+    def _new_to_old_point_renumbering(self) -> PETSc.IS:
+        return self._old_to_new_point_renumbering.invertPermutation()
+
+    @utils.cached_property
+    def _old_to_new_point_renumbering(self) -> PETSc.IS:
+        """
+        Consider
+
+              x-----x-----x
+              2  0  3  1  4
+             (1  0  2  3  4)   going to
+
+        When we extrude it will have the following numbering:
+
+              5--2--8-11-14
+              |     |     |
+              4  1  7 10 13
+              |     |     |
+              3--0--6--9-12
+
+        whilst the DMPlex will think it is:
+
+              3--9--5-11--7
+              |     |     |
+             12  0 13  1 14
+              |     |     |
+              2--8--4-10--6
+
+        (To see this recall that points are numbered cells then vertices then edges.)
+
+        """
         n_extr_cells = int(self.layers) - 1
 
         # we always have 2n+1 entities when we extrude
-        # TODO: duplicated in multiple places
-        base_indices = self._base_mesh._dm_renumbering.indices
+        base_indices = self._base_mesh._old_to_new_point_renumbering.indices
         base_point_label = self.topology_dm.getLabel("base_point")
         indices = np.empty(base_indices.size * (2*n_extr_cells+1), dtype=base_indices.dtype)
         for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
+            cell_stratum = self.topology_dm.getDepthStratum(base_dim+1)
+            vert_stratum = self.topology_dm.getDepthStratum(base_dim)
             for base_pt in range(*self._base_mesh.topology_dm.getDepthStratum(base_dim)):
                 extruded_points = base_point_label.getStratumIS(base_pt)
-                extruded_cells = dmcommon.filter_is(extruded_points, *self.topology_dm.getDepthStratum(base_dim+1))
-                extruded_verts = dmcommon.filter_is(extruded_points, *self.topology_dm.getDepthStratum(base_dim))
+                extruded_cells = dmcommon.filter_is(extruded_points, *cell_stratum)
+                extruded_verts = dmcommon.filter_is(extruded_points, *vert_stratum)
                 assert extruded_verts.size == extruded_cells.size + 1
 
                 for i, ec in enumerate(extruded_cells.indices):
@@ -2922,26 +2955,26 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _entity_indices(self):
-        if self.layers.shape:
-            raise NotImplementedError("Gets a little more complicated when things are ragged")
-        else:
-            nlayers = int(self.layers) - 1
-
+        # First get the indices of the right entity type. This is more complicated
+        # for extruded meshes because the different facet types are not natively
+        # distinguished.
         indices = {}
+        base_dim_label = self.topology_dm.getLabel("base_dim")
         for base_dim in range(self._base_mesh.dimension+1):
-            base_indices = self._base_mesh._entity_indices[base_dim]
+            # Get all points that were originally a vertex, say
+            matching_base_dim_extruded_points = base_dim_label.getStratumIS(base_dim)
+            matching_base_dim_extruded_points.toGeneral()
+
             for extr_dim in range(2):
-                dim = (base_dim, extr_dim)
-
-                num_extr_pts = nlayers+1 if extr_dim == 0 else nlayers
-                offset = 0 if extr_dim == 0 else 1
-
-                # extend the base indices
-                idxs = np.empty((base_indices.size, num_extr_pts), dtype=base_indices.dtype)
-                for i in range(base_indices.size):
-                    for j in range(num_extr_pts):
-                        idxs[i, j] = base_indices[i] * (2*nlayers+1) + 2*j + offset
-                indices[dim] = idxs.flatten()
+                # Filter out the extruded dimension that we don't want
+                matching_extruded_points = dmcommon.filter_is(
+                    matching_base_dim_extruded_points,
+                    *self.topology_dm.getDepthStratum(base_dim+extr_dim),
+                )
+                # Finally do the renumbering
+                indices[(base_dim, extr_dim)] = utils.readonly(
+                    self._old_to_new_point_renumbering.indices[matching_extruded_points.indices]
+                )
         return indices
 
     # TODO: I don't think that the specific ordering actually matters here...
@@ -2957,7 +2990,7 @@ class ExtrudedMeshTopology(MeshTopology):
     def exterior_facets(self):
         raise TypeError(
             "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert' "
-            "or 'exterior_facets_horiz' instead"
+            "or 'exterior_facets_top' or 'exterior_facets_bottom' instead"
         )
 
     @cached_property
@@ -3115,8 +3148,9 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
-        raise NotImplementedError
-        return self._base_mesh.entity_orientations
+        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        # raise NotImplementedError
+        # return self._base_mesh.entity_orientations
 
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:

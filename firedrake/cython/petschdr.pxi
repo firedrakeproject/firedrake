@@ -149,7 +149,7 @@ cdef extern from "petscis.h" nogil:
     int ISLocalToGlobalMappingGetBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISLocalToGlobalMappingRestoreBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISInvertPermutation(PETSc.PetscIS,PetscInt,PETSc.PetscIS*)
-    int ISGeneralFilter(PETSc.PetscIS,PetscInt,PetscInt)
+    PetscErrorCode ISGeneralFilter(PETSc.PetscIS,PetscInt,PetscInt)
     int ISDestroy(PETSc.PetscIS*)
 
 cdef extern from "petscsf.h" nogil:

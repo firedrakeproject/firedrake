@@ -513,7 +513,10 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index)
+    if not space.extruded:
+        dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index)
+    else:
+        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
 
     if _needs_static_permutation(space.finat_element):
         nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
@@ -538,7 +541,10 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     column_element = column_space.finat_element
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index)
+    if not any(space.extruded for space in [row_space, column_space]):
+        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index)
+    else:
+        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
