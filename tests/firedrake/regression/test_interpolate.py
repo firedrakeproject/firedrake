@@ -599,3 +599,23 @@ def test_interpolator_reuse(family, degree, mode):
 
         # Test for correctness
         assert np.allclose(result.dat.data, expected)
+
+
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2)]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V))
+
+    assert np.allclose(result.dat.data, expected.dat.data)

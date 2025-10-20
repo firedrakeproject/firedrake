@@ -408,15 +408,16 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
+        def parent_space(V):
+            return V.parent or V
+
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor
             rank = len(self._form.arguments())
-            if (isinstance(e, ufl.BaseForm)
-                    and rank == 2
-                    and len(e.arguments()) == rank
-                    and e.arguments() == self._form.arguments()):
-                bcs = self._bcs
+            if (rank == 2 and isinstance(e, ufl.BaseForm) and len(e.arguments()) == rank):
+                args_fs = set(arg.function_space().dual() if isinstance(arg, ufl.Coargument) else arg.function_space() for arg in e.arguments())
+                bcs = tuple(bc for bc in self._bcs if parent_space(bc.function_space()) in args_fs)
             else:
                 bcs = ()
             return self.base_form_assembly_visitor(e, t, bcs, *operands)
@@ -1452,7 +1453,19 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             V = V.parent
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
-        if isinstance(bc, DirichletBC):
+        if spaces[0] != spaces[1] and isinstance(bc, DirichletBC):
+            # Rectangular case
+            if (space == spaces[0]) or (space == spaces[0].dual()):
+                op2tensor.assemble()
+                for j in range(len(spaces[1])):
+                    op2tensor[index, j].zero_rows(bc.nodes, diag_val=0.0, idx=component)
+            elif (space == spaces[1]) or (space == spaces[1].dual()):
+                op2tensor.assemble()
+                for i in range(len(spaces[0])):
+                    op2tensor[i, index].zero_columns(bc.nodes, diag_val=0.0, idx=component)
+            else:
+                raise TypeError("bc space does not match the test or trial function space")
+        elif isinstance(bc, DirichletBC):
             if space != spaces[0]:
                 raise TypeError("bc space does not match the test function space")
             elif space != spaces[1]:

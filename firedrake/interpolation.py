@@ -1725,11 +1725,10 @@ class MixedInterpolator(Interpolator):
             vi, _ = form.argument_slots()
             Vtarget = vi.function_space().dual()
             sub_bcs = []
-            for fs, index in zip(spaces, indices):
-                fs = fs.sub(index)
+            for space, index in zip(spaces, indices):
                 sub_bcs.extend(bc for bc in bcs if
-                               bc._indices[0] == index
-                               and bc.function_space() == fs)
+                               bc.function_space().parent == space
+                               and bc.function_space().index == index)
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
