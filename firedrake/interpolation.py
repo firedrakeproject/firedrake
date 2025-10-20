@@ -1706,6 +1706,8 @@ class MixedInterpolator(Interpolator):
         # Get the primal spaces
         spaces = tuple(a.function_space().dual() if isinstance(a, Coargument) else a.function_space()
                        for a in self.arguments)
+        # We need a stricter equality test for indexed MixedFunctionSpace
+        space_equals = lambda V1, V2: V1 == V2 and V1.parent == V2.parent and V1.index == V2.index
 
         # We need a Coargument in order to split the Interpolate
         needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
@@ -1726,9 +1728,8 @@ class MixedInterpolator(Interpolator):
             Vtarget = vi.function_space().dual()
             sub_bcs = []
             for space, index in zip(spaces, indices):
-                sub_bcs.extend(bc for bc in bcs if
-                               bc.function_space().parent == space
-                               and bc.function_space().index == index)
+                subspace = space.sub(index)
+                sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])

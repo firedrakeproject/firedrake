@@ -609,13 +609,14 @@ def test_mixed_space_bcs():
     w = rg.uniform(W)
 
     bcs = [DirichletBC(W.sub(0), 0, 1),
-           DirichletBC(W.sub(1), 0, 2)]
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
 
     I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
     result = assemble(action(I, w))
 
-    for bc in bcs:
+    for bc in bcs[:-1]:
         bc.zero(w)
-    expected = assemble(interpolate(sum(w), V))
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
 
     assert np.allclose(result.dat.data, expected.dat.data)
