@@ -7,6 +7,11 @@ from numpy.testing import assert_allclose
 from numpy import mean
 from pytest_mpi.parallel_assert import parallel_assert
 
+roots = [
+    pytest.param(None, id="root_none"),
+    pytest.param("last", id="root_last")
+]
+
 
 @pytest.fixture(autouse=True)
 def handle_taping():
@@ -26,12 +31,16 @@ def handle_annotation():
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 6])
+@pytest.mark.parametrize("root", roots)
 @pytest.mark.skipcomplex
-def test_ensemble_bcast_float():
+def test_ensemble_bcast_float(root):
     ensemble = Ensemble(COMM_WORLD, 1)
 
     rank = ensemble.ensemble_rank
     size = ensemble.ensemble_size
+
+    if root == "last":
+        root = ensemble.ensemble_size - 1
 
     nglobal_floats = 6
     nlocal_floats = nglobal_floats // size
@@ -40,7 +49,8 @@ def test_ensemble_bcast_float():
     J = EnsembleAdjVec(
         [AdjFloat(0.0) for _ in range(nlocal_floats)], ensemble)
 
-    Jhat = EnsembleBcastReducedFunctional(J, Control(c), ensemble=ensemble)
+    Jhat = EnsembleBcastReducedFunctional(
+        J, Control(c), root=root, ensemble=ensemble)
 
     # check the control is broadcast to all ranks
     eps = 1e-12
@@ -79,13 +89,17 @@ def test_ensemble_bcast_float():
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
+@pytest.mark.parametrize("root", roots)
 @pytest.mark.skipcomplex
-def test_ensemble_bcast_function():
+def test_ensemble_bcast_function(root):
     nspatial_ranks = 2 if COMM_WORLD.size == 4 else 1
     ensemble = Ensemble(COMM_WORLD, nspatial_ranks)
 
     rank = ensemble.ensemble_rank
     size = ensemble.ensemble_size
+
+    if root == "last":
+        root = ensemble.ensemble_size - 1
 
     nglobal_funcs = 6
     nlocal_funcs = nglobal_funcs // size
@@ -99,7 +113,7 @@ def test_ensemble_bcast_function():
     c = Function(R).assign(1.0)
     J = EnsembleFunction(Re)
 
-    Jhat = EnsembleBcastReducedFunctional(J, Control(c))
+    Jhat = EnsembleBcastReducedFunctional(J, Control(c), root=root)
 
     # check the control is broadcast to all ranks
     eps = 1e-12
@@ -210,7 +224,7 @@ def test_ensemble_reduction_float():
     taylor = taylor_to_dict(Jhat, x, dJ)
 
     # derivative and hessian should be "exact"
-    assert mean(taylor['R0']['Rate'])
+    assert min(taylor['R0']['Rate']) > 0.95
     assert all(r < 1e-14 for r in taylor['R1']['Residual'])
     assert all(r < 1e-14 for r in taylor['R2']['Residual'])
 

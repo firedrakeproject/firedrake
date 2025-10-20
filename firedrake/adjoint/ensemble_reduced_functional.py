@@ -41,48 +41,18 @@ def _set_local_subs(dst, src):
     return dst
 
 
-class FunctionOrFloatMPIMixin:
-    # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
-    def _bcast(self, val, root=None):
-        if root is None:
-            return val
-        if isinstance(val, float):
-            val = self.ensemble.ensemble_comm.bcast(val, root=root)
-        elif isinstance(val, Function):
-            val = self.ensemble.bcast(val, root=self.root)
+def _ad_sum(vals):
+    vals = Enlist(vals)
+    total = vals[0]._ad_init_zero()
+    for v in vals:
+        if isinstance(v, float):
+            total = total._ad_add(v)
         else:
-            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
-        return val
-
-    def _reduce(self, vals, root=None):
-        vals = Enlist(vals)
-        for v in vals:
-            if not isinstance(v, (Function, Cofunction, float)):
-                raise NotImplementedError(
-                    f"Functionals of type {type(v).__name__} are not supported.")
-
-        if isinstance(vals[0], float):
-            comm = self.ensemble.ensemble_comm
-            local_sum = sum(vals)
-            if root is None:
-                return comm.allreduce(local_sum)
-            else:
-                return comm.reduce(local_sum, root=root)
-        else:
-            comm = self.ensemble
-            global_sum = vals[0]._ad_init_zero()
-            local_sum = vals[0]._ad_init_zero()
-            local_sum.assign(sum(vals))
-            if root is None:
-                return comm.allreduce(local_sum, global_sum)
-            else:
-                return comm.reduce(local_sum, global_sum, root=root)
-
-    def _allgather(self, vals):
-        pass
+            total._ad_iadd(v)
+    return total
 
 
-class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+class EnsembleReduceReducedFunctional(AbstractReducedFunctional):
     def __init__(self, functional, control, ensemble=None):
         if isinstance(functional, AbstractReducedFunctional):
             self.reduction_rf = functional
@@ -139,7 +109,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         if self.reduction_rf:
             return self.reduction_rf(self._allgather(_local_subs(values)))
         else:
-            return self._reduce(
+            return self.ensemble.allreduce(
                 self._sum_rf(_local_subs(values)))
 
     @no_annotations
@@ -172,7 +142,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
             return self.reduction_rf.tlm(
                 self._allgather(_local_subs(m_dot)))
         else:
-            return self._reduce(
+            return self.ensemble.allreduce(
                 self._sum_rf.tlm(_local_subs(m_dot)))
 
     @no_annotations
@@ -191,11 +161,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         if not annotating:
             continue_annotation()
         with set_working_tape() as tape:
-            if isinstance(J, float):
-                J = sum(controls)
-            else:
-                for c in controls:
-                    J = J._ad_add(c)
+            J = _ad_sum(controls)
             rf = ReducedFunctional(
                 J, [Control(c) for c in controls], tape=tape)
         if not annotating:
@@ -208,8 +174,11 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         offset = self.ensemble.ensemble_comm.exscan(fs.nlocal_spaces())
         return tuple(offset + i for i in range(fs.nlocal_spaces))
 
+    def _allgather(self, vals):
+        pass
 
-class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+
+class EnsembleBcastReducedFunctional(AbstractReducedFunctional):
     def __init__(self, functional, control, root=None, ensemble=None):
         self.functional = functional
         self._controls = Enlist(control)
@@ -256,14 +225,19 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
 
     @no_annotations
     def __call__(self, values):
-        val = self._bcast(values, root=self.root)
+        if self.root is None:
+            val = values
+        else:
+            val = self.ensemble.bcast(values, root=self.root)
+
         J = self.functional._ad_init_zero()
         _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
         return J
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
-        dJ = self._reduce(_local_subs(adj_input), root=self.root)
+        local_adj = _local_subs(adj_input)
+        dJ = self.ensemble.allreduce(_ad_sum(local_adj))
 
         if apply_riesz:
             return self._control._ad_convert_riesz(
