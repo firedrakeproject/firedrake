@@ -240,6 +240,8 @@ def test_solve(mesh, V):
     assert err_point_expr < 1.0e-09
 
 
+@pytest.mark.skipcomplex  # grad can be implicitly created only for real scalar outputs but got torch.complex128
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_mixed_space_bcs():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "CG", 1)

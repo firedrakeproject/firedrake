@@ -249,6 +249,8 @@ def test_solve(mesh, V):
     assert err_point_expr < 1.0e-09
 
 
+@pytest.mark.skipcomplex  # jacrev requires real-valued outputs, but got complex128.
+@pytest.mark.skipjax  # Skip if JAX is not installed
 def test_mixed_space_bcs():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "CG", 1)
