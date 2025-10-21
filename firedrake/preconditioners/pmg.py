@@ -181,21 +181,21 @@ class PMGBase(PCSNESBase):
         assert parent is not None
 
         test, trial = fctx.J.arguments()
-        fV = test.function_space()
+        fV = trial.function_space()
         cele = self.coarsen_element(fV.ufl_element())
 
         # Have we already done this?
         cctx = fctx._coarse
         if cctx is not None:
-            cV = cctx.J.arguments()[0].function_space()
-            if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()):
+            cV = cctx.J.arguments()[1].function_space()
+            if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()) and all(cV_.boundary_set == fV_.boundary_set for cV_, fV_ in zip(cV, fV)):
                 return cV.dm
 
-        cV = firedrake.FunctionSpace(fV.mesh(), cele)
+        cV = fV.reconstruct(element=cele)
         cdm = cV.dm
 
         fproblem = fctx._problem
-        fu = fproblem.u
+        fu = fproblem.u_restrict
         cu = firedrake.Function(cV)
 
         fdeg = PMGBase.max_degree(fV.ufl_element())
@@ -370,8 +370,8 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
-            cV = cctx.J.arguments()[0].function_space()
-            fV = fctx.J.arguments()[0].function_space()
+            cV = cctx._problem.u_restrict.function_space()
+            fV = fctx._problem.u_restrict.function_space()
             cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
             fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
             return cache.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
@@ -1179,7 +1179,7 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
 
 def reference_value_space(V):
     element = finat.ufl.WithMapping(V.ufl_element(), mapping="identity")
-    return firedrake.FunctionSpace(V.mesh(), element)
+    return V.collapse().reconstruct(element=element)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -1206,13 +1206,13 @@ class StandaloneInterpolationMatrix(object):
             self.Vf = reference_value_space(self.Vf)
             self.uc = firedrake.Function(self.Vc, val=self.uc.dat)
             self.uf = firedrake.Function(self.Vf, val=self.uf.dat)
-            self.Vc_bcs = [bc.reconstruct(V=self.Vc) for bc in self.Vc_bcs]
-            self.Vf_bcs = [bc.reconstruct(V=self.Vf) for bc in self.Vf_bcs]
+            self.Vc_bcs = [bc.reconstruct(V=self.Vc, g=0) for bc in self.Vc_bcs]
+            self.Vf_bcs = [bc.reconstruct(V=self.Vf, g=0) for bc in self.Vf_bcs]
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
             return V
-        key = (V.ufl_element(), V.mesh())
+        key = (V.ufl_element(), V.mesh(), V.boundary_set)
         try:
             return self._cache_work[key]
         except KeyError:
@@ -1229,7 +1229,7 @@ class StandaloneInterpolationMatrix(object):
         }}
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
-        op2.par_loop(kernel, weight.cell_set, weight.dat(op2.INC, weight.cell_node_map()))
+        op2.par_loop(kernel, weight.function_space().mesh().topology.unique().cell_set, weight.dat(op2.INC, weight.cell_node_map()))
         with weight.dat.vec as w:
             w.reciprocal()
         return weight
@@ -1243,7 +1243,7 @@ class StandaloneInterpolationMatrix(object):
             uf_map = get_permuted_map(self.Vf)
             uc_map = get_permuted_map(self.Vc)
             prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
+            prolong_args = [prolong_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
@@ -1253,11 +1253,11 @@ class StandaloneInterpolationMatrix(object):
             uf_map = self.Vf.cell_node_map()
             uc_map = self.Vc.cell_node_map()
             prolong_kernel, restrict_kernel, coefficients = self.make_kernels(self.Vf, self.Vc)
-            prolong_args = [prolong_kernel, self.uf.cell_set,
+            prolong_args = [prolong_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                             self.uf.dat(op2.WRITE, uf_map),
                             self.uc.dat(op2.READ, uc_map)]
 
-        restrict_args = [restrict_kernel, self.uf.cell_set,
+        restrict_args = [restrict_kernel, self.uf.function_space().mesh().topology.unique().cell_set,
                          self.uc.dat(op2.INC, uc_map),
                          self.uf.dat(op2.READ, uf_map),
                          self._weight.dat(op2.READ, uf_map)]
@@ -1337,17 +1337,14 @@ class StandaloneInterpolationMatrix(object):
             restrict = [""]*5
             # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                qelem = felem
-                if qelem.mapping() != "identity":
-                    qelem = qelem.reconstruct(mapping="identity")
-                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.mesh(), qelem)
+                Qf = Vf if felem.mapping() == "identity" else Vf.reconstruct(mapping="identity")
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
                 if Vf.value_shape:
                     qelem = finat.ufl.TensorElement(qelem, shape=Vf.value_shape, symmetry=felem.symmetry())
-                Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
+                Qf = Vf.reconstruct(element=qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
             qshape = (Qf.block_size, Qf.finat_element.space_dimension())
@@ -1460,7 +1457,7 @@ class StandaloneInterpolationMatrix(object):
         except KeyError:
             pass
         prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TrialFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
@@ -1596,9 +1593,9 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                          for bc in chain(Pk_bcs_i, P1_bcs_i) if bc is not None)
             matarg = mat[i, i](op2.WRITE, (Pk.sub(i).cell_node_map(), P1.sub(i).cell_node_map()),
                                lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-            expr = firedrake.TestFunction(P1.sub(i))
+            expr = firedrake.TrialFunction(P1.sub(i))
             kernel, coefficients = prolongation_transfer_kernel_action(Pk.sub(i), expr)
-            parloop_args = [kernel, mesh.cell_set, matarg]
+            parloop_args = [kernel, mesh.topology.unique().cell_set, matarg]
             for coefficient in coefficients:
                 m_ = coefficient.cell_node_map()
                 parloop_args.append(coefficient.dat(op2.READ, m_))
@@ -1613,9 +1610,9 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
                      for bc in chain(Pk_bcs, P1_bcs) if bc is not None)
         matarg = mat(op2.WRITE, (Pk.cell_node_map(), P1.cell_node_map()),
                      lgmaps=((rlgmap, clgmap), ), unroll_map=unroll)
-        expr = firedrake.TestFunction(P1)
+        expr = firedrake.TrialFunction(P1)
         kernel, coefficients = prolongation_transfer_kernel_action(Pk, expr)
-        parloop_args = [kernel, mesh.cell_set, matarg]
+        parloop_args = [kernel, mesh.topology.unique().cell_set, matarg]
         for coefficient in coefficients:
             m_ = coefficient.cell_node_map()
             parloop_args.append(coefficient.dat(op2.READ, m_))

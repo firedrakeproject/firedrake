@@ -73,7 +73,8 @@ def minimize_tao_lmvm(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0})
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
@@ -84,7 +85,8 @@ def minimize_tao_nls(rf):
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0})
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
@@ -154,7 +156,7 @@ def test_simple_inversion(riesz_representation):
 @pytest.mark.parametrize("riesz_representation", [None, "l2", "L2", "H1"])
 @pytest.mark.skipcomplex
 def test_tao_simple_inversion(minimize, riesz_representation):
-    """Test inversion of source term in helmholze eqn using TAO."""
+    """Test inversion of source term in helmholtz eqn using TAO."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
     source_ref = Function(V)

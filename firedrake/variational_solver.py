@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ufl
 from itertools import chain
 from contextlib import ExitStack
@@ -7,7 +9,7 @@ from petsctools import OptionsManager, flatten_parameters
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
@@ -98,7 +100,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = Interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
 
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
@@ -131,14 +133,38 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return self.u_restrict.function_space().dm
 
     @staticmethod
-    def compute_bc_lifting(J, u):
-        """Return the action of the bilinear form J (without bcs) on a Function u."""
+    def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
+                           u: Function,
+                           L: ufl.BaseForm | slate.TensorBase | 0 = 0):
+        """Compute the residual after lifting DirichletBCs.
+
+        Parameters
+        ----------
+        J
+            The Jacobian bilinear form.
+        u
+            The Function on which DirichletBCs are applied.
+        L
+            The unlifted residual linear form.
+
+        Return
+        ------
+        F : ufl.BaseForm | slate.TensorBase
+            The residual J*u-L after lifting DirichletBCs.
+        """
         if isinstance(J, MatrixBase) and J.has_bcs:
             # Extract the full form without bcs
             if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
-        return ufl_expr.action(J, u)
+        F = ufl_expr.action(J, u)
+        if isinstance(F, slate.slate.TensorBase) and not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            # Slate expressions should not combine with assembled Cofunctions
+            # because assemble(AssembledVector(L)) repeats element summation on L
+            F = ufl.FormSum((F, 1), (L, -1))
+        elif L != 0:
+            F = F - L
+        return F
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
@@ -253,9 +279,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
+        sub_mat_type = self.parameters.get("sub_mat_type")
+        sub_pmat_type = self.parameters.get("sub_pmat_type")
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
+                                         sub_mat_type=sub_mat_type,
+                                         sub_pmat_type=sub_pmat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_jacobian_callback,
                                          pre_function_callback=pre_function_callback,
@@ -313,7 +343,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s. or :class:`~.Vector`\s.
+            :class:`~.Function`\s.
 
         .. note::
 
@@ -324,13 +354,20 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to every coefficient DM before we solve.
+        # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        # Make sure the solution dm is visited last
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
+        # Grab the unique DMs for this problem
+        problem_dms = []
+        for c in chain(coefficients, problem.dirichlet_bcs()):
+            dm = c.function_space().dm
+            if dm == solution_dm:
+                # Make sure the solution dm is visited last
+                continue
+            if dm not in problem_dms:
+                problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
         if self._ctx.pre_apply_bcs:
@@ -391,14 +428,12 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         """
         # In the linear case, the Jacobian is the equation LHS (J=a).
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
-            F = self.compute_bc_lifting(a, u)
-        else:
-            if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
-                raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
+        if isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = self.compute_bc_lifting(a, u) - L
+        elif L != 0:
+            raise TypeError(f"Provided RHS is a '{type(L).__name__}', not a Form or Slate Tensor")
+        F = self.compute_bc_lifting(a, u, L=L)
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,

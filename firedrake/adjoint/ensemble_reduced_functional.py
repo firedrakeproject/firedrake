@@ -439,7 +439,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     The functionals :math:`J_i` and the control must be defined over a common
     `ensemble.comm` communicator. To understand more about how ensemble parallelism
     works, please refer to the `Firedrake manual
-    <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+    <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
     """
     def __init__(self, rfs, functional, control, ensemble=None,
                  bcast_control=True, reduce_functional=True):
@@ -553,8 +553,9 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
         ----------
         adj_input : float
             The adjoint input.
-        options : dict
-            Additional options for the derivative computation.
+        apply_riesz: bool
+            If True, apply the Riesz map of each control in order to return
+            a primal gradient rather than a derivative in the dual space.
 
         Returns
         -------

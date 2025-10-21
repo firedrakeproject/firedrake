@@ -8,7 +8,7 @@ from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from finat.ufl import MixedElement
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake import utils, vector, ufl_expr
+from firedrake import utils, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
@@ -274,8 +274,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -290,8 +288,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -306,27 +302,39 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
             return self
         return NotImplemented
 
-    def interpolate(self, expression):
-        r"""Interpolate an expression onto this :class:`Cofunction`.
+    @PETSc.Log.EventDecorator()
+    def interpolate(self,
+                    expression: ufl.BaseForm,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate a dual expression onto this :class:`Cofunction`.
 
-        :param expression: a UFL expression to interpolate
-        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
-        from firedrake import interpolation
-        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-        return firedrake.assemble(interp, tensor=self)
+        Parameters
+        ----------
+        expression
+            A dual UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see `firedrake.interpolation.interpolate`.
 
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this
-        :class:`Cofunction`"""
-        return vector.Vector(self)
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        from firedrake import interpolation, assemble
+        v, = self.arguments()
+        interp = interpolation.Interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
     def cell_set(self):
@@ -409,7 +417,8 @@ class RieszMap:
 
     def __init__(self, function_space_or_inner_product=None,
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, restrict=True):
+                 form_compiler_parameters=None, restrict=True,
+                 constant_jacobian=False):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -442,6 +451,7 @@ class RieszMap:
         self._solver_parameters = solver_parameters or {}
         self._form_compiler_parameters = form_compiler_parameters or {}
         self._restrict = restrict
+        self._constant_jacobian = constant_jacobian
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -465,6 +475,7 @@ class RieszMap:
         lvp = LinearVariationalProblem(
             self._inner_product, rhs, soln, bcs=self._bcs,
             restrict=self._restrict,
+            constant_jacobian=self._constant_jacobian,
             form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
             lvp, solver_parameters=self._solver_parameters
@@ -482,7 +493,7 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
@@ -496,7 +507,7 @@ class RieszMap:
             if self._inner_product == "l2":
                 output = Cofunction(self._function_space.dual())
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 output = firedrake.assemble(
                     firedrake.action(self._inner_product, value)

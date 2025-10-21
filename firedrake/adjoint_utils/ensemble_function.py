@@ -1,5 +1,5 @@
 from pyadjoint.overloaded_type import OverloadedType
-import firedrake
+from firedrake.petsc import PETSc
 from .checkpointing import disk_checkpointing
 
 from functools import wraps
@@ -31,7 +31,6 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
-        PETSc = firedrake.PETSc
         with m.vec_ro() as gvec:
             lvec = PETSc.Vec().createSeq(gvec.size,
                                          comm=PETSc.COMM_SELF)
@@ -51,17 +50,17 @@ class EnsembleFunctionMixin(OverloadedType):
         local_dot = sum(uself._ad_dot(uother, options=options)
                         for uself, uother in zip(self.subfunctions,
                                                  other.subfunctions))
-        return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
-
-    def _ad_init_zero(self, dual=False):
-        from firedrake import EnsembleFunction
-        space = self.function_space()
-        if dual:
-            space = space.dual()
-        return EnsembleFunction(space)
+        return self.function_space().ensemble_comm.allreduce(local_dot)
 
     def _ad_convert_riesz(self, value, riesz_map=None):
         return value.riesz_representation(riesz_map=riesz_map or "L2")
+
+    def _ad_init_zero(self, dual=False):
+        from firedrake import EnsembleFunction, EnsembleCofunction
+        if dual:
+            return EnsembleCofunction(self.function_space().dual())
+        else:
+            return EnsembleFunction(self.function_space())
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():

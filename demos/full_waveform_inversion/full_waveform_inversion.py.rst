@@ -83,7 +83,7 @@ for 3 wave sources. Therefore, we will have 3 emsemble members, each with 2 rank
 processes launched by mpiexec must therefore be equal to the product of number of ensemble members
 (3, in this case) with the number of processes to be used for each ensemble member (``M=2``, in this case).
 Additional details about the ensemble parallelism can be found in the
-`Firedrake documentation <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+`Firedrake documentation <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
 
 The subcommunicators in each ensemble member are: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
 ``Ensemble.comm`` is the spatial communicator. ``Ensemble.ensemble_comm`` allows communication between
@@ -109,10 +109,12 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
         nx, ny = 15, 15
+        ftol = 0.9  # optimisation tolerance
     else:
         dt = 0.002  # time step in seconds
         final_time = 1.0  # final time in seconds
         nx, ny = 80, 80
+        ftol = 1e-2  # optimisation tolerance
 
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
 
@@ -299,7 +301,7 @@ we have a custom ``ReducedFunctional``, we need to do this ourselves::
     c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
                            bounds=(1.5, 2.0))
 
-The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
+The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``ftol``) is met.
 For 20 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
@@ -310,9 +312,7 @@ For 20 iterations, the predicted velocity model is shown in the following figure
 .. warning::
 
     The ``minimize`` function uses the SciPy library for optimisation. However, for scenarios that require higher
-    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem.
-    SciPy's optimisation algorithm is not inner-product-aware. Therefore, we configure the options with
-    ``derivative_options={"riesz_representation": 'l2'}`` to account for this requirement.
+    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem such as the pyadjoint's TAOSolver.
 
 .. note::
 

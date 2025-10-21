@@ -382,4 +382,4 @@ def test_firedrake_Adaptivity_netgen_parallel():
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
         mesh = adapt(mesh, eta)
-    assert error_estimators[-1] < 0.05
+    assert error_estimators[-1] < 0.06

@@ -40,40 +40,40 @@ ensemble to another.  This is handled by the :class:`~.Ensemble` class.
 Each ensemble member must have the same spatial parallel domain decomposition, so
 instantiating an :class:`~.Ensemble` requires a communicator to split
 (usually, but not necessarily, ``MPI_COMM_WORLD``) plus the number of
-MPI processes to be used in each member of the ensemble (5, in the
-figure above and example code below). The number of ensemble members is
-implicitly calculated by dividing the size of the original
+MPI processes to be used in each member of the ensemble (5 in the
+figure above, and 2 in the example code below). The number of ensemble
+members is implicitly calculated by dividing the size of the original
 communicator by the number processes in each ensemble member. The
 total number of processes launched by ``mpiexec`` must therefore be
 equal to the product of the number of ensemble members with the number of
 processes to be used for each ensemble member, and an exception will be
 raised if this is not the case.
 
-.. code-block:: python3
-
-   from firedrake import *
-
-   my_ensemble = Ensemble(COMM_WORLD, 5)
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 1 >]
+   :end-before: [test_ensemble_manual_example 1 <]
 
 Then, the spatial sub-communicator ``Ensemble.comm`` must be passed
 to :func:`~.mesh.Mesh` (possibly via inbuilt mesh generators in
 :mod:`~.utility_meshes`), so that it will then be used by any
 :func:`~.FunctionSpace` and :class:`~.Function` derived from the mesh.
 
-.. code-block:: python3
-
-    mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
-    x, y = SpatialCoordinate(mesh)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 2 >]
+   :end-before: [test_ensemble_manual_example 2 <]
 
 The ensemble sub-communicator is then available through the attribute
 ``Ensemble.ensemble_comm``.
 
-.. code-block:: python3
-
-    q = Constant(my_ensemble.ensemble_comm.rank + 1)
-    u.interpolate(sin(q*pi*x)*cos(q*pi*y))
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 3 >]
+   :end-before: [test_ensemble_manual_example 3 <]
 
 MPI communications across the spatial sub-communicator (i.e., within
 an ensemble member) are handled automatically by Firedrake, whilst MPI
@@ -81,16 +81,15 @@ communications across the ensemble sub-communicator (i.e., between ensemble
 members) are handled through methods of :class:`~.Ensemble`. Currently
 send/recv, reductions and broadcasts are supported, as well as their
 non-blocking variants.
+The rank of the the ensemble member (``my_ensemble.ensemble_comm.rank``)
+and the number of ensemble members (``my_ensemble.ensemble_comm.rank``)
+can be accessed via the ``ensemble_rank`` and ``ensemble_size`` attributes.
 
-.. code-block:: python3
-
-    my_ensemble.send(u, dest)
-    my_ensemble.recv(u, source)
-
-    my_ensemble.reduce(u, usum, root)
-    my_ensemble.allreduce(u, usum)
-
-    my_ensemble.bcast(u, root)
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 4 >]
+   :end-before: [test_ensemble_manual_example 4 <]
 
 .. warning::
 
@@ -138,24 +137,19 @@ every other ensemble member.  Note that, unlike a
 :class:`~.EnsembleFunctionSpace` may itself be a
 :func:`~.MixedFunctionSpace`.
 
-.. code-block:: python3
-
-   V = FunctionSpace(mesh, "CG", 1)
-   U = FunctionSpace(mesh, "DG", 0)
-   W = U*V
-
-   if my_ensemble.ensemble_rank == 0:
-      local_spaces = [V, U]
-   else:
-      local_spaces = [V, U, W]
-
-   efs = EnsembleFunctionSpace(local_spaces, my_ensemble)
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 5 >]
+   :end-before: [test_ensemble_manual_example 5 <]
 
 Analogously to accessing the components of a :func:`~.MixedFunctionSpace`
 using ``subspaces``, the :func:`~.FunctionSpace` for each local component
 of an :class:`~.EnsembleFunctionSpace` can be accessed via
 ``EnsembleFunctionSpace.local_spaces``.  Various other methods and
-properties such as ``dual`` and ``nglobal_spaces`` are also available.
+properties such as ``dual`` (to create an :class:`~.EnsembleDualSpace`)
+and ``nglobal_spaces`` (total number of components across all ranks)
+are also available.
 
 An :class:`~.EnsembleFunction` and :class:`~.EnsembleCofunction` can be
 created from the :class:`~.EnsembleFunctionSpace`. These have a ``subfunctions``
@@ -166,16 +160,11 @@ normal Firedrake :class:`~.Function`. If a component of the
 component in ``EnsembleFunction.subfunctions`` will be a mixed ``Function`` in
 that ``MixedFunctionSpace``.
 
-.. code-block:: python3
-
-   efunc = EnsembleFunction(efs)
-   ecofunc = EnsembleCofunction(efs.dual())
-
-   v = Function(V).assign(6)
-   efunc.subfunctions[0].project(v)
-
-   ustar = Cofunction(ecofunc.local_spaces[1])
-   efunc.subfunctions[1].assign(ustar.riesz_representation())
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 6 >]
+   :end-before: [test_ensemble_manual_example 6 <]
 
 :class:`~.EnsembleFunction` and :class:`~.EnsembleCofunction` have
 a range of methods equivalent to those of :class:`~.Function` and
@@ -198,20 +187,11 @@ rank and the index of the local space, which means that separate
 PETSc parameters can be passed from the command line to the solver
 on each ensemble member.
 
-.. code-block:: python3
-
-   u = TrialFunction(efs.local_spaces[0])
-   v = TestFunction(efs.local_spaces[0])
-
-   a = inner(u, v)*dx + inner(grad(u), grad(v))*dx
-   L = ecofunc.subfunctions[0]
-
-   prefix = f"lvs_{ensemble.ensemble_rank}_0"
-   lvp = LinearVariationalProblem(a, L, efs.subfunctions[0])
-   lvs = LinearVariationalSolver(lvp, options_prefix=prefix)
-
-   ecofunc.subfunctions[0].assign(1)
-   lvs.solve()
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 7 >]
+   :end-before: [test_ensemble_manual_example 7 <]
 
 .. warning::
 
@@ -231,7 +211,8 @@ only accesses. However note that, unlike the ``Function.dat.vec``
 context managers, the ``EnsembleFunction.vec`` context managers
 need braces i.e. ``vec()`` not ``vec``.
 
-.. code-block:: python3
-
-   with efunc.vec_ro() as vec:
-      PETSc.Sys.Print(f"{vec.norm() = }")
+.. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_ensemble_manual_example 8 >]
+   :end-before: [test_ensemble_manual_example 8 <]

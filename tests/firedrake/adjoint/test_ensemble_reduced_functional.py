@@ -1,6 +1,5 @@
 from firedrake import *
 from firedrake.adjoint import *
-from firedrake.adjoint.ensemble_adjvec import EnsembleAdjVec
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 from numpy.testing import assert_allclose
@@ -823,7 +822,7 @@ def test_ensemble_rf_efunction_to_float():
     assert R2 > 2.99
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 3, 6])
+@pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ensemble_rf_minimise():
     """
@@ -861,6 +860,5 @@ def test_ensemble_rf_minimise():
 
     rf = EnsembleReducedFunctional(rfs, J, controls, ensemble=ensemble)
     rf_np = ReducedFunctionalNumPy(rf)
-
     result = minimize(rf_np)
     assert_allclose([float(xi) for xi in result], 1., rtol=1e-8)

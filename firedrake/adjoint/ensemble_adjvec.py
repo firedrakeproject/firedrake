@@ -2,6 +2,8 @@ from pyadjoint.overloaded_type import OverloadedType
 from pyadjoint.adjfloat import AdjFloat
 from firedrake.ensemble import Ensemble
 
+__all__ = ("EnsembleAdjVec",)
+
 
 class EnsembleAdjVec(OverloadedType):
     """

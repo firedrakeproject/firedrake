@@ -179,7 +179,7 @@ def test_ensemble_space_allows_dual_init(ensemble, mesh):
 
     efs = fd.EnsembleFunctionSpace(spaces, ensemble)
 
-    parallel_assert(lambda: isinstance(efs, fd.EnsembleDualSpace))
+    parallel_assert(isinstance(efs, fd.EnsembleDualSpace))
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
@@ -196,12 +196,12 @@ def test_ensemble_local_spaces_correct(ensemblespace, Wlocal):
         Wlocal = [W.dual() for W in Wlocal]
 
     # Does efs have the correct number of spaces locally?
-    parallel_assert(lambda: len(efs.local_spaces) == len(Wlocal))
-    parallel_assert(lambda: efs.nlocal_spaces == len(efs.local_spaces))
+    parallel_assert(len(efs.local_spaces) == len(Wlocal))
+    parallel_assert(efs.nlocal_spaces == len(efs.local_spaces))
 
     # Correct number globally?
     nglobal = ensemble.ensemble_comm.allreduce(efs.nlocal_spaces)
-    parallel_assert(lambda: efs.nglobal_spaces == nglobal)
+    parallel_assert(efs.nglobal_spaces == nglobal)
 
     local_space_matches = [
         V == W for V, W in zip(efs.local_spaces, Wlocal)]
@@ -210,7 +210,7 @@ def test_ensemble_local_spaces_correct(ensemblespace, Wlocal):
     # rank-by-rank not space-by-space
     for root in range(ensemble.ensemble_size):
         parallel_assert(
-            lambda: all(local_space_matches),
+            all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
             msg=f"{ensemble.ensemble_rank=}, {local_space_matches=}")
 
@@ -231,15 +231,15 @@ def test_ensemble_dofsizes_correct(ensemblespace):
     nglobal_dofs = ensemble.ensemble_comm.allreduce(nlocal_comm_dofs)
 
     parallel_assert(
-        lambda: efs.nlocal_rank_dofs == nlocal_rank_dofs,
+        efs.nlocal_rank_dofs == nlocal_rank_dofs,
         msg=f"{rank=}, {efs.nlocal_rank_dofs=}, {nlocal_rank_dofs=}")
 
     parallel_assert(
-        lambda: efs.nlocal_comm_dofs == nlocal_comm_dofs,
+        efs.nlocal_comm_dofs == nlocal_comm_dofs,
         msg=f"{rank=}, {efs.nlocal_comm_dofs=}, {nlocal_comm_dofs=}")
 
     parallel_assert(
-        lambda: efs.nglobal_dofs == nglobal_dofs,
+        efs.nglobal_dofs == nglobal_dofs,
         msg=f"{rank=}, {efs.nglobal_dofs=}, {nglobal_dofs=}")
 
 
@@ -258,7 +258,7 @@ def test_ensemble_space_dual(ensemblespace):
         dual_type = fd.EnsembleFunctionSpace
 
     dual = ensemblespace.dual()
-    parallel_assert(lambda: type(dual) is dual_type)
+    parallel_assert(type(dual) is dual_type)
 
     # are the dual subspaces correct?
     local_space_matches = [
@@ -269,12 +269,12 @@ def test_ensemble_space_dual(ensemblespace):
     ensemble_rank = ensemble.ensemble_rank
     for root in range(ensemble.ensemble_size):
         parallel_assert(
-            lambda: all(local_space_matches),
+            all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
             msg=f"{ensemble_rank=}, {local_space_matches=}")
 
     dual2 = dual.dual()
-    parallel_assert(lambda: type(dual.dual()) is type(ensemblespace))
+    parallel_assert(type(dual.dual()) is type(ensemblespace))
 
     # are the dual subspaces the originals?
     local_space_matches = [
@@ -285,7 +285,7 @@ def test_ensemble_space_dual(ensemblespace):
     ensemble_rank = ensemblespace.ensemble.ensemble_rank
     for root in range(ensemble.ensemble_size):
         parallel_assert(
-            lambda: all(local_space_matches),
+            all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
             msg=f"{ensemble_rank=}, {local_space_matches=}")
 
@@ -300,13 +300,13 @@ def test_ensemble_space_equality(ensemblespace):
     orig_spaces = ensemblespace.local_spaces
 
     # .dual().dual() should be a round trip
-    parallel_assert(lambda: ensemblespace == ensemblespace)
-    parallel_assert(lambda: ensemblespace != ensemblespace.dual())
-    parallel_assert(lambda: ensemblespace == ensemblespace.dual().dual())
+    parallel_assert(ensemblespace == ensemblespace)
+    parallel_assert(ensemblespace != ensemblespace.dual())
+    parallel_assert(ensemblespace == ensemblespace.dual().dual())
 
     # Duplicate is equal
     dup_fs = fd.EnsembleFunctionSpace(orig_spaces, ensemble)
-    parallel_assert(lambda: ensemblespace == dup_fs)
+    parallel_assert(ensemblespace == dup_fs)
 
     # Same length, different space is not equal
     if ensemble.ensemble_rank == (ensemble.ensemble_size - 1):
@@ -315,7 +315,7 @@ def test_ensemble_space_equality(ensemblespace):
         diff_spaces = orig_spaces
 
     diff_fs = fd.EnsembleFunctionSpace(diff_spaces, ensemble)
-    parallel_assert(lambda: ensemble != diff_fs)
+    parallel_assert(ensemble != diff_fs)
 
     # Same spaces, shorter length is not equal
     if ensemble.ensemble_rank == 0:
@@ -324,7 +324,7 @@ def test_ensemble_space_equality(ensemblespace):
         short_spaces = orig_spaces
 
     short_fs = fd.EnsembleFunctionSpace(short_spaces, ensemble)
-    parallel_assert(lambda: ensemble != short_fs)
+    parallel_assert(ensemble != short_fs)
 
     # Same spaces, longer length is not equal
     if ensemble.ensemble_rank == (ensemble.ensemble_size - 1):
@@ -333,4 +333,4 @@ def test_ensemble_space_equality(ensemblespace):
         long_spaces = orig_spaces
 
     long_fs = fd.EnsembleFunctionSpace(long_spaces, ensemble)
-    parallel_assert(lambda: ensemble != long_fs)
+    parallel_assert(ensemble != long_fs)
