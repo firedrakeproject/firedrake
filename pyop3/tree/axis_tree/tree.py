@@ -823,6 +823,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                     axis_tree_context_map[loop_context] = indexed_axes
             return ContextSensitiveAxisTree(axis_tree_context_map)
 
+    def as_axis(self) -> Axis:
+        return utils.just_one(self.axes)
+
     @property
     def axes(self):
         return self.nodes

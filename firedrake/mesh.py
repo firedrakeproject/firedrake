@@ -187,175 +187,143 @@ class _FacetContext:
     def plex(self):
         return self.topology.topology_dm
 
-    @utils.cached_property
-    def set(self):
-        return self.mesh.points[self.facet_subset].owned
-
-    @PETSc.Log.EventDecorator()
-    def measure_set(self, integral_type, subdomain_id,
-                    all_integer_subdomain_ids=None):
-        """Return an iteration set appropriate for the requested integral type.
-
-        Parameters
-        ----------
-        integral_type :
-            The type of the integral (should be a facet measure).
-        subdomain_id : The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        all_integer_subdomain_ids :
-            Information to interpret the ``"otherwise"`` subdomain. ``"otherwise"``
-            means all entities not explicitly enumerated by the integer
-            subdomains provided here.  For example, if all_integer_subdomain_ids
-            is empty, then ``"otherwise" == "everywhere"``.  If it contains
-            ``(1, 2)``, then ``"otherwise"`` is all entities except those marked by
-            subdomains 1 and 2.
-
-        Returns
-        -------
-        pyop3.AxisTree or pyop3.IndexedAxisTree :
-            The iteration region.
-        """
-        subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
-        return self.set[subset]
-
     def local_facets(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
         subset = self.subset(integral_type, subdomain_id, all_integer_subdomain_ids)
         return self._local_facets[subset]
 
-    def subset(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
-        if integral_type in ("exterior_facet_bottom",
-                             "exterior_facet_top",
-                             "interior_facet_horiz"):
-            # these iterate over the base cell set
-            return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
-        elif not (integral_type.startswith("exterior_")
-                  or integral_type.startswith("interior_")):
-            raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+    # def subset(self, integral_type, subdomain_id, all_integer_subdomain_ids=None):
+    #     if integral_type in ("exterior_facet_bottom",
+    #                          "exterior_facet_top",
+    #                          "interior_facet_horiz"):
+    #         # these iterate over the base cell set
+    #         return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
+    #     elif not (integral_type.startswith("exterior_")
+    #               or integral_type.startswith("interior_")):
+    #         raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+    #
+    #     if subdomain_id == "everywhere":
+    #         # return Ellipsis
+    #         return slice(None)
+    #     if subdomain_id == "otherwise":
+    #         if not all_integer_subdomain_ids:
+    #             # return Ellipsis
+    #             return slice(None)
+    #         raise NotImplementedError
+    #         key = ("otherwise", ) + all_integer_subdomain_ids
+    #         try:
+    #             return self._subsets[key]
+    #         except KeyError:
+    #             unmarked_points = self._collect_unmarked_points(all_integer_subdomain_ids)
+    #             _, indices, _ = np.intersect1d(
+    #                 self._owned_facet_data,
+    #                 unmarked_points,
+    #                 return_indices=True)
+    #             indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
+    #             subset = op3.Slice(
+    #                 self.mesh.topology.name,
+    #                 [op3.Subset(self._owned_facet_label, indices_dat)],
+    #             )
+    #             return self._subsets.setdefault(key, subset)
+    #     else:
+    #         return self._subset(subdomain_id)
 
-        if subdomain_id == "everywhere":
-            # return Ellipsis
-            return slice(None)
-        if subdomain_id == "otherwise":
-            if not all_integer_subdomain_ids:
-                # return Ellipsis
-                return slice(None)
-            raise NotImplementedError
-            key = ("otherwise", ) + all_integer_subdomain_ids
-            try:
-                return self._subsets[key]
-            except KeyError:
-                unmarked_points = self._collect_unmarked_points(all_integer_subdomain_ids)
-                _, indices, _ = np.intersect1d(
-                    self._owned_facet_data,
-                    unmarked_points,
-                    return_indices=True)
-                indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
-                subset = op3.Slice(
-                    self.mesh.topology.name,
-                    [op3.Subset(self._owned_facet_label, indices_dat)],
-                )
-                return self._subsets.setdefault(key, subset)
-        else:
-            return self._subset(subdomain_id)
+    # def _subset(self, markers: Optional[Union[int, Iterable[int]]]):  #  -> op3.Slice: (almost)
+    #     """Return the subset corresponding to a given set of markers.
+    #
+    #     Parameters
+    #     ----------
+    #     markers
+    #         The marker ID or an iterable of marker IDs, if `None` the
+    #         subset is empty.
+    #
+    #     Returns
+    #     -------
+    #     pyop3.Slice (almost)
+    #         The subset of marked points.
+    #
+    #     """
+    #     breakpoint()
+    #     # use _unlabelled_points_plex etc
+    #     valid_markers = set([unmarked]).union(self.unique_markers)
+    #     markers = as_tuple(markers, numbers.Integral)
+    #     try:
+    #         return self._subsets[markers]
+    #     except KeyError:
+    #         pass
+    #
+    #     # check that the given markers are valid
+    #     if len(set(markers).difference(valid_markers)) > 0:
+    #         invalid = set(markers).difference(valid_markers)
+    #         raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
+    #
+    #     # build a list of indices corresponding to the subsets selected by markers
+    #     marked_points_list = []
+    #     for i in markers:
+    #         if i == unmarked:
+    #             _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+    #             # Can exclude points labeled with i\in markers here,
+    #             # as they will be included in the below anyway.
+    #             marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
+    #         elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+    #             marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+    #     f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
+    #     nmarked_facets = 0
+    #     for marked_points in marked_points_list:
+    #         for point in marked_points:
+    #             if f_start <= point < f_stop:
+    #                 nmarked_facets += 1
+    #     # renumber the points
+    #     # TODO: Cythonize
+    #     marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
+    #     facet_numbering = self.mesh._entity_numbering(self.mesh.facet_label)
+    #     fi = 0
+    #     for marked_points in marked_points_list:
+    #         for point in marked_points:
+    #             if f_start <= point < f_stop:
+    #                 marked_points_renum[fi] = facet_numbering[point - f_start]
+    #                 fi += 1
+    #     assert fi == nmarked_facets
+    #     _, indices, _ = np.intersect1d(
+    #         self._owned_facet_data,
+    #         np.unique(marked_points_renum),
+    #         return_indices=True
+    #     )
+    #     indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
+    #     subset = op3.Slice(
+    #         self._facet_label,
+    #         # [op3.Subset(self._owned_facet_label, indices_dat)],
+    #         [op3.Subset(0, indices_dat)],
+    #     )
+    #     return self._subsets.setdefault(markers, subset)
 
-    def _subset(self, markers: Optional[Union[int, Iterable[int]]]):  #  -> op3.Slice: (almost)
-        """Return the subset corresponding to a given set of markers.
+    # def _collect_unmarked_points(self, markers):
+    #     """Collect points that are not marked by markers."""
+    #     plex = self.mesh.topology_dm
+    #     indices_list = []
+    #     for i in markers:
+    #         if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+    #             indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+    #     if indices_list:
+    #         return np.setdiff1d(self.facet_indices, np.concatenate(indices_list))
+    #     else:
+    #         return self.facet_indices
 
-        Parameters
-        ----------
-        markers
-            The marker ID or an iterable of marker IDs, if `None` the
-            subset is empty.
-
-        Returns
-        -------
-        pyop3.Slice (almost)
-            The subset of marked points.
-
-        """
-        breakpoint()
-        # use _unlabelled_points_plex etc
-        valid_markers = set([unmarked]).union(self.unique_markers)
-        markers = as_tuple(markers, numbers.Integral)
-        try:
-            return self._subsets[markers]
-        except KeyError:
-            pass
-
-        # check that the given markers are valid
-        if len(set(markers).difference(valid_markers)) > 0:
-            invalid = set(markers).difference(valid_markers)
-            raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
-
-        # build a list of indices corresponding to the subsets selected by markers
-        marked_points_list = []
-        for i in markers:
-            if i == unmarked:
-                _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
-                # Can exclude points labeled with i\in markers here,
-                # as they will be included in the below anyway.
-                marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
-            elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-                marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
-        f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
-        nmarked_facets = 0
-        for marked_points in marked_points_list:
-            for point in marked_points:
-                if f_start <= point < f_stop:
-                    nmarked_facets += 1
-        # renumber the points
-        # TODO: Cythonize
-        marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
-        facet_numbering = self.mesh._entity_numbering(self.mesh.facet_label)
-        fi = 0
-        for marked_points in marked_points_list:
-            for point in marked_points:
-                if f_start <= point < f_stop:
-                    marked_points_renum[fi] = facet_numbering[point - f_start]
-                    fi += 1
-        assert fi == nmarked_facets
-        _, indices, _ = np.intersect1d(
-            self._owned_facet_data,
-            np.unique(marked_points_renum),
-            return_indices=True
-        )
-        indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
-        subset = op3.Slice(
-            self._facet_label,
-            # [op3.Subset(self._owned_facet_label, indices_dat)],
-            [op3.Subset(0, indices_dat)],
-        )
-        return self._subsets.setdefault(markers, subset)
-
-    def _collect_unmarked_points(self, markers):
-        """Collect points that are not marked by markers."""
-        plex = self.mesh.topology_dm
-        indices_list = []
-        for i in markers:
-            if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-                indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
-        if indices_list:
-            return np.setdiff1d(self.facet_indices, np.concatenate(indices_list))
-        else:
-            return self.facet_indices
-
-    @property
-    def _facet_label(self):
-        if self._facet_type == "exterior":
-            return "exterior_facets"
-        else:
-            assert self._facet_type == "interior"
-            return "interior_facets"
-
-    @property
-    def _owned_facet_label(self):
-        assert False, "old"
+    # @property
+    # def _facet_label(self):
+    #     if self._facet_type == "exterior":
+    #         return "exterior_facets"
+    #     else:
+    #         assert self._facet_type == "interior"
+    #         return "interior_facets"
+    #
+    # @property
+    # def _owned_facet_label(self):
+    #     assert False, "old"
         return (self._facet_label, "owned")
 
-    @cached_property
-    def _facet_axis(self):
-        return utils.just_one(self.mesh.points[self.facet_subset].nodes)
+    # @cached_property
+    # def _facet_axis(self):
+    #     return utils.just_one(self.mesh.points[self.facet_subset].nodes)
         # nowned_facets = len(self._owned_facet_data)
         # nfacets = len(self._facet_data)
         # return op3.Axis(
@@ -367,9 +335,9 @@ class _FacetContext:
         #     self.mesh.topology.name,
         # )
 
-    @cached_property
-    def _owned_facet_axis(self):
-        return utils.just_one(self.mesh.points[self.facet_subset].nodes)
+    # @cached_property
+    # def _owned_facet_axis(self):
+    #     return utils.just_one(self.mesh.points[self.facet_subset].nodes)
         # nowned_facets = len(self._owned_facet_data)
         # return op3.Axis(
         #     op3.AxisComponent(
@@ -393,11 +361,11 @@ class _FacetContext:
     #         self._owned_facet_axis, data=self._owned_facet_data
     #     )
 
-    @cached_property
-    def facet_indices_renumbered(self) -> np.ndarray:
-        dim = self.mesh.topology.dimension - 1
-        facet_indices_localized = self.facet_indices - self.mesh.strata_offsets[dim]
-        return self.mesh._entity_numbering(dim)[facet_indices_localized]
+    # @cached_property
+    # def facet_indices_renumbered(self) -> np.ndarray:
+    #     dim = self.mesh.topology.dimension - 1
+    #     facet_indices_localized = self.facet_indices - self.mesh.strata_offsets[dim]
+    #     return self.mesh._entity_numbering(dim)[facet_indices_localized]
         # facets = np.empty_like(self._facet_data_default)
         # f_start = self.mesh.points.component_offset(self.mesh.facet_label)
         # facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
@@ -405,33 +373,15 @@ class _FacetContext:
         #     facets[fi] = facet_numbering[facet - f_start]
         # return facets
 
-    @property
-    def _facet_data(self):
-        # old name I think
-        return self.facet_indices_renumbered
 
-
-    @cached_property
-    def facet_subset(self) -> op3.Slice:
-        # but if different facet labels...
-        indices = self.facet_indices_renumbered
-        subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
-        subset = op3.Subset(self.mesh.facet_label, subset_dat, label=0)
-        return op3.Slice(self.mesh.topology.points.root.label, [subset], label=self._facet_label)
-
-    @cached_property
-    def _owned_facet_data(self) -> np.ndarray:
-        nowned_facets = self.mesh.points[self.mesh.facet_label].owned.size
-        return self._facet_data[self._facet_data < nowned_facets]
-
-    @cached_property
-    def facet_indices(self) -> np.ndarray:
-        """Return the numbers of the exterior facets."""
-        if self._facet_type == "exterior":
-            return dmcommon.facets_with_label(self.mesh, "exterior_facets")
-        else:
-            assert self._facet_type == "interior"
-            return dmcommon.facets_with_label(self.mesh, "interior_facets")
+    # @cached_property
+    # def facet_indices(self) -> np.ndarray:
+    #     """Return the numbers of the exterior facets."""
+    #     if self._facet_type == "exterior":
+    #         return dmcommon.facets_with_label(self.mesh, "exterior_facets")
+    #     else:
+    #         assert self._facet_type == "interior"
+    #         return dmcommon.facets_with_label(self.mesh, "interior_facets")
 
     @cached_property
     def _local_facets(self):
@@ -863,13 +813,16 @@ class AbstractMeshTopology(abc.ABC):
     def _cell_numbering(self):
         return self._entity_numbering(self.dimension)
 
-    # @utils.cached_property
-    # def _cell_permutation(self):
-    #     return self._entity_permutation(self.dimension)
+    @utils.cached_property
+    def _facet_numbering(self) -> np.ndarray[IntType]:
+        return self._entity_numbering(self.dimension-1)
 
     @utils.cached_property
-    def _facet_numbering(self):
-        return self._entity_numbering(self.dimension-1)
+    def _interior_facet_numbering(self) -> np.ndarray[IntType]:
+        THINK ABOUT THIS
+        indices_plex? naming?
+        need way to describe stratum numbering or full numbering... 'strata_numbering'/'strata_indices' seems good!
+        return compress_numbering(self._facet_numbering[self._interior_facet_indices_plex])
 
     # TODO: Cythonize
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
@@ -906,13 +859,7 @@ class AbstractMeshTopology(abc.ABC):
         entity_to_point_numbering = point_to_point_numbering[p_start:p_end]
         # Now convert this into a fully entity-wise numbering. For the vertices in
         # the example above this would constitute turning [2, 1, 4] into [1, 0, 2].
-
-        # new
-        # entity_to_entity_numbering = np.argsort(entity_to_point_numbering)
-        # old
-        sorted_arr = list(sorted(entity_to_point_numbering))
-        entity_to_entity_numbering = np.asarray([sorted_arr.index(x) for x in entity_to_point_numbering], dtype=IntType)
-        assert (entity_to_entity_numbering == utils.invert(np.argsort(entity_to_point_numbering))).all()
+        entity_to_entity_numbering = compress_numbering(entity_to_point_numbering)
 
         if not stratum_localize:
             entity_to_entity_numbering += p_start
@@ -1071,7 +1018,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def exterior_facets(self):
+    def exterior_facets(self) -> op3.IndexedAxisTree:
         pass
 
     @property
@@ -2377,12 +2324,28 @@ class MeshTopology(AbstractMeshTopology):
         return obj
 
     @cached_property
-    def exterior_facets(self):
-        return self._facets("exterior")
+    def exterior_facets(self) -> op3.IndexedAxisTree:
+        subset = self._facet_subset("exterior")
+        return self.points[subset]
 
     @cached_property
     def interior_facets(self):
-        return self._facets("interior")
+        subset = self._facet_subset("interior")
+        return self.points[subset]
+
+    def _facet_subset(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Slice:
+        if facet_type == "exterior":
+            label_value = "exterior_facets"
+        else:
+            assert facet_type == "interior"
+            label_value = "interior_facets"
+        indices_plex = dmcommon.facets_with_label(self, label_value)
+        f_start, _ = self.topology_dm.getDepthStratum(self.dimension-1)
+        indices_localized = indices_plex - f_start
+        indices_renum = self._facet_numbering[indices_localized]
+
+        subset_dat = op3.Dat.from_array(indices_renum)
+        return op3.Slice(self.name, [op3.Subset(self.facet_label, subset_dat)])
 
     @cached_property
     def cell_to_facets(self):
@@ -2972,10 +2935,10 @@ class ExtrudedMeshTopology(MeshTopology):
         )
 
     @cached_property
-    def exterior_facets(self):
+    def exterior_facets(self) -> op3.Iny:
         raise TypeError(
-            "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert' "
-            "or 'exterior_facets_top' or 'exterior_facets_bottom' instead"
+            "Cannot use 'exterior_facets' for extruded meshes, use 'exterior_facets_vert', "
+            "'exterior_facets_top' or 'exterior_facets_bottom' instead"
         )
 
     @cached_property
@@ -6245,36 +6208,29 @@ def iteration_set(
 
      :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
-    if integral_type == "cell":
-        def get_all_indices_plex():
-            return PETSc.IS().createStride(mesh.num_cells, comm=MPI.COMM_SELF)
-
-        iterset = mesh.cells
-        component_label = mesh.cell_label
-        label_name = dmcommon.CELL_SETS_LABEL
-        renumbering = mesh._cell_numbering
-    elif integral_type == "interior_facets":
-        def get_all_indices_plex():
-            return mesh._interior_facet_indices_plex
-
-        iterset = mesh.interior_facets
-        component_label = mesh.facet_label
-        label_name = dmcommon.FACET_SETS_LABEL
-        renumbering = mesh._facet_numbering
-    elif integral_type == "exterior_facets":
-        all_indices_plex = mesh._exterior_facet_indices_plex
-
-        iterset = mesh.exterior_facets
-        component_label = mesh.facet_label
-        label_name = dmcommon.FACET_SETS_LABEL
-    elif integral_type == "interior_facets_vert":
-        all_indices_plex = mesh._interior_facets_vert_plex
-        renumbering = mesh._interior_facets_vert_numbering
-    elif integral_type == "interior_facets_horiz":
-        all_indices_plex = mesh._interior_facets_horiz_plex
-        label_name = dmcommon.FACET_SETS_LABEL
-    else:
-        raise NotImplementedError
+    match integral_type:
+        case "cell":
+            iterset = mesh.cells
+            dmlabel_name = dmcommon.CELL_SETS_LABEL
+            renumbering = mesh._cell_numbering
+        case "interior_facet":
+            iterset = mesh.interior_facets
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            renumbering = mesh._interior_facet_numbering
+        case "exterior_facet":
+            iterset = mesh.exterior_facets
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            renumbering = mesh._exterior_facet_numbering
+        case "interior_facet_vert":
+            iterset = mesh.interior_facets_vert
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            renumbering = mesh._interior_facet_vert_numbering
+        case "interior_facet_horiz":
+            iterset = mesh.interior_facets_horiz
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            renumbering = mesh._interior_facet_horiz_numbering
+        case _:
+            raise NotImplementedError
 
     if subdomain_id == "everywhere":
         pass
@@ -6286,16 +6242,32 @@ def iteration_set(
             subdomain_ids = utils.as_tuple(subdomain_id)
             complement = False
 
-        indices_plex = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+        indices_orig = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
         for subdomain_id in subdomain_ids:
-            indices_plex = indices_plex.union(mesh.topology_dm.getStratumIS(label_name, subdomain_id))
+            indices_orig = indices_orig.union(
+                mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
+            )
 
         if complement:
-            indices_plex = get_all_indices_plex().difference(indices_plex)
+            all_indices_orig = PETSc.IS().createStride(
+                iterset.local_size, comm=MPI.COMM_SELF,
+            )
+            indices_orig = all_indices_orig.difference(indices_orig)
 
-        indices_renum = renumbering[indices_plex.indices]
+        component_label = iterset.as_axis().component.label
+        indices_renum = renumbering[indices_orig.indices]
+        # TODO: Ideally should be able to avoid creating these here and just index
+        # with the array
         subset_dat = op3.Dat.from_array(indices_renum)
         subset = op3.Slice(mesh.name, [op3.Subset(component_label, subset_dat)])
         iterset = iterset[subset]
 
     return iterset.owned
+
+
+# typing.Generic...
+def compress_numbering(noncontig_numbering: np.ndarray[IntType]) -> np.ndarray[IntType]:
+    """
+        eg would constitute turning [2, 1, 4] into [1, 0, 2].
+    """
+    return utils.invert(np.argsort(noncontig_numbering))

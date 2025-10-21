@@ -1987,7 +1987,8 @@ class MixedFunctionSpace:
         from firedrake.mg.utils import get_level
 
         dm = PETSc.DMShell().create(comm=self.comm)
-        dm.setLocalSection(self.local_section)
+        # Not implemented for mixed function spaces...
+        # dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
