@@ -252,6 +252,54 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS) -> PETSc.Section:
+    """Return a PETSc section representing the renumbering of a set of points.
+
+    The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
+    entity-wise indices in the range [0, selected_points.size). This mapping is
+    achieved by calling 'section.getOffset(plex_point)'.
+
+    Parameters
+    ----------
+    selected_points :
+        The 'plex' indices that we wish to include in the numbering.
+    new_to_old_renumbering :
+        The mesh numbering.
+
+    Returns
+    -------
+    PETSc.Section :
+        A PETSc section encoding the numbering.
+
+    """
+    section = PETSc.Section().create(comm=MPI.COMM_SELF)
+    section.setChart(0, new_to_old_numbering.size)
+    section.setPermutation(new_to_old_numbering)
+    for pt in selected_points.indices:
+        section.setDof(pt, 1)
+    section.setUp()
+    return section
+
+
+def section_offsets(section: PETSc.Section, selected_points: PETSc.IS) -> PETSc.IS:
+    """Return the section offsets for a given set of points."""
+    offsets = np.empty(selected_points.size, dtype=IntType)
+    for i, pt in enumerate(selected_points.indices):
+        offsets[i] = section.getOffset(pt)
+    return PETSc.IS().createGeneral(offsets, comm=MPI.COMM_SELF)
+
+
+# TODO: This should be in petsc4py
+def intersect_is(is1: PETSc.IS, is2: PETSc.IS) -> PETSc.IS:
+    """Return the intersection of two PETSc ISs."""
+    cdef:
+        PETSc.IS is_intersected
+
+    is_intersected = PETSc.IS().create(comm=MPI.COMM_SELF)
+    PETSc.CHKERR(ISIntersect(is1.iset, is2.iset, &is_intersected.iset))
+    return is_intersected
+
+
 def count_labelled_points(PETSc.DM dm, name,
                           PetscInt start, PetscInt end):
     """Return the number of points in the chart [start, end)

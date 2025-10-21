@@ -11,6 +11,7 @@ from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
 from pyop3.utils import (  # noqa: F401
     readonly,
+    steps,
     just_one,
     single_valued,
     is_single_valued,

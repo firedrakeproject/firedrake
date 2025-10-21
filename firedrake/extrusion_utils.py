@@ -242,8 +242,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     from firedrake.parloops import pack_tensor
 
-    # YES. THIS IS FAILING!
-    # op3.extras.debug.enable_conditional_breakpoints()
     op3.do_loop(
         p := iterset.index(),
         kernel(
@@ -252,14 +250,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             layer_height,
             my_layer_dat[p]
         ),
-        # compiler_parameters={"optimize": True},
     )
-    # op2.ParLoop(kernel,
-    #             ext_coords.cell_set,
-    #             ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-    #             base_coords.dat(op2.READ, base_coords.cell_node_map()),
-    #             layer_height(op2.READ),
-    #             pass_layer_arg=True).compute()
 
 
 def flat_entity_dofs(entity_dofs):

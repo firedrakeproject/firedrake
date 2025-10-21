@@ -514,7 +514,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     if not space.extruded:
-        dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index)
+        dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
     else:
         op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
 
@@ -567,7 +567,7 @@ def _orient_dofs(packed_tensor: op3.Tensor, *args) -> op3.Tensor:
     raise TypeError(f"No handler defined for {type(packed_tensor.__name__)}")
 
 @_orient_dofs.register(op3.Dat)
-def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index) -> op3.Dat:
+def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.Dat:
     """
 
     As an example, consider the edge DoFs of a Q3 function space in 2D. The
@@ -590,7 +590,7 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index) -> op3.Da
         i_dof -> perm[ort[i_cell, i_edge], i_dof]
 
     """
-    permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index)
+    permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
     return packed_dat.with_axes(permuted_axis_tree)
 
 
@@ -601,12 +601,20 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
-def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index) -> op3.IndexedAxisTree:
+def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
+    outer_axes = []
+    outer_path = idict()
+    for _ in range(depth):
+        outer_axis = axes.node_map[outer_path]
+        assert len(outer_axis.components) == 1
+        outer_axes.append(outer_axis)
+        outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
+
     new_targets = {
         k: (path, dict(exprs))
         for k, (path, exprs) in axes.targets[0].items()
     }
-    point_axis = axes.root
+    point_axis = axes.node_map[outer_path]
     for dim_axis_component in point_axis.components:
         dim_label = dim_axis_component.label
 
@@ -629,7 +637,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index) -> op3.I
         # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
         # now plug into 'packed_dat'
 
-        path = idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
+        path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
         before = new_targets[path][1]["dof"]
         new_targets[path][1]["dof"] = op3.replace(new_targets[path][1]["dof"], {op3.AxisVar(dof_axis): perm_expr})
         assert new_targets[path][1]["dof"] != before
@@ -677,6 +685,7 @@ def _static_node_permutation_slice(packed_axis_tree: op3.AxisTree, space: WithGe
         outer_axis = packed_axis_tree.node_map[path]
         assert len(outer_axis.components) == 1
         outer_axes.append(outer_axis)
+        breakpoint()  # update path here
 
     nodal_axis = op3.Axis(permutation.size)
     nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
