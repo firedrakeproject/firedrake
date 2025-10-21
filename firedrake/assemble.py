@@ -414,11 +414,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor
-            if len(self._form.arguments()) == 2:
-                bcs = self._bcs
-            else:
-                bcs = ()
-            return self.base_form_assembly_visitor(e, t, bcs, *operands)
+            return self.base_form_assembly_visitor(e, t, self._bcs, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
         visited = {}
