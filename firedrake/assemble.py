@@ -30,6 +30,7 @@ from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.parloops import pack_pyop3_tensor, pack_tensor
 from firedrake.petsc import PETSc
+from firedrake.mesh import iteration_set
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -2000,7 +2001,8 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._topology.measure_set(
+            return iteration_set(
+                self._topology,
                 self._integral_type,
                 self._subdomain_id,
                 self._all_integer_subdomain_ids

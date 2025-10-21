@@ -11,7 +11,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Tuple
+from typing import Literal, Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -857,22 +857,18 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def _vertex_numbering(self):
-        assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(0)
 
     @utils.cached_property
     def _cell_numbering(self):
-        assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(self.dimension)
 
-    @utils.cached_property
-    def _cell_permutation(self):
-        assert not hasattr(self, "_callback"), "Mesh must be initialised"
-        return self._entity_permutation(self.dimension)
+    # @utils.cached_property
+    # def _cell_permutation(self):
+    #     return self._entity_permutation(self.dimension)
 
     @utils.cached_property
     def _facet_numbering(self):
-        assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(self.dimension-1)
 
     # TODO: Cythonize
@@ -922,27 +918,27 @@ class AbstractMeshTopology(abc.ABC):
             entity_to_entity_numbering += p_start
         return readonly(entity_to_entity_numbering)
 
-    @cachedmethod(lambda self: self._cache["_entity_numbering_section"])
-    def _entity_numbering_section(self, dim):
-        section = PETSc.Section().create(comm=self._comm)
-        section.setChart(*self.topology_dm.getChart())
+    # @cachedmethod(lambda self: self._cache["_entity_numbering_section"])
+    # def _entity_numbering_section(self, dim):
+    #     section = PETSc.Section().create(comm=self._comm)
+    #     section.setChart(*self.topology_dm.getChart())
+    #
+    #     # TODO: Cythonize
+    #
+    #     numbering = self._entity_numbering(dim)
+    #     p_start, p_end = self.topology_dm.getDepthStratum(dim)
+    #     for i, p in enumerate(range(p_start, p_end)):
+    #         section.setDof(p, 1)
+    #         section.setOffset(p, numbering[i])
+    #     return section
 
-        # TODO: Cythonize
+    # @cached_property
+    # def _cell_numbering_section(self) -> PETSc.Section:
+    #     return self._entity_numbering_section(self.dimension)
 
-        numbering = self._entity_numbering(dim)
-        p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        for i, p in enumerate(range(p_start, p_end)):
-            section.setDof(p, 1)
-            section.setOffset(p, numbering[i])
-        return section
-
-    @cached_property
-    def _cell_numbering_section(self) -> PETSc.Section:
-        return self._entity_numbering_section(self.dimension)
-
-    def _entity_permutation(self, dim):
-        """The map from renumbered point to initial (I think)"""
-        return op3.utils.invert(self._entity_numbering(dim))
+    # def _entity_permutation(self, dim):
+    #     """The map from renumbered point to initial (I think)"""
+    #     return op3.utils.invert(self._entity_numbering(dim))
 
     @cached_property
     def _global_numbering(self):
@@ -1617,12 +1613,6 @@ class AbstractMeshTopology(abc.ABC):
         # Facets have co-dimension 1
         return self.ufl_cell().topological_dimension() - 1
 
-    # TODO: Remove me
-    @property
-    @abc.abstractmethod
-    def cell_set(self):
-        pass
-
     # def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
     #     """Return the subset of cells with the given subdomain ID.
     #
@@ -1699,6 +1689,7 @@ class AbstractMeshTopology(abc.ABC):
 
          :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
+        breakpoint()
         # if all_integer_subdomain_ids is not None:
         #     all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
         #
@@ -1726,60 +1717,6 @@ class AbstractMeshTopology(abc.ABC):
         #                                             all_integer_subdomain_ids)
         # else:
         #     raise ValueError("Unknown integral type '%s'" % integral_type)
-
-        if integral_type == "cell":
-            def get_all_indices_plex():
-                return PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
-
-            iterset = self.cells
-            component_label = self.cell_label
-            label_name == dmcommon.CELL_SETS_LABEL
-            renumbering = self._cell_numbering
-        elif integral_type == "interior_facets":
-            def get_all_indices_plex():
-                return self._interior_facet_indices_plex
-
-            iterset = self.interior_facets
-            component_label = self.facet_label
-            label_name == dmcommon.FACET_SETS_LABEL
-            renumbering = self._facet_numbering
-        elif integral_type == "exterior_facets":
-            all_indices_plex = self._exterior_facet_indices_plex
-
-            iterset = self.exterior_facets
-            component_label = self.facet_label
-            label_name == dmcommon.FACET_SETS_LABEL
-        elif integral_type == "interior_facets_vert":
-            all_indices_plex = self._interior_facets_vert_plex
-            renumbering = self._interior_facets_vert_numbering
-        elif integral_type == "interior_facets_horiz":
-            all_indices_plex = self._interior_facets_horiz_plex
-            label_name == dmcommon.FACET_SETS_LABEL
-        else:
-            raise NotImplementedError
-
-        if subdomain_id == "everywhere":
-            pass
-        else:
-            if subdomain_id == "otherwise":
-                subdomain_ids = all_integer_subdomain_ids
-                complement = True
-            else:
-                subdomain_ids = utils.as_tuple(subdomain_id)
-                complement = False
-
-            indices_plex = PETSc.IS().createGeneral()
-            for subdomain_id in subdomain_ids:
-                indices_plex = indices_plex.union(self.topology_dm.getStratumIS(label_name, subdomain_id))
-
-            if complement:
-                indices_plex = get_all_indices_plex().difference(indices_plex)
-
-            indices_renum = renumbering[indices_plex.indices]
-            subset = op3.Slice(self.name, [op3.Subset(component_label, indices_renum)])
-            iterset = iterset[subset]
-
-        return iterset.owned
 
     @abc.abstractmethod
     def mark_entities(self, tf, label_value, label_name=None):
@@ -2537,10 +2474,10 @@ class MeshTopology(AbstractMeshTopology):
     def vertex_label(self) -> int:
         return 0
 
-    # Think this should be put in AbstractMeshTopology class
     @cached_property
-    def cells(self):
-        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)])
+    def cells(self) -> op3.IndexedAxisTree:
+        # TODO: Implement and use 'FullComponentSlice' (or similar)
+        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)], label=self.name)
         return self.points[cell_slice]
 
     @cached_property
@@ -2550,6 +2487,7 @@ class MeshTopology(AbstractMeshTopology):
     @property
     @op3.utils.deprecated("cells.owned")
     def cell_set(self):
+        assert False, "dead code"
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
@@ -2860,27 +2798,8 @@ class ExtrudedMeshTopology(MeshTopology):
         self.topology_dm = dmcommon.extrude_mesh(mesh.topology_dm, layers-1, 666, periodic=periodic)
         r"The PETSc DM representation of the mesh topology."
 
-        self._cell_numbering = mesh._cell_numbering
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
-        if layers.shape:
-            self.variable_layers = True
-            extents = extnum.layer_extents(self.topology_dm,
-                                           self._cell_numbering,
-                                           layers)
-            if np.any(extents[:, 3] - extents[:, 2] <= 0):
-                raise NotImplementedError("Vertically disconnected cells unsupported")
-            self.layer_extents = extents
-            """The layer extents for all mesh points.
-
-            For variable layers, the layer extent does not match those for cells.
-            A numpy array of layer extents (in PyOP2 format
-            :math:`[start, stop)`), of shape ``(num_mesh_points, 4)`` where
-            the first two extents are used for allocation and the last
-            two for iteration.
-            """
-        else:
-            self.variable_layers = False
         self.periodic = periodic
         # submesh
         self.submesh_parent = None
@@ -6267,48 +6186,116 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     return submesh
 
 
-_
+# def _labelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> PETSc.IS:
+#     # Compute the union of all the values
+#     value, *values = values
+#     indices = plex.getStratumIS(label_name, value).indices
+#     for value in values:
+#         indices = indices.union(plex.getStratumIS(label_name, value).indices)
+#     return indices
+#
+#
+# def _labelled_cells(plex: PETSc.DMPlex, values: Iterable[IntType]) -> np.ndarray[IntType]:
+#     indices_plex = _labelled_points_plex(plex, dmcommon.CELL_SETS_LABEL, values)
+#     return 
+#
+#
+# def _unlabelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> np.ndarray[IntType]:
+#     breakpoint()  # harder than the opposite
+#     for i in markers:
+#         if i == unmarked:
+#             _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+#             # Can exclude points labeled with i\in markers here,
+#             # as they will be included in the below anyway.
+#             marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
+#         elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
+#             marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
+#     f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
+#     nmarked_facets = 0
+#     for marked_points in marked_points_list:
+#         for point in marked_points:
+#             if f_start <= point < f_stop:
+#                 nmarked_facets += 1
 
 
-def _labelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> PETSc.IS:
-    # Compute the union of all the values
-    value, *values = values
-    indices = plex.getStratumIS(label_name, value).indices
-    for value in values:
-        indices = indices.union(plex.getStratumIS(label_name, value).indices)
-    return indices
-
-
-def _labelled_cells(plex: PETSc.DMPlex, values: Iterable[IntType]) -> np.ndarray[IntType]:
-    indices_plex = _labelled_points_plex(plex, dmcommon.CELL_SETS_LABEL, values)
-    return 
-
-
-def _unlabelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> np.ndarray[IntType]:
-    breakpoint()  # harder than the opposite
-    for i in markers:
-        if i == unmarked:
-            _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
-            # Can exclude points labeled with i\in markers here,
-            # as they will be included in the below anyway.
-            marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
-        elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-            marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
-    f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
-    nmarked_facets = 0
-    for marked_points in marked_points_list:
-        for point in marked_points:
-            if f_start <= point < f_stop:
-                nmarked_facets += 1
+MeshT = MeshGeometry | AbstractMeshTopology
 
 
 def iteration_set(
-    mesh,
+    mesh: MeshT,
     integral_type: str,
-    subdomain_id: int | tuple[int, ...] | "everywhere" | "otherwise",
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere"] | Literal["otherwise"],
     all_integer_subdomain_ids: Iterable[int] | None = None,
-) -> op3.AxisTree:
+) -> op3.IndexedAxisTree:
+    """Return an iteration set appropriate for the requested integral type.
+
+    :arg integral_type: The type of the integral (should be a valid UFL measure).
+    :arg subdomain_id: The subdomain of the mesh to iterate over.
+         Either an integer, an iterable of integers or the special
+         subdomains ``"everywhere"`` or ``"otherwise"``.
+    :arg all_integer_subdomain_ids: Information to interpret the
+         ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+         entities not explicitly enumerated by the integer
+         subdomains provided here.  For example, if
+         all_integer_subdomain_ids is empty, then ``"otherwise" ==
+         "everywhere"``.  If it contains ``(1, 2)``, then
+         ``"otherwise"`` is all entities except those marked by
+         subdomains 1 and 2.  This should be a dict mapping
+         ``integral_type`` to the explicitly enumerated subdomain ids.
+
+     :returns: A :class:`pyop2.types.set.Subset` for iteration.
+        """
     if integral_type == "cell":
+        def get_all_indices_plex():
+            return PETSc.IS().createStride(mesh.num_cells, comm=MPI.COMM_SELF)
+
+        iterset = mesh.cells
+        component_label = mesh.cell_label
+        label_name = dmcommon.CELL_SETS_LABEL
         renumbering = mesh._cell_numbering
+    elif integral_type == "interior_facets":
+        def get_all_indices_plex():
+            return mesh._interior_facet_indices_plex
+
+        iterset = mesh.interior_facets
+        component_label = mesh.facet_label
+        label_name = dmcommon.FACET_SETS_LABEL
+        renumbering = mesh._facet_numbering
+    elif integral_type == "exterior_facets":
+        all_indices_plex = mesh._exterior_facet_indices_plex
+
+        iterset = mesh.exterior_facets
+        component_label = mesh.facet_label
+        label_name = dmcommon.FACET_SETS_LABEL
+    elif integral_type == "interior_facets_vert":
+        all_indices_plex = mesh._interior_facets_vert_plex
+        renumbering = mesh._interior_facets_vert_numbering
+    elif integral_type == "interior_facets_horiz":
+        all_indices_plex = mesh._interior_facets_horiz_plex
+        label_name = dmcommon.FACET_SETS_LABEL
     else:
-        breakpoint
+        raise NotImplementedError
+
+    if subdomain_id == "everywhere":
+        pass
+    else:
+        if subdomain_id == "otherwise":
+            subdomain_ids = all_integer_subdomain_ids
+            complement = True
+        else:
+            subdomain_ids = utils.as_tuple(subdomain_id)
+            complement = False
+
+        indices_plex = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+        for subdomain_id in subdomain_ids:
+            indices_plex = indices_plex.union(mesh.topology_dm.getStratumIS(label_name, subdomain_id))
+
+        if complement:
+            indices_plex = get_all_indices_plex().difference(indices_plex)
+
+        indices_renum = renumbering[indices_plex.indices]
+        subset_dat = op3.Dat.from_array(indices_renum)
+        subset = op3.Slice(mesh.name, [op3.Subset(component_label, subset_dat)])
+        iterset = iterset[subset]
+
+    return iterset.owned
