@@ -1706,7 +1706,8 @@ class MixedInterpolator(Interpolator):
         # Get the primal spaces
         spaces = tuple(a.function_space().dual() if isinstance(a, Coargument) else a.function_space()
                        for a in self.arguments)
-        # We need a stricter equality test for indexed MixedFunctionSpace
+        # TODO consider a stricter equality test for indexed MixedFunctionSpace
+        # See https://github.com/firedrakeproject/firedrake/issues/4668
         space_equals = lambda V1, V2: V1 == V2 and V1.parent == V2.parent and V1.index == V2.index
 
         # We need a Coargument in order to split the Interpolate
