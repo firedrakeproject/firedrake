@@ -238,7 +238,7 @@ class Interpolator(abc.ABC):
         tensor : Function | Cofunction | MatrixBase
             Optional tensor to store the interpolated result. For rank-2
             expressions this is expected to be a subclass of
-            :class:`~firedrake.matrix.MatrixBase`. For lower-rank expressions 
+            :class:`~firedrake.matrix.MatrixBase`. For lower-rank expressions
             this is a :class:`~firedrake.function.Function` or :class:`~firedrake.cofunction.Cofunction`,
             for forward and adjoint interpolation respectively.
 
@@ -496,9 +496,7 @@ class CrossMeshInterpolator(Interpolator):
                 f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
             def callable() -> Function | Number:
-                assemble(action(self.point_eval_input_ordering, f_point_eval),
-                            tensor=f_point_eval_input_ordering)
-
+                assemble(action(self.point_eval_input_ordering, f_point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
@@ -1409,7 +1407,7 @@ class VomOntoVomMat:
         PETSc.Mat
             PETSc seqaij matrix
         """
-        # To create the permutation matrix we broadcast an array of indices which are contiguous 
+        # To create the permutation matrix we broadcast an array of indices which are contiguous
         # across all ranks and then use these indices to set the values of the matrix directly.
         mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
