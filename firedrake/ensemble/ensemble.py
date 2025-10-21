@@ -11,11 +11,14 @@ __all__ = ("Ensemble", )
 
 
 def _ensemble_mpi_dispatch(func):
+    """
+    This wrapper checks if any arg or kwarg of the wrapped
+    ensemble method is a Function or Cofunction, and if so
+    it calls the specialised Firedrake implementation.
+    Otherwise the standard mpi4py implementation is called.
+    """
     @wraps(func)
     def _mpi_dispatch(self, *args, **kwargs):
-        # dispatch to either our specialised impl
-        # for Firedrake types, or to the default
-        # MPI impl for everything else.
         if any(isinstance(arg, (Function, Cofunction))
                for arg in [*args, *kwargs.values()]):
             return func(self, *args, **kwargs)
