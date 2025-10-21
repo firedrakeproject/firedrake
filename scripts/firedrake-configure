@@ -204,6 +204,7 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
     "libfftw3-mpi-dev",
     "libhwloc-dev",
     "libhdf5-mpi-dev",
+    "libmumps-ptscotch-dev",
     "libmetis-dev",
     "libnetcdf-dev",
     "libpnetcdf-dev",
@@ -316,8 +317,8 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "mumps": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "netcdf": {
