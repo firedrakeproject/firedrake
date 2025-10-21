@@ -1453,15 +1453,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             V = V.parent
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
-        if spaces[0] != spaces[1] and isinstance(bc, DirichletBC):
+        if isinstance(bc, DirichletBC):
             if not any(space == fs for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
-            # Not on a diagonal block, do nothing
-        elif isinstance(bc, DirichletBC):
-            if space != spaces[0]:
-                raise TypeError("bc space does not match the test function space")
-            elif space != spaces[1]:
-                raise TypeError("bc space does not match the trial function space")
+            if spaces[0] != spaces[1]:
+                # Not on a diagonal block, we cannot set diagonal entries
+                return
 
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
