@@ -852,21 +852,14 @@ class Mat(AbstractMat):
         self.handle.zeroEntries()
 
     @mpi.collective
-    def zero_rows(self, rows, diag_val=1.0, idx=None):
+    def zero_rows(self, rows, diag_val=1.0):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions.
 
         :param rows: a :class:`Subset` or an iterable"""
-        rows = rows.indices if isinstance(rows, Subset) else rows
-        rows = np.asarray(rows, dtype=dtypes.IntType)
-        rbs, _ = self.dims[0][0]
-        if rbs > 1:
-            if idx is not None:
-                rows = rbs * rows + idx
-            else:
-                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         self.assemble()
+        rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
     def _flush_assembly(self):
