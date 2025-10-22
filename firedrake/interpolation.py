@@ -776,32 +776,36 @@ def _build_interpolation_callables(
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
-    callables = ()
+    copyin = ()
+    copyout = ()
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
-        # Compute the reciprocal of the DOF multiplicity
+        # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
+        v = firedrake.Function(W)
+        expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        copyin += (partial(dual_arg.dat.copy, v.dat),)
+
+        # Compute the reciprocal of the DOF multiplicity
+        wdat = W.make_dat()
+        m_ = get_interp_node_map(source_mesh, target_mesh, W)
         wsize = W.finat_element.space_dimension() * W.block_size
         kernel_code = f"""
         void multiplicity(PetscScalar *restrict w) {{
             for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
         }}"""
-        kernel = op2.Kernel(kernel_code, "multiplicity", requires_zeroed_output_arguments=False)
-        weight = firedrake.Function(W)
-        m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, m_))
-        with weight.dat.vec as w:
+        kernel = op2.Kernel(kernel_code, "multiplicity")
+        op2.par_loop(kernel, cell_set, wdat(op2.INC, m_))
+        with wdat.vec as w:
             w.reciprocal()
 
-        # Create a buffer for the weighted Cofunction and a callable to apply the weight
-        v = firedrake.Function(W)
-        expr = expr._ufl_expr_reconstruct_(operand, v=v)
-        with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
-            callables += (partial(y.pointwiseMult, x, w),)
+        # Create a callable to apply the weight
+        with wdat.vec_ro as w, v.dat.vec as y:
+            copyin += (partial(y.pointwiseMult, y, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -817,7 +821,7 @@ def _build_interpolation_callables(
     coefficient_numbers = kernel.coefficient_numbers
     needs_external_coords = kernel.needs_external_coords
     name = kernel.name
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
+    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=(access is not op2.INC),
                         flop_count=kernel.flop_count, events=(kernel.event,))
 
     parloop_args = [kernel, cell_set]
@@ -830,19 +834,14 @@ def _build_interpolation_callables(
         output = tensor
         tensor = op2.Dat(tensor.dataset)
         if access is not op2.WRITE:
-            copyin = (partial(output.copy, tensor), )
-        else:
-            copyin = ()
-        copyout = (partial(tensor.copy, output), )
-    else:
-        copyin = ()
-        copyout = ()
+            copyin += (partial(output.copy, tensor), )
+        copyout += (partial(tensor.copy, output), )
 
     arguments = expr.arguments()
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
-        V_dest = arguments[-1].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
+        V_dest = arguments[-1].function_space()
         m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
         parloop_args.append(tensor(access, m_))
     else:
@@ -904,14 +903,12 @@ def _build_interpolation_callables(
                 parloop_args.append(target_ref_coords.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
-    parloop_compute_callable = parloop.compute
     if isinstance(tensor, op2.Mat):
-        return parloop_compute_callable, tensor.assemble
+        return parloop, tensor.assemble
     else:
-        extra = copyin + callables
         if access == op2.INC:
-            extra += (tensor.zero,)
-        return extra + (parloop_compute_callable, ) + copyout
+            copyin += (tensor.zero,)
+        return copyin + (parloop, ) + copyout
 
 
 def get_interp_node_map(source_mesh: MeshGeometry, target_mesh: MeshGeometry, fs: WithGeometry) -> op2.Map | None:
