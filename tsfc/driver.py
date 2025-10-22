@@ -215,20 +215,28 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    orig_coefficients = extract_coefficients(expression)
-    if isinstance(expression, ufl.Interpolate):
-        v, operand = expression.argument_slots()
-    else:
-        operand = expression
-        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
+    if domain is None:
+        domain = extract_unique_domain(expression)
+    assert domain is not None
 
-    # Map into reference space
+    orig_coefficients = extract_coefficients(expression)
+    v, operand = expression.argument_slots()
+
+    # Map v into reference space
+    if ufl_element.mapping() != "identity":
+        Vref = ufl.FunctionSpace(domain, finat.ufl.WithMapping(ufl_element, "identity"))
+        if isinstance(v, ufl.Cofunction):
+            v = ufl.Cofunction(Vref.dual())
+        else:
+            v = ufl.Coargument(Vref.dual(), number=v.number())
+
+    # Map operand into reference space
     operand = apply_mapping(operand, ufl_element, domain)
 
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
-    # Reconstructed Interpolate with mapped operand
+    # Reconstructed Interpolate in the reference space
     expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
@@ -243,9 +251,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     assert len(argument_multiindices) == len(arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
-    if domain is None:
-        domain = extract_unique_domain(expression)
-    assert domain is not None
     builder._domain_integral_type_map = {domain: "cell"}
 
     # Collect required coefficients and determine numbering
@@ -259,6 +264,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     elements = [f.ufl_element() for f in (*coefficients, *arguments)]
 
+    # Replace coordinates (if any) unless otherwise specified by kwarg
     needs_external_coords = False
     if has_type(expression, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
