@@ -674,12 +674,10 @@ class AbstractMeshTopology(abc.ABC):
                         rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
                         # must use an inverse ordering because we want to know the map *back*
                         # from renumbered to original cell number
-                        # FIXME: We undo this inside!
                         cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
                     else:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
                     old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
-                    breakpoint()  # not inverted any more
                 else:
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if not reorder:
@@ -3621,7 +3619,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                      (self.num_vertices, self.geometric_dimension()))
-        breakpoint()
         coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                       val=coordinates_data,
                                                       name=_generate_default_mesh_coordinates_name(self.name))

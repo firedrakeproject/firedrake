@@ -357,15 +357,19 @@ def local_facet_number(mesh, facet_type):
     if facet_type == "exterior":
         ncells_per_facet = 1
         facets = mesh._exterior_facet_plex_indices.indices
+        specific_numbering = mesh._old_to_new_exterior_facet_numbering
     else:
         assert facet_type == "interior"
         ncells_per_facet = 2
         facets = mesh._interior_facet_plex_indices.indices
+        specific_numbering = mesh._old_to_new_interior_facet_numbering
 
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
     for fi, facet in enumerate(facets):
         facet_renum = facet_numbering.getOffset(facet)
+
+        specific_facet_renum = specific_numbering.getOffset(facet)
 
         CHKERR(DMPlexGetSupport(plex.dm, facet, &cells))
         CHKERR(DMPlexGetSupportSize(plex.dm, facet, &ncells))
@@ -376,7 +380,7 @@ def local_facet_number(mesh, facet_type):
 
             for closure_fi in range(nfacets_in_closure):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:
-                    facet_number[fi, ci] = closure_fi
+                    facet_number[specific_facet_renum, ci] = closure_fi
                     break
 
     return facet_number
