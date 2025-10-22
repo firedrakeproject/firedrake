@@ -143,6 +143,7 @@ def test_quadrilateral(mesh_quadrilateral, family, degree):
     f = Function(V).interpolate((x[0] - 0.5)*(x[1] - 0.2))
     assert np.allclose(+0.02, f([0.6, 0.4]))
     assert np.allclose(-0.35, f([0.0, 0.9]))
+    assert isinstance(f([0.1, 0.2]), float)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -161,6 +162,7 @@ def test_quadrilateral_vector(mesh_quadrilateral, family, degree):
 
     assert np.allclose([0.6, 0.56], f([0.6, 0.4]))
     assert np.allclose([1.1, 0.18], f([0.0, 0.9]))
+    assert isinstance(f([0.1, 0.2]), list)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -172,6 +174,7 @@ def test_tetrahedron(mesh_tetrahedron, family, degree):
     f = Function(V).interpolate((x[0] - 0.5)*(x[1] - x[2]))
     assert np.allclose(+0.01, f([0.6, 0.4, 0.3]))
     assert np.allclose(-0.06, f([0.4, 0.7, 0.1]))
+    assert isinstance(f([0.2, 0.3, 0.4]), float)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -192,6 +195,7 @@ def test_tetrahedron_vector(mesh_tetrahedron, family, degree):
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.9, 0.34, 0.7], f([0.4, 0.7, 0.1]))
+    assert isinstance(f([0.2, 0.3, 0.4]), list)
 
 
 def test_point_eval_forces_writes():
