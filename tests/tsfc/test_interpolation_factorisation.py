@@ -2,7 +2,7 @@ from functools import partial
 import numpy
 import pytest
 
-from ufl import (Mesh, FunctionSpace, Coefficient,
+from ufl import (Interpolate, Mesh, FunctionSpace, Coefficient,
                  interval, quadrilateral, hexahedron)
 from finat.ufl import FiniteElement, VectorElement, TensorElement
 
@@ -30,7 +30,7 @@ def flop_count(mesh, source, target):
     Vtarget = FunctionSpace(mesh, target)
     Vsource = FunctionSpace(mesh, source)
     to_element = create_element(Vtarget.ufl_element())
-    expr = Coefficient(Vsource)
+    expr = Interpolate(Coefficient(Vsource), Vtarget)
     kernel = compile_expression_dual_evaluation(expr, to_element, Vtarget.ufl_element())
     return kernel.flop_count
 
