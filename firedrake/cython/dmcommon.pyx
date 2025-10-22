@@ -352,11 +352,11 @@ def local_facet_number(mesh, facet_type):
 
     if facet_type == "exterior":
         ncells_per_facet = 1
-        facets = mesh._exterior_facet_plex_indices
+        facets = mesh._exterior_facet_plex_indices.indices
     else:
         assert facet_type == "interior"
         ncells_per_facet = 2
-        facets = mesh._interior_facet_plex_indices
+        facets = mesh._interior_facet_plex_indices.indices
 
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)

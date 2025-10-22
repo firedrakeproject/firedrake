@@ -23,6 +23,7 @@ from pyop3.utils import (  # noqa: F401
     StrictlyUniqueDict,
     invert,
     split_by,
+    as_tuple,
 )
 
 import petsctools

@@ -1033,9 +1033,9 @@ class ParloopFormAssembler(FormAssembler):
         mesh = self._form.ufl_domains()[0]
         with active_scoped_cache(mesh._cache):  # NOTE: This doesn't really do anything
             # debug
-            # pyop3_compiler_parameters = {"optimize": True}
+            pyop3_compiler_parameters = {"optimize": True}
             # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-            pyop3_compiler_parameters = {"optimize": False}
+            # pyop3_compiler_parameters = {"optimize": False}
             pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
             if tensor is None:
@@ -1051,9 +1051,6 @@ class ParloopFormAssembler(FormAssembler):
                 # TODO: move this elsewhere, or avoid entirely?
                 if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                     subtensor = subtensor.buffer.mat.getPythonContext().dat
-
-                import pyop3.extras.debug
-                pyop3.extras.debug.enable_conditional_breakpoints()
 
                 if isinstance(self, ExplicitMatrixAssembler):
                     with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
@@ -1566,10 +1563,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         cmap = rmap
                     elif integral_type in {"exterior_facet", "interior_facet"}:
                         if integral_type == "exterior_facet":
-                            iterset = plex.exterior_facets.set
+                            iterset = plex.exterior_facets.owned
                         else:
                             assert integral_type == "interior_facet"
-                            iterset = plex.interior_facets.set
+                            iterset = plex.interior_facets.owned
 
                         index = iterset.index()
                         rmap = mesh.closure(mesh.support(index))
@@ -1600,10 +1597,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 cmap = rmap
             elif integral_type in {"exterior_facet", "interior_facet"}:
                 if integral_type == "exterior_facet":
-                    iterset = plex.exterior_facets.set
+                    iterset = plex.exterior_facets.owned
                 else:
                     assert integral_type == "interior_facet"
-                    iterset = plex.interior_facets.set
+                    iterset = plex.interior_facets.owned
 
                 index = iterset.index()
                 rmap = mesh.closure(mesh.support(index))
@@ -2061,7 +2058,7 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._topology.exterior_facets._local_facets[index]
+        return self._topology.exterior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):

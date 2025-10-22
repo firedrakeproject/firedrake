@@ -275,17 +275,27 @@ def _(int_: numbers.Integral, /, *, axes, path) -> Index:
 def _(slice_: slice, /, *, axes, path) -> Slice:
     if path is None:
         raise RuntimeError("Cannot parse Python slices here due to ambiguity")
+    slice_is_full = slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}
+
     axis = axes.node_map[path]
     if len(axis.components) == 1:
+        if slice_is_full:
+            return Slice(
+                axis.label,
+                [AffineSliceComponent(axis.component.label, label=axis.component.label)],
+                label=axis.label,
+            )
+        else:
+            return Slice(
+                axis.label,
+                [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
+            )
+    elif slice_is_full:
+        # just take everything, keep the labels around (for now, eventually want a special type for this)
         return Slice(
             axis.label,
-            [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
-        )
-    elif slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}:
-        # just take everything
-        return Slice(
-            axis.label,
-            [AffineSliceComponent(component.label) for component in axis.components]
+            [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
+            label=axis.label,
         )
     else:
         # badindexexception?

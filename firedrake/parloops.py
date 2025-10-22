@@ -542,7 +542,7 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     if not any(space.extruded for space in [row_space, column_space]):
-        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index)
+        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index, row_depth=row_depth, column_depth=column_depth)
     else:
         op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
 
@@ -563,7 +563,7 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
 # NOTE: This function will need a major do-over when FUSE lands
 @functools.singledispatch
-def _orient_dofs(packed_tensor: op3.Tensor, *args) -> op3.Tensor:
+def _orient_dofs(packed_tensor: op3.Tensor, *args, **kwargs) -> op3.Tensor:
     raise TypeError(f"No handler defined for {type(packed_tensor.__name__)}")
 
 @_orient_dofs.register(op3.Dat)
@@ -595,9 +595,9 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
 
 
 @_orient_dofs.register(op3.Mat)
-def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, cell_index: op3.Index) -> op3.Mat:
-    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, cell_index)
-    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, cell_index)
+def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
+    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, cell_index, depth=row_depth)
+    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, cell_index, depth=column_depth)
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
@@ -680,12 +680,12 @@ def _static_node_permutation_slice(packed_axis_tree: op3.AxisTree, space: WithGe
 
     # TODO: Could be 'AxisTree.linear_to_depth()' or similar
     outer_axes = []
-    path = idict()
+    outer_path = idict()
     for _ in range(depth):
-        outer_axis = packed_axis_tree.node_map[path]
+        outer_axis = packed_axis_tree.node_map[outer_path]
         assert len(outer_axis.components) == 1
         outer_axes.append(outer_axis)
-        breakpoint()  # update path here
+        outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
     nodal_axis = op3.Axis(permutation.size)
     nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])

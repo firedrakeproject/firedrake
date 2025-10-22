@@ -809,21 +809,21 @@ class AbstractMeshTopology(abc.ABC):
     # def _vertex_numbering(self):
     #     return self._entity_numbering(0)
 
-    # @cached_property
-    # def _old_to_new_cell_numbering(self):
-    #     return self._entity_numbering(self.dimension)
+    @cached_property
+    def _old_to_new_cell_numbering(self) -> PETSc.IS:
+        return self._plex_to_entity_numbering(self.dimension)
 
     @cached_property
     def _old_to_new_facet_numbering(self) -> PETSc.IS:
         return self._plex_to_entity_numbering(self.dimension-1)
 
-    # @cached_property
-    # def _old_to_new_exterior_facet_numbering(self) -> np.ndarray[IntType]:
-    #     return compress_numbering(self._old_to_new_facet_numbering[self._exterior_facet_strata_indices_plex])
-    #
-    # @cached_property
-    # def _old_to_new_interior_facet_numbering(self) -> np.ndarray[IntType]:
-    #     return compress_numbering(self._old_to_new_facet_numbering[self._interior_facet_strata_indices_plex])
+    @cached_property
+    def _old_to_new_exterior_facet_numbering(self):
+        return dmcommon.entity_numbering(self._exterior_facet_plex_indices, self._new_to_old_point_renumbering)
+
+    @cached_property
+    def _old_to_new_interior_facet_numbering(self):
+        return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering)
 
     # TODO: Cythonize
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
@@ -833,68 +833,6 @@ class AbstractMeshTopology(abc.ABC):
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         plex_indices = PETSc.IS().createStride(size=p_end-p_start, first=p_start, comm=MPI.COMM_SELF)
         return dmcommon.entity_numbering(plex_indices, self._new_to_old_point_renumbering)
-        """
-
-        stratum_localize :
-            Whether the 'localise' the destination points. That is, whether to
-            use the full plex numbering or just the numbering for a particular
-            entity.
-        """
-        assert False, "old code"
-        # In this method we distinguish between 'entity' and 'point' numbering. For
-        # example, given the following mesh:
-        #
-        #     x-----x-----x
-        #     2  0  1  3  4
-        #    (2  0  3  1  4)  # canonical numbering
-        #
-        # we have point numbering
-        #
-        #     { 0->0, 1->3, 2->2, 3->1, 4->4 }
-        #
-        # and entity numberings
-        #
-        #     { 0->0, 1->1 }  # cells
-        #
-        # and
-        #
-        #     { 0->1, 1->0, 2->2 }  # vertices
-        point_to_point_numbering = self._old_to_new_point_renumbering.indices
-        p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        entity_to_point_numbering = point_to_point_numbering[p_start:p_end]
-        # Now convert this into a fully entity-wise numbering. For the vertices in
-        # the example above this would constitute turning [2, 1, 4] into [1, 0, 2].
-        entity_to_entity_numbering = compress_numbering(entity_to_point_numbering)
-
-        if not stratum_localize:
-            entity_to_entity_numbering += p_start
-        return readonly(entity_to_entity_numbering)
-
-    # @cachedmethod(lambda self: self._cache["_entity_numbering_section"])
-    # def _entity_numbering_section(self, dim):
-    #     section = PETSc.Section().create(comm=self._comm)
-    #     section.setChart(*self.topology_dm.getChart())
-    #
-    #     # TODO: Cythonize
-    #
-    #     numbering = self._entity_numbering(dim)
-    #     p_start, p_end = self.topology_dm.getDepthStratum(dim)
-    #     for i, p in enumerate(range(p_start, p_end)):
-    #         section.setDof(p, 1)
-    #         section.setOffset(p, numbering[i])
-    #     return section
-
-    # @cached_property
-    # def _cell_numbering_section(self) -> PETSc.Section:
-    #     return self._entity_numbering_section(self.dimension)
-
-    # def _entity_permutation(self, dim):
-    #     """The map from renumbered point to initial (I think)"""
-    #     return op3.utils.invert(self._entity_numbering(dim))
-
-    @cached_property
-    def _old_to_new_interior_facet_numbering(self):
-        return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering)
 
     @cached_property
     def _global_numbering(self):
@@ -905,6 +843,7 @@ class AbstractMeshTopology(abc.ABC):
         # Start with a local numbering
         if self._is_renumbered:
             numbering = self._old_to_new_point_renumbering.indices.copy()
+            # numbering = self._new_to_old_point_renumbering.indices.copy()  # testing
         else:
             numbering = np.arange(self.points.size, dtype=IntType)
 
@@ -1407,14 +1346,14 @@ class AbstractMeshTopology(abc.ABC):
             selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices).indices
             arity = 2
 
-        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets))], label=f"{facet_type}_facets")
+        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets), label=facet_axis.component.label)], label=facet_axis.label)
 
-        # *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()
-        # myslice = op3.Slice(leaf_axis_label, [op3.AffineSliceComponent(leaf_component_label, stop=arity)], label="support")
+        *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()
+        myslice = op3.Slice(leaf_axis_label, [op3.AffineSliceComponent(leaf_component_label, stop=arity)], label="support")
 
-        # TODO: This should work, trying now
-        return facet_support_dat[mysubset, slice(arity)]
-        # return facet_support_dat[mysubset, myslice]
+        # TODO: This should ideally work
+        # return facet_support_dat[mysubset, slice(arity)]
+        return facet_support_dat[mysubset, myslice]
 
     # delete?
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
@@ -1913,7 +1852,7 @@ class MeshTopology(AbstractMeshTopology):
         renumbering = self._old_to_new_point_renumbering.indices
         for dim in range(self.dimension+1):
             p_start, p_end = self.topology_dm.getDepthStratum(dim)
-            indices.append(readonly(renumbering[p_start:p_end]))
+            indices.append(readonly(np.sort(renumbering[p_start:p_end])))
         return tuple(indices)
 
     # @cached_property
@@ -2315,6 +2254,10 @@ class MeshTopology(AbstractMeshTopology):
         return utils.readonly(indices_plex - f_start)
 
     @cached_property
+    def _cell_plex_indices(self) -> PETSc.IS:
+        return PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+
+    @cached_property
     def _exterior_facet_plex_indices(self) -> PETSc.IS:
         return PETSc.IS().createGeneral(
             dmcommon.facets_with_label(self, "exterior_facets"), comm=MPI.COMM_SELF
@@ -2328,17 +2271,14 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def exterior_facet_local_facet_indices(self) -> op3.Dat:
-        return self._local_facet_index("exterior")
+        local_facet_index = dmcommon.local_facet_number(self, "exterior")
+        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets.as_axis(), 1])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
     def interior_facet_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "interior")
-
         axis_tree = op3.AxisTree.from_iterable([self.interior_facets.as_axis(), 2])
-
-        # cast dtype, I think that this is a bug
-        # owned_local_facet_number = np.asarray(owned_local_facet_number, dtype=np.uint32)
-
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
@@ -6206,21 +6146,25 @@ def iteration_set(
         case "cell":
             iterset = mesh.cells
             dmlabel_name = dmcommon.CELL_SETS_LABEL
-            renumbering = mesh._old_to_new_cell_numbering
+            valid_plex_indices = mesh._cell_plex_indices
+            old_to_new_entity_numbering  = mesh._old_to_new_cell_numbering
+        case "exterior_facet":
+            iterset = mesh.exterior_facets
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_plex_indices
+            old_to_new_entity_numbering  = mesh._old_to_new_exterior_facet_numbering
         case "interior_facet":
             iterset = mesh.interior_facets
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             valid_plex_indices = mesh._interior_facet_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_numbering
-        case "exterior_facet":
-            iterset = mesh.exterior_facets
-            dmlabel_name = dmcommon.FACE_SETS_LABEL
-            renumbering = mesh._old_to_new_exterior_facet_numbering
         case "interior_facet_vert":
+            raise NotImplementedError
             iterset = mesh.interior_facets_vert
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             renumbering = mesh._interior_facet_vert_numbering
         case "interior_facet_horiz":
+            raise NotImplementedError
             iterset = mesh.interior_facets_horiz
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             renumbering = mesh._interior_facet_horiz_numbering
