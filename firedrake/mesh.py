@@ -86,6 +86,7 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
+# TODO: This should be a constant, this is not a good idea!
 unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
@@ -6183,17 +6184,22 @@ def iteration_set(
         # Get all points labelled with the subdomain ID
         plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
         for subdomain_id in subdomain_ids:
-            plex_indices = plex_indices.union(
-                mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
-            )
-
-        print(plex_indices.indices)
-        print(valid_plex_indices.indices)
+            if subdomain_id == unmarked:  # NOTE: This is a constant, but it's very unclear
+                plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
+                # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
+                all_plex_subdomain_ids = mesh.topology_dm.getLabelIdIS(dmlabel_name).indices
+                for subdomain_id_ in all_plex_subdomain_ids:
+                    plex_indices_to_exclude = plex_indices_to_exclude.union(
+                        mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id_)
+                    )
+                matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
+            else:
+                matching_indices = mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
+            plex_indices = plex_indices.union(matching_indices)
 
         # Restrict to indices that exist within the iterset (e.g. drop exterior facets
         # from an interior facet integral)
         plex_indices = dmcommon.intersect_is(plex_indices, valid_plex_indices)
-        print(plex_indices.indices)
 
         # If the 'subdomain_id' is 'otherwise' then we now have a list of the
         # indices that we *do not* want
@@ -6204,7 +6210,6 @@ def iteration_set(
         # we have to convert this to a numbering specific to the iteration set (e.g.
         # map point 12 to interior facet 3).
         localized_indices = dmcommon.section_offsets(old_to_new_entity_numbering, plex_indices, sort=True)
-        print(localized_indices.indices)
 
         iterset_axis = iterset.as_axis()
         # TODO: Ideally should be able to avoid creating these here and just index
