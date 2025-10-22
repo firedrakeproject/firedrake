@@ -2692,7 +2692,13 @@ class ExtrudedMeshTopology(MeshTopology):
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
-        self.topology_dm = dmcommon.extrude_mesh(mesh.topology_dm, layers-1, 666, periodic=periodic)
+        base_dm = mesh.topology_dm.clone()
+        base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
+        # base_dm.removeLabel("exterior_facets")
+        # base_dm.removeLabel("interior_facets")
+        self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
+        self.topology_dm.getLabel("exterior_facets").setName("base_exterior_facets")
+        self.topology_dm.getLabel("interior_facets").setName("base_interior_facets")
         r"The PETSc DM representation of the mesh topology."
 
         self._distribution_parameters = mesh._distribution_parameters
@@ -2881,6 +2887,108 @@ class ExtrudedMeshTopology(MeshTopology):
             "Cannot use 'interior_facets' for extruded meshes, use 'interior_facets_vert' "
             "or 'interior_facets_horiz instead"
         )
+
+    @cached_property
+    def _exterior_facet_vert_plex_indices(self) -> PETSc.IS:
+        # Consider extruding the following interval mesh:
+        #
+        #     E-----I-----E
+        #
+        # to
+        #
+        #     x--E--x--E--x
+        #     |     |     |
+        #     E     I     E
+        #     |     |     |
+        #     x--I--x--I--x
+        #     |     |     |
+        #     E     I     E
+        #     |     |     |
+        #     x--E--x--E--x
+        #
+        # The vertical exterior facets are simply given by all the points coming
+        # from exterior facets in the base mesh.
+        exterior_vert_plex_indices = self.topology_dm.getLabel("base_exterior_facets").getStratumIS(1)
+
+        # Drop non-facet indices (i.e. the extruded vertices)
+        return dmcommon.filter_is(
+            exterior_vert_plex_indices,
+            *self.topology_dm.getDepthStratum(self.dimension-1),
+        )
+
+    @cached_property
+    def _facet_horiz_plex_indices(self) -> PETSc.IS:
+        # Consider extruding the following interval mesh:
+        #
+        #     x-----x-----x
+        #
+        # to
+        #
+        #     x--H--x--H--x
+        #     |     |     |
+        #     |     |     |
+        #     |     |     |
+        #     x--H--x--H--x
+        #     |     |     |
+        #     |     |     |
+        #     |     |     |
+        #     x--H--x--H--x
+        #
+        # The horizontal facets are those generated from base cells.
+        base_cell_plex_indices = self.topology_dm.getLabel("base_dim").getStratumIS(self._base_mesh.dimension)
+
+        # Drop non-facet indices (i.e. the extruded cells)
+        return dmcommon.filter_is(
+            base_cell_plex_indices,
+            *self.topology_dm.getDepthStratum(self.dimension),
+        )
+
+    @cached_property
+    def _exterior_facet_horiz_plex_indices(self) -> PETSc.IS:
+        # Consider extruding the following interval mesh:
+        #
+        #     x-----x-----x
+        #
+        # to
+        #
+        #     x--E--x--E--x
+        #     |     |     |
+        #     |     |     |
+        #     |     |     |
+        #     x--I--x--I--x
+        #     |     |     |
+        #     |     |     |
+        #     |     |     |
+        #     x--E--x--E--x
+        #
+        # The external horizontal facets are the first and last horizontal
+        # facets in each column. Since we know DMPlex numbers edges contiguously
+        # up the column we can just slice them out.
+        exterior_facet_horiz_indices = (
+            self._facet_horiz_plex_indices.indices
+            .reshape((-1, self.layers))[:, [0, -1]]
+            .flatten()
+        )
+        return PETSc.IS().createGeneral(exterior_facet_horiz_indices, comm=MPI.COMM_SELF)
+
+    @cached_property
+    def _interior_facet_horiz_plex_indices(self) -> PETSc.IS:
+        return self._facet_horiz_plex_indices.difference(self._exterior_facet_horiz_plex_indices)
+
+    @cached_property
+    def _interior_facet_plex_indices(self) -> PETSc.IS:
+        breakpoint()  # somehow invert the exterior facet indices
+
+
+    @cached_property
+    def _interior_facet_horiz_plex_indices(self) -> PETSc.IS:
+        f_start, f_end = self.topology_dm.getDepthStratum(self.dimension-1)
+        facet_plex_indices = PETSc.IS().createStride(
+            size=f_end-f_start, first=f_start, comm=MPI.COMM_SELF
+        )
+        # interior_facet_plex_indices = facet_plex_indices.intersect(???)
+        # can get horiz indices by looking at the base dim
+        breakpoint()
 
     # @utils.cached_property
     # def cell_closure(self):
@@ -5912,9 +6020,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     plex1 = plex.clone()
     plex1.setName(_generate_default_mesh_topology_name(name1))
     # Remove pyop2 labels.
-    plex1.removeLabel("pyop2_core")
-    plex1.removeLabel("pyop2_owned")
-    plex1.removeLabel("pyop2_ghost")
+    plex1.removeLabel("firedrake_is_ghost")
     # Do not remove "exterior_facets" and "interior_facets" labels;
     # those should be reused as the mesh has already been distributed (if size > 1).
     for label_name in [dmcommon.CELL_SETS_LABEL, dmcommon.FACE_SETS_LABEL]:

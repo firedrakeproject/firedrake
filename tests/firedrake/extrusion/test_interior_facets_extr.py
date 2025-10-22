@@ -7,6 +7,8 @@ def test_interior_facet_vfs_extr_horiz_2d_rhs():
     m = UnitIntervalMesh(1)
     mesh = ExtrudedMesh(m, layers=2)
 
+    breakpoint()
+
     U = VectorFunctionSpace(mesh, 'DG', 1)
     v = TestFunction(U)
     n = FacetNormal(mesh)
