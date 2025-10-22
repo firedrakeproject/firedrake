@@ -667,8 +667,8 @@ class Mat(AbstractMat):
         mat = PETSc.Mat()
         rset, cset = self.sparsity.dsets
         if self.mat_type == "is":
-            rmaps = [None for _ in range(len(rset.local_ises))]
-            cmaps = [None for _ in range(len(cset.local_ises))]
+            rmaps = [None for _ in rset.local_ises]
+            cmaps = [None for _ in cset.local_ises]
             for (i, j), maps_and_regions in self.sparsity._maps_and_regions.items():
                 for item in maps_and_regions:
                     rmaps[i], cmaps[j], _ = item
