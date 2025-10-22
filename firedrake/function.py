@@ -551,9 +551,9 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         coord = np.asarray(coord, dtype=utils.ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
-        result = evaluator.evaluate(self).tolist()
+        result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
-            result = result[0]
+            result = result.squeeze()
         return result
 
     def at(self, arg, *args, **kwargs):
