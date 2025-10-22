@@ -2058,7 +2058,9 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._topology.exterior_facet_local_facet_indices[index]
+        retval = self._topology.exterior_facet_local_facet_indices[index]
+        breakpoint()
+        return retval
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):

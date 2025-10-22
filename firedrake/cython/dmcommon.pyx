@@ -281,12 +281,16 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS) 
     return section
 
 
-def section_offsets(section: PETSc.Section, selected_points: PETSc.IS) -> PETSc.IS:
+def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: bool = False) -> PETSc.IS:
     """Return the section offsets for a given set of points."""
     offsets = np.empty(selected_points.size, dtype=IntType)
     for i, pt in enumerate(selected_points.indices):
         offsets[i] = section.getOffset(pt)
-    return PETSc.IS().createGeneral(offsets, comm=MPI.COMM_SELF)
+
+    offsets_is = PETSc.IS().createGeneral(offsets, comm=MPI.COMM_SELF)
+    if sort:
+        offsets_is.sort()
+    return offsets_is
 
 
 # TODO: This should be in petsc4py
@@ -2450,7 +2454,7 @@ def compute_dm_renumbering(
     """
     # TODO: clean this up
     cdef:
-        PETSc.IS ordering_is, renumbering_is
+        PETSc.IS ordering_is, renumbering_is, perm_is
         PETSc.DM dm
         np.ndarray reordering_inv
 
@@ -2465,7 +2469,7 @@ def compute_dm_renumbering(
         DMLabel clabel
         bint reorder = reordering is not None
 
-    reordering_inv = utils.invert(reordering)
+    reordering_inv = reordering
 
     dm = mesh.topology_dm
 
@@ -2554,12 +2558,13 @@ def compute_dm_renumbering(
 
     ordering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
     ordering_is.setType("general")
-    renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
-    renumbering_is.setType("general")
-
     CHKERR(ISGeneralSetIndices(ordering_is.iset, mesh.num_points, ordering, PETSC_OWN_POINTER))
-    CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
-    return renumbering_is
+    # renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
+    # renumbering_is.setType("general")
+
+    return ordering_is.invertPermutation()
+    # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
+    # return renumbering_is
 
 
 def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:

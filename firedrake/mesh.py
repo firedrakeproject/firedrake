@@ -679,6 +679,7 @@ class AbstractMeshTopology(abc.ABC):
                     else:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
                     old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                    breakpoint()  # not inverted any more
                 else:
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if not reorder:
@@ -1339,11 +1340,11 @@ class AbstractMeshTopology(abc.ABC):
 
         if facet_type == "exterior":
             facet_axis = self.exterior_facets.as_axis()
-            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._exterior_facet_plex_indices).indices
+            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True).indices
             arity = 1
         else:
             facet_axis = self.interior_facets.as_axis()
-            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices).indices
+            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True).indices
             arity = 2
 
         mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets), label=facet_axis.component.label)], label=facet_axis.label)
@@ -2231,7 +2232,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             assert facet_type == "interior"
             facet_plex_indices = self._interior_facet_plex_indices
-        subset_indices = dmcommon.section_offsets(self._old_to_new_facet_numbering, facet_plex_indices)
+        subset_indices = dmcommon.section_offsets(self._old_to_new_facet_numbering, facet_plex_indices, sort=True)
         subset_dat = op3.Dat.from_array(subset_indices.indices)
         return op3.Slice(self.name, [op3.Subset(self.facet_label, subset_dat)])
 
@@ -3620,6 +3621,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                      (self.num_vertices, self.geometric_dimension()))
+        breakpoint()
         coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                       val=coordinates_data,
                                                       name=_generate_default_mesh_coordinates_name(self.name))
@@ -6188,9 +6190,13 @@ def iteration_set(
                 mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
             )
 
+        print(plex_indices.indices)
+        print(valid_plex_indices.indices)
+
         # Restrict to indices that exist within the iterset (e.g. drop exterior facets
         # from an interior facet integral)
         plex_indices = dmcommon.intersect_is(plex_indices, valid_plex_indices)
+        print(plex_indices.indices)
 
         # If the 'subdomain_id' is 'otherwise' then we now have a list of the
         # indices that we *do not* want
@@ -6200,7 +6206,8 @@ def iteration_set(
         # We now have the correct set of indices represented in DMPlex numbering, now
         # we have to convert this to a numbering specific to the iteration set (e.g.
         # map point 12 to interior facet 3).
-        localized_indices = dmcommon.section_offsets(old_to_new_entity_numbering, plex_indices)
+        localized_indices = dmcommon.section_offsets(old_to_new_entity_numbering, plex_indices, sort=True)
+        print(localized_indices.indices)
 
         iterset_axis = iterset.as_axis()
         # TODO: Ideally should be able to avoid creating these here and just index
