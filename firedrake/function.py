@@ -550,7 +550,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
-        return evaluator.evaluate(self)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze()
+        return result
 
     def at(self, arg, *args, **kwargs):
         warnings.warn(
