@@ -408,9 +408,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
-        def parent_space(V):
-            return V.parent or V
-
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor
