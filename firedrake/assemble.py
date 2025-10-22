@@ -2065,7 +2065,7 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        return self._topology.interior_facets._local_facets[index]
+        return self._topology.interior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):

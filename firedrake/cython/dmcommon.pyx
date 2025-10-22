@@ -327,8 +327,7 @@ def count_labelled_points(PETSc.DM dm, name,
     CHKERR(DMLabelDestroyIndex(label))
     return n
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
+# TODO: don't pass the mesh, it screws with the abstraction
 def local_facet_number(mesh, facet_type):
     cdef:
         const PetscInt *cells=NULL
@@ -338,13 +337,13 @@ def local_facet_number(mesh, facet_type):
         PetscInt ci, fi
         PETSc.DM plex
         np.ndarray facets
-        np.ndarray cell_numbering
-        np.ndarray facet_numbering
+        PETSc.Section cell_numbering
+        PETSc.Section facet_numbering
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh._entity_numbering(mesh.cell_label)
-    facet_numbering = mesh._entity_numbering(mesh.facet_label)
+    cell_numbering = mesh._plex_to_entity_numbering(mesh.cell_label)
+    facet_numbering = mesh._plex_to_entity_numbering(mesh.facet_label)
 
     fStart, _ = plex.getHeightStratum(1)
     closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
@@ -353,23 +352,23 @@ def local_facet_number(mesh, facet_type):
 
     if facet_type == "exterior":
         ncells_per_facet = 1
-        facets = mesh.exterior_facets.facet_indices
+        facets = mesh._exterior_facet_plex_indices
     else:
         assert facet_type == "interior"
         ncells_per_facet = 2
-        facets = mesh.interior_facets.facet_indices
+        facets = mesh._interior_facet_plex_indices
 
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
     for fi, facet in enumerate(facets):
-        facet_renum = facet_numbering[facet - fStart]
+        facet_renum = facet_numbering.getOffset(facet)
 
         CHKERR(DMPlexGetSupport(plex.dm, facet, &cells))
         CHKERR(DMPlexGetSupportSize(plex.dm, facet, &ncells))
 
         for ci in range(ncells):
             cell = cells[ci]
-            cell_renum = cell_numbering[cell]
+            cell_renum = cell_numbering.getOffset(cell)
 
             for closure_fi in range(nfacets_in_closure):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:

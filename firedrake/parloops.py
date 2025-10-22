@@ -630,7 +630,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
-        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][dim_label])
+        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(dim_label,)])
         selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis_label == "which")
         perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr})
 

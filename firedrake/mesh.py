@@ -2327,6 +2327,21 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
+    def exterior_facet_local_facet_indices(self) -> op3.Dat:
+        return self._local_facet_index("exterior")
+
+    @cached_property
+    def interior_facet_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "interior")
+
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets.as_axis(), 2])
+
+        # cast dtype, I think that this is a bug
+        # owned_local_facet_number = np.asarray(owned_local_facet_number, dtype=np.uint32)
+
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
+    @cached_property
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
