@@ -3,6 +3,8 @@ import collections.abc
 import warnings
 
 from decorator import decorator
+from petsc4py import PETSc
+
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
@@ -168,3 +170,13 @@ def deprecated(prefer=None, internal=False):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
+    """Return a non-null index set.
+
+    This function is useful because sometimes petsc4py returns index sets that
+    are not correctly initialised.
+
+    """
+    return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()

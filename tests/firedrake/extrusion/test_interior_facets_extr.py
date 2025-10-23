@@ -66,11 +66,11 @@ def test_interior_facet_vfs_extr_horiz_3d_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(conj(v), n)*dS_h).dat.data
+    temp = assemble(jump(conj(v), n)*dS_h).dat.data_ro
 
-    assert np.all(temp[:, 0] == 0.0)
-    assert np.all(temp[:, 1] == 0.0)
-    assert not np.all(temp[:, 2] == 0.0)
+    assert np.all(temp[::3] == 0.0)
+    assert np.all(temp[1::3] == 0.0)
+    assert not np.all(temp[2::3] == 0.0)
 
 
 def test_interior_facet_vfs_extr_horiz_3d_lhs():
@@ -97,10 +97,10 @@ def test_interior_facet_vfs_extr_vert_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(conj(v), n)*dS_v).dat.data
+    temp = assemble(jump(conj(v), n)*dS_v).dat.data_ro
 
-    assert not np.all(temp[:, 0] == 0.0)
-    assert np.all(temp[:, 1] == 0.0)
+    assert not np.all(temp[::2] == 0.0)
+    assert np.all(temp[1::2] == 0.0)
 
 
 def test_interior_facet_vfs_extr_vert_lhs():

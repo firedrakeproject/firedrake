@@ -458,9 +458,6 @@ def _(
     *,
     nodes: bool = False,
 ):
-    if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
-        raise NotImplementedError("TODO")
-
     if mat.buffer.mat_type == "python":
         mat_context = mat.buffer.mat.getPythonContext()
         if isinstance(mat_context, op3.RowDatPythonMatContext):
@@ -481,12 +478,11 @@ def _(
         if integral_type == "cell":
             cell = index
             depth = 0
-        elif integral_type in {"interior_facet", "exterior_facet"}:
+        else:
+            assert "facet" in integral_type
             facet = index
             cell = Vrow.mesh().support(facet)
             depth = 1
-        else:
-            raise NotImplementedError
 
         packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
     else:
@@ -494,8 +490,6 @@ def _(
             cell = index
             depth = 0
             packed_mat = mat[Vrow.cell_node_map(cell), Vcol.cell_node_map(cell)]
-        elif integral_type in {"interior_facet", "exterior_facet"}:
-            raise NotImplementedError
         else:
             raise NotImplementedError
 

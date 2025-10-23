@@ -388,10 +388,16 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         assert len(coefficient_indices) == len(info.coefficient_numbers)
         if info.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             ext_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(1,))
-            args.append(kernel_args.ExteriorFacetKernelArg(ext_loopy_arg))
+            if info.integral_type == "exterior_facet":
+                args.append(kernel_args.ExteriorFacetKernelArg(ext_loopy_arg))
+            else:
+                args.append(kernel_args.ExteriorFacetVertKernelArg(ext_loopy_arg))
         elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
             int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
-            args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
+            if info.integral_type == "interior_facet":
+                args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
+            else:
+                args.append(kernel_args.InteriorFacetVertKernelArg(int_loopy_arg))
         # The submesh PR will introduce a robust mechanism to check if a Variable
         # is actually used in the final form of the expression, so there will be
         # no need to get "need_facet_orientation" from self.compile_gem().

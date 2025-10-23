@@ -54,6 +54,14 @@ class InteriorFacetKernelArg(KernelArg):
     ...
 
 
+class ExteriorFacetVertKernelArg(KernelArg):
+    ...
+
+
+class InteriorFacetVertKernelArg(KernelArg):
+    ...
+
+
 class ExteriorFacetOrientationKernelArg(KernelArg):
     ...
 

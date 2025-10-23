@@ -346,29 +346,41 @@ def local_facet_number(mesh, facet_type):
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh._plex_to_entity_numbering(mesh.cell_label)
-    facet_numbering = mesh._plex_to_entity_numbering(mesh.facet_label)
+    cell_numbering = mesh._plex_to_entity_numbering(mesh.dimension)
 
     fStart, _ = plex.getHeightStratum(1)
-    closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
-
-    nfacets_in_closure = closure_facets.shape[1]
 
     if facet_type == "exterior":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 1
         facets = mesh._exterior_facet_plex_indices.indices
+        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
         specific_numbering = mesh._old_to_new_exterior_facet_numbering
-    else:
-        assert facet_type == "interior"
+    elif facet_type == "interior":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 2
         facets = mesh._interior_facet_plex_indices.indices
+        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
         specific_numbering = mesh._old_to_new_interior_facet_numbering
+    elif facet_type == "exterior_vert":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        ncells_per_facet = 1
+        facets = mesh._exterior_facet_vert_plex_indices.indices
+        facet_numbering = mesh._old_to_new_facet_vert_numbering
+        specific_numbering = mesh._old_to_new_exterior_facet_vert_numbering
+    else:
+        assert facet_type == "interior_vert"
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        ncells_per_facet = 2
+        facets = mesh._interior_facet_vert_plex_indices.indices
+        facet_numbering = mesh._old_to_new_facet_vert_numbering
+        specific_numbering = mesh._old_to_new_interior_facet_vert_numbering
 
+    nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
     for fi, facet in enumerate(facets):
         facet_renum = facet_numbering.getOffset(facet)
-
         specific_facet_renum = specific_numbering.getOffset(facet)
 
         CHKERR(DMPlexGetSupport(plex.dm, facet, &cells))
@@ -377,7 +389,6 @@ def local_facet_number(mesh, facet_type):
         for ci in range(ncells):
             cell = cells[ci]
             cell_renum = cell_numbering.getOffset(cell)
-
             for closure_fi in range(nfacets_in_closure):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:
                     facet_number[specific_facet_renum, ci] = closure_fi

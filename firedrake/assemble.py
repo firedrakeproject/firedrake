@@ -1544,7 +1544,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     integral_type = local_kernel.kinfo.integral_type
 
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
-                    plex = mesh.topology
                     integral_type = local_kernel.kinfo.integral_type
 
                     Vrow = test.function_space()
@@ -1556,19 +1555,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if cindex is not None:
                         Vcol = Vcol[cindex]
 
+                    iterset = iteration_set(mesh, integral_type, "everywhere")
+                    index = iterset.index()
+
                     if integral_type == "cell":
-                        iterset = mesh.cells.owned
-                        index = iterset.index()
                         rmap = mesh.closure(index)
                         cmap = rmap
-                    elif integral_type in {"exterior_facet", "interior_facet"}:
-                        if integral_type == "exterior_facet":
-                            iterset = plex.exterior_facets.owned
-                        else:
-                            assert integral_type == "interior_facet"
-                            iterset = plex.interior_facets.owned
-
-                        index = iterset.index()
+                    else:
+                        assert "facet" in integral_type
                         rmap = mesh.closure(mesh.support(index))
                         cmap = rmap
 
@@ -1581,7 +1575,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         assert allocation_integral_types is not None
 
         mesh = utils.single_valued(extract_unique_domain(a) for a in {test, trial})
-        plex = mesh.topology
         Vrow = test.function_space()
         Vcol = trial.function_space()
 
@@ -1590,19 +1583,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         # reusability.
         loops = []
         for integral_type in allocation_integral_types:
+            iterset = iteration_set(mesh, integral_type, "everywhere")
+            index = iterset.index()
             if integral_type == "cell":
-                iterset = plex.cells.owned
-                index = iterset.index()
                 rmap = mesh.closure(index)
                 cmap = rmap
-            elif integral_type in {"exterior_facet", "interior_facet"}:
-                if integral_type == "exterior_facet":
-                    iterset = plex.exterior_facets.owned
-                else:
-                    assert integral_type == "interior_facet"
-                    iterset = plex.interior_facets.owned
-
-                index = iterset.index()
+            else:
+                assert "facet" in integral_type
                 rmap = mesh.closure(mesh.support(index))
                 cmap = rmap
 
@@ -2063,6 +2050,14 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
         return self._topology.interior_facet_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
+    def _(self, _, index):
+        return self._topology.exterior_facet_vert_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.InteriorFacetVertKernelArg)
+    def _(self, _, index):
+        return self._topology.interior_facet_vert_local_facet_indices[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
