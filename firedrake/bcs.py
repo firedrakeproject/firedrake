@@ -162,8 +162,6 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.

@@ -54,6 +54,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     # Initialise kernel builder
     builder = firedrake_interface.KernelBuilderBase(utils.ScalarType)
+    builder._domain_integral_type_map = {domain: "cell"}
     builder.domain_coordinate[domain] = coordinates
     builder._coefficient(coordinates, "x")
     x_arg = builder.generate_arg_from_expression(builder.coefficient_map[coordinates])
@@ -71,7 +72,6 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
-                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
