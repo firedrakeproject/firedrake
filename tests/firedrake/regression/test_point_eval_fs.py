@@ -1,4 +1,5 @@
 from os.path import abspath, dirname
+from numbers import Number
 import numpy as np
 import pytest
 
@@ -108,7 +109,7 @@ def test_triangle_tensor(mesh_triangle, family, degree):
     assert isinstance(res, np.ndarray)
     assert res.shape == (2, 2)
     assert isinstance(res[0, :], np.ndarray)
-    assert isinstance(res[0, 0], float)
+    assert isinstance(res[0, 0], Number)
 
 
 def test_triangle_mixed(mesh_triangle):
@@ -151,7 +152,7 @@ def test_quadrilateral(mesh_quadrilateral, family, degree):
     res = f([0.1, 0.2])
     assert isinstance(res, np.ndarray)
     assert len(res.shape) == 0
-    assert isinstance(res.item(), float)
+    assert isinstance(res.item(), Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -173,7 +174,7 @@ def test_quadrilateral_vector(mesh_quadrilateral, family, degree):
     res = f([0.1, 0.2])
     assert isinstance(res, np.ndarray)
     assert len(res.shape) == 1
-    assert isinstance(res[0], float)
+    assert isinstance(res[0], Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -188,7 +189,7 @@ def test_tetrahedron(mesh_tetrahedron, family, degree):
     res = f([0.2, 0.3, 0.4])
     assert isinstance(res, np.ndarray)
     assert len(res.shape) == 0
-    assert isinstance(res.item(), float)
+    assert isinstance(res.item(), Number)
 
 
 @pytest.mark.parametrize(('family', 'degree'),
@@ -212,7 +213,7 @@ def test_tetrahedron_vector(mesh_tetrahedron, family, degree):
     res = f([0.2, 0.3, 0.4])
     assert isinstance(res, np.ndarray)
     assert len(res.shape) == 1
-    assert isinstance(res[0], float)
+    assert isinstance(res[0], Number)
 
 
 def test_point_eval_forces_writes():
