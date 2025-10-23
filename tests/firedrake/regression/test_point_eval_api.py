@@ -402,8 +402,3 @@ def test_point_evaluator_inputs_2d():
     for input in [0.2, [0.2]]:
         with pytest.raises(ValueError, match=r"Point dimension \(1\) does not match geometric dimension \(2\)."):
             PointEvaluator(mesh, input)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__ + "::test_point_evaluator_inputs_1d"])
-    # pytest.main([__file__ + "::test_point_evaluator_scalar[nprocs=1]"])
