@@ -552,7 +552,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         result = evaluator.evaluate(self)
         if len(coord.shape) == 1:
-            result = result.squeeze()
+            result = result.squeeze(axis=0)
         return result
 
     def at(self, arg, *args, **kwargs):

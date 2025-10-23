@@ -1,4 +1,5 @@
 from os.path import abspath, dirname
+from numbers import Number
 import numpy as np
 import pytest
 
@@ -184,6 +185,9 @@ def test_point_evaluator_scalar(mesh_and_points):
     # Test standard scalar function evaluation at points
     f_at_points = evaluator.evaluate(f)
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
+    assert isinstance(f_at_points, np.ndarray)
+    assert f_at_points.shape == (3,)
+    assert isinstance(f_at_points[0], Number)
 
     # Test standard scalar function with missing points
     eval_missing = PointEvaluator(mesh, np.append(points, [[1.5, 1.5]], axis=0), missing_points_behaviour="ignore")
@@ -201,6 +205,10 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     f_vec_at_points = evaluator.evaluate(f_vec)
     vec_expected = np.array([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]])
     assert np.allclose(f_vec_at_points, vec_expected)
+    assert isinstance(f_vec_at_points, np.ndarray)
+    assert f_vec_at_points.shape == (3, 2)
+    assert isinstance(f_vec_at_points[0, 0], Number)
+    assert isinstance(f_vec_at_points[0, :], np.ndarray)
 
     V_tensor = TensorFunctionSpace(mesh, "CG", 1, shape=(2, 3))
     f_tensor = Function(V_tensor)
@@ -210,6 +218,10 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
                                 [[0.2, 0.2, 0.04], [0.2, 0.2, 0.04]],
                                 [[0.3, 0.3, 0.09], [0.3, 0.3, 0.09]]])
     assert np.allclose(f_tensor_at_points, tensor_expected)
+    assert f_tensor_at_points.shape == (3, 2, 3)
+    assert isinstance(f_tensor_at_points[0, 0, 0], Number)
+    assert isinstance(f_tensor_at_points[0, 0, :], np.ndarray)
+    assert isinstance(f_tensor_at_points[0, :, :], np.ndarray)
 
     V_mixed = V_vec * V_tensor
     f_mixed = Function(V_mixed)
@@ -217,8 +229,14 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     f_vec.interpolate(as_vector([x, y]))
     f_tensor.interpolate(as_matrix([[x, y, x*y], [y, x, x*y]]))
     f_mixed_at_points = evaluator.evaluate(f_mixed)
+    assert isinstance(f_mixed_at_points, tuple)
+    assert len(f_mixed_at_points) == 2
     assert np.allclose(f_mixed_at_points[0], vec_expected)
     assert np.allclose(f_mixed_at_points[1], tensor_expected)
+    assert isinstance(f_mixed_at_points[0], np.ndarray)
+    assert isinstance(f_mixed_at_points[1], np.ndarray)
+    assert f_mixed_at_points[0].shape == (3, 2)
+    assert f_mixed_at_points[1].shape == (3, 2, 3)
 
 
 @pytest.mark.parallel(3)
@@ -286,12 +304,17 @@ def test_point_evaluator_tolerance():
 
 def test_point_evaluator_inputs_1d():
     mesh = UnitIntervalMesh(1)
-    f = mesh.coordinates
+    f = mesh.coordinates  # ufl_shape (1,)
 
     # one point
     for input in [0.2, (0.2,), [0.2], np.array([0.2])]:
         e = PointEvaluator(mesh, input)
-        assert np.allclose(0.2, e.evaluate(f))
+        res = e.evaluate(f)
+        assert np.allclose(0.2, res)
+        assert isinstance(res, np.ndarray)
+        assert res.shape == (1, 1)
+        assert isinstance(res[0], np.ndarray)
+        assert isinstance(res[0, 0], Number)
 
     # multiple points as tuples/list
     for input in [
@@ -299,29 +322,50 @@ def test_point_evaluator_inputs_1d():
         (np.array(0.2), np.array(0.3)), (np.array([0.2]), np.array([0.3]))
     ]:
         e2 = PointEvaluator(mesh, input)
-        assert np.allclose([[0.2, 0.3]], e2.evaluate(f))
+        res = e2.evaluate(f)
+        assert np.allclose([[0.2], [0.3]], res)
+        assert isinstance(res, np.ndarray)
+        assert res.shape == (2, 1)
+        assert isinstance(res[0], np.ndarray)
+        assert isinstance(res[0, 0], Number)
+
         e3 = PointEvaluator(mesh, list(input))
-        assert np.allclose([[0.2, 0.3]], e3.evaluate(f))
+        res2 = e3.evaluate(f)
+        assert np.allclose([[0.2], [0.3]], res2)
+        assert isinstance(res2, np.ndarray)
+        assert res2.shape == (2, 1)
+        assert isinstance(res2[0], np.ndarray)
+        assert isinstance(res2[0, 0], Number)
 
     # multiple points as numpy array
     for input in [np.array([0.2, 0.3]), np.array([[0.2], [0.3]])]:
         e = PointEvaluator(mesh, input)
-        assert np.allclose([[0.2, 0.3]], e.evaluate(f))
+        res = e.evaluate(f)
+        assert np.allclose([[0.2], [0.3]], res)
+        assert isinstance(res, np.ndarray)
+        assert res.shape == (2, 1)
+        assert isinstance(res[0], np.ndarray)
+        assert isinstance(res[0, 0], Number)
 
     # test incorrect inputs
     for input in [[[0.2, 0.3]], ([0.2, 0.3], [0.4, 0.5]), np.array([[0.2, 0.3]])]:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"Point dimension \(2\) does not match geometric dimension \(1\)."):
             PointEvaluator(mesh, input)
 
 
 def test_point_evaluator_inputs_2d():
     mesh = UnitSquareMesh(1, 1)
-    f = mesh.coordinates
+    f = mesh.coordinates  # ufl_shape (2,)
 
     # one point
     for input in [(0.2, 0.4), [0.2, 0.4], [[0.2, 0.4]], np.array([0.2, 0.4])]:
         e = PointEvaluator(mesh, input)
-        assert np.allclose([0.2, 0.4], e.evaluate(f))
+        res = e.evaluate(f)
+        assert np.allclose([0.2, 0.4], res)
+        assert isinstance(res, np.ndarray)
+        assert res.shape == (1, 2)
+        assert isinstance(res[0], np.ndarray)
+        assert isinstance(res[0, 0], Number)
 
     # multiple points as tuple
     for input in [
@@ -329,15 +373,38 @@ def test_point_evaluator_inputs_2d():
         (np.array([0.2, 0.4]), np.array([0.3, 0.5]))
     ]:
         e1 = PointEvaluator(mesh, input)
-        assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e1.evaluate(f))
+        res1 = e1.evaluate(f)
+        assert np.allclose([[0.2, 0.4], [0.3, 0.5]], res1)
+        assert isinstance(res1, np.ndarray)
+        assert res1.shape == (2, 2)
+        assert isinstance(res1[0], np.ndarray)
+        assert isinstance(res1[0, 0], Number)
+
         e2 = PointEvaluator(mesh, list(input))
         assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e2.evaluate(f))
 
     # multiple points as numpy array
-    e = PointEvaluator(mesh, np.array([[0.2, 0.4], [0.3, 0.5]]))
-    assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e.evaluate(f))
+    points = np.array([[0.2, 0.4], [0.3, 0.5]])
+    e = PointEvaluator(mesh, points)
+    res = e.evaluate(f)
+    assert np.allclose([[0.2, 0.4], [0.3, 0.5]], res)
+    assert isinstance(res, np.ndarray)
+    assert res.shape == (len(points), f.ufl_shape[0])
+    assert isinstance(res[0], np.ndarray)
+    assert isinstance(res[0, 0], Number)
+
+    res2 = e.evaluate(f)
+    res3 = res + res2
+    assert np.allclose([[0.4, 0.8], [0.6, 1.0]], res3)
+    assert isinstance(res3, np.ndarray)
+    assert res3.shape == (len(points), f.ufl_shape[0])
 
     # test incorrect inputs
     for input in [0.2, [0.2]]:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"Point dimension \(1\) does not match geometric dimension \(2\)."):
             PointEvaluator(mesh, input)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_point_evaluator_inputs_1d"])
+    # pytest.main([__file__ + "::test_point_evaluator_scalar[nprocs=1]"])
