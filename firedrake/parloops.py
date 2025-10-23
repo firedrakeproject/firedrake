@@ -426,26 +426,24 @@ def _(
             cell = loop_index
             packed_dat = dat[mesh.closure(cell)]
             depth = 0
-        elif integral_type in {"interior_facet", "exterior_facet"}:
+        else:
+            assert "facet" in integral_type
             facet = loop_index
             cell = mesh.support(facet)
             packed_dat = dat[mesh.closure(cell)]
             depth = 1
-        else:
-            raise NotImplementedError
     else:
         if integral_type == "cell":
             cell = loop_index
             packed_dat = dat[V.cell_node_map(cell)]
             depth = 0
-        elif integral_type in {"interior_facet", "exterior_facet"}:
+        else:
+            assert "facet" in integral_type
             raise NotImplementedError
             facet = loop_index
             cell = mesh.support(facet)
             packed_dat = dat[mesh.closure(cell)]
             depth = 1
-        else:
-            raise NotImplementedError
 
     return transform_packed_cell_closure_dat(packed_dat, V, cell, depth=depth, nodes=nodes)
 

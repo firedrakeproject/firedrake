@@ -7,16 +7,14 @@ def test_interior_facet_vfs_extr_horiz_2d_rhs():
     m = UnitIntervalMesh(1)
     mesh = ExtrudedMesh(m, layers=2)
 
-    breakpoint()
-
     U = VectorFunctionSpace(mesh, 'DG', 1)
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(conj(v), n)*dS_h).dat.data
+    temp = assemble(jump(conj(v), n)*dS_h).dat.data_ro
 
-    assert np.all(temp[:, 0] == 0.0)
-    assert not np.all(temp[:, 1] == 0.0)
+    assert np.all(temp[::2] == 0.0)
+    assert not np.all(temp[1::2] == 0.0)
 
 
 def test_interior_facet_vfs_extr_horiz_2d_lhs():
