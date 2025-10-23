@@ -186,7 +186,7 @@ def test_point_evaluator_scalar(mesh_and_points):
     f_at_points = evaluator.evaluate(f)
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
     assert isinstance(f_at_points, np.ndarray)
-    assert f_at_points.shape == (3,)
+    assert f_at_points.shape == (len(evaluator.points),) + f.ufl_shape
     assert isinstance(f_at_points[0], Number)
 
     # Test standard scalar function with missing points
@@ -199,14 +199,13 @@ def test_point_evaluator_scalar(mesh_and_points):
 def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     mesh, evaluator = mesh_and_points
     V_vec = VectorFunctionSpace(mesh, "CG", 1)
-    f_vec = Function(V_vec)
     x, y = SpatialCoordinate(mesh)
-    f_vec.interpolate(as_vector([x, y]))
+    f_vec = Function(V_vec).interpolate(as_vector([x, y]))
     f_vec_at_points = evaluator.evaluate(f_vec)
     vec_expected = np.array([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]])
     assert np.allclose(f_vec_at_points, vec_expected)
     assert isinstance(f_vec_at_points, np.ndarray)
-    assert f_vec_at_points.shape == (3, 2)
+    assert f_vec_at_points.shape == (len(evaluator.points),) + f_vec.ufl_shape
     assert isinstance(f_vec_at_points[0, 0], Number)
     assert isinstance(f_vec_at_points[0, :], np.ndarray)
 
@@ -218,7 +217,7 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
                                 [[0.2, 0.2, 0.04], [0.2, 0.2, 0.04]],
                                 [[0.3, 0.3, 0.09], [0.3, 0.3, 0.09]]])
     assert np.allclose(f_tensor_at_points, tensor_expected)
-    assert f_tensor_at_points.shape == (3, 2, 3)
+    assert f_tensor_at_points.shape == (len(evaluator.points),) + f_tensor.ufl_shape
     assert isinstance(f_tensor_at_points[0, 0, 0], Number)
     assert isinstance(f_tensor_at_points[0, 0, :], np.ndarray)
     assert isinstance(f_tensor_at_points[0, :, :], np.ndarray)
@@ -235,8 +234,8 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     assert np.allclose(f_mixed_at_points[1], tensor_expected)
     assert isinstance(f_mixed_at_points[0], np.ndarray)
     assert isinstance(f_mixed_at_points[1], np.ndarray)
-    assert f_mixed_at_points[0].shape == (3, 2)
-    assert f_mixed_at_points[1].shape == (3, 2, 3)
+    assert f_mixed_at_points[0].shape == (len(evaluator.points),) + f_vec.ufl_shape
+    assert f_mixed_at_points[1].shape == (len(evaluator.points),) + f_tensor.ufl_shape
 
 
 @pytest.mark.parallel(3)
@@ -325,7 +324,7 @@ def test_point_evaluator_inputs_1d():
         res = e2.evaluate(f)
         assert np.allclose([[0.2], [0.3]], res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (2, 1)
+        assert res.shape == (len(input),) + f.ufl_shape
         assert isinstance(res[0], np.ndarray)
         assert isinstance(res[0, 0], Number)
 
@@ -333,7 +332,7 @@ def test_point_evaluator_inputs_1d():
         res2 = e3.evaluate(f)
         assert np.allclose([[0.2], [0.3]], res2)
         assert isinstance(res2, np.ndarray)
-        assert res2.shape == (2, 1)
+        assert res2.shape == (len(input),) + f.ufl_shape
         assert isinstance(res2[0], np.ndarray)
         assert isinstance(res2[0, 0], Number)
 
@@ -343,7 +342,7 @@ def test_point_evaluator_inputs_1d():
         res = e.evaluate(f)
         assert np.allclose([[0.2], [0.3]], res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (2, 1)
+        assert res.shape == (len(input),) + f.ufl_shape
         assert isinstance(res[0], np.ndarray)
         assert isinstance(res[0, 0], Number)
 
@@ -363,7 +362,7 @@ def test_point_evaluator_inputs_2d():
         res = e.evaluate(f)
         assert np.allclose([0.2, 0.4], res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (1, 2)
+        assert res.shape == (1,) + f.ufl_shape
         assert isinstance(res[0], np.ndarray)
         assert isinstance(res[0, 0], Number)
 
@@ -376,7 +375,7 @@ def test_point_evaluator_inputs_2d():
         res1 = e1.evaluate(f)
         assert np.allclose([[0.2, 0.4], [0.3, 0.5]], res1)
         assert isinstance(res1, np.ndarray)
-        assert res1.shape == (2, 2)
+        assert res1.shape == (len(input),) + f.ufl_shape
         assert isinstance(res1[0], np.ndarray)
         assert isinstance(res1[0, 0], Number)
 
@@ -389,7 +388,7 @@ def test_point_evaluator_inputs_2d():
     res = e.evaluate(f)
     assert np.allclose([[0.2, 0.4], [0.3, 0.5]], res)
     assert isinstance(res, np.ndarray)
-    assert res.shape == (len(points), f.ufl_shape[0])
+    assert res.shape == (len(points),) + f.ufl_shape
     assert isinstance(res[0], np.ndarray)
     assert isinstance(res[0, 0], Number)
 
@@ -397,7 +396,7 @@ def test_point_evaluator_inputs_2d():
     res3 = res + res2
     assert np.allclose([[0.4, 0.8], [0.6, 1.0]], res3)
     assert isinstance(res3, np.ndarray)
-    assert res3.shape == (len(points), f.ufl_shape[0])
+    assert res3.shape == (len(points),) + f.ufl_shape
 
     # test incorrect inputs
     for input in [0.2, [0.2]]:
