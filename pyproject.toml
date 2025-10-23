@@ -90,7 +90,7 @@ jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc>=0.1.1",
+  "ngsPETSc @ git+https://github.com/NGSolve/ngsPETSc.git@connorjward/ufl-cell-fix",
 ]
 slepc = [
   "slepc4py==3.24.0",
@@ -107,7 +107,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc>=0.1.1",
+  "ngsPETSc @ git+https://github.com/NGSolve/ngsPETSc.git@connorjward/ufl-cell-fix",
   "pdf2image",
   "pygraphviz",
   "pylit",
