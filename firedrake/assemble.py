@@ -410,21 +410,22 @@ class BaseFormAssembler(AbstractFormAssembler):
         """
         def visitor(e, *operands):
             t = tensor if e is self._form else None
-            return self.base_form_assembly_visitor(e, t, *operands)
+            # Deal with 2-form bcs inside the visitor
+            bcs = self._bcs if isinstance(e, ufl.BaseForm) and len(e.arguments()) == 2 else ()
+            return self.base_form_assembly_visitor(e, t, bcs, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
         visited = {}
         result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
-        # Apply BCs after assembly
+        # Deal with 1-form bcs outside the visitor
         rank = len(self._form.arguments())
         if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
-
         return result
 
-    def base_form_assembly_visitor(self, expr, tensor, *args):
+    def base_form_assembly_visitor(self, expr, tensor, bcs, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
 
             This functions contains the assembly handlers corresponding to the different nodes that
@@ -445,7 +446,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
                                              zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
-                assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
+                assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
                                              allocation_integral_types=self.allocation_integral_types)
@@ -456,13 +457,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
-            res = tensor.petscmat if tensor else PETSc.Mat()
-            petsc_mat = mat.petscmat
+            result = tensor.petscmat if tensor else PETSc.Mat()
             # Out-of-place Hermitian transpose
-            petsc_mat.hermitianTranspose(out=res)
-            (row, col) = mat.arguments()
-            return matrix.AssembledMatrix((col, row), self._bcs, res,
-                                          options_prefix=self._options_prefix)
+            mat.petscmat.hermitianTranspose(out=result)
+            if tensor is None:
+                tensor = self.assembled_matrix(expr, bcs, result)
+            return tensor
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")
@@ -480,7 +480,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     result = tensor.petscmat if tensor else PETSc.Mat()
                     lhs.petscmat.matMult(rhs.petscmat, result=result)
                     if tensor is None:
-                        tensor = self.assembled_matrix(expr, result)
+                        tensor = self.assembled_matrix(expr, bcs, result)
                     return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
@@ -539,7 +539,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                         op.petscmat.copy(result=result)
                         result.scale(w)
                 if tensor is None:
-                    tensor = self.assembled_matrix(expr, result)
+                    tensor = self.assembled_matrix(expr, bcs, result)
                 return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
@@ -571,9 +571,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Occur in situations such as Interpolate composition
                 operand = assembled_operand[0]
 
-            reconstruct_interp = expr._ufl_expr_reconstruct_
             if (v, operand) != expr.argument_slots():
-                expr = reconstruct_interp(operand, v=v)
+                expr = expr._ufl_expr_reconstruct_(operand, v=v)
 
             rank = len(expr.arguments())
             if rank > 2:
@@ -586,7 +585,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             default_missing_val = interp_data.pop('default_missing_val', None)
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
-            interpolator = firedrake.Interpolator(expr, V, **interp_data)
+            interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
             # Assembly
             return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
@@ -598,8 +597,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
-    def assembled_matrix(self, expr, petscmat):
-        return matrix.AssembledMatrix(expr.arguments(), self._bcs, petscmat,
+    def assembled_matrix(self, expr, bcs, petscmat):
+        return matrix.AssembledMatrix(expr.arguments(), bcs, petscmat,
                                       options_prefix=self._options_prefix)
 
     @staticmethod
@@ -1447,10 +1446,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if space != spaces[0]:
-                raise TypeError("bc space does not match the test function space")
-            elif space != spaces[1]:
-                raise TypeError("bc space does not match the trial function space")
+            if not any(space == fs for fs in spaces):
+                raise TypeError("bc space does not match the test or trial function space")
+            if spaces[0] != spaces[1]:
+                # Not on a diagonal block, we cannot set diagonal entries
+                return
 
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
