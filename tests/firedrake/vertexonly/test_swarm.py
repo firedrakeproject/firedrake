@@ -391,10 +391,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert original_swarm.other_fields != swarm.other_fields
     assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
 
-    # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
-    # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
-    # assert n_missing_coords == 2
-
 
 @pytest.mark.parallel
 def test_pic_swarm_in_mesh_parallel(parentmesh, redundant, exclude_halos):

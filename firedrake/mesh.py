@@ -4851,7 +4851,7 @@ class MeshSequenceTopology(object):
 
     def ufl_mesh(self):
         cell = self.ufl_cell()
-        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
                                  for _ in self._meshes])
 
     def __eq__(self, other):
