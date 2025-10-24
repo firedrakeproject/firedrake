@@ -53,13 +53,13 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     code = {
         "geometric_dimension": gdim,
-        "topological_dimension": cell.topological_dimension(),
+        "topological_dimension": cell.topological_dimension,
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(cell.topological_dimension()),
-        "X_isub_dX": X_isub_dX(cell.topological_dimension()),
+        "dX_norm_square": dX_norm_square(cell.topological_dimension),
+        "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
     }
 
@@ -146,7 +146,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     builder._domain_integral_type_map = {domain: "cell"}
     # Translate to GEM
     cell = domain.ufl_cell()
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
@@ -295,7 +295,7 @@ def prolong_kernel(expression):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": mesh.topological_dimension()}
+               "tdim": mesh.topological_dimension}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
 
@@ -381,7 +381,7 @@ def restrict_kernel(Vf, Vc):
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
                "spacedim": element.cell.get_spatial_dimension(),
-               "tdim": mesh.topological_dimension()}
+               "tdim": mesh.topological_dimension}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
@@ -469,7 +469,7 @@ def inject_kernel(Vf, Vc):
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-            "tdim": Vc.mesh().topological_dimension(),
+            "tdim": Vc.mesh().topological_dimension,
             "ncandidate": ncandidate,
             "Rdim": Vf.block_size,
             "Xf_cell_inc": coords_element.space_dimension(),

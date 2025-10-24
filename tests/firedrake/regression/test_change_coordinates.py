@@ -13,7 +13,7 @@ def test_immerse_1d(dim):
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == dim
+    assert m.geometric_dimension == dim
 
 
 def test_immerse_2d():
@@ -23,7 +23,7 @@ def test_immerse_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3
 
 
 def test_project_2d():
@@ -33,7 +33,7 @@ def test_project_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 1
+    assert m.geometric_dimension == 1
 
 
 def test_immerse_extruded():
@@ -44,4 +44,4 @@ def test_immerse_extruded():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3
