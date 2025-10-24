@@ -51,7 +51,6 @@ def vector(request):
     return request.param
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_constant():
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)
@@ -65,7 +64,6 @@ def test_interpolate_constant():
     assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_with_arguments(rg):
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)
@@ -83,7 +81,6 @@ def test_interpolate_with_arguments(rg):
     assert taylor_test(rf, f, h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_scalar_valued(rg):
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 1)
@@ -108,7 +105,6 @@ def test_interpolate_scalar_valued(rg):
     assert taylor_test(rf, g, h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_vector_valued():
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
@@ -128,7 +124,6 @@ def test_interpolate_vector_valued():
     assert taylor_test(rf, f, h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_tlm():
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
@@ -154,7 +149,6 @@ def test_interpolate_tlm():
     assert taylor_test(rf, f, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_tlm_with_constant():
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 2)
@@ -187,7 +181,6 @@ def test_interpolate_tlm_with_constant():
     assert abs(J.block_variable.tlm_value - (0.8 + 100. * (5*cos(1.) - 3*sin(1.)))) < 1e-4
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_bump_function():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
@@ -205,7 +198,6 @@ def test_interpolate_bump_function():
     assert taylor_test(rf, [cx, cy], h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_interpolate():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -220,7 +212,6 @@ def test_self_interpolate():
     assert taylor_test(rf, c, Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_interpolate_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -236,7 +227,6 @@ def test_self_interpolate_function():
     assert taylor_test(rf, Function(R, val=3.0), Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_to_function_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -254,7 +244,6 @@ def test_interpolate_to_function_space():
     assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_to_function_space_cross_mesh():
     mesh_src = UnitSquareMesh(2, 2)
     mesh_dest = UnitSquareMesh(3, 3, quadrilateral=True)
@@ -273,7 +262,6 @@ def test_interpolate_to_function_space_cross_mesh():
     assert taylor_test(rf, Function(R, val=1.0), Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_hessian_linear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
@@ -328,7 +316,6 @@ def test_interpolate_hessian_linear_expr(rg):
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_hessian_nonlinear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
@@ -383,7 +370,6 @@ def test_interpolate_hessian_nonlinear_expr(rg):
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_hessian_nonlinear_expr_multi(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
@@ -441,7 +427,6 @@ def test_interpolate_hessian_nonlinear_expr_multi(rg):
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
@@ -500,7 +485,6 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ioperator_replay(op, order, power):
     """
     Given source and target functions of some `order`,
@@ -564,7 +548,6 @@ def supermesh_setup(vector=False):
     return source, target_space
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_supermesh_project():
     source, target_space = supermesh_setup()
     control = Control(source)
@@ -586,7 +569,6 @@ def test_self_supermesh_project():
     assert np.isclose(rf(h), 10.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_function():
     source, target_space = supermesh_setup()
     control = Control(source)
@@ -608,7 +590,6 @@ def test_supermesh_project_function():
     assert np.isclose(rf(h), 10.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_to_function_space():
     source, target_space = supermesh_setup()
     control = Control(source)
@@ -629,7 +610,6 @@ def test_supermesh_project_to_function_space():
     assert np.isclose(rf(h), 10.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_gradient(vector, rg):
     source, target_space = supermesh_setup()
     source_space = source.function_space()
@@ -644,7 +624,6 @@ def test_supermesh_project_gradient(vector, rg):
     assert minconv > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_tlm(vector):
     source, target_space = supermesh_setup()
     control = Control(source)
@@ -664,7 +643,6 @@ def test_supermesh_project_tlm(vector):
     assert taylor_test(rf, source, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_hessian(vector, rg):
     source, target_space = supermesh_setup()
     control = Control(source)
@@ -693,7 +671,6 @@ def test_supermesh_project_hessian(vector, rg):
     assert taylor_test(rf, source, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_init_constant():
     mesh = UnitSquareMesh(1, 1)
     R = FunctionSpace(mesh, "R", 0)
@@ -705,7 +682,6 @@ def test_init_constant():
     assert np.isclose(rf(Function(R, val=-1.0)), -1.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_init_constant_diff_mesh():
     mesh = UnitSquareMesh(1, 1)
     mesh0 = UnitSquareMesh(2, 2)
@@ -719,7 +695,6 @@ def test_init_constant_diff_mesh():
     assert np.isclose(rf(Function(R, val=-1.0)), -1.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_copy_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -733,7 +708,6 @@ def test_copy_function():
     assert np.isclose(rf(a), -J)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_consecutive_nonlinear_solves():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -753,7 +727,6 @@ def test_consecutive_nonlinear_solves():
     assert taylor_test(rf, uic, Function(R, val=0.01)) > 1.9
 
 
-@pytest.mark.skipcomplex
 def test_assign_function():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -768,7 +741,6 @@ def test_assign_function():
     assert taylor_test(rf, uic, h) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_3325():
     # See https://github.com/firedrakeproject/firedrake/issues/3325
     # for the original MFE, this has been simplified
@@ -794,7 +766,6 @@ def test_3325():
     minimize(Jhat, method="SLSQP", constraints=constraint)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parametrize("solve_type", ["solve", "linear_variational_solver"])
 def test_assign_cofunction(solve_type):
     # See https://github.com/firedrakeproject/firedrake/issues/3464 .
@@ -829,7 +800,6 @@ def test_assign_cofunction(solve_type):
     assert taylor_test(rf, k, Function(V).assign(0.1)) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_assign_zero_cofunction():
     # See https://github.com/firedrakeproject/firedrake/issues/3464 .
     # It is expected the tape breaks since the functional loses its dependency
@@ -862,7 +832,6 @@ def test_assign_zero_cofunction():
     assert all(grad_L2.dat.data_ro == 0.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_cofunction_subfunctions_with_adjoint():
     # See https://github.com/firedrakeproject/firedrake/issues/3469
     mesh = UnitSquareMesh(2, 2)
@@ -891,7 +860,6 @@ def test_cofunction_subfunctions_with_adjoint():
     assert taylor_test(J_hat, k, Constant(1.0), dJdm=J.block_variable.tlm_value) > 1.9
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_riesz_representation_for_adjoints():
     # Check if the Riesz representation norms for adjoints are working as expected.
     mesh = UnitIntervalMesh(1)
@@ -939,7 +907,6 @@ def test_riesz_representation_for_adjoints():
     assert np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parametrize("constant_jacobian", [False, True])
 def test_lvs_constant_jacobian(constant_jacobian):
     mesh = UnitIntervalMesh(10)
@@ -971,7 +938,6 @@ def test_lvs_constant_jacobian(constant_jacobian):
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_cofunction_assign_functional():
     """Test that cofunction assignment is correctly annotated.
     """
@@ -993,7 +959,6 @@ def test_cofunction_assign_functional():
     assert np.allclose(Jhat(f), 2.0)
 
 
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_bdy_control():
     from firedrake.adjoint_utils.dirichletbc import DirichletBCBlock
     # Test for the case the boundary condition is a control for a

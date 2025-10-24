@@ -943,9 +943,9 @@ class FormAssembler(AbstractFormAssembler):
 
     def __init__(self, form, bcs=None, form_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
-        if any(c.dat.dtype != ScalarType for c in form.coefficients()):
-            raise ValueError("Cannot assemble a form containing coefficients where the "
-                             "dtype is not the PETSc scalar type.")
+        # if any(c.dat.dtype != ScalarType for c in form.coefficients()):
+        #     raise ValueError("Cannot assemble a form containing coefficients where the "
+        #                      "dtype is not the PETSc scalar type.")
 
 
 class ParloopFormAssembler(FormAssembler):
