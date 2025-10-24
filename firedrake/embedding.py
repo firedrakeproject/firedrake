@@ -5,7 +5,7 @@ import ufl
 
 
 def get_embedding_dg_element(element, value_shape, broken_cg=False):
-    cell = element.cell
+    cell, = set(element.cell.cells)
     family = lambda c: "DG" if c.is_simplex else "DQ"
     if isinstance(cell, ufl.TensorProductCell):
         degree = element.degree()
