@@ -431,8 +431,7 @@ class WithGeometryBase:
            with provided markers (both interior and exterior)."""
         _, sub_domain, boundary_set = key
         if sub_domain not in {"on_boundary", "top", "bottom"}:
-            valid = set(self._mesh.interior_facets.unique_markers)
-            valid |= set(self._mesh.exterior_facets.unique_markers)
+            valid = set(self._mesh.facet_markers)
             invalid = set(sub_domain) - valid
             if invalid:
                 raise LookupError(f"BC construction got invalid markers {invalid}. "

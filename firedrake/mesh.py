@@ -29,7 +29,7 @@ from typing import Iterable, Optional, Union
 from cachetools import cachedmethod
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, temp_internal_comm, collective
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
@@ -958,10 +958,6 @@ class AbstractMeshTopology(abc.ABC):
         ``FIAT.reference_element.UFCQuadrilateral`` for example computations
         of orientations.
         """
-        pass
-
-    @abc.abstractmethod
-    def _facets(self, kind):
         pass
 
     @property
@@ -2011,37 +2007,27 @@ class MeshTopology(AbstractMeshTopology):
             utils.assert_empty(map_pts)
         return map_data
 
-    @PETSc.Log.EventDecorator()
-    def _facets(self, kind):
-        if kind not in ["interior", "exterior"]:
-            raise ValueError(f"Unknown facet type '{kind}'")
-
-        dm = self.topology_dm
-        # facet_ordering = self.points.component_numbering(self.facet_label)
-        # I don't think I need to do this anymore, pyop3 internally handles
-        # core/owned/ghost
-        # facets, classes = dmcommon.get_facets_by_class(dm, (kind + "_facets"),
-        #                                                facet_ordering)
-
-        # but this is still important to keep
-        label = dmcommon.FACE_SETS_LABEL
-        if dm.hasLabel(label):
-            local_markers = set(dm.getLabelIdIS(label).indices)
-
-            def merge_ids(x, y, datatype):
-                return x.union(y)
-
-            op = MPI.Op.Create(merge_ids, commute=True)
-
-            unique_markers = np.asarray(sorted(self._comm.allreduce(local_markers, op=op)),
-                                        dtype=IntType)
-            op.Free()
-        else:
-            unique_markers = None
-
-        obj = _FacetContext(
-            self, kind, unique_markers=unique_markers
-        )
+    @cached_property
+    @collective
+    def facet_markers(self) -> np.ndarray[IntType, ...]:
+        return utils.readonly(self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).allGather().indices)
+        # if plex.hasLabel(dmcommon.FACE_SETS_LABEL):
+        #     local_facet_markers = frozenset(plex.indices)
+        #
+        #     def merge_ids(x, y, datatype):
+        #         return x.union(y)
+        #
+        #     op = MPI.Op.Create(merge_ids, commute=True)
+        #
+        #     global_facet_markers = np.asarray(sorted(self._comm.allreduce(local_markers, op=op)),
+        #                                 dtype=IntType)
+        #     op.Free()
+        # else:
+        #     unique_markers = None
+        #
+        # obj = _FacetContext(
+        #     self, kind, unique_markers=unique_markers
+        # )
 
         # FIXME This is only used for PCPatch, is there a better way?
         # point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
@@ -3200,12 +3186,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # raise NotImplementedError
         # return self._base_mesh.entity_orientations
 
-    def _facets(self, kind):
-        if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
-        base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _FacetContext(self, kind, unique_markers=base.unique_markers)
-
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.
 
@@ -3434,14 +3414,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return (PETSc.DM.PolytopeType.POINT,)
 
     entity_orientations = None
-
-    def _facets(self, kind):
-        """Raises an AttributeError since cells in a
-        `VertexOnlyMeshTopology` have no facets.
-        """
-        if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
-        raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def exterior_facets(self):
@@ -6103,7 +6075,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=distribution_parameters_noop,
-                          perm_is=tmesh._dm_renumbering,
+                          perm_is=tmesh._new_to_old_point_renumbering,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
@@ -6338,7 +6310,7 @@ def iteration_set(
         pass
     else:
         if subdomain_id == "otherwise":
-            subdomain_ids = all_integer_subdomain_ids
+            subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
             complement = True
         else:
             subdomain_ids = utils.as_tuple(subdomain_id)
@@ -6353,11 +6325,11 @@ def iteration_set(
                 all_plex_subdomain_ids = mesh.topology_dm.getLabelIdIS(dmlabel_name).indices
                 for subdomain_id_ in all_plex_subdomain_ids:
                     plex_indices_to_exclude = plex_indices_to_exclude.union(
-                        mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id_)
+                        utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id_))
                     )
                 matching_indices = valid_plex_indices.difference(plex_indices_to_exclude)
             else:
-                matching_indices = mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
+                matching_indices = utils.safe_is(mesh.topology_dm.getStratumIS(dmlabel_name, subdomain_id))
             plex_indices = plex_indices.union(matching_indices)
 
         # Restrict to indices that exist within the iterset (e.g. drop exterior facets
