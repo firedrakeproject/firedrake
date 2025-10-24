@@ -549,8 +549,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
+        coord = np.asarray(coord, dtype=utils.ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
-        return evaluator.evaluate(self)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze(axis=0)
+        return result
 
     def at(self, arg, *args, **kwargs):
         warnings.warn(
@@ -820,7 +824,7 @@ class PointEvaluator:
             if self.mesh.comm.rank != 0:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
             self.mesh.comm.Bcast(result)
-        return result
+        return result.reshape((-1,) + shape)
 
 
 @PETSc.Log.EventDecorator()
