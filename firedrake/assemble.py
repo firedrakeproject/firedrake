@@ -1137,7 +1137,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         return op2.Global(
             1,
             [0.0],
-            dtype=utils.ScalarType,
+            dtype=self._form_compiler_params.get("scalar_type", utils.ScalarType),
             comm=self._form.ufl_domains()[0]._comm
         )
 
@@ -1192,13 +1192,15 @@ class OneFormAssembler(ParloopFormAssembler):
                 raise ValueError("Can only assemble the diagonal of 2-form if the function spaces match")
 
     def allocate(self):
+        dtype=self._form_compiler_params.get("scalar_type", utils.ScalarType)
+
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            return firedrake.Function(test.function_space().dual())
+            return firedrake.Function(test.function_space().dual(), dtype=dtype)
         elif rank == 2 and self._diagonal:
             test, _ = self._form.arguments()
-            return firedrake.Function(test.function_space().dual())
+            return firedrake.Function(test.function_space().dual(), dtype=dtype)
         else:
             raise RuntimeError(f"Not expected: found rank = {rank} and diagonal = {self._diagonal}")
 

@@ -120,7 +120,7 @@ class FunctionMixin(FloatingType):
                 block.add_output(block_var)
 
                 if isinstance(other, type(self)):
-                    if self.function_space().mesh() == other.function_space().mesh():
+                    if self.function_space().mesh() == other.function_space().mesh() and self.dat.dtype == other.dat.dtype:
                         block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
             return ret
@@ -226,7 +226,7 @@ class FunctionMixin(FloatingType):
         if dual:
             return Cofunction(self.function_space().dual())
         else:
-            return Function(self.function_space())
+            return Function(self.function_space(), dtype=self.dat.dtype)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
@@ -242,7 +242,7 @@ class FunctionMixin(FloatingType):
     def _ad_mul(self, other):
         from firedrake import Function
 
-        r = Function(self.function_space())
+        r = Function(self.function_space(), dtype=self.dat.dtype)
         # `self` can be a Cofunction in which case only left multiplication
         # with a scalar is allowed.
         r.assign(other * self)
@@ -251,7 +251,7 @@ class FunctionMixin(FloatingType):
     def _ad_add(self, other):
         from firedrake import Function
 
-        r = Function(self.function_space())
+        r = Function(self.function_space(), dtype=self.dat.dtype)
         Function.assign(r, self + other)
         return r
 
@@ -289,7 +289,7 @@ class FunctionMixin(FloatingType):
     def _ad_copy(self):
         from firedrake import Function
 
-        r = Function(self.function_space())
+        r = Function(self.function_space(), dtype=self.dat.dtype)
         r.assign(self)
         return r
 

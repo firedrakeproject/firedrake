@@ -79,7 +79,6 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    print(complex_mode)
     form_data = ufl_utils.compute_form_data(
         form,
         coefficients_to_split=tuple(

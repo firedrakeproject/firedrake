@@ -26,6 +26,11 @@ class FunctionAssignBlock(Block):
                     self.add_dependency(op, no_duplicates=True)
             self.expr = other
 
+        from firedrake import Function
+        if isinstance(other, Function):
+            self.in_dtype = other.dat.dtype
+        self.out_dtype = func.dat.dtype
+
     def _replace_with_saved_output(self):
         if self.expr is None:
             return None
@@ -62,7 +67,8 @@ class FunctionAssignBlock(Block):
                 )
             else:
                 adj_output = firedrake.Function(
-                    block_variable.output.function_space()
+                    block_variable.output.function_space(),
+                    dtype=self.in_dtype,
                 )
                 adj_output.assign(prepared)
             return adj_output.riesz_representation(riesz_map="l2")
@@ -77,14 +83,14 @@ class FunctionAssignBlock(Block):
                     ufl.derivative(expr, block_variable.saved_output,
                                    firedrake.Function(R, val=1.0))
                 )
-                diff_expr_assembled = firedrake.Function(adj_input_func.function_space())
+                diff_expr_assembled = firedrake.Function(adj_input_func.function_space(), dtype=self.in_dtype)
                 diff_expr_assembled.interpolate(ufl.conj(diff_expr))
                 diff_expr_assembled = diff_expr_assembled.riesz_representation(riesz_map="l2")
                 adj_output = firedrake.Function(
                     R, val=firedrake.assemble(ufl.Action(diff_expr_assembled, adj_input_func))
                 )
             else:
-                adj_output = firedrake.Function(adj_input_func.function_space())
+                adj_output = firedrake.Function(adj_input_func.function_space(), dtype=self.in_dtype)
                 diff_expr = ufl.algorithms.expand_derivatives(
                     ufl.derivative(expr, block_variable.saved_output, adj_input_func)
                 )
@@ -92,7 +98,7 @@ class FunctionAssignBlock(Block):
             return adj_output.riesz_representation(riesz_map="l2")
 
     def _adj_assign_constant(self, adj_output, constant_fs):
-        r = firedrake.Function(constant_fs)
+        r = firedrake.Function(constant_fs, dtype=self.in_dtype)
         shape = r.ufl_shape
         if shape == () or shape[0] == 1:
             # Scalar Constant

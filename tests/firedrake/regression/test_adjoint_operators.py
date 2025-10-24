@@ -7,6 +7,13 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
+def realify(f):
+    f_real = Function(f.function_space(), dtype=np.float64)
+    f_real.assign(f)
+    assert f_real.dat.dtype == np.float64
+    return f_real
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=1234))
@@ -117,7 +124,11 @@ def test_interpolate_vector_valued():
     u = Function(V3)
     u.interpolate(f*dot(f, g) - 0.5*g)
 
-    J = assemble(inner(f, g)*u**2*dx)
+    f_real = realify(f)
+    g_real = realify(g)
+    u_real = realify(u)
+
+    J = assemble(inner(f_real, g_real)*u_real**2*dx, form_compiler_parameters={"scalar_type": np.float64})
     rf = ReducedFunctional(J, Control(f))
 
     h = Function(V1).assign(1.)

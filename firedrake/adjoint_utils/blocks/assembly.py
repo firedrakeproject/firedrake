@@ -89,6 +89,8 @@ class AssembleBlock(Block):
             coeff = block_variable.output
             c_rep = block_variable.saved_output
             if coeff in self.form.coefficients():
+                if coeff.dat.dtype != c_rep.dat.dtype:
+                    c_rep.dat._data = c_rep.dat._data.astype(coeff.dat.dtype)
                 replaced_coeffs[coeff] = c_rep
 
         form = ufl.replace(self.form, replaced_coeffs)

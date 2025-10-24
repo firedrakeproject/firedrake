@@ -59,17 +59,21 @@ class EmptyDataMixin(abc.ABC):
     """
     def __init__(self, data, dtype, shape):
         if data is None:
-            self._dtype = np.dtype(dtype if dtype is not None else dtypes.ScalarType)
+            self._orig_dtype = np.dtype(dtype if dtype is not None else dtypes.ScalarType)
         else:
             self._numpy_data = utils.verify_reshape(data, dtype, shape, allow_none=True)
-            self._dtype = self._data.dtype
+            self._orig_dtype = self._numpy_data.dtype
+
+    @property
+    def _dtype(self):
+        return self._data.dtype
 
     @utils.cached_property
     def _data(self):
         """Return the user-provided data buffer, or a zeroed buffer of
         the correct size if none was provided."""
         if not self._is_allocated:
-            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
+            self._numpy_data = np.zeros(self.shape, dtype=self._orig_dtype)
         return self._numpy_data
 
     @property

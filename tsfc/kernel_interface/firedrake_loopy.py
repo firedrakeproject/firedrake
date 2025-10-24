@@ -176,6 +176,8 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg dtype: dtype of the kernel arg
         :returns: kernel arg
         """
+        if "coords" in var.name:
+            dtype = numpy.complex128
         return lp.GlobalArg(var.name, dtype=dtype or self.scalar_type, shape=var.shape)
 
     def generate_arg_from_expression(self, expr, dtype=None):

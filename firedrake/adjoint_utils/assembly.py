@@ -1,4 +1,5 @@
 import numbers
+import numpy as np
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
@@ -27,7 +28,14 @@ def annotate_assemble(assemble):
                 # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
                 form = BaseFormAssembler.preprocess_base_form(form)
                 kwargs['is_base_form_preprocessed'] = True
-            output = assemble(form, *args, **kwargs)
+            if form.coefficients() and any(c.dat.dtype == np.float64 for c in form.coefficients()) and "form_compiler_parameters" not in kwargs:
+                scalar_type = np.float64
+                output = assemble(form, *args, form_compiler_parameters={"scalar_type": scalar_type}, **kwargs)
+                # breakpoint()
+            else:
+                output = assemble(form, *args, **kwargs)
+            # if form.coefficients() and any(c.dat.dtype == np.float64 for c in form.coefficients()):
+            #     breakpoint()
 
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction

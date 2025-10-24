@@ -276,7 +276,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     def shape(self):
         return self._shape
 
-    @utils.cached_property
+    @property
     def dtype(self):
         return self._dtype
 
@@ -923,7 +923,7 @@ class MixedDat(AbstractDat, VecAccessMixin):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
         return self._dats[idx]
 
-    @utils.cached_property
+    @property
     def dtype(self):
         """The NumPy dtype of the data."""
         return self._dats[0].dtype

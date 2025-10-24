@@ -179,10 +179,10 @@ class Parloop:
 
         # Performing checks on dtypes is difficult for C-string kernels because PyOP2
         # will happily pass any type into a kernel with void* arguments.
-        # if (isinstance(global_knl.local_kernel, LoopyLocalKernel)
-        #         and not all(as_numpy_dtype(a.dtype) == as_numpy_dtype(b.data.dtype)
-        #                     for a, b in zip(global_knl.local_kernel.arguments, arguments))):
-        #     raise ValueError("The argument dtypes do not match those for the local kernel")
+        if (isinstance(global_knl.local_kernel, LoopyLocalKernel)
+                and not all(as_numpy_dtype(a.dtype) == as_numpy_dtype(b.data.dtype)
+                            for a, b in zip(global_knl.local_kernel.arguments, arguments))):
+            raise ValueError("The argument dtypes do not match those for the local kernel")
 
         self.check_iterset(iterset, global_knl, arguments)
         self._check_frozen_access_modes(global_knl.local_kernel, arguments)
