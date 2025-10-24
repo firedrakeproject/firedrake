@@ -3507,7 +3507,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_parent_cell_list[utils.invert(self._cell_numbering)]
         # return cell_parent_cell_list[op3.utils.invert(self._cell_numbering)]
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.

@@ -400,7 +400,7 @@ def _(
     if target_mesh is None:
         target_mesh = V.mesh()
 
-    if V.mesh() != target_mesh:
+    if V.mesh().topology != target_mesh.topology:
         index = target_mesh.cell_parent_cell_map(index)
 
     mesh = V.mesh()
@@ -594,6 +594,9 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
+    if not _requires_orientation(space):
+        return axes
+
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):
@@ -700,3 +703,7 @@ def _node_permutation_from_element(element) -> np.ndarray:
 def _needs_static_permutation(element) -> bool:
     perm = _node_permutation_from_element(element)
     return any(perm != np.arange(perm.size, dtype=perm.dtype))
+
+
+def _requires_orientation(space: WithGeometry) -> bool:
+    return space.finat_element.fiat_equivalent.dual.entity_permutations is not None

@@ -1053,24 +1053,23 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
+        if target_mesh != source_mesh:
+            raise NotImplementedError("Need the right maps")
         # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
-        wsize = W.finat_element.space_dimension() * W.block_size
-        kernel_code = f"""
-        void multiplicity(PetscScalar *restrict w) {{
-            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
-        }}"""
-        kernel = op2.Kernel(kernel_code, "multiplicity", requires_zeroed_output_arguments=False)
         weight = firedrake.Function(W)
-        m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, m_))
-        with weight.dat.vec as w:
+        op3.loop(
+            c := cell_set.iter(),
+            weight.dat[target_mesh.closure(c)].iassign(1),
+            eager=True,
+        )
+        with weight.vec_rw as w:
             w.reciprocal()
 
         # Create a buffer for the weighted Cofunction and a callable to apply the weight
         v = firedrake.Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
-        with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
+        with weight.vec_ro as w, dual_arg.vec_ro as x, v.vec_wo as y:
             callables += (partial(y.pointwiseMult, x, w),)
 
     # We need to pass both the ufl element and the finat element
@@ -1103,7 +1102,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if isinstance(tensor, op3.Scalar):
         local_kernel_args.append(tensor)
     elif isinstance(tensor, op3.Dat):
-        V_dest = arguments[-1].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
+        V_dest = arguments[-1].function_space()
         packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
         local_kernel_args.append(packed_tensor)
     else:
