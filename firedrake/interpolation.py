@@ -1198,7 +1198,7 @@ def get_interp_node_map(source_mesh, target_mesh, fs):
         else:
             raise ValueError("Have coefficient with unexpected mesh")
     else:
-        m_ = fs.entity_node_map(target_mesh.topology, "cell", None, None)
+        m_ = fs.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
     return m_
 
 
