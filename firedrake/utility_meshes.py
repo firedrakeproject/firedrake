@@ -2999,7 +2999,7 @@ def CylinderMesh(
         # 0-----1
 
         offset = np.arange(nl, dtype=np.int32) * nr
-        origquads = np.row_stack(tuple(ring_cells + i for i in offset))
+        origquads = np.vstack(tuple(ring_cells + i for i in offset))
         cells = np.zeros((origquads.shape[0] * 4, 3), dtype=np.int32)
         cellidx = 0
         newvertices = range(len(origvertices), len(origvertices) + len(extras))
@@ -3012,7 +3012,7 @@ def CylinderMesh(
 
     else:
         offset = np.arange(nl, dtype=np.int32) * nr
-        cells = np.row_stack(tuple(ring_cells + i for i in offset))
+        cells = np.vstack(tuple(ring_cells + i for i in offset))
         if not quadrilateral:
             if diagonal == "left":
                 idx = [0, 1, 3, 1, 2, 3]

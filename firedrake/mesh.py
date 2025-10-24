@@ -68,6 +68,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'VertexOnlyMeshMissingPointsError',
+    'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
 
@@ -1411,12 +1412,12 @@ class AbstractMeshTopology(abc.ABC):
 
     def cell_dimension(self):
         """Returns the cell dimension."""
-        return self.ufl_cell().topological_dimension()
+        return self.ufl_cell().topological_dimension
 
     def facet_dimension(self):
         """Returns the facet dimension."""
         # Facets have co-dimension 1
-        return self.ufl_cell().topological_dimension() - 1
+        return self.ufl_cell().topological_dimension - 1
 
     @abc.abstractmethod
     def mark_entities(self, tf, label_value, label_name=None):
@@ -1473,7 +1474,7 @@ class AbstractMeshTopology(abc.ABC):
 
         """
         plex_closures = self._plex_closures[self.dimension]
-        if self.ufl_cell().is_simplex():
+        if self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
         elif self.ufl_cell() == ufl.quadrilateral:
             return self._reorder_closure_fiat_quad(plex_closures)
@@ -1521,6 +1522,12 @@ class AbstractMeshTopology(abc.ABC):
             closure_data[i] = closure_func(pt)
 
         return utils.readonly(closure_data)
+
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
 
     # submesh
 
@@ -1826,7 +1833,7 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
-        return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
 
     @property
     def _default_reordering(self):
@@ -1865,9 +1872,9 @@ class MeshTopology(AbstractMeshTopology):
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell = self.ufl_cell()
-        assert tdim == cell.topological_dimension()
+        assert tdim == cell.topological_dimension
         if self.submesh_parent is not None and \
-                not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral"):
+                not (self.submesh_parent.ufl_cell().cellname == "hexahedron" and cell.cellname == "quadrilateral"):
             # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
             # inherit cell_closure from the hex mesh as the cell_closure
             # must follow the special orientation restriction. This means
@@ -1886,7 +1893,7 @@ class MeshTopology(AbstractMeshTopology):
                 self.submesh_parent.cell_closure,
                 entity_per_cell,
             )
-        elif cell.is_simplex():
+        elif cell.is_simplex:
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1895,7 +1902,7 @@ class MeshTopology(AbstractMeshTopology):
             return dmcommon.closure_ordering(plex, vertex_numbering,
                                              cell_numbering, entity_per_cell)
 
-        elif cell.cellname() == "quadrilateral":
+        elif cell.cellname == "quadrilateral":
             petsctools.cite("Homolya2016")
             petsctools.cite("McRae2016")
             # Quadrilateral mesh
@@ -1914,7 +1921,7 @@ class MeshTopology(AbstractMeshTopology):
 
             return dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
-        elif cell.cellname() == "hexahedron":
+        elif cell.cellname == "hexahedron":
             # TODO: Should change and use create_cell_closure() for all cell types.
             topology = FIAT.ufc_cell(cell).get_topology()
             closureSize = sum([len(ents) for _, ents in topology.items()])
@@ -2298,7 +2305,7 @@ class MeshTopology(AbstractMeshTopology):
             label_name = label_name or dmcommon.CELL_SETS_LABEL
         elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1) or \
                 (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1) or \
-                (elem.family() == "Q" and elem.degree() == 2 and self.ufl_cell().cellname() == "hexahedron"):
+                (elem.family() == "Q" and elem.degree() == 2 and self.ufl_cell().cellname == "hexahedron"):
             # facets
             height = 1
             label_name = label_name or dmcommon.FACE_SETS_LABEL
@@ -2545,7 +2552,7 @@ class ExtrudedMeshTopology(MeshTopology):
     @utils.cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
-        return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+        return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
 
     @property
     def dm_cell_types(self):
@@ -3385,7 +3392,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
-        return ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
+        return ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension))
 
     def _renumber_entities(self, reorder):
         assert False, "old code"
@@ -3748,9 +3755,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self._topology = topology
         coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
-                                                     (self.num_vertices, self.geometric_dimension()))
+                                                     (self.num_vertices, self.geometric_dimension))
         coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                       val=coordinates_data,
                                                       name=_generate_default_mesh_coordinates_name(self.name))
@@ -3934,7 +3940,7 @@ values from f.)"""
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ
 
-        gdim = self.geometric_dimension()
+        gdim = self.geometric_dimension
         if gdim <= 1:
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
@@ -4097,9 +4103,9 @@ values from f.)"""
             or, when point is not in the domain, (None, None).
         """
         x = np.asarray(x)
-        if x.size != self.geometric_dimension():
+        if x.size != self.geometric_dimension:
             raise ValueError("Point must have the same geometric dimension as the mesh")
-        x = x.reshape((1, self.geometric_dimension()))
+        x = x.reshape((1, self.geometric_dimension))
         cells, ref_coords, _ = self.locate_cells_ref_coords_and_dists(x, tolerance=tolerance, cells_ignore=[[cell_ignore]])
         if cells[0] == -1:
             return None, None
@@ -4135,7 +4141,7 @@ values from f.)"""
             self.tolerance = tolerance
         xs = np.asarray(xs, dtype=utils.ScalarType)
         xs = xs.real.copy()
-        if xs.shape[1] != self.geometric_dimension():
+        if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
         Xs = np.empty_like(xs)
         npoints = len(xs)
@@ -4148,7 +4154,7 @@ values from f.)"""
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
-        assert xs.size == npoints * self.geometric_dimension()
+        assert xs.size == npoints * self.geometric_dimension
         self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                              xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
                                              Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
@@ -4187,9 +4193,9 @@ values from f.)"""
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         int *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
-                        for (int k = 0; k < {self.geometric_dimension()}; k++) {{
+                        for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
                             j++;
                         }}
@@ -4283,7 +4289,7 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if (self.ufl_cell().cellname(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
+        if (self.ufl_cell().cellname, self.geometric_dimension) not in _supported_embedded_cell_types_and_gdims:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
@@ -4292,16 +4298,16 @@ values from f.)"""
         if not isinstance(expr, ufl.classes.Expr):
             raise TypeError("UFL expression expected!")
 
-        if expr.ufl_shape != (self.geometric_dimension(), ):
-            raise ValueError(f"Mismatching shapes: expr.ufl_shape ({expr.ufl_shape}) != (self.geometric_dimension(), ) (({self.geometric_dimension}, ))")
+        if expr.ufl_shape != (self.geometric_dimension, ):
+            raise ValueError(f"Mismatching shapes: expr.ufl_shape ({expr.ufl_shape}) != (self.geometric_dimension, ) (({self.geometric_dimension}, ))")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)
         f = function.Function(fs)
 
-        if self.topological_dimension() == 1:
+        if self.topological_dimension == 1:
             normal = ufl.as_vector((-ReferenceGrad(x)[1, 0], ReferenceGrad(x)[0, 0]))
-        else:  # self.topological_dimension() == 2
+        else:  # self.topological_dimension == 2
             normal = ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])
 
         f.interpolate(ufl.dot(expr, normal))
@@ -4337,6 +4343,12 @@ values from f.)"""
         """
         self.topology.mark_entities(f.topological, label_value, label_name)
 
+    def __iter__(self):
+        yield self
+
+    def unique(self):
+        return self
+
 
 @PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
@@ -4368,7 +4380,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
+    assert V.mesh().ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
     mesh.__init__(coordinates)
@@ -4441,7 +4453,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     vmesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     vmesh._init_topology(topology)
     # Save vertex reference coordinate (within reference cell) in function
-    parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
+    parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
         reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
@@ -4732,7 +4744,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         pass
     elif extrusion_type in ("radial", "radial_hedgehog"):
         # do not allow radial extrusion if tdim = gdim
-        if mesh.geometric_dimension() == mesh.topological_dimension():
+        if mesh.geometric_dimension == mesh.topological_dimension:
             raise RuntimeError("Cannot radially-extrude a mesh with equal geometric and topological dimension")
     else:
         # check for kernel
@@ -4752,7 +4764,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
-        gdim = mesh.geometric_dimension() + (extrusion_type == "uniform")
+        gdim = mesh.geometric_dimension + (extrusion_type == "uniform")
     coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
     coordinates = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
@@ -4863,7 +4875,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
@@ -5097,8 +5109,8 @@ def _pic_swarm_in_mesh(
     coords = np.asarray(coords, dtype=RealType)
 
     plex = parent_mesh.topology.topology_dm
-    tdim = parent_mesh.topological_dimension()
-    gdim = parent_mesh.geometric_dimension()
+    tdim = parent_mesh.topological_dimension
+    gdim = parent_mesh.geometric_dimension
 
     (
         coords_local,
@@ -5674,10 +5686,10 @@ def _parent_mesh_embedding(
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
 
-    if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
+    if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
         # The reference coordinates contain an extra unnecessary dimension
         # which we can safely delete
-        reference_coords = reference_coords[:, : parent_mesh.topological_dimension()]
+        reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     locally_visible[:] = parent_cell_nums != -1
     ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
@@ -5744,8 +5756,8 @@ def _parent_mesh_embedding(
                 cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
             )
             # delete extra dimension if necessary
-            if parent_mesh.geometric_dimension() > parent_mesh.topological_dimension():
-                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension()]
+            if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
             reference_coords[changed_ranks_tied, :] = new_reference_coords
             # remove newly lost points
             locally_visible[changed_ranks_tied] = (
@@ -6057,9 +6069,9 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             # cells
             height = 0
             dmlabel_name = dmcommon.CELL_SETS_LABEL
-        elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension() > 1) or \
-                (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1) or \
-                (elem.family() == "Q" and elem.degree() == 2 and mesh.topology.ufl_cell().cellname() == "hexahedron"):
+        elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension > 1) or \
+                (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension == 1) or \
+                (elem.family() == "Q" and elem.degree() == 2 and mesh.topology.ufl_cell().cellname == "hexahedron"):
             # facets
             height = 1
             dmlabel_name = dmcommon.FACE_SETS_LABEL
@@ -6210,38 +6222,6 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         },
     )
     return submesh
-
-
-# def _labelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> PETSc.IS:
-#     # Compute the union of all the values
-#     value, *values = values
-#     indices = plex.getStratumIS(label_name, value).indices
-#     for value in values:
-#         indices = indices.union(plex.getStratumIS(label_name, value).indices)
-#     return indices
-#
-#
-# def _labelled_cells(plex: PETSc.DMPlex, values: Iterable[IntType]) -> np.ndarray[IntType]:
-#     indices_plex = _labelled_points_plex(plex, dmcommon.CELL_SETS_LABEL, values)
-#     return 
-#
-#
-# def _unlabelled_points_plex(plex: PETSc.DMPlex, label_name: str, values: Iterable[IntType]) -> np.ndarray[IntType]:
-#     breakpoint()  # harder than the opposite
-#     for i in markers:
-#         if i == unmarked:
-#             _markers = self.plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
-#             # Can exclude points labeled with i\in markers here,
-#             # as they will be included in the below anyway.
-#             marked_points_list.append(self._collect_unmarked_points([_i for _i in _markers if _i not in markers]))
-#         elif self.plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
-#             marked_points_list.append(self.plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
-#     f_start, f_stop = self.mesh.topology_dm.getHeightStratum(1)
-#     nmarked_facets = 0
-#     for marked_points in marked_points_list:
-#         for point in marked_points:
-#             if f_start <= point < f_stop:
-#                 nmarked_facets += 1
 
 
 MeshT = MeshGeometry | AbstractMeshTopology
@@ -6455,3 +6435,185 @@ def _memoize_facet_supports(
     # TODO: Ideally only pass an integer as the subaxis size
     axes = op3.AxisTree.from_iterable([iterset.as_axis(), op3.Axis(support_size, "support")])
     return op3.Dat(axes, data=support_cells_renum.flatten())
+
+
+class MeshSequenceGeometry(ufl.MeshSequence):
+    """A representation of mixed mesh geometry."""
+
+    def __init__(self, meshes, set_hierarchy=True):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshGeometry`s to make `MeshSequenceGeometry` with.
+        set_hierarchy : bool
+            Flag for making hierarchy.
+
+        """
+        for m in meshes:
+            if not isinstance(m, MeshGeometry):
+                raise ValueError(f"Got {type(m)}")
+        super().__init__(meshes)
+        self.comm = meshes[0].comm
+        # Only set hierarchy at top level.
+        if set_hierarchy:
+            self.set_hierarchy()
+
+    @utils.cached_property
+    def topology(self):
+        return MeshSequenceTopology([m.topology for m in self._meshes])
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self.topology
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m
+
+    def set_hierarchy(self):
+        """Set mesh hierarchy if needed."""
+        from firedrake.mg.utils import set_level, get_level, has_level
+
+        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
+        if all(not has_level(m) for m in self._meshes):
+            return
+        else:
+            if not all(has_level(m) for m in self._meshes):
+                raise RuntimeError("Found inconsistent component meshes")
+        hierarchy_list = []
+        level_list = []
+        for m in self:
+            hierarchy, level = get_level(m)
+            hierarchy_list.append(hierarchy)
+            level_list.append(level)
+        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
+        level, = set(level_list)
+        result = []
+        for ilevel in range(nlevels):
+            if ilevel == level:
+                result.append(self)
+            else:
+                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
+        result = tuple(result)
+        for i, m in enumerate(result):
+            set_level(m, result, i)
+
+    @property
+    def _comm(self):
+        return self.topology._comm
+
+
+class MeshSequenceTopology(object):
+    """A representation of mixed mesh topology."""
+
+    def __init__(self, meshes):
+        """Initialise.
+
+        Parameters
+        ----------
+        meshes : tuple or list
+            `MeshTopology`s to make `MeshSequenceTopology` with.
+
+        """
+        for m in meshes:
+            if not isinstance(m, AbstractMeshTopology):
+                raise ValueError(f"Got {type(m)}")
+        self._meshes = tuple(meshes)
+        self.comm = meshes[0].comm
+        self._comm = internal_comm(self.comm, self)
+
+    @property
+    def topology(self):
+        """The underlying mesh topology object."""
+        return self
+
+    @property
+    def topological(self):
+        """Alias of topology.
+
+        This is to ensure consistent naming for some multigrid codes."""
+        return self
+
+    def ufl_cell(self):
+        cell, = set(m.ufl_cell() for m in self._meshes)
+        return cell
+
+    def ufl_mesh(self):
+        cell = self.ufl_cell()
+        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
+                                 for _ in self._meshes])
+
+    def __eq__(self, other):
+        if type(other) != type(self):
+            return False
+        if len(other) != len(self):
+            return False
+        for o, s in zip(other, self):
+            if o is not s:
+                return False
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._meshes)
+
+    def __len__(self):
+        return len(self._meshes)
+
+    def __iter__(self):
+        return iter(self._meshes)
+
+    def __getitem__(self, i):
+        return self._meshes[i]
+
+    @utils.cached_property
+    def extruded(self):
+        m = self.unique()
+        return m.extruded
+
+    def unique(self):
+        """Return a single component or raise exception."""
+        if len(set(self._meshes)) > 1:
+            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+        m, = set(self._meshes)
+        return m

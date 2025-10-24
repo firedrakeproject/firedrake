@@ -280,7 +280,7 @@ class Interpolator(abc.ABC):
         submesh_interp_implemented = \
             all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
             target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
+            target_mesh.topological_dimension == source_mesh.topological_dimension
         if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
@@ -501,8 +501,8 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
-        src_mesh_gdim = src_mesh.geometric_dimension()
-        dest_mesh_gdim = dest_mesh.geometric_dimension()
+        src_mesh_gdim = src_mesh.geometric_dimension
+        dest_mesh_gdim = dest_mesh.geometric_dimension
         if src_mesh_gdim != dest_mesh_gdim:
             raise ValueError(
                 "geometric dimensions of source and destination meshes must match"
@@ -876,7 +876,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
@@ -935,7 +935,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         return callable
     else:
         loops = []
-
+        # Initialise to zero if needed
         if access == op3.INC:
             loops.append(tensor.zero)
 
@@ -965,7 +965,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             else:
                 sub_tensor = tensor
             loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
-
+        # Apply bcs
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
@@ -1012,7 +1012,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         if target_mesh is not source_mesh:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
@@ -1046,7 +1046,8 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
-    callables = ()
+    copyin = ()
+    copyout = ()
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
@@ -1057,6 +1058,10 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
             raise NotImplementedError("Need the right maps")
         # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
+        v = firedrake.Function(W)
+        expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        copyin += (lambda: v.dat.assign(dual_arg.dat, eager=True),)
+
         weight = firedrake.Function(W)
         op3.loop(
             c := cell_set.iter(),
@@ -1069,8 +1074,9 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         # Create a buffer for the weighted Cofunction and a callable to apply the weight
         v = firedrake.Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        # Create a callable to apply the weight
         with weight.vec_ro as w, dual_arg.vec_ro as x, v.vec_wo as y:
-            callables += (partial(y.pointwiseMult, x, w),)
+            copyin += (partial(y.pointwiseMult, y, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -1099,10 +1105,11 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     else:
         copyin = ()
         copyout = ()
-    if isinstance(tensor, op3.Scalar):
+
+    if not arguments:
         local_kernel_args.append(tensor)
-    elif isinstance(tensor, op3.Dat):
-        V_dest = arguments[-1].function_space()
+    elif len(arguments) == 1:
+        V_dest = utils.just_one(arguments).function_space()
         packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
         local_kernel_args.append(packed_tensor)
     else:
@@ -1164,17 +1171,10 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     parloop = op3.loop(
         cell_index,expression_kernel(*local_kernel_args)
     )
-
-    if any(c.dat == tensor for c in coefficients):
-        output = tensor
-        tensor = op3.Dat.empty_like(output)
-        if access != op3.WRITE:
-            copyin = (lambda: tensor.assign(output, eager=True),)
-        else:
-            copyin = ()
-        copyout = (lambda: output.assign(tensor, eager=True),)
+    if isinstance(tensor, op3.Mat):
+        return parloop, tensor.assemble
     else:
-        return copyin + callables + (parloop,) + copyout
+        return copyin + (parloop, ) + copyout
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
@@ -1248,7 +1248,7 @@ def rebuild_dg(element, expr_cell, rt_var_name):
     # dual basis. This exists on the same reference cell as the input element
     # and we can interpolate onto it before mapping the result back onto the
     # target space.
-    expr_tdim = expr_cell.topological_dimension()
+    expr_tdim = expr_cell.topological_dimension
     # Need point evaluations and matching weights from dual basis.
     # This could use FIAT's dual basis as below:
     # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())

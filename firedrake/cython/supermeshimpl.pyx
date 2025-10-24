@@ -69,7 +69,7 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     vertex_map_B = mesh_B.coordinates.function_space().cell_node_list
 
     num_vertices = vertex_map_A.shape[1]
-    gdim = mesh_A.geometric_dimension()
+    gdim = mesh_A.geometric_dimension
     simplex_A = numpy.empty((num_vertices, gdim), dtype=ScalarType)
     simplex_B = numpy.empty_like(simplex_A, dtype=ScalarType)
     simplices_C = numpy.empty(MAGIC[gdim], dtype=ScalarType)
@@ -119,10 +119,10 @@ def intersection_finder(mesh_A, mesh_B):
         long nnodes_A, nnodes_B, ncells_A, ncells_B
         int dim_A, dim_B, loc_A, loc_B
 
-    dim = mesh_A.geometric_dimension()
-    assert dim == mesh_B.geometric_dimension()
-    assert dim == mesh_A.topological_dimension()
-    assert dim == mesh_B.topological_dimension()
+    dim = mesh_A.geometric_dimension
+    assert dim == mesh_B.geometric_dimension
+    assert dim == mesh_A.topological_dimension
+    assert dim == mesh_B.topological_dimension
 
     assert mesh_A.coordinates.function_space().ufl_element().degree() == 1
     assert mesh_B.coordinates.function_space().ufl_element().degree() == 1
@@ -144,8 +144,8 @@ def intersection_finder(mesh_A, mesh_B):
     vertex_map_B = mesh_B.coordinates.function_space().cell_node_list
     nnodes_A = mesh_A.coordinates.function_space().axes.size
     nnodes_B = mesh_B.coordinates.function_space().axes.size
-    dim_A = mesh_A.geometric_dimension()
-    dim_B = mesh_B.geometric_dimension()
+    dim_A = mesh_A.geometric_dimension
+    dim_B = mesh_B.geometric_dimension
     ncells_A = mesh_A.num_cells
     ncells_B = mesh_B.num_cells
     loc_A = vertex_map_A.shape[1]

@@ -222,7 +222,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = V.reconstruct(element=ebig)
+            Vbig = V.reconstruct(mesh=V.mesh().unique(), element=ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
@@ -482,7 +482,7 @@ class FDMPC(PCBase):
         args_J = J.arguments()
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
@@ -1674,7 +1674,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    if Vf.mesh().ufl_cell().is_simplex():
+    if Vf.mesh().ufl_cell().is_simplex:
         c0 = ec.fiat_equivalent
         f1 = ef.fiat_equivalent
         derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
@@ -1689,7 +1689,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         if c1.formdegree != 1:
             c1 = None
 
-        tdim = Vc.mesh().topological_dimension()
+        tdim = Vc.mesh().topological_dimension
         zero = PETSc.Mat()
         A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
         A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
@@ -1971,7 +1971,7 @@ class PoissonFDMPC(FDMPC):
         bsize = V.block_size
         ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
-        tdim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension
         shift = axes_shifts * bsize
 
         index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
@@ -2074,7 +2074,7 @@ class PoissonFDMPC(FDMPC):
         if any(Dk is not None for Dk in Dfdm):
             if static_condensation:
                 raise NotImplementedError("Static condensation for SIPG not implemented")
-            if tdim < V.mesh().geometric_dimension():
+            if tdim < V.mesh().geometric_dimension:
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             eta = float(self.appctx.get("eta"))
 
@@ -2173,7 +2173,7 @@ class PoissonFDMPC(FDMPC):
         args_J = J.arguments()
         V = args_J[-1].function_space()
         mesh = V.mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         Finv = ufl.JacobianInverse(mesh)
 
         degree, = set(as_tuple(V.ufl_element().degree()))
@@ -2289,7 +2289,7 @@ class PoissonFDMPC(FDMPC):
 
 
 def get_piola_tensor(mapping, domain):
-    tdim = domain.topological_dimension()
+    tdim = domain.topological_dimension
     if mapping == 'identity':
         return None
     elif mapping == 'covariant piola':

@@ -3665,7 +3665,7 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                 numAdj += 1
             # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
-                SETERR(77)
+                CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
     adjSize[0] = numAdj
     return 0
@@ -3750,7 +3750,7 @@ cdef int DMPlexGetAdjacency_Closure_Star_Ridge(
                 numAdj += 1
             # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
-                SETERR(77)
+                CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
     CHKERR(DMPlexRestoreTransitiveClosure(dm, p, PETSC_FALSE, &starSize, &star))
     adjSize[0] = numAdj

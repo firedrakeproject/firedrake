@@ -85,7 +85,7 @@ def test_submesh_facet_corner_case_1():
     V = FunctionSpace(mesh, "Q", 2)
     f = Function(V).interpolate(conditional(Or(facet0, facet1), 1, 0))
     mesh = RelabeledMesh(mesh, [f], [999])
-    subm = Submesh(mesh, mesh.topological_dimension() - 1, 999)
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 999)
     v = assemble(Constant(1.) * dx(domain=subm))
     assert abs(v - 2.) < 2.e-15
 
@@ -121,4 +121,4 @@ def test_submesh_facet_corner_case_2():
     )
     facet_value = 999
     mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
-    _ = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    _ = Submesh(mesh, mesh.topological_dimension - 1, facet_value)

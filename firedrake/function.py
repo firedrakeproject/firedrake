@@ -616,20 +616,24 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         tolerance = kwargs.get('tolerance', None)
         mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
         else:
-            mesh.tolerance = tolerance
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        if tolerance is None:
+            tolerance = mesh_unique.tolerance
+        else:
+            mesh_unique.tolerance = tolerance
 
         # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        if mesh.variable_layers:
+        if mesh_unique.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -760,7 +764,7 @@ class PointEvaluator:
         self.points = np.asarray(points, dtype=utils.ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
             raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
         self.points = self.points.reshape(-1, gdim)
@@ -810,7 +814,7 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh()
+        function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:

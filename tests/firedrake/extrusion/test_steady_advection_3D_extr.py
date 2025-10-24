@@ -33,7 +33,7 @@ def DGDPC1(request, mesh):
 
 @pytest.fixture
 def W(mesh):
-    if mesh.ufl_cell().sub_cells()[0].cellname() == "quadrilateral":
+    if mesh.ufl_cell().sub_cells[0].cellname == "quadrilateral":
         # RTCF1 element on a hexahedron
         W0_h = FiniteElement("RTCF", "quadrilateral", 1)
         W1_h = FiniteElement("DQ", "quadrilateral", 0)

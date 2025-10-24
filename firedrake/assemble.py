@@ -26,7 +26,7 @@ import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_unique_domain
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.parloops import pack_pyop3_tensor, pack_tensor
 from firedrake.petsc import PETSc
@@ -66,17 +66,23 @@ def assemble(expr, *args, **kwargs):
         `ufl.classes.Measure` in the form. For example, if a
         ``quadrature_degree`` of 4 is specified in this argument, but a degree of
         3 is requested in the measure, the latter will be used.
-    mat_type : str
+    mat_type : str | None
         String indicating how a 2-form (matrix) should be
         assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
-        a block matrix (``"nest"``), or left as a `matrix.ImplicitMatrix` giving
+        a block matrix (``"nest"``), or left as a :class:`firedrake.matrix.ImplicitMatrix` giving
         matrix-free actions (``'matfree'``). If not supplied, the default value in
-        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
-        from AIJ in that only the block sparsity rather than the dof
+        ``parameters["default_matrix_type"]`` is used.  ``"baij"``` differs
+        from ``"aij"`` in that only the block sparsity rather than the DoF
         sparsity is constructed.  This can result in some memory
         savings, but does not work with all PETSc preconditioners.
-        BAIJ matrices only make sense for non-mixed matrices.
-    sub_mat_type : str
+        ``"baij"`` matrices only make sense for non-mixed matrices with arguments
+        on a :func:`firedrake.functionspace.VectorFunctionSpace`.
+
+        NOTE
+        ----
+        For the assembly of a 0-form or 1-form arising from the action of a 2-form,
+        the default matrix type is ``"matfree"``.
+    sub_mat_type : str | None
         String indicating the matrix type to
         use *inside* a nested block matrix.  Only makes sense if
         ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
@@ -162,7 +168,10 @@ def get_assembler(form, *args, **kwargs):
     fc_params = kwargs.get('form_compiler_parameters', None)
     pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
-        mat_type = kwargs.get('mat_type', None)
+        # If not assembling a matrix, internal BaseForm nodes are matfree by default
+        # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
+        default_mat_type = "matfree" if len(form.arguments()) < 2 else None
+        mat_type = kwargs.get('mat_type', default_mat_type)
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
@@ -1099,7 +1108,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices],
+                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
                     diagonal=self.diagonal,
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
@@ -1120,14 +1129,15 @@ class ParloopFormAssembler(FormAssembler):
 
         """
         try:
-            topology, = set(d.topology for d in self._form.ufl_domains())
+            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
         except ValueError:
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = extract_unique_domain(o)
-            if domain is not None and domain.topology != topology:
-                raise NotImplementedError("Assembly with multiple meshes is not supported")
+            domains = extract_domains(o)
+            for domain in domains:
+                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
+                    raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
@@ -1492,7 +1502,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         for rindex, cindex in diag_blocks:
             op3.do_loop(
-                p := extract_unique_domain(test).points.index(),
+                p := test.ufl_domain().points.index(),
                 sparsity[rindex, cindex][p, p].assign(666)
             )
 
@@ -1539,8 +1549,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             loops = []
             for assembler in self._all_assemblers:
-                all_meshes = assembler._form.ufl_domains()
-                for local_kernel, _ in assembler.local_kernels:
+                all_meshes = extract_domains(assembler._form)
+                for local_kernel, subdomain_id in assembler.local_kernels:
                     integral_type = local_kernel.kinfo.integral_type
 
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
@@ -1558,6 +1568,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     iterset = iteration_set(mesh, integral_type, "everywhere")
                     index = iterset.index()
 
+                    # Make Sparsity independent of the subdomain of integration for better reusability;
+                    # subdomain_id is passed here only to determine the integration_type on the target domain
+                    # (see ``entity_node_map``).
+                    # TODO: account for subdomain_id for submeshes
                     if integral_type == "cell":
                         rmap = mesh.closure(index)
                         cmap = rmap
@@ -1574,27 +1588,31 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
 
-        mesh = utils.single_valued(extract_unique_domain(a) for a in {test, trial})
-        Vrow = test.function_space()
-        Vcol = trial.function_space()
-
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
         # reusability.
         loops = []
         for integral_type in allocation_integral_types:
-            iterset = iteration_set(mesh, integral_type, "everywhere")
-            index = iterset.index()
-            if integral_type == "cell":
-                rmap = mesh.closure(index)
-                cmap = rmap
-            else:
-                assert "facet" in integral_type
-                rmap = mesh.closure(mesh.support(index))
-                cmap = rmap
+            for i, Vrow in enumerate(test.function_space()):
+                if len(test.function_space()) == 1:
+                    i = None
 
-            loop = (index, rmap, cmap, (None, None))
-            loops.append(loop)
+                for j, Vcol in enumerate(trial.function_space()):
+                    if len(trial.function_space()) == 1:
+                        j = None
+                    mesh = Vrow.mesh()
+                    iterset = iteration_set(mesh, integral_type, "everywhere")
+                    index = iterset.index()
+                    if integral_type == "cell":
+                        rmap = mesh.closure(index)
+                        cmap = rmap
+                    else:
+                        assert "facet" in integral_type
+                        rmap = mesh.closure(mesh.support(index))
+                        cmap = rmap
+
+                    loop = (index, rmap, cmap, (i, j))
+                    loops.append(loop)
         return tuple(loops)
 
     @cached_property
@@ -1828,8 +1846,15 @@ class ParloopBuilder:
         self._diagonal = diagonal
         self._bcs = bcs
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
+        self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
+        self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
+        self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
@@ -1960,7 +1985,8 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = extract_domains(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @property
     def _topology(self):
@@ -2018,6 +2044,11 @@ class ParloopBuilder:
         else:
             raise AssertionError
 
+    @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+    def _as_parloop_arg_constant(self, arg, index):
+        const = next(self._constants)
+        return const.dat
+
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
         return pack_tensor(self._mesh.coordinates, index, self._integral_type)
@@ -2026,11 +2057,6 @@ class ParloopBuilder:
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
         return pack_tensor(coeff, index, self._integral_type)
-
-    @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
-    def _as_parloop_arg_constant(self, arg, index):
-        const = next(self._constants)
-        return const.dat
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
@@ -2045,11 +2071,13 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._topology.exterior_facet_local_facet_indices[index]
+        mesh = next(self._active_exterior_facets)
+        return mesh.exterior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        return self._topology.interior_facet_local_facet_indices[index]
+        mesh = next(self._active_exterior_facets)
+        return mesh.interior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
     def _(self, _, index):
@@ -2075,17 +2103,39 @@ class ParloopBuilder:
         return op2.GlobalParloopArg(glob)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_exterior_facet_orientation(self, _, p):
-        raise NotImplementedError
-        return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
+    def _as_parloop_arg_exterior_facet_orientation(self, _, facet_index: op3.LoopIndex):
+        mesh = next(self._active_orientations_exterior_facet)
+        return mesh.exterior_facets.local_facet_orientation_dat[facet_index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
     def _as_parloop_arg_interior_facet_orientation(self, _, facet_index: op3.LoopIndex):
-        return self._mesh.interior_facets.local_facet_orientation_dat[facet_index]
+        mesh = next(self._active_orientations_interior_facet)
+        return mesh.interior_facets.local_facet_orientation_dat[facet_index]
 
 
 class _FormHandler:
     """Utility class for inspecting forms and local kernels."""
+
+    @staticmethod
+    def iter_active_coordinates(form, kinfo):
+        """Yield the form coordinates referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.coordinates:
+            yield all_meshes[i].coordinates
+
+    @staticmethod
+    def iter_active_cell_orientations(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            yield all_meshes[i].cell_orientations()
+
+    @staticmethod
+    def iter_active_cell_sizes(form, kinfo):
+        """Yield the form cell sizes referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            yield all_meshes[i].cell_sizes
 
     @staticmethod
     def iter_active_coefficients(form, kinfo):
@@ -2104,6 +2154,38 @@ class _FormHandler:
             all_constants = extract_firedrake_constants(form)
         for constant_index in kinfo.constant_numbers:
             yield all_constants[constant_index]
+
+    @staticmethod
+    def iter_active_exterior_facets(form, kinfo):
+        """Yield the form exterior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.exterior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_interior_facets(form, kinfo):
+        """Yield the form interior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.interior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_exterior_facet(form, kinfo):
+        """Yield the form exterior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_exterior_facet:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_interior_facet(form, kinfo):
+        """Yield the form interior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_interior_facet:
+            mesh = all_meshes[i]
+            yield mesh
 
     @staticmethod
     def index_function_spaces(form, indices):
