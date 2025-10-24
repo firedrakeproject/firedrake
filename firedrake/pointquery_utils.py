@@ -144,6 +144,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType)
     builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     builder.domain_coordinate[domain] = C
     Cexpr = builder._coefficient(C, "C")
     x0_expr = builder._coefficient(x0, "x0")

@@ -1,7 +1,10 @@
+import os
 import pytest
 from os.path import abspath, dirname, join
 import numpy as np
 from firedrake import *
+from firedrake.cython import dmcommon
+from petsc4py import PETSc
 
 
 cwd = abspath(dirname(__file__))
@@ -458,3 +461,293 @@ def test_submesh_solve_cell_cell_equation_bc(nref, degree, simplex):
     solve(a == L, sol, bcs=[dbc, ebc])
     assert sqrt(assemble(inner(sol[0] - x * y, sol[0] - x * y) * dx_outer)) < 1.e-12
     assert sqrt(assemble(inner(sol[1] - x * y, sol[1] - x * y) * dx_inner)) < 1.e-12
+
+
+def _test_submesh_solve_quad_triangle_poisson(nref, degree):
+    dim = 2
+    label_ext = 1
+    label_interf = 2
+    distribution_parameters_noop = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+    }
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"), distribution_parameters=distribution_parameters_noop)
+    plex = mesh.topology_dm
+    for _ in range(nref):
+        plex = plex.refine()
+    plex.removeLabel("pyop2_core")
+    plex.removeLabel("pyop2_owned")
+    plex.removeLabel("pyop2_ghost")
+    mesh = Mesh(plex)
+    h = 0.1 / 2**nref  # roughly
+    mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
+    mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
+    x_t, y_t = SpatialCoordinate(mesh_t)
+    n_t = FacetNormal(mesh_t)
+    mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
+    x_q, y_q = SpatialCoordinate(mesh_q)
+    n_q = FacetNormal(mesh_q)
+    V_t = FunctionSpace(mesh_t, "P", degree)
+    V_q = FunctionSpace(mesh_q, "Q", degree)
+    V = V_t * V_q
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_t, u_q = split(u)
+    v_t, v_q = split(v)
+    dx_t = Measure("dx", mesh_t)
+    dx_q = Measure("dx", mesh_q)
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
+    g_t = cos(2 * pi * x_t) * cos(2 * pi * y_t)
+    g_q = cos(2 * pi * x_q) * cos(2 * pi * y_q)
+    f_t = 8 * pi**2 * g_t
+    f_q = 8 * pi**2 * g_q
+    a = (
+        inner(grad(u_t), grad(v_t)) * dx_t + inner(grad(u_q), grad(v_q)) * dx_q
+        - inner(
+            (grad(u_q) + grad(u_t)) / 2,
+            (v_q * n_q + v_t * n_t)
+        ) * ds_q(label_interf)
+        - inner(
+            (u_q * n_q + u_t * n_t),
+            (grad(v_q) + grad(v_t)) / 2
+        ) * ds_t(label_interf)
+        + 100 / h * inner(u_q - u_t, v_q - v_t) * ds_q(label_interf)
+    )
+    L = (
+        inner(f_t, v_t) * dx_t + inner(f_q, v_q) * dx_q
+    )
+    sol = Function(V)
+    bc_q = DirichletBC(V.sub(1), g_q, label_ext)
+    solve(a == L, sol, bcs=[bc_q])
+    sol_t, sol_q = split(sol)
+    L2Error_t = assemble(inner(sol_t - g_t, sol_t - g_t) * dx_t)
+    L2Error_q = assemble(inner(sol_q - g_q, sol_q - g_q) * dx_q)
+    H1Error_t = L2Error_t + assemble(inner(grad(sol_t - g_t), grad(sol_t - g_t)) * dx_t)
+    H1Error_q = L2Error_q + assemble(inner(grad(sol_q - g_q), grad(sol_q - g_q)) * dx_q)
+    return sqrt(L2Error_t + L2Error_q), sqrt(H1Error_t + H1Error_q)
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_solve_quad_triangle_poisson_convergence():
+    for degree in range(1, 5):
+        L2Errors = []
+        H1Errors = []
+        for nref in range(4):
+            L2Error, H1Error = _test_submesh_solve_quad_triangle_poisson(nref, degree)
+            L2Errors.append(L2Error)
+            H1Errors.append(H1Error)
+        L2Errors = [np.log2(c) - np.log2(f) for c, f in zip(L2Errors[:-1], L2Errors[1:])]
+        H1Errors = [np.log2(c) - np.log2(f) for c, f in zip(H1Errors[:-1], H1Errors[1:])]
+        assert (np.array(L2Errors) > (degree + 1) * 0.995).all()
+        assert (np.array(H1Errors) > (degree) * 0.995).all()
+
+
+def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
+    distribution_parameters_noop = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+    }
+    distribution_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    dim = 3
+    interf_at = 0.499
+    if simplex:
+        nref_simplex = 3
+        mesh = BoxMesh(2 ** nref_simplex, 2 ** nref_simplex, 2 ** nref_simplex, 1., 1., 1., hexahedral=False, distribution_parameters=distribution_parameters_noop)
+        xyz = SpatialCoordinate(mesh)
+        DG0 = FunctionSpace(mesh, "DG", 0)
+        c1 = Function(DG0).interpolate(conditional(xyz[direction] < interf_at, 1, 0))
+        c2 = Function(DG0).interpolate(conditional(xyz[direction] > interf_at, 1, 0))
+        mesh = RelabeledMesh(mesh, [c1, c2], [1, 2])
+        family = "P"
+    else:
+        mesh = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"), distribution_parameters=distribution_parameters_noop)
+        xyz = SpatialCoordinate(mesh)
+        DG0 = FunctionSpace(mesh, "DQ", 0)
+        c1 = Function(DG0).interpolate(conditional(xyz[direction] < interf_at, 1, 0))
+        c2 = Function(DG0).interpolate(conditional(xyz[direction] > interf_at, 1, 0))
+        HDivTrace0 = FunctionSpace(mesh, "Q", 2)
+        f1 = Function(HDivTrace0).interpolate(conditional(xyz[0] < .001, 1, 0))
+        f2 = Function(HDivTrace0).interpolate(conditional(xyz[0] > .999, 1, 0))
+        f3 = Function(HDivTrace0).interpolate(conditional(xyz[1] < .001, 1, 0))
+        f4 = Function(HDivTrace0).interpolate(conditional(xyz[1] > .999, 1, 0))
+        f5 = Function(HDivTrace0).interpolate(conditional(xyz[2] < .001, 1, 0))
+        f6 = Function(HDivTrace0).interpolate(conditional(xyz[2] > .999, 1, 0))
+        mesh = RelabeledMesh(mesh, [c1, c2, f1, f2, f3, f4, f5, f6], [1, 2, 1, 2, 3, 4, 5, 6])
+        family = "Q"
+    plex = mesh.topology_dm
+    for _ in range(nref):
+        plex = plex.refine()
+    plex.removeLabel("pyop2_core")
+    plex.removeLabel("pyop2_owned")
+    plex.removeLabel("pyop2_ghost")
+    mesh = Mesh(plex, distribution_parameters=distribution_parameters)
+    mesh1 = Submesh(mesh, dim, 1)
+    x1, y1, z1 = SpatialCoordinate(mesh1)
+    mesh2 = Submesh(mesh, dim, 2)
+    x2, y2, z2 = SpatialCoordinate(mesh2)
+    label_interf = 7  # max + 1
+    mesh12 = Submesh(mesh2, dim - 1, label_interf)
+    dx1 = Measure("dx", mesh1)
+    dx2 = Measure("dx", mesh2)
+    ds1_ds2 = Measure("ds", mesh1, intersect_measures=(Measure("ds", mesh2),))
+    dx12_ds1_ds2 = Measure(
+        "dx", mesh12,
+        intersect_measures=(
+            Measure("ds", mesh1),
+            Measure("ds", mesh2),
+        )
+    )
+    # Check sanity.
+    vol1 = assemble(Constant(1) * dx1)
+    vol2 = assemble(Constant(1) * dx2)
+    assert abs(vol1 + vol2 - 1.) < 1.e-13
+    # Solve Poisson problem.
+    V1 = FunctionSpace(mesh1, family, degree)
+    V12 = FunctionSpace(mesh12, family, degree)
+    V2 = FunctionSpace(mesh2, family, degree)
+    V = V1 * V12 * V2
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u1, u12, u2 = split(u)
+    v1, v12, v2 = split(v)
+    g1 = cos(2 * pi * x1) * cos(2 * pi * y1) * cos(2 * pi * z1)
+    g2 = cos(2 * pi * x2) * cos(2 * pi * y2) * cos(2 * pi * z2)
+    f1 = 12 * pi**2 * g1
+    f2 = 12 * pi**2 * g2
+    n1 = FacetNormal(mesh1)
+    n2 = FacetNormal(mesh2)
+    h = 0.1 / 2**nref  # roughly
+    a = (
+        inner(grad(u1), grad(v1)) * dx1 + inner(grad(u2), grad(v2)) * dx2
+        - inner(
+            u12,
+            (v1 - v2)
+        ) * dx12_ds1_ds2
+        - inner(
+            (u1 * n1 + u2 * n2),
+            (grad(v1) + grad(v2)) / 2
+        ) * dx12_ds1_ds2
+        + 100 / h * inner(u1 - u2, v1 - v2) * ds1_ds2(label_interf)  # Can also use dx12_ds1_ds2.
+        + inner(
+            (dot(grad(u1), n1) - dot(grad(u2), n2)) / 2 - u12,
+            v12
+        ) * dx12_ds1_ds2
+    )
+    L = (
+        inner(f1, v1) * dx1 + inner(f2, v2) * dx2
+    )
+    sol = Function(V)
+    bc1 = DirichletBC(V.sub(0), g1, [i for i in range(1, 7) if i != 2 * direction + 2])
+    bc2 = DirichletBC(V.sub(2), g2, [i for i in range(1, 7) if i != 2 * direction + 1])
+    solver_parameters = {
+        "mat_type": "matfree",
+        "ksp_type": "preonly",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_0_fields": "1",
+        "pc_fieldsplit_1_fields": "0, 2",
+        "fieldsplit_0_ksp_type": "cg",
+        "fieldsplit_0_ksp_rtol": 1e-14,
+        "fieldsplit_0_pc_type": "jacobi",
+        "fieldsplit_1_ksp_type": "cg",
+        "fieldsplit_1_ksp_rtol": 1e-14,
+        "fieldsplit_1_pc_type": "jacobi",
+    }
+    solve(a == L, sol, bcs=[bc1, bc2], solver_parameters=solver_parameters)
+    sol1, sol12, sol2 = split(sol)
+    L2Error1 = assemble(inner(sol1 - g1, sol1 - g1) * dx1)
+    L2Error2 = assemble(inner(sol2 - g2, sol2 - g2) * dx2)
+    H1Error1 = L2Error1 + assemble(inner(grad(sol1 - g1), grad(sol1 - g1)) * dx1)
+    H1Error2 = L2Error2 + assemble(inner(grad(sol2 - g2), grad(sol2 - g2)) * dx2)
+    return sqrt(L2Error1 + L2Error2), sqrt(H1Error1 + H1Error2)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize('simplex', [True, False])
+@pytest.mark.parametrize('direction', [0, 1, 2])
+def test_submesh_solve_3d_2d_poisson_sanity(simplex, direction):
+    nref = 0
+    degree = 4
+    L2Error, H1Error = _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree)
+    assert L2Error < 6.e-5
+    assert H1Error < 5.e-3
+
+
+@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parametrize('simplex', [False])
+@pytest.mark.parametrize('direction', [0])
+@pytest.mark.parametrize('degree', [3])
+def test_submesh_solve_3d_2d_poisson_convergence(simplex, direction, degree):
+    L2Errors = []
+    H1Errors = []
+    for nref in range(2):
+        L2Error, H1Error = _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree)
+        L2Errors.append(L2Error)
+        H1Errors.append(H1Error)
+    L2Errors = [np.log2(c) - np.log2(f) for c, f in zip(L2Errors[:-1], L2Errors[1:])]
+    H1Errors = [np.log2(c) - np.log2(f) for c, f in zip(H1Errors[:-1], H1Errors[1:])]
+    assert (np.array(L2Errors) > (degree + 1) * 0.96).all()
+    assert (np.array(H1Errors) > (degree) * 0.96).all()
+
+
+@pytest.mark.parallel(nprocs=7)
+def test_submesh_solve_2d_1d_poisson_hermite():
+    distribution_parameters_noop = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+    }
+    distribution_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh3d = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"), distribution_parameters=distribution_parameters_noop)
+    plex = mesh3d.topology_dm
+    for _ in range(2):
+        plex = plex.refine()
+    plex.removeLabel("pyop2_core")
+    plex.removeLabel("pyop2_owned")
+    plex.removeLabel("pyop2_ghost")
+    mesh3d = Mesh(plex, distribution_parameters=distribution_parameters)
+    xyz = SpatialCoordinate(mesh3d)
+    HDivTrace0 = FunctionSpace(mesh3d, "Q", 2)
+    f1 = Function(HDivTrace0).interpolate(conditional(xyz[0] < .001, 1, 0))
+    f2 = Function(HDivTrace0).interpolate(conditional(xyz[0] > .999, 1, 0))
+    f3 = Function(HDivTrace0).interpolate(conditional(xyz[1] < .001, 1, 0))
+    f4 = Function(HDivTrace0).interpolate(conditional(xyz[1] > .999, 1, 0))
+    f5 = Function(HDivTrace0).interpolate(conditional(xyz[2] < .001, 1, 0))
+    f6 = Function(HDivTrace0).interpolate(conditional(xyz[2] > .999, 1, 0))
+    mesh3d = RelabeledMesh(mesh3d, [f1, f2, f3, f4, f5, f6], [1, 2, 3, 4, 5, 6])
+    mesh2d = Submesh(mesh3d, mesh3d.topological_dimension - 1, 6)
+    mesh1d = Submesh(mesh2d, mesh2d.topological_dimension - 1, 4)
+    x2d = SpatialCoordinate(mesh2d)
+    x1d = SpatialCoordinate(mesh1d)
+    g2d = sin(2 * pi * x2d[0]) * sin(2 * pi * x2d[1])
+    f2d = 2 * (2 * pi)**2 * g2d
+    g1d = sin(2 * pi * x1d[0])
+    f1d = (2 * pi)**4 * g1d
+    V2d = FunctionSpace(mesh2d, "Q", 3)
+    V1d = FunctionSpace(mesh1d, "Hermite", 3)
+    V = V2d * V1d
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u2d, u1d = split(u)
+    v2d, v1d = split(v)
+    dx2d = Measure("dx", mesh2d)
+    dx1d = Measure("dx", mesh1d)
+    ds2d_dx1d = Measure("ds", mesh2d, intersect_measures=(Measure("dx", mesh1d),))
+    a = inner(grad(u2d), grad(v2d)) * dx2d - \
+        inner(2 * pi * u1d, v2d) * ds2d_dx1d(4) + \
+        inner(grad(grad(u1d)), grad(grad(v1d))) * dx1d
+    L = inner(f2d, v2d) * dx2d + \
+        inner(f1d, v1d) * dx1d
+    sol = Function(V)
+    bc2d = DirichletBC(V.sub(0), g2d, (1, 2, 3))
+    bc1d = DirichletBC(V.sub(1), g1d, (1, 2))
+    solve(a == L, sol, bcs=[bc2d, bc1d])
+    error2d = assemble(inner(sol[0] - g2d, sol[0] - g2d) * dx2d)
+    error1d = assemble(inner(sol[1] - g1d, sol[1] - g1d) * dx1d)
+    assert sqrt(error2d) < 1.e-5
+    assert sqrt(error1d) < 5.e-5
