@@ -386,6 +386,16 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             return self._allocation_integral_types
 
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
+        if isinstance(tensor, (firedrake.Cofunction, firedrake.Function)):
+            return OneFormAssembler._as_pyop2_type(tensor, indices=indices)
+        elif isinstance(tensor, ufl.Matrix):
+            return ExplicitMatrixAssembler._as_pyop2_type(tensor, indices=indices)
+        else:
+            assert indices is None
+            return tensor
+
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -499,9 +509,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
-            if tensor:
-                tensor.zero()
-
             # Assemble weights
             weights = []
             for w in expr.weights():
@@ -519,24 +526,51 @@ class BaseFormAssembler(AbstractFormAssembler):
                     raise ValueError("Expecting a scalar weight expression")
                 weights.append(w)
 
+            # Scalar FormSum
             if all(isinstance(op, numbers.Complex) for op in args):
-                result = sum(weight * arg for weight, arg in zip(weights, args))
+                result = numpy.dot(weights, args)
                 return tensor.assign(result) if tensor else result
-            elif (all(isinstance(op, firedrake.Cofunction) for op in args)
+
+            # Accumulate coefficients in a dictionary for each unique Dat/Mat
+            terms = defaultdict(int)
+            for arg, weight in zip(args, weights):
+                t = self._as_pyop2_type(arg)
+                terms[t] += weight
+
+            # Zero the output tensor, or rescale it if it appears in the sum
+            tensor_scale = terms.pop(self._as_pyop2_type(tensor), 0)
+            if tensor is None or tensor_scale == 1:
+                pass
+            elif tensor_scale == 0:
+                tensor.zero()
+            elif isinstance(tensor, (firedrake.Cofunction, firedrake.Function)):
+                with tensor.dat.vec as v:
+                    v.scale(tensor_scale)
+            elif isinstance(tensor, ufl.Matrix):
+                tensor.petscmat.scale(tensor_scale)
+            else:
+                raise ValueError("Expecting tensor to be None, Function, Cofunction, or Matrix")
+
+            # Compute the linear combination
+            if (all(isinstance(op, firedrake.Cofunction) for op in args)
                     or all(isinstance(op, firedrake.Function) for op in args)):
+                # Vector FormSum
                 V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Function(V)
-                result.dat.maxpy(weights, [a.dat for a in args])
+                weights = terms.values()
+                dats = terms.keys()
+                result.dat.maxpy(weights, dats)
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
+                # Matrix FormSum
                 result = tensor.petscmat if tensor else PETSc.Mat()
-                for (op, w) in zip(args, weights):
+                for (op, w) in terms.items():
                     if result:
                         # If result is not void, then accumulate on it
-                        result.axpy(w, op.petscmat)
+                        result.axpy(w, op.handle)
                     else:
                         # If result is void, then allocate it with first term
-                        op.petscmat.copy(result=result)
+                        op.handle.copy(result=result)
                         result.scale(w)
                 if tensor is None:
                     tensor = self.assembled_matrix(expr, result)

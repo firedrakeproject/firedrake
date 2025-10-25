@@ -157,7 +157,7 @@ def test_vector_formsum(a):
     formsum = res + a
     res2 = assemble(formsum)
 
-    assert isinstance(formsum, ufl.form.FormSum)
+    assert isinstance(formsum, ufl.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
     for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
@@ -181,6 +181,37 @@ def test_matrix_formsum(M):
     out = assemble(formsum, tensor=res2)
     assert out is res2
     assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+
+def test_formsum_vector_self(a):
+    operand = assemble(a)
+    tensor = assemble(a)
+
+    w = (42, 3.1416, 666)
+    formsum = w[0] * tensor + w[1] * operand + w[2] * tensor
+    assert isinstance(formsum, ufl.FormSum)
+
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+
+    expected = assemble(Constant(sum(w)) * a)
+    for f, f2 in zip(expected.subfunctions, result.subfunctions):
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
+
+
+def test_formsum_matrix_self(M):
+    operand = assemble(M)
+    tensor = assemble(M)
+
+    w = (42, 3.1416, 666)
+    formsum = w[0] * tensor + w[1] * operand + w[2] * tensor
+    assert isinstance(formsum, ufl.FormSum)
+
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+
+    expected = assemble(Constant(sum(w)) * M)
+    assert np.allclose(expected.petscmat[:, :], result.petscmat[:, :], rtol=1E-14)
 
 
 def test_zero_form(M, f, one):
