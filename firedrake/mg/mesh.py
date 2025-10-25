@@ -160,7 +160,7 @@ def MeshHierarchy(mesh, refinement_levels,
             # of the boundary we're trying to conform to.  This
             # doesn't DTRT really for cubed sphere meshes (the
             # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension())
+            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
     lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
@@ -173,7 +173,7 @@ def MeshHierarchy(mesh, refinement_levels,
     meshes = [mesh] + [
         mesh_builder(
             dm,
-            dim=mesh.geometric_dimension(),
+            dim=mesh.geometric_dimension,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,

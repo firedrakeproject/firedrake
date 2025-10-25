@@ -27,7 +27,7 @@ def tp_mesh(request):
 @pytest.fixture(params=[0, 1, 2],
                 ids=["H1", "HCurl", "HDiv"])
 def tp_family(tp_mesh, request):
-    tdim = tp_mesh.topological_dimension()
+    tdim = tp_mesh.topological_dimension
     if tdim == 3:
         families = ["Q", "NCE", "NCF"]
     else:
@@ -47,7 +47,7 @@ def mixed_family(tp_mesh, request):
     if request.param == 0:
         Vfamily = "Q"
     else:
-        tdim = tp_mesh.topological_dimension()
+        tdim = tp_mesh.topological_dimension
         Vfamily = "NCF" if tdim == 3 else "RTCF"
     Qfamily = "DQ"
     return Vfamily, Qfamily
@@ -78,7 +78,7 @@ def test_prolong_basic(tp_mesh, family):
     """ Interpolate a constant function between low-order and high-order spaces
     """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
-    if tp_mesh.topological_dimension() == 2:
+    if tp_mesh.topological_dimension == 2:
         family = family.replace("N", "RT")
 
     fs = [FunctionSpace(tp_mesh, family, degree) for degree in (1, 2)]
@@ -96,7 +96,7 @@ def test_prolong_de_rham(tp_mesh):
     """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
-    tdim = tp_mesh.topological_dimension()
+    tdim = tp_mesh.topological_dimension
     b = Constant(list(range(tdim)))
     if tp_mesh.extruded_periodic:
         expr = b

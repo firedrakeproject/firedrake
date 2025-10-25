@@ -40,7 +40,7 @@ def V(request, mesh, degree):
 
 def test_div_curl_preserving(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
@@ -66,7 +66,7 @@ def test_div_curl_preserving(V):
 
 def compute_interpolation_error(baseMesh, nref, space, degree):
     mh = MeshHierarchy(baseMesh, nref)
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
 
     error = np.zeros((nref+1, 2))
     for i, mesh in enumerate(mh):
