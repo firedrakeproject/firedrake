@@ -3,14 +3,14 @@ from firedrake import *
 
 
 def _get_expr(m):
-    if m.geometric_dimension() == 1:
+    if m.geometric_dimension == 1:
         x, = SpatialCoordinate(m)
         y = x * x
         z = x + y
-    elif m.geometric_dimension() == 2:
+    elif m.geometric_dimension == 2:
         x, y = SpatialCoordinate(m)
         z = x + y
-    elif m.geometric_dimension() == 3:
+    elif m.geometric_dimension == 3:
         x, y, z = SpatialCoordinate(m)
     else:
         raise NotImplementedError("Not implemented")
