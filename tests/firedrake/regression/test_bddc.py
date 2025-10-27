@@ -151,7 +151,7 @@ def test_vertex_dofs(mesh, variant, degree):
 def test_bddc_fdm(mesh, family, degree):
     variant = "fdm"
     bcs = True
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     expected = 6 if tdim == 2 else 11
     assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected
 

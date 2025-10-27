@@ -342,7 +342,7 @@ def test_ipdg_direct_solver(fs):
 @pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_gradient(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     family = {1: "DG", 2: "RTCE", 3: "NCE"}[tdim]
 
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
@@ -364,7 +364,7 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
 @pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_curl(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     family1 = {1: "CG", 2: "CG", 3: "NCE"}[tdim]
     family2 = {1: "DG", 2: "RTCF", 3: "NCF"}[tdim]
 
@@ -387,7 +387,7 @@ def test_tabulate_curl(mesh, variant, degree, mat_type):
 @pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_divergence(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     family = {1: "CG", 2: "RTCF", 3: "NCF"}[tdim]
 
     V = FunctionSpace(mesh, family, degree, variant=variant)
