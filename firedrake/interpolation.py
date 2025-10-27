@@ -289,7 +289,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     submesh_interp_implemented = (
         all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh])
         and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
-        and target_mesh.topological_dimension() == source_mesh.topological_dimension()
+        and target_mesh.topological_dimension == source_mesh.topological_dimension
     )
     if target_mesh is source_mesh or submesh_interp_implemented:
         return SameMeshInterpolator(expr)
@@ -300,7 +300,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     if isinstance(target_topology, VertexOnlyMeshTopology):
         if isinstance(source_topology, VertexOnlyMeshTopology):
             return VomOntoVomInterpolator(expr)
-        if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+        if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
             raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
         if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
             raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
@@ -372,7 +372,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        if self.source_mesh.geometric_dimension() != self.target_mesh.geometric_dimension():
+        if self.source_mesh.geometric_dimension != self.target_mesh.geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
         dest_element = self.target_space.ufl_element()
@@ -407,7 +407,7 @@ class CrossMeshInterpolator(Interpolator):
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_space_vec = firedrake.VectorFunctionSpace(self.target_mesh, self.dest_element)
         f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension())
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
         try:
             self.vom = firedrake.VertexOnlyMesh(
                 self.source_mesh,
@@ -981,7 +981,7 @@ def rebuild_dg(element, expr_cell, rt_var_name):
     # dual basis. This exists on the same reference cell as the input element
     # and we can interpolate onto it before mapping the result back onto the
     # target space.
-    expr_tdim = expr_cell.topological_dimension()
+    expr_tdim = expr_cell.topological_dimension
     # Need point evaluations and matching weights from dual basis.
     # This could use FIAT's dual basis as below:
     # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())
