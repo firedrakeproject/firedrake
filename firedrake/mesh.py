@@ -2268,7 +2268,12 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations(self):
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        entity_orientations = dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        res = [[] for i in range(len(self._cell_numbering))]
+        for row,i in zip(entity_orientations, self._cell_numbering):
+            res[i] = row
+        return np.array(res)
+        #return entity_orientations[self._cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):
