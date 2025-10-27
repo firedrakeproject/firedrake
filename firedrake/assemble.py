@@ -529,10 +529,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Scalar FormSum
             if all(isinstance(op, numbers.Complex) for op in args):
                 result = numpy.dot(weights, args)
-                return tensor.assign(result) if tensor else result
+                return tensor.assign(result) if tensor else result.item()
 
             # Accumulate coefficients in a dictionary for each unique Dat/Mat
-            terms = defaultdict(int)
+            terms = defaultdict(PETSc.ScalarType)
             for arg, weight in zip(args, weights):
                 t = self._as_pyop2_type(arg)
                 terms[t] += weight
