@@ -696,6 +696,8 @@ class Mat(AbstractMat):
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
         if self.mat_type != "is":
+            # The local matrix will have fewer nonzeros than the one prescribed
+            # in the global sparsity pattern
             mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)

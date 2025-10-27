@@ -1460,6 +1460,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
             if op2tensor.handle.getType() == "is":
+                # Flag the entire matrix as assembled before indexing the diagonal block
                 op2tensor.handle.assemble()
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
             # Handle off-diagonal block involving real function space.
