@@ -1703,7 +1703,12 @@ class MixedInterpolator(Interpolator):
         super(MixedInterpolator, self).__init__(expr, V, bcs=bcs, **kwargs)
         expr = self.ufl_interpolate
         self.arguments = expr.arguments()
-        rank = len(self.arguments)
+        # Get the primal spaces
+        spaces = tuple(a.function_space().dual() if isinstance(a, Coargument) else a.function_space()
+                       for a in self.arguments)
+        # TODO consider a stricter equality test for indexed MixedFunctionSpace
+        # See https://github.com/firedrakeproject/firedrake/issues/4668
+        space_equals = lambda V1, V2: V1 == V2 and V1.parent == V2.parent and V1.index == V2.index
 
         # We need a Coargument in order to split the Interpolate
         needs_action = len([a for a in self.arguments if isinstance(a, Coargument)]) == 0
@@ -1722,12 +1727,10 @@ class MixedInterpolator(Interpolator):
                 continue
             vi, _ = form.argument_slots()
             Vtarget = vi.function_space().dual()
-            if bcs and rank != 0:
-                args = form.arguments()
-                Vsource = args[1-vi.number()].function_space()
-                sub_bcs = [bc for bc in bcs if bc.function_space() in {Vsource, Vtarget}]
-            else:
-                sub_bcs = None
+            sub_bcs = []
+            for space, index in zip(spaces, indices):
+                subspace = space.sub(index)
+                sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = action(form, dual_split[indices[-1:]])
