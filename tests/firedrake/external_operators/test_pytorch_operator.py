@@ -238,3 +238,34 @@ def test_solve(mesh, V):
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
+
+
+@pytest.mark.skipcomplex  # grad can be implicitly created only for real scalar outputs but got torch.complex128
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
+def test_mixed_space_bcs():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+
+    test = TestFunction(W)
+    bcs = [DirichletBC(W.sub(0), Constant(1), 1),
+           DirichletBC(W.sub(1), Constant(2), 1)]
+
+    model = Linear(W.dim(), V.dim())
+    I = torch.eye(V.dim())
+    model.weight.data = torch.cat([I, I], dim=1)
+    model.bias.data = torch.zeros(V.dim())
+    model.eval()
+
+    p1 = ml_operator(model, function_space=V, inputs_format=1)
+    p2 = sum
+
+    results = []
+    for p in (p1, p2):
+        w = Function(W)
+        F = inner(w, test)*dx + inner(p(w), sum(test))*dx
+        solve(F == 0, w, bcs=bcs)
+        results.append(np.ravel(w.dat.data))
+
+    result, expected = results
+    assert np.allclose(result, expected)
