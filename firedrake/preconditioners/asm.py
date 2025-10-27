@@ -393,7 +393,7 @@ def get_basemesh_nodes(W):
 
     if W.mesh().extruded_periodic:
         # Account for missing dofs from the top layer
-        for dim in range(W.mesh().topological_dimension()):
+        for dim in range(W.mesh().topological_dimension):
             qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
             quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
             basemeshdof[qstart-pstart:qend-pstart] += quotient

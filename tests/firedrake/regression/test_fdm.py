@@ -139,7 +139,7 @@ def variant(request):
 @pytest.mark.skipcomplex
 def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
-    expected = [16, 12] if mesh.topological_dimension() == 3 else [9, 7]
+    expected = [16, 12] if mesh.topological_dimension == 3 else [9, 7]
     solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
         V = FunctionSpace(mesh, family, degree, variant=variant)
@@ -151,8 +151,8 @@ def test_p_independence_hgrad(mesh, variant):
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hcurl(mesh):
-    family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
-    expected = [13, 10] if mesh.topological_dimension() == 3 else [6, 6]
+    family = "NCE" if mesh.topological_dimension == 3 else "RTCE"
+    expected = [13, 10] if mesh.topological_dimension == 3 else [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
         V = FunctionSpace(mesh, family, degree, variant="fdm")
@@ -164,7 +164,7 @@ def test_p_independence_hcurl(mesh):
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
 def test_p_independence_hdiv(mesh):
-    family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
+    family = "NCF" if mesh.topological_dimension == 3 else "RTCF"
     expected = [6, 6]
     solvers = [fdmstar, facetstar]
     for degree in range(3, 6):
@@ -176,7 +176,7 @@ def test_p_independence_hdiv(mesh):
 
 @pytest.mark.skipcomplex
 def test_variable_coefficient(mesh):
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
     k = 4
     V = FunctionSpace(mesh, "Lagrange", k)
     u = TrialFunction(V)
@@ -210,7 +210,7 @@ def test_variable_coefficient(mesh):
                 ids=["cg", "dg", "rt"])
 def fs(request, mesh):
     degree = 3
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     element = request.param
     variant = "fdm_ipdg"
     if element == "rt":
@@ -228,7 +228,7 @@ def fs(request, mesh):
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
     ncomp = fs.value_size
 
     homogenize = gdim > 2

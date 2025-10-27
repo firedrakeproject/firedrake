@@ -610,7 +610,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -732,7 +732,7 @@ class PointEvaluator:
         self.points = np.asarray(points, dtype=utils.ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
             raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
         self.points = self.points.reshape(-1, gdim)

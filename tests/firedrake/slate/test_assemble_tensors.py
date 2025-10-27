@@ -45,7 +45,7 @@ def f(function_space):
         if fs_i.rank == 1:
             fi.interpolate(as_vector((x[0]*x[1],) * fs_i.value_size))
         elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension())]
+            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             fi.interpolate(x[0]*x[1])
@@ -66,7 +66,7 @@ def g(function_space):
         if fs_i.rank == 1:
             gi.interpolate(as_vector((x[0]*sin(x[1]),) * fs_i.value_size))
         elif fs_i.rank == 2:
-            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension())]
+            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             gi.interpolate(x[0]*sin(x[1]))

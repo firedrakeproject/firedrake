@@ -277,7 +277,7 @@ class Interpolator(abc.ABC):
         submesh_interp_implemented = \
             all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
             target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
+            target_mesh.topological_dimension == source_mesh.topological_dimension
         if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
@@ -498,8 +498,8 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
-        src_mesh_gdim = src_mesh.geometric_dimension()
-        dest_mesh_gdim = dest_mesh.geometric_dimension()
+        src_mesh_gdim = src_mesh.geometric_dimension
+        dest_mesh_gdim = dest_mesh.geometric_dimension
         if src_mesh_gdim != dest_mesh_gdim:
             raise ValueError(
                 "geometric dimensions of source and destination meshes must match"
@@ -870,7 +870,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a VertexOnlyMesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
@@ -1005,7 +1005,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         if target_mesh is not source_mesh:
             if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
                 raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
             if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
                 raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
@@ -1237,7 +1237,7 @@ def rebuild_dg(element, expr_cell, rt_var_name):
     # dual basis. This exists on the same reference cell as the input element
     # and we can interpolate onto it before mapping the result back onto the
     # target space.
-    expr_tdim = expr_cell.topological_dimension()
+    expr_tdim = expr_cell.topological_dimension
     # Need point evaluations and matching weights from dual basis.
     # This could use FIAT's dual basis as below:
     # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())

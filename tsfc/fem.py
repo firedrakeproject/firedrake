@@ -248,7 +248,7 @@ class CoordinateMapping(PhysicalGeometry):
             e, _ = entity
             assert point_shape == e
         else:
-            assert point_shape == extract_unique_domain(expr).topological_dimension()
+            assert point_shape == extract_unique_domain(expr).topological_dimension
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -594,7 +594,7 @@ def translate_cellorigin(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     coords = SpatialCoordinate(domain)
     expression = construct_modified_terminal(mt, coords)
-    point_set = PointSingleton((0.0,) * domain.topological_dimension())
+    point_set = PointSingleton((0.0,) * domain.topological_dimension)
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}

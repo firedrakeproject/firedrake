@@ -95,7 +95,7 @@ class BDDCPC(PCBase):
             coords = Function(W).interpolate(V.mesh().coordinates)
             bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
-        tdim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
             allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)

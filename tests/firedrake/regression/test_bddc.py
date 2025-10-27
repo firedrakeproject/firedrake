@@ -73,7 +73,7 @@ def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=F
         if hasattr(mesh, "extruded") and mesh.extruded:
             dirichlet_ids.extend(["bottom", "top"])
 
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     if family.endswith("E"):
         family = "RTCE" if tdim == 2 else "NCE"
     if family.endswith("F"):
@@ -163,6 +163,6 @@ def test_bddc_fdm(mesh, family, degree):
 def test_bddc_aij(mesh, family, degree, vector):
     variant = None
     bcs = True
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     expected = 7 if tdim == 2 else 11
     assert solve_riesz_map(mesh, family, degree, variant, bcs, vector=vector) <= expected
