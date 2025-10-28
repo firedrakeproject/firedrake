@@ -523,7 +523,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # if not space.extruded:
-    if space.ufl_cell().cellname == "hexahedron":
+    if space.mesh().ufl_cell().cellname == "hexahedron":
         raise NotImplementedError("This doesn't work for the general case... does it work for hexahedra?")
         dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
 
@@ -550,10 +550,9 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     column_element = column_space.finat_element
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    if not any(space.extruded for space in [row_space, column_space]):
+    if any(space.mesh().ufl_cell().cellname == "hexahedron" for space in [row_space, column_space]):
+        raise NotImplementedError("This doesn't work for the general case... does it work for hexahedra?")
         mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, row_cell_index, column_cell_index, row_depth=row_depth, column_depth=column_depth)
-    else:
-        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes, currently skipping")
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)

@@ -313,7 +313,6 @@ def test_lvalue_rvalue():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     u.assign(1.0)
-    breakpoint()
     u.interpolate(u + 1.0)
     assert np.allclose(u.dat.data_ro, 2.0)
 
@@ -340,8 +339,7 @@ def test_trace():
 @pytest.mark.parametrize("shape", ("scalar", "vector", "tensor"))
 def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
     quad = (cell == "quadrilateral")
-    # mesh = UnitSquareMesh(5, 5, quadrilateral=quad)
-    mesh = UnitSquareMesh(2, 2, quadrilateral=quad)
+    mesh = UnitSquareMesh(5, 5, quadrilateral=quad)
 
     x = SpatialCoordinate(mesh)
     expr = {"scalar": x[0], "vector": x, "tensor": outer(x, x)}[shape]
