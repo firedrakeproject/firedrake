@@ -1398,7 +1398,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         submat_specs = numpy.empty((ntest, ntrial), dtype=object)
         for i, test_subspace in enumerate(test_space):
             for j, trial_subspace in enumerate(trial_space):
-                block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
+                # NOTE: It appears as though having block shapes for nested submatrices is not currently supported
+                # block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
+                block_shape = ((), ())
 
                 if _is_real_space(test_subspace):
                     sub_mat_type_ = "cvec"
