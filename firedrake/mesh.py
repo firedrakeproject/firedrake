@@ -811,11 +811,17 @@ class AbstractMeshTopology(abc.ABC):
     #     return self._entity_numbering(0)
 
     @cached_property
-    def _old_to_new_cell_numbering(self) -> PETSc.IS:
+    def _old_to_new_cell_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(self.dimension)
 
     @cached_property
-    def _old_to_new_facet_numbering(self) -> PETSc.IS:
+    def _new_to_old_cell_numbering(self) -> PETSc.IS:
+        cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+        renumbering_is = dmcommon.section_offsets(self._old_to_new_cell_numbering, cell_indices)
+        return renumbering_is.invertPermutation().indices
+
+    @cached_property
+    def _old_to_new_facet_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(self.dimension-1)
 
     @cached_property
@@ -3470,6 +3476,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return self.num_vertices
 
+    # TODO: Clean this all up
+    def entity_count(self, dim):
+        if dim == 0:
+            return self.num_vertices
+        else:
+            return 0
+
     @cached_property
     def cells(self):
         # Need to be more verbose as we don't want to consume the axis
@@ -4194,7 +4207,7 @@ values from f.)"""
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         int *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
                             X[j] = found_reference_coords.X[k];
@@ -5132,6 +5145,7 @@ def _pic_swarm_in_mesh(
     )
     visible_idxs = parent_cell_nums_local != -1
     if parent_mesh.extruded:
+        raise NotImplementedError
         # need to store the base parent cell number and the height to be able
         # to map point coordinates back to the parent mesh
         if parent_mesh.variable_layers:
@@ -5143,15 +5157,17 @@ def _pic_swarm_in_mesh(
         )
         # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
         # numbers.
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            base_parent_cell_nums, -1
-        ]
+        # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+        #     base_parent_cell_nums, -1
+        # ]
+        plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local, -1
-        ]
+        # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+        #     parent_cell_nums_local, -1
+        # ]
+        plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)

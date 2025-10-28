@@ -29,7 +29,7 @@ def src_locate_cell(mesh, tolerance=None):
     src.append(compile_coordinate_element(mesh, tolerance))
 
     shape = numpy.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
 
     wrapper_src = textwrap.dedent(f"""\
         #include <complex.h>
