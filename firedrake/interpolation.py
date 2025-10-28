@@ -887,10 +887,18 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
         else:
             sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes)
             # Pretend that we are assembling the operator to populate the sparsity.
-            op3.do_loop(
-                c := target_mesh.cells.owned.index(),
-                sparsity[target_mesh.closure(c), source_mesh.closure(target_mesh.cell_parent_cell_map(c))].assign(666),
-            )
+            if target_mesh != source_mesh:
+                op3.loop(
+                    c := target_mesh.cells.owned.index(),
+                    sparsity[target_mesh.closure(c), source_mesh.closure(target_mesh.cell_parent_cell_map(c))].assign(666),
+                    eager=True,
+                )
+            else:
+                op3.loop(
+                    c := target_mesh.cells.owned.index(),
+                    sparsity[target_mesh.closure(c), target_mesh.closure(c)].assign(666),
+                    eager=True,
+                )
             tensor = op3.Mat.from_sparsity(sparsity)
         f = tensor
     else:
@@ -960,10 +968,8 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
-            if rank == 1 and indices != (None,):
-                sub_tensor = tensor[*indices]
-            else:
-                sub_tensor = tensor
+            indices = tuple(idx if idx is not None else Ellipsis for idx in indices)
+            sub_tensor = tensor[indices[0]] if rank == 1 else tensor
             loops.extend(_interpolator(sub_tensor, sub_expr, subset, access, bcs=bcs))
         # Apply bcs
         if bcs and rank == 1:
@@ -1071,12 +1077,9 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         with weight.vec_rw as w:
             w.reciprocal()
 
-        # Create a buffer for the weighted Cofunction and a callable to apply the weight
-        v = firedrake.Function(W)
-        expr = expr._ufl_expr_reconstruct_(operand, v=v)
         # Create a callable to apply the weight
-        with weight.vec_ro as w, dual_arg.vec_ro as x, v.vec_wo as y:
-            copyin += (partial(y.pointwiseMult, y, w),)
+        with weight.vec_ro as w, v.vec_wo as y:
+            copyin += (lambda: y.pointwiseMult(y, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -1094,21 +1097,18 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
-    if any(c.dat == tensor for c in coefficients):
+    if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
         if access is not op3.WRITE:
-            copyin = (lambda: tensor.assign(output, eager=True),)
-        else:
-            copyin = ()
-        copyout = (lambda: output.assign(tensor, eager=True),)
-    else:
-        copyin = ()
-        copyout = ()
+            copyin += (lambda: tensor.assign(output, eager=True),)
+        copyout += (lambda: output.assign(tensor, eager=True),)
 
     if not arguments:
-        local_kernel_args.append(tensor)
-    elif len(arguments) == 1:
+        V_dest = firedrake.FunctionSpace(target_mesh, "Real", 0)
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
+        local_kernel_args.append(packed_tensor)
+    elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
         packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
         local_kernel_args.append(packed_tensor)
@@ -1169,12 +1169,15 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(
-        cell_index,expression_kernel(*local_kernel_args)
+        cell_index,expression_kernel(*local_kernel_args),
     )
+    def parloop_callable():
+        parloop(compiler_parameters={"optimize": True})
+
     if isinstance(tensor, op3.Mat):
-        return parloop, tensor.assemble
+        return parloop_callable, tensor.assemble
     else:
-        return copyin + (parloop, ) + copyout
+        return copyin + (parloop_callable, ) + copyout
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):

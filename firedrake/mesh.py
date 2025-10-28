@@ -3519,6 +3519,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
+        breakpoint()
         dest_axis = self._parent_mesh.name
         dest_stratum = self._parent_mesh.cell_label
 
@@ -3527,9 +3528,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         return op3.Map(
             {
-                immutabledict({self.name: self.cell_label}): (
-                    (op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),),
-                )
+                immutabledict({self.name: self.cell_label}): [[
+                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
+                ]]
             },
             name="cell_parent_cell",
         )

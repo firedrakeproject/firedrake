@@ -1918,7 +1918,7 @@ class MixedFunctionSpace:
         r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
-        return self.dof_dset.layout_vec.getSize()
+        return self.template_vec.getSize()
 
     @utils.cached_property
     def field_ises(self):

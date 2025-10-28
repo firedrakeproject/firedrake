@@ -456,6 +456,7 @@ def _(
     index: op3.LoopIndex,
     integral_type: str,
     *,
+    target_mesh=None,
     nodes: bool = False,
 ):
     if mat.buffer.mat_type == "python":
@@ -474,26 +475,42 @@ def _(
     if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {Vrow, Vcol}):
         raise NotImplementedError
 
+    if target_mesh and Vrow.mesh().topology != target_mesh.topology:
+        rindex = Vrow.mesh().cell_parent_cell_map(index)
+    else:
+        rindex = index
+    if target_mesh and Vcol.mesh().topology != target_mesh.topology:
+        cindex = Vrow.mesh().cell_parent_cell_map(index)
+    else:
+        cindex = index
+
     if not nodes:
         if integral_type == "cell":
-            cell = index
+            rcell = rindex
+            ccell = cindex
             depth = 0
         else:
             assert "facet" in integral_type
-            facet = index
-            cell = Vrow.mesh().support(facet)
+            rfacet = rindex
+            cfacet = cindex
+            rcell = Vrow.mesh().support(rfacet)
+            ccell = Vcol.mesh().support(cfacet)
             depth = 1
-
-        packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
+        packed_mat = mat[Vrow.mesh().closure(rcell), Vcol.mesh().closure(ccell)]
     else:
+        raise NotImplementedError ("TODO with target_mesh")
         if integral_type == "cell":
             cell = index
             depth = 0
+            if Vrow.mesh().topology != target_mesh.topology:
+                rmap = Vrow.cell_node_map(Vrow.mesh().cell_parent_cell_map(index))
+            if Vcol.mesh().topology != target_mesh.topology:
+                index = Vcol.mesh().cell_parent_cell_map(index)
             packed_mat = mat[Vrow.cell_node_map(cell), Vcol.cell_node_map(cell)]
         else:
             raise NotImplementedError
 
-    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell, row_depth=depth, column_depth=depth, nodes=nodes)
+    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, rcell, ccell, row_depth=depth, column_depth=depth, nodes=nodes)
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):
@@ -505,10 +522,10 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    if not space.extruded:
+    # if not space.extruded:
+    if space.ufl_cell().cellname == "hexahedron":
+        raise NotImplementedError("This doesn't work for the general case... does it work for hexahedra?")
         dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
-    else:
-        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
 
     if _needs_static_permutation(space.finat_element):
         nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
@@ -524,7 +541,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     return dat_sequence[len(dat_sequence) // 2]
 
 
-def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0, nodes: bool = False):
+def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth=0, column_depth=0, nodes: bool = False):
     if nodes:
         return packed_mat
     mat_sequence = [packed_mat]
@@ -534,9 +551,9 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     if not any(space.extruded for space in [row_space, column_space]):
-        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, cell_index, row_depth=row_depth, column_depth=column_depth)
+        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, row_cell_index, column_cell_index, row_depth=row_depth, column_depth=column_depth)
     else:
-        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes")
+        op3.extras.debug.warn_todo("Don't know what to do about entity_orientations for extruded meshes, currently skipping")
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
@@ -587,9 +604,9 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
 
 
 @_orient_dofs.register(op3.Mat)
-def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
-    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, cell_index, depth=row_depth)
-    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, cell_index, depth=column_depth)
+def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
+    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
+    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
