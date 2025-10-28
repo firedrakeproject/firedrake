@@ -9,7 +9,8 @@ Here, we demonstrate how to do this in the former case. ::
 
   from firedrake import *
 
-  base = UnitCubeMesh(2, 2, 2)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  base = UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
