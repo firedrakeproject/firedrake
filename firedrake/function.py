@@ -812,7 +812,7 @@ class PointEvaluator:
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
-        result = f_at_points_io.dat.data_ro
+        result = f_at_points_io.dat.data_ro.copy()
 
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:

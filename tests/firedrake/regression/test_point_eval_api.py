@@ -194,6 +194,10 @@ def test_point_evaluator_scalar(mesh_and_points):
     f_at_points_missing = eval_missing.evaluate(f)
     assert np.isnan(f_at_points_missing[-1])
 
+    # Can modify result
+    f_at_points *= 2.0
+    assert np.allclose(f_at_points, [0.4, 0.8, 1.2])
+
 
 @pytest.mark.parallel([1, 3])
 def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
