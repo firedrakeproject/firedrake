@@ -1,12 +1,11 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
+from firedrake.preconditioners.asm import ASMPatchPC
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import Interpolate
-from firedrake.mesh import DistributedMeshOverlapType
-from firedrake.logging import warning
 
 from collections import namedtuple
 import operator
@@ -777,26 +776,9 @@ class PatchBase(PCSNESBase):
         # Validate the mesh overlap
         prefix = (obj.getOptionsPrefix() or "") + "patch_"
         opts = PETSc.Options(prefix)
-        patch_dim = opts.getInt("pc_patch_construct_dim", default=0)
-        patch_type = opts.getString("pc_patch_construct_type", default="star")
-        patch_depth = {"pardecomp": 0, "star": 1, "vanka": 2}[patch_type]
-
-        tdim = self.plex.getDimension()
-        overlap_entity, overlap_depth = mesh._distribution_parameters["overlap_type"]
-        overlap_dim = {
-            DistributedMeshOverlapType.VERTEX: 0,
-            DistributedMeshOverlapType.FACET: tdim-1,
-            DistributedMeshOverlapType.NONE: tdim,
-        }[overlap_entity]
-
-        if mesh.comm.size > 1:
-            if overlap_dim > patch_dim:
-                patch_entity = {0: "vertex", 1: "edge", 2: "face", tdim: "cell"}[patch_dim]
-                warning(f"{overlap_entity} does not support {patch_entity}-patches. "
-                        "Did you forget to set overlap_type in your mesh's distribution_parameters?")
-            if overlap_depth < patch_depth:
-                warning(f"Mesh overlap depth of {overlap_depth} does not support {patch_type}-patches. "
-                        "Did you forget to set overlap_type in your mesh's distribution_parameters?")
+        patch_dim = opts.getInt("pc_patch_construct_dim")
+        patch_type = opts.getString("pc_patch_construct_type")
+        ASMPatchPC.validate_overlap(mesh, patch_dim, patch_type)
 
         patch = obj.__class__().create(comm=mesh.comm)
         patch.setOptionsPrefix(prefix)
