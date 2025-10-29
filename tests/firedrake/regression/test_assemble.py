@@ -180,7 +180,6 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         assert ais.type == "is"
         ais.convert("aij", aij)
 
-    aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
     aij_ref.axpy(-1, aij)
     ind, iptr, values = aij_ref.getValuesCSR()
     assert np.allclose(values, 0)

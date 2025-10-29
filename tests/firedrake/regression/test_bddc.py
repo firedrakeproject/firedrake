@@ -138,6 +138,7 @@ def mesh(request):
 @pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("variant", ("spectral", "fdm"))
 def test_vertex_dofs(mesh, variant, degree):
+    """Check that we extract the right number of vertex dofs from a high order Lagrange space."""
     from firedrake.preconditioners.bddc import get_restricted_dofs
     P1 = FunctionSpace(mesh, "Lagrange", 1, variant=variant)
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)

@@ -384,8 +384,8 @@ class ImplicitMatrixContext(object):
             else:
                 col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
         except LookupError:
-            # Attemping to extract a submatrix that does not match with a subfield
-            # use default PETSc implementation (MatCreateSubMatrixVirtual) via MATSHELL
+            # Attemping to extract a submatrix that does not match with a subfield.
+            # Use default PETSc implementation (MatCreateSubMatrixVirtual) via MATSHELL instead.
             popmethod = self.createSubMatrix
             self.createSubMatrix = None
             submat = mat.createSubMatrix(row_is, col_is)
