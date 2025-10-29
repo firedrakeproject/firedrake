@@ -334,7 +334,7 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo
+          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
           pip install --verbose ./thetis-repo
           python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
         timeout-minutes: 10
