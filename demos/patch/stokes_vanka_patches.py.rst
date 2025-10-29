@@ -16,11 +16,17 @@ of the patch but not pressures.
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
 We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
 is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
-operators are extracted from the globally assembled stiffness matrix. ::
+operators are extracted from the globally assembled stiffness matrix.
+
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the base mesh must have an overlapping
+parallel domain decomposition that supports the Vanka patches. This is set
+via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 
-  base = UnitSquareMesh(4, 4)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
+  base = UnitSquareMesh(4, 4, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
