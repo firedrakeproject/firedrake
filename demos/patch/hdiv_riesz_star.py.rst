@@ -8,7 +8,7 @@ Multigrid in H(div) and H(curl) also requires relaxation based on topological pa
 Here, we demonstrate how to do this in the former case.
 
 We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
-exact solution and forcing data. Crucially, the base mesh must have an overlapping
+exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
 via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
 
