@@ -854,7 +854,13 @@ class AbstractMeshTopology(abc.ABC):
         return self._plex_to_entity_numbering(self.dimension)
 
     @cached_property
-    def _new_to_old_cell_numbering(self) -> PETSc.IS:
+    def _old_to_new_cell_numbering_is(self) -> PETSc.IS:
+        cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+        return dmcommon.section_offsets(self._old_to_new_cell_numbering, cell_indices)
+
+    # TODO: return an IS
+    @cached_property
+    def _new_to_old_cell_numbering(self) -> np.ndarray:
         cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
         renumbering_is = dmcommon.section_offsets(self._old_to_new_cell_numbering, cell_indices)
         return renumbering_is.invertPermutation().indices
@@ -3931,8 +3937,8 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @utils.cached_property
-    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
+    @cached_property
+    def bounding_box_coords(self) -> tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
 
         Returns
@@ -3982,8 +3988,8 @@ values from f.)"""
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
-        coords_min.dat.data.fill(np.inf)
-        coords_max.dat.data.fill(-np.inf)
+        coords_min.dat.data_wo.fill(np.inf)
+        coords_max.dat.data_wo.fill(-np.inf)
 
         if utils.complex_mode:
             if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
@@ -4010,15 +4016,12 @@ values from f.)"""
                   'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = utils.invert(self._cell_numbering)
+        column_list = self._old_to_new_cell_numbering_is.indices
 
         def reshape_coords(_coords):
             return _coords.dat.data_ro_with_halos.reshape((-1, gdim))
 
-        coords_min = mesh._order_data_by_cell_index(column_list, reshape_coords(coords_min))
-        coords_max = mesh._order_data_by_cell_index(column_list, reshape_coords(coords_max))
-
-        return coords_min, coords_max
+        return reshape_coords(coords_min)[column_list], reshape_coords(coords_max)[column_list]
 
     @property
     def spatial_index(self):
@@ -4146,8 +4149,6 @@ values from f.)"""
             the reference coordinates and distances are meaningless for these
             points.
         """
-        if self.variable_layers:
-            raise NotImplementedError("Cell location not implemented for variable layers")
         if tolerance is None:
             tolerance = self.tolerance
         else:

@@ -29,6 +29,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
+from firedrake.mesh import iteration_set
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
@@ -65,8 +66,7 @@ over degrees of freedom."""
 
 
 def indirect_measure(mesh, measure):
-    return mesh.measure_set(measure.integral_type(),
-                            measure.subdomain_id())
+    return iteration_set(mesh, measure.integral_type(), measure.subdomain_id())
 
 
 _maps = {
