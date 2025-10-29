@@ -980,13 +980,13 @@ class FunctionSpace:
         return self.parent
 
     @property
-    def block_shape(self) -> tuple[int, ...]:
+    def block_shape(self) -> tuple[IntType, ...]:
         return self.shape
 
     @property
-    def block_size(self) -> int:
+    def block_size(self) -> IntType:
         """The total number of degrees of freedom at each function space node."""
-        return numpy.prod(self.shape, dtype=int)
+        return numpy.prod(self.shape, dtype=IntType)
 
     @utils.cached_property
     def dm(self):
@@ -1897,8 +1897,8 @@ class MixedFunctionSpace:
         return ()
 
     @property
-    def block_size(self) -> int:
-        return 1
+    def block_size(self) -> IntType:
+        return IntType.type(1)
 
     @utils.cached_property
     def node_count(self):

@@ -449,7 +449,6 @@ def _(dat: op3_expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Dat
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        assert get_loop_axes(layout) == dat.loop_axes
         expr = op3_expr.LinearDatBufferExpression(BufferRef(dat.buffer), layout)
     else:
         expr = op3_expr.NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts)

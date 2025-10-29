@@ -691,18 +691,16 @@ class AbstractMeshTopology(abc.ABC):
                         swarm = self.topology_dm
                         parent = self._parent_mesh.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
-                        swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-
-                        parent_renum = self._parent_mesh._dm_renumbering.getIndices()
-
-                        pStart, _ = parent.getChart()
-                        parent_renum_inv = np.empty_like(parent_renum)
-                        parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-                        # Use kind = 'stable' to make the ordering deterministic.
-                        perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-
+                        swarm_parent_cell_nums = swarm.getField(cell_id_name).flatten()
+                        old_to_new_parent_cell_indices = \
+                            self._parent_mesh._old_to_new_point_renumbering.indices[swarm_parent_cell_nums]
                         swarm.restoreField(cell_id_name)
-                        dm_renumbering = PETSc.IS().createGeneral(perm, comm=swarm.comm)
+                        new_to_old_point_indices = \
+                            np.argsort(old_to_new_parent_cell_indices, stable=True).astype(IntType)
+                        old_to_new_point_renumbering = (
+                            PETSc.IS().createGeneral(new_to_old_point_indices, comm=MPI.COMM_SELF)
+                            .invertPermutation()
+                        )
 
             # Now take this renumbering and partition owned and ghost points, this
             # is the part that pyop3 should ultimately be able to handle.
@@ -774,6 +772,47 @@ class AbstractMeshTopology(abc.ABC):
         return utils.strictly_all(
             map(bool, [self._old_to_new_point_renumbering, self._new_to_old_point_renumbering])
         )
+
+    @cached_property
+    def _cell_plex_indices(self) -> PETSc.IS:
+        return PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+
+    @cached_property
+    def _exterior_facet_plex_indices(self) -> PETSc.IS:
+        return PETSc.IS().createGeneral(
+            dmcommon.facets_with_label(self, "exterior_facets"), comm=MPI.COMM_SELF
+        )
+
+    @cached_property
+    def _interior_facet_plex_indices(self) -> PETSc.IS:
+        return PETSc.IS().createGeneral(
+            dmcommon.facets_with_label(self, "interior_facets"), comm=MPI.COMM_SELF
+        )
+
+    @cached_property
+    def exterior_facet_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "exterior")
+        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets.as_axis(), 1])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
+    @cached_property
+    def interior_facet_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "interior")
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets.as_axis(), 2])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
+    @cached_property
+    def exterior_facet_vert_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "exterior_vert")
+        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets_vert.as_axis(), 1])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
+    @cached_property
+    def interior_facet_vert_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "interior_vert")
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.as_axis(), 2])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
 
     @property
     @abc.abstractmethod
@@ -2083,46 +2122,6 @@ class MeshTopology(AbstractMeshTopology):
         indices_plex = dmcommon.facets_with_label(self, label_value)
         f_start, _ = self.topology_dm.getDepthStratum(self.dimension-1)
         return utils.readonly(indices_plex - f_start)
-
-    @cached_property
-    def _cell_plex_indices(self) -> PETSc.IS:
-        return PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
-
-    @cached_property
-    def _exterior_facet_plex_indices(self) -> PETSc.IS:
-        return PETSc.IS().createGeneral(
-            dmcommon.facets_with_label(self, "exterior_facets"), comm=MPI.COMM_SELF
-        )
-
-    @cached_property
-    def _interior_facet_plex_indices(self) -> PETSc.IS:
-        return PETSc.IS().createGeneral(
-            dmcommon.facets_with_label(self, "interior_facets"), comm=MPI.COMM_SELF
-        )
-
-    @cached_property
-    def exterior_facet_local_facet_indices(self) -> op3.Dat:
-        local_facet_index = dmcommon.local_facet_number(self, "exterior")
-        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets.as_axis(), 1])
-        return op3.Dat(axis_tree, data=local_facet_index.flatten())
-
-    @cached_property
-    def interior_facet_local_facet_indices(self) -> op3.Dat:
-        local_facet_index = dmcommon.local_facet_number(self, "interior")
-        axis_tree = op3.AxisTree.from_iterable([self.interior_facets.as_axis(), 2])
-        return op3.Dat(axis_tree, data=local_facet_index.flatten())
-
-    @cached_property
-    def exterior_facet_vert_local_facet_indices(self) -> op3.Dat:
-        local_facet_index = dmcommon.local_facet_number(self, "exterior_vert")
-        axis_tree = op3.AxisTree.from_iterable([self.exterior_facets_vert.as_axis(), 1])
-        return op3.Dat(axis_tree, data=local_facet_index.flatten())
-
-    @cached_property
-    def interior_facet_vert_local_facet_indices(self) -> op3.Dat:
-        local_facet_index = dmcommon.local_facet_number(self, "interior_vert")
-        axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.as_axis(), 2])
-        return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
     def cell_to_facets(self):
@@ -3658,7 +3657,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
         nroots = self.input_ordering.num_cells
-        e_p_map = self._cell_permutation  # cell-entity -> swarm-point map
+        e_p_map = self._new_to_old_cell_numbering  # cell-entity -> swarm-point map
         ilocal = np.empty_like(e_p_map)
         if len(e_p_map) > 0:
             cStart = e_p_map.min()  # smallest swarm point number
