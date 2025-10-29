@@ -78,6 +78,8 @@ The domain and mesh are visualised below.
 
 To model the mixture we employ the Stokes--Onsager--Stefan--Maxwell (SOSM) 
 partial differential equations and discretise with the method of :cite:`BaierReinio:2025`.
+We use the material property values specified in :cite:`VanBrunt:2025`,
+wherein a similar benzene-cyclohexane simulation is considered.
 In what follows species 1 refers to benzene and species 2 to cyclohexane.
 We shall discretise the following unknowns:
 
