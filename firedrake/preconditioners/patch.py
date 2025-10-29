@@ -1,5 +1,5 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
-from firedrake.preconditioners.asm import ASMPatchPC
+from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
@@ -784,7 +784,7 @@ class PatchBase(PCSNESBase):
             patch_dim = self.plex.getDimension() - patch_codim
         else:
             patch_dim = 0
-        ASMPatchPC.validate_overlap(mesh, patch_dim, patch_type)
+        validate_overlap(mesh, patch_dim, patch_type)
 
         patch = obj.__class__().create(comm=mesh.comm)
         patch.setOptionsPrefix(prefix)
