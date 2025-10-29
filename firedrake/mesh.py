@@ -5144,7 +5144,8 @@ def _pic_swarm_in_mesh(
         remove_missing_points=False,
     )
     visible_idxs = parent_cell_nums_local != -1
-    if parent_mesh.extruded:
+    # if parent_mesh.extruded:
+    if False:
         raise NotImplementedError
         # need to store the base parent cell number and the height to be able
         # to map point coordinates back to the parent mesh
@@ -5444,7 +5445,8 @@ def _dmswarm_create(
     swarm.restoreField("DMSwarmPIC_coor")
     swarm.restoreField(cell_id_name)
 
-    if extruded:
+    # if extruded:
+    if False:
         field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
         field_extrusion_heights = swarm.getField("parentcellextrusionheight").ravel()
         field_base_parent_cell_nums[...] = base_parent_cell_nums
