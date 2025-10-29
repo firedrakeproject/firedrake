@@ -1114,7 +1114,7 @@ class CheckpointFile(object):
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
             mesh = make_mesh_from_coordinates(coordinates, name)
             # Load plex coordinates for a complete representation of plex.
-            tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
+            tmesh.topology_dm.coordinatesLoad(self.viewer)
             # Load cell_orientations for immersed meshes.
             path = self._path_to_mesh_immersed(tmesh.name, name)
             if path in self.h5pyfile:
@@ -1192,9 +1192,9 @@ class CheckpointFile(object):
         format = ViewerHDF5.Format.HDF5_PETSC
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
-        sfXB = plex.topologyLoad(self.viewer)
+        plex.topologyLoad(self.viewer)
         plex.distributionSetName(None)
-        plex.labelsLoad(self.viewer, sfXB)
+        plex.labelsLoad(self.viewer)
         self.viewer.popFormat()
         # These labels are distribution dependent.
         # We should be able to save/load labels selectively.
@@ -1223,7 +1223,7 @@ class CheckpointFile(object):
         # -- Construct Mesh (Topology) --
         # Use public API so pass user comm (self.comm)
         tmesh = MeshTopology(plex, name=plex.getName(), reorder=reorder,
-                             distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
+                             distribution_parameters=distribution_parameters, perm_is=perm_is,
                              distribution_name=distribution_name, permutation_name=permutation_name,
                              comm=self.comm)
         return tmesh
@@ -1283,9 +1283,8 @@ class CheckpointFile(object):
             section.setPermutation(tmesh._dm_renumbering)
             dm.setSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
-            sfXC = base_tmesh.sfXC
             topology_dm.setName(tmesh.name)
-            gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, sfXC)
+            gsf, lsf = topology_dm.sectionLoad(self.viewer, dm)
             topology_dm.setName(base_tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             # Don't cache if the section has been expanded by block_size
