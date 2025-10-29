@@ -776,8 +776,14 @@ class PatchBase(PCSNESBase):
         # Validate the mesh overlap
         prefix = (obj.getOptionsPrefix() or "") + "patch_"
         opts = PETSc.Options(prefix)
-        patch_dim = opts.getInt("pc_patch_construct_dim", 0)
         patch_type = opts.getString("pc_patch_construct_type")
+        if "pc_patch_construct_dim" in opts:
+            patch_dim = opts.getInt("pc_patch_construct_dim")
+        elif "pc_patch_construct_codim" in opts:
+            patch_codim = opts.getInt("pc_patch_construct_codim")
+            patch_dim = self.plex.getDimension() - patch_codim
+        else:
+            patch_dim = 0
         ASMPatchPC.validate_overlap(mesh, patch_dim, patch_type)
 
         patch = obj.__class__().create(comm=mesh.comm)
