@@ -4,6 +4,7 @@ from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
+from firedrake.mesh import DistributedMeshOverlapType
 from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
 from mpi4py import MPI
@@ -160,6 +161,8 @@ class ASMStarPC(ASMPatchPC):
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
+        validate_overlap(mesh, depth, "star")
+
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
@@ -233,8 +236,11 @@ class ASMVankaPC(ASMPatchPC):
         ises = []
         if depth != -1:
             (start, end) = mesh_dm.getDepthStratum(depth)
+            patch_dim = depth
         else:
             (start, end) = mesh_dm.getHeightStratum(height)
+            patch_dim = mesh_dm.getDimension() - height
+        validate_overlap(mesh, patch_dim, "vanka")
 
         for seed in range(start, end):
             # Only build patches over owned DoFs
@@ -453,6 +459,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             else:
                 continue
 
+            validate_overlap(mesh, base_depth, "star")
             start, end = mesh_dm.getDepthStratum(base_depth)
             for seed in range(start, end):
                 # Only build patches over owned DoFs
@@ -508,3 +515,26 @@ class ASMExtrudedStarPC(ASMStarPC):
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
+
+
+def validate_overlap(mesh, patch_dim, patch_type):
+    if patch_type == "python":
+        return
+    patch_depth = {"pardecomp": 0, "star": 1, "vanka": 2}[patch_type]
+
+    tdim = mesh.topology_dm.getDimension()
+    overlap_entity, overlap_depth = mesh._distribution_parameters["overlap_type"]
+    overlap_dim = {
+        DistributedMeshOverlapType.VERTEX: 0,
+        DistributedMeshOverlapType.FACET: tdim-1,
+        DistributedMeshOverlapType.NONE: tdim,
+    }[overlap_entity]
+
+    if mesh.comm.size > 1:
+        if overlap_dim > patch_dim:
+            patch_entity = {0: "vertex", 1: "edge", 2: "face", tdim: "cell"}[patch_dim]
+            warning(f"{overlap_entity} does not support {patch_entity}-patches. "
+                    "Did you forget to set overlap_type in your mesh's distribution_parameters?")
+        if overlap_depth < patch_depth:
+            warning(f"Mesh overlap depth of {overlap_depth} does not support {patch_type}-patches. "
+                    "Did you forget to set overlap_type in your mesh's distribution_parameters?")
