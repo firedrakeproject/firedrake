@@ -64,6 +64,8 @@ Cyrus Cheng
 
 Teodoro Fields Collin
 
+Leo Collins
+
 Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
