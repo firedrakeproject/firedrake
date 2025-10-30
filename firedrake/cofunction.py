@@ -209,6 +209,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 self.block_variable = self.create_block_variable()
                 self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
                     expr.block_variable)
+                # We set CofunctionAssignBlock(..., rhs_from_assemble=True)
+                # so that we do not annotate the recursive call to assign
+                # within Cofunction.assign(BaseForm, subset=...).
+                # But we currently do not implement annotation for subset != None.
                 get_working_tape().add_block(
                     CofunctionAssignBlock(
                         self, expr, rhs_from_assemble=expr_from_assemble)
