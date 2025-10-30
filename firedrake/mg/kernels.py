@@ -393,7 +393,7 @@ def restrict_kernel(Vf, Vc):
            "Xc_cell_inc": coords_element.space_dimension(),
            "coarse_cell_inc": element.space_dimension(),
            "spacedim": element.cell.get_spatial_dimension(),
-           "tdim": mesh.topological_dimension()})
+           "tdim": mesh.topological_dimension})
 
     # Now build a pyop3 'Function' wrapping this
     loopy_kernel = lp.make_kernel(
@@ -497,7 +497,7 @@ def inject_kernel(Vf, Vc):
         "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
         "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
         "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-        "tdim": Vc.mesh().topological_dimension(),
+        "tdim": Vc.mesh().topological_dimension,
         "ncandidate": ncandidate,
         "Rdim": numpy.prod(Vf.value_shape),
         "Xf_cell_inc": coords_element.space_dimension(),

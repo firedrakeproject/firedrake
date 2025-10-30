@@ -140,6 +140,7 @@ cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     PetscErrorCode ISGetIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS,PetscInt*)
+    PetscErrorCode ISGetLocalSize(PETSc.PetscIS,PetscInt*)
     PetscErrorCode ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     PetscErrorCode ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)

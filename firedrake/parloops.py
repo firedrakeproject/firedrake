@@ -498,15 +498,11 @@ def _(
             depth = 1
         packed_mat = mat[Vrow.mesh().closure(rcell), Vcol.mesh().closure(ccell)]
     else:
-        raise NotImplementedError ("TODO with target_mesh")
         if integral_type == "cell":
-            cell = index
+            rcell = rindex
+            ccell = cindex
             depth = 0
-            if Vrow.mesh().topology != target_mesh.topology:
-                rmap = Vrow.cell_node_map(Vrow.mesh().cell_parent_cell_map(index))
-            if Vcol.mesh().topology != target_mesh.topology:
-                index = Vcol.mesh().cell_parent_cell_map(index)
-            packed_mat = mat[Vrow.cell_node_map(cell), Vcol.cell_node_map(cell)]
+            packed_mat = mat[Vrow.cell_node_map(rcell), Vcol.cell_node_map(ccell)]
         else:
             raise NotImplementedError
 

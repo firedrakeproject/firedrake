@@ -101,6 +101,7 @@ def solver(V, space, solver_parameters):
     return solver
 
 
+# FIXME: fails because of pcpatch
 @pytest.mark.parallel([1, 3])
 @pytest.mark.skipcomplexnoslate
 def test_riesz(V, solver, use_averaging):

@@ -44,7 +44,7 @@ def get_entity_renumbering(PETSc.DM plex, numbering, entity_type):
     new_to_old = np.empty(end - start, dtype=PETSc.IntType)
 
     for p in range(start, end):
-        entity = numbering[p-start]
+        entity = numbering.getOffset(p)
         new_to_old[entity] = p - start
         old_to_new[p - start] = entity
 
@@ -255,8 +255,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     nref = <PetscInt> 2 ** dim
     ncoarse = mc.cells.owned.local_size
     nfine = mf.cells.owned.local_size
-    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
+    co2n, _ = get_entity_renumbering(cdm, mc._old_to_new_cell_numbering, "cell")
+    _, fn2o = get_entity_renumbering(fdm, mf._old_to_new_cell_numbering, "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
     fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
     # Walk owned fine cells:
