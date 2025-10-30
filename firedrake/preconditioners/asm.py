@@ -518,6 +518,8 @@ class ASMExtrudedStarPC(ASMStarPC):
 
 
 def validate_overlap(mesh, patch_dim, patch_type):
+    if patch_type == "python":
+        return
     patch_depth = {"pardecomp": 0, "star": 1, "vanka": 2}[patch_type]
 
     tdim = mesh.topology_dm.getDimension()
