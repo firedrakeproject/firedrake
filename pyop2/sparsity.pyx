@@ -37,6 +37,7 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
+from petsc4py.PETSc cimport CHKERR
 from petsc4py import PETSc
 from pyop2.datatypes import IntType
 
@@ -49,18 +50,21 @@ cdef extern from "petsc.h":
         PETSC_TRUE, PETSC_FALSE
     ctypedef enum PetscInsertMode "InsertMode":
         PETSC_INSERT_VALUES "INSERT_VALUES"
-    int PetscCalloc1(size_t, void*)
-    int PetscMalloc1(size_t, void*)
-    int PetscMalloc2(size_t, void*, size_t, void*)
-    int PetscFree(void*)
-    int PetscFree2(void*,void*)
-    int MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
-                                 PetscScalar*, PetscInsertMode)
-    int MatSetValuesLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
-                          PetscScalar*, PetscInsertMode)
-    int MatPreallocatorPreallocate(PETSc.PetscMat, PetscBool, PETSc.PetscMat)
-    int MatXAIJSetPreallocation(PETSc.PetscMat, PetscInt, const PetscInt[], const PetscInt[],
-                                const PetscInt[], const PetscInt[])
+    ctypedef enum PetscErrorCode:
+        PETSC_SUCCESS
+
+    PetscErrorCode PetscCalloc1(size_t, void*)
+    PetscErrorCode PetscMalloc1(size_t, void*)
+    PetscErrorCode PetscMalloc2(size_t, void*, size_t, void*)
+    PetscErrorCode PetscFree(void*)
+    PetscErrorCode PetscFree2(void*,void*)
+    PetscErrorCode MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
+                                            PetscScalar*, PetscInsertMode)
+    PetscErrorCode MatSetValuesLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
+                                     PetscScalar*, PetscInsertMode)
+    PetscErrorCode MatPreallocatorPreallocate(PETSc.PetscMat, PetscBool, PETSc.PetscMat)
+    PetscErrorCode MatXAIJSetPreallocation(PETSc.PetscMat, PetscInt, const PetscInt[], const PetscInt[],
+                                           const PetscInt[], const PetscInt[])
 
 cdef extern from "petsc/private/matimpl.h":
     struct _p_Mat:
@@ -70,26 +74,6 @@ ctypedef struct Mat_Preallocator:
     void *ht
     PetscInt *dnz
     PetscInt *onz
-
-cdef extern from *:
-    void PyErr_SetObject(object, object)
-    void *PyExc_RuntimeError
-
-cdef object PetscError = <object>PyExc_RuntimeError
-
-cdef inline int SETERR(int ierr) with gil:
-    if (<void*>PetscError) != NULL:
-        PyErr_SetObject(PetscError, <long>ierr)
-    else:
-        PyErr_SetObject(<object>PyExc_RuntimeError, <long>ierr)
-    return ierr
-
-cdef inline int CHKERR(int ierr) nogil except -1:
-    if ierr == 0:
-        return 0 # no error
-    else:
-        SETERR(ierr)
-        return -1
 
 cdef object set_writeable(map):
      flag = map.values_with_halo.flags['WRITEABLE']

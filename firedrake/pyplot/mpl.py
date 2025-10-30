@@ -100,10 +100,13 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
     :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
-    gdim = mesh.geometric_dimension()
-    tdim = mesh.topological_dimension()
+    gdim = mesh.geometric_dimension
+    tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname() == "quadrilateral"
+    quad = mesh.ufl_cell().cellname == "quadrilateral"
+
+    if mesh.extruded:
+        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
 
     if axes is None:
         figure = plt.figure()
@@ -268,9 +271,7 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    element = function.ufl_element()
-    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
-    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
+    kwargs["shading"] = kwargs.get("shading", "gouraud")
     return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
@@ -318,7 +319,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
     Q = function.function_space()
     mesh = Q.mesh()
-    if mesh.geometric_dimension() == 3:
+    if mesh.geometric_dimension == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
     _kwargs.update({"shade": False})
 
@@ -390,8 +391,8 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
-    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
+    v1 = toreal(direction * function._at(x, tolerance=loc_tolerance), complex_component)
+    r = toreal(cell_sizes._at(x, tolerance=loc_tolerance), "real")
     v1norm = np.sqrt(np.sum(v1**2))
     if np.isclose(v1norm, 0.0):
         # Bail early for zero fields.
@@ -401,12 +402,12 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
 
     while True:
         try:
-            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+            v2 = toreal(direction * function._at(x + dt * v1, tolerance=loc_tolerance),
                         complex_component)
         except PointNotInDomainError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+            v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                         complex_component)
             yield y, v1, ds
             break
@@ -418,14 +419,14 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                vy = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
-                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
+                r = toreal(cell_sizes._at(y, tolerance=loc_tolerance), "real")
             except PointNotInDomainError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
                 yield y, v1, ds
                 break
@@ -470,7 +471,7 @@ class Streamplotter(object):
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
-        self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
+        self._r = self.resolution / np.sqrt(mesh.geometric_dimension)
         shape = tuple(((xmax - self._xmin) / self._r).astype(int) + 2)
         self._grid = np.full(shape, 4 * self.resolution)
 
@@ -653,7 +654,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+        velocity = toreal(np.array(function._at(streamline, tolerance=loc_tolerance)),
                           complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])
@@ -751,7 +752,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
 
-        if extract_unique_domain(line).geometric_dimension() > 1:
+        if extract_unique_domain(line).geometric_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                              "see tricontourf, tripcolor, quiver, trisurf")
 
@@ -904,7 +905,7 @@ class FunctionPlotter:
         # num_sample_points must be of the form 3k + 1 for cubic Bezier plotting
         if num_sample_points % 3 != 1:
             num_sample_points = (num_sample_points // 3) * 3 + 1
-        if mesh.topological_dimension() == 1:
+        if mesh.topological_dimension == 1:
             self._setup_1d(mesh, num_sample_points)
         else:
             self._setup_nd(mesh, num_sample_points)
@@ -913,7 +914,7 @@ class FunctionPlotter:
         self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, mesh, num_sample_points):
-        cell_name = mesh.ufl_cell().cellname()
+        cell_name = mesh.ufl_cell().cellname
         if cell_name == "triangle":
             x = np.array([0, 0, 1])
             y = np.array([0, 1, 0])
@@ -935,18 +936,20 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
+        # TODO: What do we do with variable layers?
+        num_layers = 1 if mesh.layers is None else mesh.layers - 1
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
         coordinate_values = self(mesh.coordinates)
-        X = coordinate_values.reshape(-1, mesh.geometric_dimension())
+        X = coordinate_values.reshape(-1, mesh.geometric_dimension)
         coords = toreal(X, "real")
 
-        if mesh.geometric_dimension() == 2:
+        if mesh.geometric_dimension == 2:
             x, y = coords[:, 0], coords[:, 1]
             self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
-        elif mesh.geometric_dimension() == 3:
+        elif mesh.geometric_dimension == 3:
             self.coordinates = coords
             self.triangles = all_triangles
 
@@ -954,12 +957,15 @@ class FunctionPlotter:
         # TODO: Make this more efficient on repeated calls -- for example reuse `elem`
         # if the function space is the same as the last one
         Q = function.function_space()
-        dimension = Q.mesh().topological_dimension()
+        mesh = Q.mesh()
+        dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
+        if mesh.layers:
+            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1

@@ -105,7 +105,6 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     @utils.validate_in(('access', _modes, ex.ModeValueError))
     def __call__(self, access, path=None):
         from pyop2.parloop import DatLegacyArg
-
         if conf.configuration["type_check"] and path and path.toset != self.dataset.set:
             raise ex.MapValueError("To Set of Map does not match Set of Dat.")
         return DatLegacyArg(self, path, access)
@@ -241,6 +240,16 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         v = self._data.view()
         v.setflags(write=True)
         return v
+
+    @property
+    @mpi.collective
+    def global_data(self):
+        """Return all the data for the Dat gathered onto individual ranks."""
+        with self.vec_ro as gvec:
+            scatter, lvec = PETSc.Scatter().toAll(gvec)
+            scatter.scatter(
+                gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
+        return lvec.array
 
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""

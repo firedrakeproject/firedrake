@@ -49,7 +49,7 @@ def f(mesh, V):
             fi.interpolate(as_vector([(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)] * V.value_size))
         elif fs_i.rank == 2:
             fi.interpolate(as_tensor([[(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)
-                                       for _ in range(fs_i.mesh().geometric_dimension())]
+                                       for _ in range(fs_i.mesh().geometric_dimension)]
                                       for _ in range(fs_i.rank)]))
         else:
             fi.interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))
@@ -131,8 +131,7 @@ def test_assemble(V, f):
 
     # -- dNdu(u, v, w; δN, uhat) (Adjoint model) -- #
     # Define a random cofunction on V* since the adjoint model maps from V* to V*
-    delta_N = Cofunction(V.dual())
-    delta_N.vector()[:] = rg.beta(V, 15, 30).dat.data_ro[:]
+    delta_N = rg.beta(V.dual(), 15, 30)
     # Assemble the adjoint model
     adj_value = assemble(action(adjoint(dNdu), delta_N))
     # Check type
@@ -189,6 +188,8 @@ def test_solve(mesh, solver_parameters):
     # calls the method of the external operator subclass associated with the assembly of the Jacobian action.
     solve(F == 0, u, bcs=bcs, solver_parameters=solver_parameters)
 
+    assert np.allclose(u.dat.data, w.dat.data)
+
     # Solve the Poisson problem:
     #  - Δu + u = N(f) in Ω
     #         u = 0 on ∂Ω
@@ -200,7 +201,7 @@ def test_solve(mesh, solver_parameters):
     F = inner(grad(u2), grad(v)) * dx + inner(u2, v) * dx - inner(N, v) * dx
     solve(F == 0, u2, bcs=bcs, solver_parameters=solver_parameters)
 
-    assert (np.allclose(u.dat.data, w.dat.data) and np.allclose(u2.dat.data, w.dat.data))
+    assert np.allclose(u2.dat.data, w.dat.data)
 
 
 def test_multiple_external_operators(mesh):

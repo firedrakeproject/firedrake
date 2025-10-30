@@ -1,29 +1,37 @@
-# Dockerfile for Firedrake with a full set of capabilities and applications installed.
+# Dockerfile for Firedrake with a full set of capabilities installed.
 
 FROM firedrakeproject/firedrake-vanilla-default:latest
 
 # Install optional dependencies
 RUN pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
-        jax ngsPETSc torch vtk
+        jax torch
 
-# Set PYTHONPATH so netgen can be found
-# (see https://github.com/NGSolve/netgen/issues/213)
-ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH
-
-# Install Firedrake apps
-RUN pip install --verbose --src /opt \
-        -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
-        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
-        -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
-        -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
-        -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
-        -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
-        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
-        -e git+https://github.com/icepack/icepack.git#egg=icepack \
-        -e git+https://github.com/thetisproject/thetis.git#egg=thetis
+# Install ngsPETSc and dependencies. Netgen do not package ARM wheels so
+# we have to build it from source in that case. If on x86 then we have to
+# set PYTHONPATH so netgen can be found (see https://github.com/NGSolve/netgen/issues/213).
+RUN \
+        if [ "$(dpkg --print-architecture)" == "arm64" ]; then \
+                apt-get update \
+                && apt-get -y install python3-tk libxmu-dev tk-dev tcl-dev cmake g++ libglu1-mesa-dev liblapacke-dev libocct-data-exchange-dev libocct-draw-dev occt-misc libtbb-dev libxi-dev \
+                && rm -rf /var/lib/apt/lists/* \
+                && mkdir /opt/ngsuite \
+                && git clone --branch=v6.2.2505 --single-branch https://github.com/NGSolve/netgen.git /opt/ngsuite/netgen-src \
+                && git -C /opt/ngsuite/netgen-src submodule update --init --recursive \
+                && mkdir /opt/ngsuite/netgen-build \
+                && mkdir /opt/ngsuite/netgen-install \
+                && cmake -DCMAKE="-cxx-flags=-flax-vector-conversions" -DCMAKE_INSTALL_PREFIX=/opt/ngsuite/netgen-install /opt/ngsuite/netgen-src \
+                && make \
+                && make install \
+                && export PATH=/opt/ngsuite/netgen-install/bin:$PATH \
+                && export PYTHONPATH=/opt/ngsuite/netgen-install/lib/python3.12/site-packages:$PYTHONPATH \
+                && pip install ngsPETSc --no-deps; \
+        else \
+                export PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH \
+                && pip install ngsPETSc; \
+        fi
 
 # Install some other niceties
 RUN apt-get update \
-    && apt-get -y install nano vim \
+    && apt-get -y install graphviz graphviz-dev nano vim \
     && rm -rf /var/lib/apt/lists/*

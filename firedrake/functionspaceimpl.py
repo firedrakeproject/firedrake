@@ -18,6 +18,7 @@ from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
+from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
@@ -51,7 +52,7 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
-    if element.cell.cellname() == "hexahedron" and \
+    if element.cell.cellname == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
@@ -60,7 +61,7 @@ def check_element(element, top=True):
     elif type(element) is finat.ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
+        inner = element.factor_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
             raise ValueError(f"{type(element).__name__} modifier must be outermost")
@@ -94,9 +95,11 @@ class WithGeometryBase(object):
         generation.
     """
     def __init__(self, mesh, element, component=None, cargo=None):
+        if type(element) is finat.ufl.MixedElement:
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
-
         super().__init__(mesh, element, label=cargo.topological._label or "")
         self.component = component
         self.cargo = cargo
@@ -104,16 +107,25 @@ class WithGeometryBase(object):
         self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
-    def create(cls, function_space, mesh):
+    def create(cls, function_space, mesh, parent=None):
         """Create a :class:`WithGeometry`.
 
-        :arg function_space: The topological function space to attach
-            geometry to.
-        :arg mesh: The mesh with geometric information to use.
+        Parameters
+        ----------
+        function_space : FunctionSpace or MixedFunctionSpace
+            Topological function space to attach geometry to.
+        mesh : MeshGeometry
+            Mesh with geometric information to use.
+        parent : WithGeometry
+            Parent geometric function space if exists.
+
         """
+        if isinstance(function_space, MixedFunctionSpace):
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
         function_space = function_space.topological
-        assert mesh.topology is function_space.mesh()
-        assert mesh.topology is not mesh
+        assert mesh.topology == function_space.mesh()
+        assert mesh.topology != mesh
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
 
@@ -121,7 +133,8 @@ class WithGeometryBase(object):
         component = function_space.component
 
         if function_space.parent is not None:
-            parent = cls.create(function_space.parent, mesh)
+            if parent is None:
+                raise ValueError("Must pass parent if function_space.parent is not None")
         else:
             parent = None
 
@@ -151,8 +164,13 @@ class WithGeometryBase(object):
     @utils.cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.subspaces)
+        if isinstance(self.topological, MixedFunctionSpace):
+            return tuple(
+                type(self).create(subspace, mesh, parent=self)
+                for mesh, subspace in zip(self.mesh(), self.topological.subspaces, strict=True)
+            )
+        else:
+            return (self, )
 
     @property
     def subfunctions(self):
@@ -177,11 +195,8 @@ class WithGeometryBase(object):
 
     @utils.cached_property
     def _components(self):
-        if len(self) == 1:
-            return tuple(type(self).create(self.topological.sub(i), self.mesh())
-                         for i in range(self.block_size))
-        else:
-            return self.subspaces
+        return tuple(type(self).create(self.topological.sub(i), self.mesh(), parent=self)
+                     for i in range(self.block_size))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -300,7 +315,7 @@ class WithGeometryBase(object):
             return False
         try:
             return self.topological == other.topological and \
-                self.mesh() is other.mesh()
+                self.mesh() == other.mesh()
         except AttributeError:
             return False
 
@@ -359,13 +374,20 @@ class WithGeometryBase(object):
     @classmethod
     def make_function_space(cls, mesh, element, name=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
-        mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
-            spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
-            new = MixedFunctionSpace(spaces, name=name)
+            if isinstance(mesh, MeshGeometry):
+                mesh = MeshSequenceGeometry([mesh for _ in element.sub_elements])
+                topology = mesh.topology
+            else:
+                if not isinstance(mesh, MeshSequenceGeometry):
+                    raise TypeError(f"mesh must be MeshSequenceGeometry: got {mesh}")
+            spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
+            new = MixedFunctionSpace(spaces, topology, name=name)
         else:
+            if isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
             check_element(element)
             if element.family() == "Real":
@@ -378,17 +400,36 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, name=None, **kwargs):
-        r"""Reconstruct this :class:`.WithGeometryBase` .
+    def reconstruct(
+        self,
+        mesh: MeshGeometry | None = None,
+        element: finat.ufl.FiniteElement | None = None,
+        name: str | None = None,
+        **kwargs,
+    ) -> "WithGeometryBase":
+        """Return a new function space with modified fields.
 
-        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
-        :kwarg name: the new name (defaults to None)
-        :returns: the new function space of the same class as ``self``.
+        Parameters
+        ----------
+        mesh :
+            The mesh (defaults to same mesh).
+        element :
+            The finite element (defaults to same element).
+        name :
+            The name (defaults to `None`).
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        For details see `finat.ufl.finiteelement.FiniteElement.reconstruct`.
+
         """
+        from firedrake.bcs import restricted_function_space
         V_parent = self
+
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
@@ -403,13 +444,21 @@ class WithGeometryBase(object):
 
         if mesh is None:
             mesh = V_parent.mesh()
+        if element is None:
+            element = V_parent.ufl_element()
 
-        element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
+        # Reconstruct the parent space
         V = type(self).make_function_space(mesh, element, name=name)
+
+        # Deal with RestrictedFunctionSpace
+        boundary_sets = [V_.boundary_set for V_ in V_parent]
+        if any(boundary_sets):
+            V = restricted_function_space(V, boundary_sets)
+
         for i in reversed(indices):
             V = V.sub(i)
         return V
@@ -423,7 +472,8 @@ class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
                                            cargo=cargo)
 
     def dual(self):
-        return FiredrakeDualSpace.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return FiredrakeDualSpace.create(self.topological, self.mesh(), parent=parent)
 
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
@@ -434,7 +484,8 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
                                                  cargo=cargo)
 
     def dual(self):
-        return WithGeometry.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return WithGeometry.create(self.topological, self.mesh(), parent=parent)
 
 
 class FunctionSpace(object):
@@ -504,11 +555,10 @@ class FunctionSpace(object):
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-        element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
-        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
-        the number of components of their
-        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
+        element is scalar-valued (or intrinsically vector-valued) have rank
+        zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+        :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
+        respectively."""
 
         self.block_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
@@ -565,7 +615,7 @@ class FunctionSpace(object):
         if not isinstance(other, FunctionSpace):
             return False
         # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.dof_dset is other.dof_dset and \
             self.ufl_element() == other.ufl_element() and \
             self.component == other.component
@@ -901,8 +951,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(map(str, self.boundary_set))))
+        self.name = name or function_space.name
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
@@ -966,11 +1015,14 @@ class MixedFunctionSpace(object):
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None):
+    def __init__(self, spaces, mesh, name=None):
         super(MixedFunctionSpace, self).__init__()
+        if not isinstance(mesh, MeshSequenceTopology):
+            raise TypeError(f"mesh must be MeshSequenceTopology: got {mesh}")
+        if len(mesh) != len(spaces):
+            raise RuntimeError(f"len(mesh) ({len(mesh)}) != len(spaces) ({len(spaces)})")
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
                                                      finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
@@ -1174,7 +1226,9 @@ class MixedFunctionSpace(object):
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
-        _, level = get_level(self.mesh())
+        # TODO: Think harder.
+        m = self.mesh()[0]
+        _, level = get_level(m)
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
@@ -1351,7 +1405,7 @@ class RealFunctionSpace(FunctionSpace):
         if not isinstance(other, RealFunctionSpace):
             return False
         # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.ufl_element() == other.ufl_element()
 
     def __ne__(self, other):

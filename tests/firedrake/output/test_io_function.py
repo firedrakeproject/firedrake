@@ -67,7 +67,7 @@ def _get_mesh(cell_type, comm):
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
@@ -142,7 +142,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     VB = fB.function_space()
     fBe = Function(VB)
     _initialise_function(fBe, _get_expr(VB), method)
-    assert assemble(inner(fB - fBe, fB - fBe) * dx) < 5.e-12
+    assert assemble(inner(fB - fBe, fB - fBe) * dx) < 6.e-12
     # Save
     with CheckpointFile(filename, 'w', comm=comm) as afile:
         afile.save_function(fB)

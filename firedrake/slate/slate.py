@@ -15,7 +15,7 @@ compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
 from abc import ABCMeta, abstractproperty, abstractmethod
-
+import functools
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Constant
@@ -60,7 +60,7 @@ class RemoveNegativeRestrictions(MultiFunction):
     """UFL MultiFunction which removes any negative restrictions
     in a form.
     """
-    expr = MultiFunction.reuse_if_untouched
+    ufl_type = MultiFunction.reuse_if_untouched
 
     def negative_restricted(self, o):
         return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
@@ -252,6 +252,13 @@ class TensorBase(object, metaclass=ABCMeta):
         except ValueError:
             raise ValueError("All integrals must share the same domain of integration.")
         return domain
+
+    @staticmethod
+    def _expand_mixed_meshes(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            return sort_domains(join_domains(func(self, *args, **kwargs)))
+        return wrapper
 
     @abstractmethod
     def ufl_domains(self):
@@ -464,7 +471,7 @@ class AssembledVector(TensorBase):
         if isinstance(tensor, BaseForm):
             return tuple(a.function_space() for a in tensor.arguments())
         else:
-            return (tensor.ufl_function_space(),)
+            return (tensor.ufl_function_space().dual(),)
 
     @cached_property
     def _argument(self):
@@ -487,6 +494,7 @@ class AssembledVector(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -562,6 +570,7 @@ class BlockAssembledVector(AssembledVector):
         """Returns a BlockFunction in a tuple which carries all information to generate the right coefficients and maps."""
         return (BlockFunction(self._function, self._indices, self._original_function),)
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with the tensor.
         """
@@ -720,6 +729,7 @@ class Block(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -815,6 +825,7 @@ class Factorization(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -918,6 +929,7 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.coefficients()
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -976,6 +988,7 @@ class TensorOp(TensorBase):
         coeffs = [op.slate_coefficients() for op in self.operands]
         return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
+    @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
@@ -1084,14 +1097,14 @@ class Inverse(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces[::-1]
+        return tuple(V.dual() for V in reversed(tensor.arg_function_spaces))
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
         tensor, = self.operands
-        return tensor.arguments()[::-1]
+        return tuple(a.reconstruct(a.function_space().dual()) for a in reversed(tensor.arguments()))
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
@@ -1267,9 +1280,9 @@ class Mul(BinaryOp):
         fsA = A.arg_function_spaces[-1]
         fsB = B.arg_function_spaces[0]
 
-        assert space_equivalence(fsA, fsB), (
+        assert space_equivalence(fsA, fsB.dual()), (
             "Cannot perform argument contraction over middle indices. "
-            "They must be in the same function space."
+            "They should be in dual function spaces."
         )
 
         super(Mul, self).__init__(A, B)
@@ -1341,7 +1354,8 @@ class Solve(BinaryOp):
 
         super(Solve, self).__init__(A_factored, B)
 
-        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+        Ainv_args = tuple(a.reconstruct(a.function_space().dual()) for a in reversed(A.arguments()))
+        self._args = Ainv_args[:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
     @cached_property

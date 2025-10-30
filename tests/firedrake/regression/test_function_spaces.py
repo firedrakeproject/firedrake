@@ -149,6 +149,12 @@ def test_VV_ne_VVV():
     assert W0 != W1
 
 
+def test_tensor_function_space_empty_tuple():
+    mesh = UnitSquareMesh(1, 1)
+    W = TensorFunctionSpace(mesh, "CG", 1, shape=())
+    assert W.value_shape == ()
+
+
 def test_function_space_dir(cg1):
     dir(cg1)
 
@@ -243,8 +249,8 @@ def test_reconstruct_variant(family, dual):
 def test_reconstruct_mixed(fs, mesh, mesh2, dual):
     W1 = fs.dual() if dual else fs
     W2 = W1.reconstruct(mesh=mesh2)
-    assert W1.mesh() == mesh
-    assert W2.mesh() == mesh2
+    assert W1.mesh().unique() == mesh
+    assert W2.mesh().unique() == mesh2
     assert W1.ufl_element() == W2.ufl_element()
     for index, V in enumerate(W1):
         V1 = W1.sub(index)

@@ -130,12 +130,12 @@ class BCBase(object):
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
-            tdim = self._function_space.mesh().topological_dimension()
+            tdim = self._function_space.mesh().topological_dimension
             if isinstance(fe, finat.Hermite) and tdim == 1:
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
             elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
@@ -162,8 +162,6 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
@@ -243,7 +241,7 @@ class BCBase(object):
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
-    def extract_forms(self, form_type):
+    def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
 
@@ -319,6 +317,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
+            if isinstance(g, firedrake.Function) and g.function_space() != V:
+                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -451,7 +451,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if u:
                 u = u.sub(idx)
         if u:
-            r.assign(u - self.function_arg, subset=self.node_set)
+            if self.function_arg == 0:
+                bc_residual = u
+            else:
+                bc_residual = u - self.function_arg
+            r.assign(bc_residual, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
 
@@ -520,6 +524,7 @@ class EquationBC(object):
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
                 self.is_linear = False
+            self.eq = eq
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
             # Argument checking
@@ -739,11 +744,11 @@ def restricted_function_space(V, ids):
         return V
 
     assert len(ids) == len(V)
-    spaces = [Vsub if len(boundary_set) == 0 else
-              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-              for Vsub, boundary_set in zip(V, ids)]
+    spaces = [V_ if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(V_, boundary_set=boundary_set, name=V_.name)
+              for V_, boundary_set in zip(V, ids)]
 
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name)

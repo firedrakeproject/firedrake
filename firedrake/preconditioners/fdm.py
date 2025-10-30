@@ -16,7 +16,6 @@ from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
-from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
@@ -29,36 +28,13 @@ from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
 import firedrake.dmhooks as dmhooks
+import petsctools
 import ufl
 import finat.ufl
 import FIAT
 import finat
 import numpy
 import ctypes
-
-Citations().add("Brubeck2022", """
-@article{Brubeck2022,
-  title={A scalable and robust vertex-star relaxation for high-order {FEM}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {44},
-  number = {5},
-  pages = {A2991-A3017},
-  year = {2022},
-  doi = {10.1137/21M1444187}
-""")
-
-Citations().add("Brubeck2024", """
-@article{Brubeck2024,
-  title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {46},
-  number = {3},
-  pages = {A1549-A1573},
-  year = {2024},
-  doi = {10.1137/22M1537370}
-""")
 
 
 __all__ = ("FDMPC", "PoissonFDMPC")
@@ -118,7 +94,7 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
-        Citations().register(self._citation)
+        petsctools.cite(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix() or ""
@@ -246,7 +222,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = FunctionSpace(V.mesh(), ebig)
+            Vbig = V.reconstruct(mesh=V.mesh().unique(), element=ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
@@ -436,9 +412,9 @@ class FDMPC(PCBase):
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
         V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
         if V0 is None:
-            V0 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "interior"))
+            V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
         if V1 is None:
-            V1 = FunctionSpace(V.mesh(), restrict_element(self.embedding_element, "facet"))
+            V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
         if len(V) == 1:
             J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
         elif len(V) == 2:
@@ -446,7 +422,7 @@ class FDMPC(PCBase):
             ises = V.dof_dset.field_ises
             Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
             Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
-            unindexed = {Vsub: FunctionSpace(Vsub.mesh(), Vsub.ufl_element()) for Vsub in V}
+            unindexed = {Vsub: Vsub.collapse() for Vsub in V}
             bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
         else:
             raise ValueError("Expecting at most 2 components")
@@ -505,7 +481,7 @@ class FDMPC(PCBase):
         args_J = J.arguments()
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
@@ -708,7 +684,7 @@ class FDMPC(PCBase):
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if Vrow == Vcol else None
             if schur_kernel is not None:
-                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                V0 = Vrow.collapse().reconstruct(element=restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 element_kernel = schur_kernel(element_kernel,
@@ -827,7 +803,7 @@ class FDMPC(PCBase):
             element_kernel = TripleProductKernel(R1, M, C1)
             schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
             if schur_kernel is not None:
-                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                V0 = Vrow.collapse().reconstruct(element=restrict_element(self.embedding_element, "interior"))
                 C0 = self.assemble_reference_tensor(V0, sort_interior=True)
                 R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
                 element_kernel = schur_kernel(element_kernel,
@@ -1463,9 +1439,9 @@ class ImplicitSchurComplementKernel(ElementKernel):
         fcp = self.child.fcp
         args = form.arguments()
         Q = args[0].function_space()
-        V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
-        V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
-        V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
+        V = Q.reconstruct(element=unrestrict_element(Q.ufl_element()))
+        V0 = Q.reconstruct(element=restrict_element(V.ufl_element(), "interior"))
+        V1 = Q.reconstruct(element=restrict_element(V.ufl_element(), "facet"))
         idofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
         fdofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
         size = idofs.size + fdofs.size
@@ -1697,7 +1673,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    if Vf.mesh().ufl_cell().is_simplex():
+    if Vf.mesh().ufl_cell().is_simplex:
         c0 = ec.fiat_equivalent
         f1 = ef.fiat_equivalent
         derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
@@ -1712,7 +1688,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         if c1.formdegree != 1:
             c1 = None
 
-        tdim = Vc.mesh().topological_dimension()
+        tdim = Vc.mesh().topological_dimension
         zero = PETSc.Mat()
         A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
         A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
@@ -1994,7 +1970,7 @@ class PoissonFDMPC(FDMPC):
         bsize = V.block_size
         ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
-        tdim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension
         shift = axes_shifts * bsize
 
         index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
@@ -2097,7 +2073,7 @@ class PoissonFDMPC(FDMPC):
         if any(Dk is not None for Dk in Dfdm):
             if static_condensation:
                 raise NotImplementedError("Static condensation for SIPG not implemented")
-            if tdim < V.mesh().geometric_dimension():
+            if tdim < V.mesh().geometric_dimension:
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             eta = float(self.appctx.get("eta"))
 
@@ -2196,7 +2172,7 @@ class PoissonFDMPC(FDMPC):
         args_J = J.arguments()
         V = args_J[-1].function_space()
         mesh = V.mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         Finv = ufl.JacobianInverse(mesh)
 
         degree, = set(as_tuple(V.ufl_element().degree()))
@@ -2312,7 +2288,7 @@ class PoissonFDMPC(FDMPC):
 
 
 def get_piola_tensor(mapping, domain):
-    tdim = domain.topological_dimension()
+    tdim = domain.topological_dimension
     if mapping == 'identity':
         return None
     elif mapping == 'covariant piola':

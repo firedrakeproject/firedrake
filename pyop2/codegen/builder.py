@@ -157,18 +157,20 @@ class PMap(Map):
         self.values = map_.values
         self.offset = map_.offset
         offset = map_.offset
+        quotient = map_.offset_quotient
         # TODO: this is a hack, rep2loopy should be in charge of
         # generating all names!
         count = next(map_._pmap_count)
-        if offset is not None:
-            if offset.shape:
-                # Have a named literal
-                offset = offset.value[permutation]
-                offset = NamedLiteral(offset, parent=self.values, suffix=f"permutation{count}_offset")
-            else:
-                offset = map_.offset
+        if offset is not None and offset.shape:
+            # Have a named literal
+            offset = offset.value[permutation]
+            offset = NamedLiteral(offset, parent=self.values, suffix=f"permutation{count}_offset")
+        if quotient is not None and quotient.shape:
+            # Have a named literal
+            quotient = quotient.value[permutation]
+            quotient = NamedLiteral(quotient, parent=self.values, suffix=f"permutation{count}_offset_quotient")
         self.offset = offset
-        self.offset_quotient = map_.offset_quotient
+        self.offset_quotient = quotient
         self.permutation = NamedLiteral(permutation, parent=self.values, suffix=f"permutation{count}")
 
     def _permute(self, x):

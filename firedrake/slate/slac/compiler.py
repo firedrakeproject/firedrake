@@ -8,8 +8,8 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
+from typing import Hashable
 
-from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
@@ -19,7 +19,6 @@ from firedrake.slate.slac.optimise import optimise
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
@@ -33,9 +32,11 @@ import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
+import petsctools
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 import copy
 
 from petsc4py import PETSc
@@ -54,7 +55,7 @@ except ValueError:
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
 if COMM_WORLD.rank == 0:
-    petsc_variables = get_petsc_variables()
+    petsc_variables = petsctools.get_petscvariables()
     BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
     BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
     BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
@@ -71,7 +72,7 @@ class SlateKernel(TSFCKernel):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
-def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
+def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable, ...]:
     params = copy.deepcopy(parameters)
     if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
@@ -79,7 +80,7 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["form_compiler"].update(compiler_parameters)
     # The getattr here is to defer validation to the `compile_expression` call
     # as the test suite checks the correct exceptions are raised on invalid input.
-    return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+    return (getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items())))
 
 
 def _compile_expression_comm(*args, **kwargs):
@@ -90,7 +91,7 @@ def _compile_expression_comm(*args, **kwargs):
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_getter=_compile_expression_comm,
+    get_comm=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()
@@ -146,7 +147,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
-    Citations().register("Gibson2018")
+    petsctools.cite("Gibson2018")
 
     orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible
@@ -192,14 +193,19 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=builder.bag.needs_cell_orientations,
                        subdomain_id=("otherwise",),
                        domain_number=0,
+                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ) if builder.bag.needs_coordinates else (),
+                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else (),
+                                                                 cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
+                                                                 exterior_facets=(),
+                                                                 interior_facets=(),
+                                                                 orientations_exterior_facet=(),
+                                                                 orientations_interior_facet=(),),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
-                       needs_cell_sizes=builder.bag.needs_cell_sizes,
                        arguments=arguments,
                        events=events)
 

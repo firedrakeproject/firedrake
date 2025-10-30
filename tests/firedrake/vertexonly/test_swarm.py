@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
@@ -17,7 +16,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -27,11 +25,11 @@ def cell_midpoints(m):
     num_cells_local = len(f.dat.data_ro)
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
-    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.geometric_dimension())
+    local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.geometric_dimension)
     local_midpoints_size = np.array(local_midpoints.size)
     local_midpoints_sizes = np.empty(MPI.COMM_WORLD.size, dtype=int)
     MPI.COMM_WORLD.Allgatherv(local_midpoints_size, local_midpoints_sizes)
-    midpoints = np.empty((num_cells, m.geometric_dimension()), dtype=local_midpoints.dtype)
+    midpoints = np.empty((num_cells, m.geometric_dimension), dtype=local_midpoints.dtype)
     MPI.COMM_WORLD.Allgatherv(local_midpoints, (midpoints, local_midpoints_sizes))
     assert len(np.unique(midpoints, axis=0)) == len(midpoints)
     return midpoints, local_midpoints
@@ -47,7 +45,6 @@ def cell_ownership(m):
     m.locate_cell(point).
 
     """
-    m.init()
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
     # a Function whose dat contains rank ownership information in an ordering
     # that is accessible using Firedrake's cell numbering. This is because, on
@@ -73,7 +70,7 @@ def point_ownership(m, points, localpoints):
     m.locate_cell(point).
 
     """
-    out_of_mesh_point = np.full((1, m.geometric_dimension()), np.inf)
+    out_of_mesh_point = np.full((1, m.geometric_dimension), np.inf)
     cell_numbers = np.empty(len(localpoints), dtype=int)
     i = 0
     for point in points:
@@ -159,7 +156,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
 
     # Setup
 
-    parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     inputcoordindices = np.arange(len(inputpointcoords))
     inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)
@@ -242,12 +238,12 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert plex.comm.size == swarm.comm.size
     # Check swarm fields are correct
     default_fields = [
-        ("DMSwarmPIC_coor", parentmesh.geometric_dimension(), RealType),
+        ("DMSwarmPIC_coor", parentmesh.geometric_dimension, RealType),
         ("DMSwarm_rank", 1, IntType),
     ]
     default_extra_fields = [
         ("parentcellnum", 1, IntType),
-        ("refcoord", parentmesh.topological_dimension(), RealType),
+        ("refcoord", parentmesh.topological_dimension, RealType),
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
         ("inputindex", 1, IntType),
@@ -372,7 +368,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # Now have DMPLex compute the cell IDs in cases where it can:
     if (
         parentmesh.coordinates.ufl_element().family() != "Discontinuous Lagrange"
-        and parentmesh.geometric_dimension() == parentmesh.topological_dimension()
+        and parentmesh.geometric_dimension == parentmesh.topological_dimension
         and not parentmesh.extruded
         and not parentmesh.coordinates.dat.dat_version > 0  # shifted mesh
     ):
@@ -394,10 +390,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert original_swarm.default_extra_fields == swarm.default_extra_fields
     assert original_swarm.other_fields != swarm.other_fields
     assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
-
-    # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
-    # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
-    # assert n_missing_coords == 2
 
 
 @pytest.mark.parallel

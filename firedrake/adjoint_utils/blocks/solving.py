@@ -86,8 +86,15 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        try:
+            lhs_string = ufl2unicode(self.lhs)
+        except AttributeError:
+            lhs_string = str(self.lhs)
+        try:
+            rhs_string = ufl2unicode(self.rhs)
+        except AttributeError:
+            rhs_string = str(self.rhs)
+        return "solve({} = {})".format(lhs_string, rhs_string)
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
@@ -156,6 +163,13 @@ class GenericSolveBlock(Block):
     def adj_sol(self):
         return self.adj_state
 
+    @adj_sol.setter
+    def adj_sol(self, value):
+        if self.adj_state is None:
+            self.adj_state = value.copy(deepcopy=True)
+        else:
+            self.adj_state.assign(value)
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
@@ -180,7 +194,7 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -401,7 +415,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_state
+        adj_sol = self.adj_sol
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -719,7 +733,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -742,7 +756,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
             mesh = F_form.ufl_domain()
@@ -779,7 +793,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanently upstream in UFL.
+            #  See: https://github.com/FEniCS/ufl/issues/395
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
