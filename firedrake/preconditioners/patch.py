@@ -776,11 +776,14 @@ class PatchBase(PCSNESBase):
         # Validate the mesh overlap
         prefix = (obj.getOptionsPrefix() or "") + "patch_"
         opts = PETSc.Options(prefix)
-        patch_type = opts.getString("pc_patch_construct_type")
-        if "pc_patch_construct_dim" in opts:
-            patch_dim = opts.getInt("pc_patch_construct_dim")
-        elif "pc_patch_construct_codim" in opts:
-            patch_codim = opts.getInt("pc_patch_construct_codim")
+        petsc_prefix = self._petsc_prefix
+        patch_type = opts.getString(f"{petsc_prefix}construct_type")
+        patch_dim = opts.getInt(f"{petsc_prefix}construct_dim", -1)
+        patch_codim = opts.getInt(f"{petsc_prefix}construct_codim", -1)
+        if patch_dim != -1:
+            assert patch_codim == -1, "Cannot set both dim and codim"
+        elif patch_codim != -1:
+            assert patch_dim == -1, "Cannot set both dim and codim"
             patch_dim = self.plex.getDimension() - patch_codim
         else:
             patch_dim = 0
@@ -944,6 +947,8 @@ class PatchBase(PCSNESBase):
 
 class PatchPC(PCBase, PatchBase):
 
+    _petsc_prefix = "pc_patch_"
+
     def configure_patch(self, patch, pc):
         (A, P) = pc.getOperators()
         patch.setOperators(A, P)
@@ -956,6 +961,9 @@ class PatchPC(PCBase, PatchBase):
 
 
 class PatchSNES(SNESBase, PatchBase):
+
+    _petsc_prefix = "snes_patch_"
+
     def configure_patch(self, patch, snes):
         patch.setTolerances(max_it=1)
         patch.setConvergenceTest("skip")
