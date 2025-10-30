@@ -12,7 +12,6 @@ import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain, extract_unique_domain
-from ufl.duals import is_dual
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
@@ -95,8 +94,9 @@ class Interpolate(ufl.Interpolate):
         """
         expr = ufl.as_ufl(expr)
         if isinstance(V, functionspaceimpl.WithGeometry):
+            expr_args = expr.arguments()[1:] if isinstance(expr, ufl.BaseForm) else extract_arguments(expr)
+            expr_arg_numbers = {arg.number() for arg in expr_args}
             # Need to create a Firedrake Argument so that it has a .function_space() method
-            expr_arg_numbers = {arg.number() for arg in extract_arguments(expr) if not is_dual(arg)}
             V = Argument(V.dual(), 1 if expr_arg_numbers == {0} else 0)
 
         target_shape = V.arguments()[0].function_space().value_shape
