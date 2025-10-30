@@ -395,7 +395,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self.warn_unused_options(
             options_to_ignore=set(
                 *self.DEFAULT_SNES_PARAMETERS.keys(),
-                *self.DEFAULT_KSP_PARAMETERS.keys())
+                *self.DEFAULT_KSP_PARAMETERS.keys()),
+            respect_petsc_options_left=True,
+            obj=self.snes,
         )
 
         self._setup = True
