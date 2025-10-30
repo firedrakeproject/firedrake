@@ -118,8 +118,7 @@ def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=F
 
     sp = solver_parameters(condense, variant=variant)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
-                                     solver_parameters=sp,
-                                     options_prefix="")
+                                     solver_parameters=sp)
     solver.solve()
     return solver.snes.getLinearSolveIterations()
 
@@ -174,6 +173,5 @@ def test_bddc_aij_simplex(family, degree):
     mesh = UnitCubeMesh(nx, nx, nx)
     variant = None
     bcs = True
-    tdim = mesh.topological_dimension
     expected = {"CG": 13, "N1curl": 14, "N1div": 12}[family]
     assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected

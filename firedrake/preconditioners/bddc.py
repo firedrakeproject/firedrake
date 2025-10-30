@@ -10,6 +10,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from ufl import H1, H2, inner, dx, JacobianDeterminant
 from pyop2.utils import as_tuple
+import gem
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -58,7 +59,7 @@ class BDDCPC(PCBase):
         # Do not use CSR of local matrix to define dofs connectivity unless requested
         # Using the CSR only makes sense for H1/H2 problems
         is_h1h2 = sobolev_space in [H1, H2]
-        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or variant in {"fdm", "demkowicz", "demkowiczmass"}):
+        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not is_lagrange(V.finat_element)):
             opts["pc_bddc_use_local_mat_graph"] = False
 
         # Handle boundary dofs
@@ -159,8 +160,7 @@ def get_discrete_gradient(V):
     nsp = VectorSpaceBasis([Function(Q).interpolate(Constant(1))])
     nsp.orthonormalize()
     gradient.setNullSpace(nsp.nullspace())
-    variant = Q.ufl_element().variant()
-    if variant in {"fdm", "demkowicz", "demkowiczmass"}:
+    if not is_lagrange(Q.finat_element):
         vdofs = get_restricted_dofs(Q, "vertex")
         gradient.compose('_elements_corners', vdofs)
 
@@ -168,3 +168,25 @@ def get_discrete_gradient(V):
     grad_args = (gradient,)
     grad_kwargs = {'order': degree}
     return grad_args, grad_kwargs
+
+
+def is_lagrange(finat_element):
+    """Returns whether finat_element.dual_basis consists only of point evaluation dofs."""
+    try:
+        Q, ps = finat_element.dual_basis
+    except NotImplementedError:
+        return False
+    # Inspect the weight matrix
+    # Lagrange elements have gem.Delta as the only terminal nodes
+    children = [Q]
+    while children:
+        nodes = []
+        for c in children:
+            if isinstance(c, gem.Delta):
+                pass
+            elif isinstance(c, gem.gem.Terminal):
+                return False
+            else:
+                nodes.extend(c.children)
+        children = nodes
+    return True
