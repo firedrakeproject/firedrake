@@ -855,7 +855,28 @@ class FunctionSpace(object):
     def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
-        If BCs is provided, mask out those dofs which match the BC nodes."""
+        Parameters
+        ----------
+        bcs: [firedrake.bcs.BCBase]
+            If provided, mask out those dofs which match the BC nodes.
+        lgmap: PETSc.LGMap
+            The base local-to-global map, which might be partially masked.
+        mat_type: str
+            The matrix assembly type. This is required as different matrix types
+            handle the LGMap differently for MixedFunctionSpace.
+
+        Note
+        ----
+            For a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace` the returned
+            LGMap will be the scalar one, unless the bcs are imposed on a particular component.
+            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked,
+            unless mat_type == "is".
+
+        Returns
+        -------
+        PETSc.LGMap
+            A local-to-global map with masked BC dofs.
+        """
         # Caching these things is too complicated, since it depends
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
@@ -881,13 +902,14 @@ class FunctionSpace(object):
                 assert bsize == self.block_size
         else:
             # MatBlock case, the LGMap is implementation dependent
+            bsize = lgmap.getBlockSize()
+            assert bsize == self.block_size
             if mat_type == "is":
-                bsize = 1
                 indices = lgmap.indices.copy()
                 unblocked = False
             else:
+                # LGMap is already unrolled
                 indices = lgmap.block_indices.copy()
-                bsize = lgmap.getBlockSize()
                 unblocked = True
         nodes = []
         for bc in bcs:
