@@ -1235,35 +1235,48 @@ class StandaloneInterpolationMatrix(object):
 
     @cached_property
     def _kernels(self):
-        from firedrake.interpolation import interpolate, Interpolator
         try:
-            P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
-            P._interpolate
-            prolong = partial(P.assemble, tensor=self.uf)
+            self.Vf.finat_element.dual_basis
+            self.Vc.finat_element.dual_basis
+            native_interpolation_supported = True
+        except NotImplementedError:
+            native_interpolation_supported = False
 
-            rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
-            rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
-            vc = firedrake.TestFunction(self.Vc)
-            R = Interpolator(interpolate(vc, rf), self.Vf)
-            restrict = partial(R.assemble, tensor=rc)
-        except (AssertionError, AttributeError, NotImplementedError):
-            # We generate custom prolongation and restriction kernels because
-            # dual evaluation of EnrichedElement is not yet implemented in FInAT
-            uf_map = get_permuted_map(self.Vf)
-            uc_map = get_permuted_map(self.Vc)
-            prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-            cell_set = self.Vf.mesh().topology.unique().cell_set
-            prolong_args = [prolong_kernel, cell_set,
-                            self.uf.dat(op2.INC, uf_map),
-                            self.uc.dat(op2.READ, uc_map),
-                            self._weight.dat(op2.READ, uf_map)]
-            restrict_args = [restrict_kernel, cell_set,
-                             self.uc.dat(op2.INC, uc_map),
-                             self.uf.dat(op2.READ, uf_map),
-                             self._weight.dat(op2.READ, uf_map)]
-            coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-            prolong = op2.ParLoop(*prolong_args, *coefficient_args)
-            restrict = op2.ParLoop(*restrict_args, *coefficient_args)
+        if native_interpolation_supported:
+            return self._build_native_interpolators()
+        else:
+            return self._build_custom_interpolators()
+
+    def _build_native_interpolators(self):
+        from firedrake.interpolation import interpolate, Interpolator
+        P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
+        prolong = partial(P.assemble, tensor=self.uf)
+
+        rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
+        rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
+        vc = firedrake.TestFunction(self.Vc)
+        R = Interpolator(interpolate(vc, rf), self.Vf)
+        restrict = partial(R.assemble, tensor=rc)
+        return prolong, restrict
+
+    def _build_custom_interpolators(self):
+        # We generate custom prolongation and restriction kernels because
+        # dual evaluation of EnrichedElement is not yet implemented in FInAT
+        uf_map = get_permuted_map(self.Vf)
+        uc_map = get_permuted_map(self.Vc)
+        prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
+        cell_set = self.Vf.mesh().topology.unique().cell_set
+        prolong_args = [prolong_kernel, cell_set,
+                        self.uf.dat(op2.INC, uf_map),
+                        self.uc.dat(op2.READ, uc_map),
+                        self._weight.dat(op2.READ, uf_map)]
+        restrict_args = [restrict_kernel, cell_set,
+                         self.uc.dat(op2.INC, uc_map),
+                         self.uf.dat(op2.READ, uf_map),
+                         self._weight.dat(op2.READ, uf_map)]
+        coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
+        prolong = op2.ParLoop(*prolong_args, *coefficient_args)
+        restrict = op2.ParLoop(*restrict_args, *coefficient_args)
         return prolong, restrict
 
     def _prolong(self):
