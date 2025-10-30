@@ -700,7 +700,7 @@ def construct_switch_statement(self, mats, n, args, var_list):
         string += f"case {dim}:\n "
         indent += 1
         string += indent*"\t" + "o_val = o[i + closure_size_acc]; \n "
-        # string += indent*"\t" + "o_val = 0; \n "
+        #string += indent*"\t" + "o_val = 0; \n "
         string += [indent*"\t" + "switch (i) { \n"]
         indent += 1
         for i in range(closure_sizes[dim]):
@@ -725,10 +725,12 @@ def construct_switch_statement(self, mats, n, args, var_list):
         closure_size_acc += dim
         # string += indent*"\t" + "printf(\"res (before) %f, %f, %f\\n\", res[0], res[1], res[2]); \n"
         # string += indent*"\t" + "printf(\"b (before) %f, %f, %f\\n\", b[0], b[1], b[2]); \n"
-        string += indent*"\t" + "printf(\"d: %d, dim: %d, i: %d, o_val: %d \\n\", d, dim, i, o_val); \n"
-        string += indent*"\t" + "printf(\"a row 0: %f %f %f\\n\", a[0], a[1], a[2]); \n"
-        string += indent*"\t" + "printf(\"a row 1: %f %f %f\\n\", a[3], a[4], a[5]); \n"
-        string += indent*"\t" + "printf(\"a row 2: %f %f %f\\n\", a[6], a[7], a[8]); \n"
+        #string += indent*"\t" + "printf(\"d: %d, dim: %d, i: %d, o_val: %d \\n\", d, dim, i, o_val); \n"
+        #for i in range(n):
+        #    string += indent*"\t" + f"printf(\"a row {i}: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{i*n + j}]" for j in range(n))}); \n"
+        #string += indent*"\t" + f"printf(\"a row 1: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{n + i}]" for i in range(n))}); \n"
+        #string += indent*"\t" + f"printf(\"a row 2: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{2*n + i}]" for i in range(n))}); \n"
+        #string += indent*"\t" + "printf(\"a rows ...\\n\"); \n"
         # string += indent*"\t" + "printf(\"\\n\");\n"
         string += indent*"\t" + "\n"
         string += indent*"\t" + "break;\n"
@@ -742,6 +744,7 @@ def fuse_orientations(space: WithGeometry):
     fuse_defined_space = hasattr(space.ufl_element(), "triple")
 
     if fuse_defined_space and hasattr(space.ufl_element().triple, "matrices"):
+        print("NEW FUSE")
         fs = space
         mats = fs.ufl_element().triple.matrices
         reversed_mats = fs.ufl_element().triple.reversed_matrices
@@ -814,7 +817,7 @@ def fuse_orientations(space: WithGeometry):
 
         def loop_dims(direction):
             return loopy.make_function(
-                f"{{[dim]:{0} <= dim <= {space._mesh.dimension}}}",
+                f"{{[dim]:{0} <= dim <= {space._mesh.dimension - 1}}}",
                 ["d = closure_sizes[dim] {id=closure}",
                  f"b[:], res[:] = {direction}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {{id=switch, dep=*}}",
                  "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"
@@ -823,11 +826,12 @@ def fuse_orientations(space: WithGeometry):
                 kernel_data=closure_arg + args,
                 target=loopy.CWithGNULibcTarget())
 
-        print_insn = loopy.CInstruction(tuple(), "printf(\"initial b: %f, %f, %f\\n\", b[0], b[1], b[2]);printf(\"o: %d, %d, %d, %d, %d, %d, %d\\n\", o[0], o[1], o[2], o[3], o[4],o[5], o[6]);", assignees=(), read_variables=frozenset([]), id="print")
-        print_insn1 = loopy.CInstruction(tuple(), "printf(\"final res: %f, %f, %f\\n\", res[0], res[1], res[2]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        print_insn = loopy.CInstruction(tuple(), f"printf(\"initial b: {" ".join('%f' for i in range(n))}\\n\", {', '.join(f"b[{j}]" for j in range(n))});printf(\"o: %d, %d, %d, %d, %d, %d, %d\\n\", o[0], o[1], o[2], o[3], o[4],o[5], o[6]);", assignees=(), read_variables=frozenset([]), id="print")
+        print_insn1 = loopy.CInstruction(tuple(), f"printf(\"final res: {" ".join('%f' for i in range(n))}\\n\", {', '.join(f"res[{j}]" for j in range(n))});", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
         def overall(direction):
-            return loopy.make_kernel(
+            if direction == "out" or direction=="in":
+                return loopy.make_kernel(
                 "{:}",
                 [print_insn, f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{dep=print, id=loop}}",
                  "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
@@ -836,15 +840,73 @@ def fuse_orientations(space: WithGeometry):
                 name=f"{direction}_transform",
                 kernel_data=args[3:7],
                 target=loopy.CWithGNULibcTarget())
+            return loopy.make_kernel(
+                "{:}",
+                [print_insn,
+                 "res[:] = set(res[:], b[:]) {id=replace,dep=*, dep=print}",
+                 "b[:] = zero(b[:]) {dep=replace, id=zerob}",
+                 print_insn1],
+                name=f"{direction}_transform",
+                kernel_data=args[3:7],
+                target=loopy.CWithGNULibcTarget())
 
         in_knl = loopy.merge([overall("in"), loop_dims("in"), in_switch, matmul, set_knl, zero_knl])
         out_knl = loopy.merge([overall("out"), loop_dims("out"), out_switch, matmul, set_knl, zero_knl])
+        
 
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
         transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform_in, transform_out
     else:
+        if space.ufl_element().family() != "Lagrange":
+            n = 3
+            args = [loopy.ValueArg("d", dtype=utils.IntType),
+                    loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
+                    loopy.ValueArg("o_val", dtype=utils.IntType),
+                    loopy.GlobalArg("o", dtype=utils.IntType, shape=(7,), is_input=True),
+                    loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False),
+                    loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+                    loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True, is_output=True)]
+
+            set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+                        loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True)]
+            set_knl = loopy.make_function(
+                f"{{[j]:0<=j < {n}}}",
+                ["b[j] = res[j]"],
+                kernel_data=set_args,
+                name="set", target=loopy.CWithGNULibcTarget()
+            )
+            zero_knl = loopy.make_function(
+                f"{{ [i]: 0 <= i < {n}}}",
+                ["res[i] = 0"],
+                [loopy.GlobalArg("res", shape=(3,), dtype=int, is_input=True, is_output=True)],
+                target=loopy.CWithGNULibcTarget(),
+                name="zero",
+            )
+
+            print_insn = loopy.CInstruction(tuple(), f"printf(\"initial b: {" ".join('%f' for i in range(n))}\\n\", {', '.join(f"b[{j}]" for j in range(n))});printf(\"o: %d, %d, %d, %d, %d, %d, %d\\n\", o[0], o[1], o[2], o[3], o[4],o[5], o[6]);", assignees=(), read_variables=frozenset([]), id="print")
+            print_insn1 = loopy.CInstruction(tuple(), f"printf(\"final res: {" ".join('%f' for i in range(n))}\\n\", {', '.join(f"res[{j}]" for j in range(n))});", assignees=(), read_variables=frozenset(["res"]), depends_on="zerob")
+            def overall(direction):
+                return loopy.make_kernel(
+                    "{:}",
+                    [print_insn, 
+                    "res[:] = zero(res[:]) {id=zero, dep=print}",
+                    "res[:] = set(res[:], b[:]) {id=replace, dep=*, dep=zero}",
+                    "b[:] = zero(b[:]) {dep=replace, id=zerob}",
+                     print_insn1],
+                    name=f"{direction}_transform",
+                    kernel_data=args[3:7],
+                    target=loopy.CWithGNULibcTarget())
+
+            in_knl = loopy.merge([overall("in"), set_knl, zero_knl])
+            out_knl = loopy.merge([overall("out"), set_knl, zero_knl])
+            
+            # b is modified in the transform functions but the result is written to res and therefore is not needed further.
+            transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+            transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+            return transform_in, transform_out
+        return None, None
         # n = 3
         # args = [loopy.GlobalArg("o", dtype=utils.IntType, shape=(7,), is_input=True),
         #         loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False),
