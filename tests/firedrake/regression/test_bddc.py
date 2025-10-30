@@ -147,8 +147,7 @@ def test_vertex_dofs(mesh, variant, degree):
 
 
 @pytest.mark.parallel
-@pytest.mark.parametrize("degree", (4,))
-@pytest.mark.parametrize("family", "Q")
+@pytest.mark.parametrize("family,degree", [("Q", 4)])
 def test_bddc_fdm(mesh, family, degree):
     variant = "fdm"
     bcs = True
@@ -158,12 +157,23 @@ def test_bddc_fdm(mesh, family, degree):
 
 
 @pytest.mark.parallel
-@pytest.mark.parametrize("degree", (4,))
-@pytest.mark.parametrize("family", "Q")
+@pytest.mark.parametrize("family,degree", [("Q", 4)])
 @pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
-def test_bddc_aij(mesh, family, degree, vector):
+def test_bddc_aij_quad(mesh, family, degree, vector):
     variant = None
     bcs = True
     tdim = mesh.topological_dimension
     expected = 7 if tdim == 2 else 11
     assert solve_riesz_map(mesh, family, degree, variant, bcs, vector=vector) <= expected
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize("family,degree", [("CG", 3), ("N1curl", 3), ("N1div", 3)])
+def test_bddc_aij_simplex(family, degree):
+    nx = 4
+    mesh = UnitCubeMesh(nx, nx, nx)
+    variant = None
+    bcs = True
+    tdim = mesh.topological_dimension
+    expected = {"CG": 13, "N1curl": 14, "N1div": 12}[family]
+    assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected
