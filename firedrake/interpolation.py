@@ -232,7 +232,7 @@ class Interpolator(abc.ABC):
         pass
 
     def assemble(
-            self, 
+            self,
             tensor: Function | Cofunction | MatrixBase | None = None,
             bcs: Iterable[DirichletBC] | None = None
     ) -> Function | Cofunction | MatrixBase | Number:
