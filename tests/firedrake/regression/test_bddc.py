@@ -6,8 +6,7 @@ from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 def bddc_params():
     chol = {
         "pc_type": "cholesky",
-        "pc_factor_mat_solver_type": "petsc",
-        "pc_factor_mat_ordering_type": "natural",
+        "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
     }
     sp = {
         "mat_type": "is",
@@ -15,7 +14,7 @@ def bddc_params():
         "pc_python_type": "firedrake.BDDCPC",
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
-        "bddc_pc_bddc_coarse": DEFAULT_DIRECT_SOLVER,
+        "bddc_pc_bddc_coarse": chol,
     }
     return sp
 
@@ -126,21 +125,23 @@ def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=F
 
 
 @pytest.fixture(params=(2, 3), ids=("square", "cube"))
-def mesh(request):
+def mh(request):
     dim = request.param
-    nx = 4
-    msh = UnitSquareMesh(nx, nx, quadrilateral=True)
+    nx = 3
+    base = UnitSquareMesh(nx, nx, quadrilateral=True)
+    mh = MeshHierarchy(base, 1)
     if dim == 3:
-        msh = ExtrudedMesh(msh, nx)
-    return msh
+        mh = ExtrudedMeshHierarchy(mh, height=1, base_layer=nx)
+    return mh
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("variant", ("spectral", "fdm"))
-def test_vertex_dofs(mesh, variant, degree):
+def test_vertex_dofs(mh, variant, degree):
     """Check that we extract the right number of vertex dofs from a high order Lagrange space."""
     from firedrake.preconditioners.bddc import get_restricted_dofs
+    mesh = mh[-1]
     P1 = FunctionSpace(mesh, "Lagrange", 1, variant=variant)
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
     v = get_restricted_dofs(V0, "vertex")
@@ -149,31 +150,31 @@ def test_vertex_dofs(mesh, variant, degree):
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
-def test_bddc_fdm(mesh, family, degree):
+def test_bddc_fdm(mh, family, degree):
+    """Test h-independence of condition number by measuring iteration counts"""
     variant = "fdm"
     bcs = True
-    tdim = mesh.topological_dimension
-    expected = 6 if tdim == 2 else 11
-    assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected
+    its = [solve_riesz_map(m, family, degree, variant, bcs) for m in mh]
+    assert (np.diff(its) <= 1).all()
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
 @pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
-def test_bddc_aij_quad(mesh, family, degree, vector):
+def test_bddc_aij_quad(mh, family, degree, vector):
+    """Test h-independence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
-    tdim = mesh.topological_dimension
-    expected = 7 if tdim == 2 else 11
-    assert solve_riesz_map(mesh, family, degree, variant, bcs, vector=vector) <= expected
+    its = [solve_riesz_map(m, family, degree, variant, bcs, vector=vector) for m in mh]
+    assert (np.diff(its) <= 1).all()
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("CG", 3), ("N1curl", 3), ("N1div", 3)])
 def test_bddc_aij_simplex(family, degree):
-    nx = 4
-    mesh = UnitCubeMesh(nx, nx, nx)
+    """Test h-independence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
-    expected = {"CG": 13, "N1curl": 14, "N1div": 12}[family]
-    assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected
+    meshes = [UnitCubeMesh(nx, nx, nx) for nx in (3, 6)]
+    its = [solve_riesz_map(m, family, degree, variant, bcs) for m in meshes]
+    assert (np.diff(its) <= 1).all()
