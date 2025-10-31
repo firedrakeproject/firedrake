@@ -340,7 +340,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         Parameters
         ----------
         expression
-            A dual UFL expression to interpolate.
+            A UFL BaseForm to adjoint interpolate.
         ad_block_tag
             An optional string for tagging the resulting assemble
             block on the Pyadjoint tape.
@@ -353,9 +353,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         v, = self.arguments()
-        interp = interpolation.Interpolate(v, expression, **kwargs)
+        interp = interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
