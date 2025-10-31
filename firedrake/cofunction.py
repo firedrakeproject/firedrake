@@ -195,7 +195,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
-        if isinstance(expr, ufl.classes.Zero):
+        if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
                 self.dat.zero(subset=subset)
             return self
@@ -209,6 +209,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 self.block_variable = self.create_block_variable()
                 self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
                     expr.block_variable)
+                # We set CofunctionAssignBlock(..., rhs_from_assemble=True)
+                # so that we do not annotate the recursive call to assign
+                # within Cofunction.assign(BaseForm, subset=...).
+                # But we currently do not implement annotation for subset != None.
                 get_working_tape().add_block(
                     CofunctionAssignBlock(
                         self, expr, rhs_from_assemble=expr_from_assemble)
@@ -220,10 +224,11 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
             # BaseForm object. If annotation is enabled, the following
             # operation will result in an assemble block on the Pyadjoint tape.
-            assembled_expr = firedrake.assemble(expr)
-            return self.assign(
-                assembled_expr, subset=subset,
-                expr_from_assemble=True)
+            if subset is None:
+                return firedrake.assemble(expr, tensor=self)
+            else:
+                assembled_expr = firedrake.assemble(expr)
+                return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
