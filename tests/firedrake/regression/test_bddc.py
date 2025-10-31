@@ -124,8 +124,9 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, condense=False, vect
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp)
     solver.solve()
+    rtol = sp.get("ksp_rtol", 1E-8)
     uerr = Function(V).assign(uh - u_exact)
-    assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < 1E-8
+    assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
     return solver.snes.getLinearSolveIterations()
 
 
