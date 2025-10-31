@@ -1248,14 +1248,14 @@ class StandaloneInterpolationMatrix(object):
             return self._build_custom_interpolators()
 
     def _build_native_interpolators(self):
-        from firedrake.interpolation import interpolate, Interpolator
-        P = Interpolator(interpolate(self.uc, self.Vf), self.Vf)
+        from firedrake.interpolation import interpolate, get_interpolator
+        P = get_interpolator(interpolate(self.uc, self.Vf))
         prolong = partial(P.assemble, tensor=self.uf)
 
         rf = firedrake.Function(self.Vf.dual(), val=self.uf.dat)
         rc = firedrake.Function(self.Vc.dual(), val=self.uc.dat)
         vc = firedrake.TestFunction(self.Vc)
-        R = Interpolator(interpolate(vc, rf), self.Vf)
+        R = get_interpolator(interpolate(vc, rf))
         restrict = partial(R.assemble, tensor=rc)
         return prolong, restrict
 
