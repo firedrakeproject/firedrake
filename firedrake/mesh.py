@@ -49,7 +49,7 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
-from ufl.cell import as_cell
+from finat.ufl import as_cell
 
 
 __all__ = [
