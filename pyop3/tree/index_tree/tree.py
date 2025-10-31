@@ -1230,21 +1230,26 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             assert isinstance(target_component.local_size, numbers.Integral)
 
             if isinstance(slice_component, RegionSliceComponent):
+                if slice_component.region not in {"owned", "ghost"}:
+                    raise NotImplementedError("Need to have a special type for selecting owned/ghost, what follows assumes that we are only getting 'owned' or 'ghost'")
+
                 region_index = target_component._all_region_labels.index(slice_component.region)
                 steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
                 start, stop = steps[region_index:region_index+2]
                 indices = np.arange(start, stop, dtype=IntType)
-            elif isinstance(slice_component, AffineSliceComponent):
-                indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
+                sf = None
             else:
-                assert isinstance(slice_component, SubsetSliceComponent)
-                # NOTE: This isn't quite right. If the array is indexed then we don't
-                # want everything here
-                indices = slice_component.array.buffer.buffer.data_ro
+                if isinstance(slice_component, AffineSliceComponent):
+                    indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
+                else:
+                    assert isinstance(slice_component, SubsetSliceComponent)
+                    # NOTE: This isn't quite right. If the array is indexed then we don't
+                    # want everything here
+                    indices = slice_component.array.buffer.buffer.data_ro
 
-            petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
-            indexed_size = sum(r.size for r in indexed_regions)
-            sf = StarForest(petsc_sf, indexed_size)
+                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
+                indexed_size = sum(r.size for r in indexed_regions)
+                sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
 
@@ -1292,8 +1297,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             except ValueError:
                 subset_axis_var = just_one(av for av in collect_axis_vars(slice_component.array.layout) if av.axis_label == slice_.label)
 
-            replace_map = {subset_axis_var.axis_label: AxisVar(linear_axis)}
-            slice_expr = replace_terminals(slice_component.array, replace_map)
+            if subset_axis_var.axis_label != linear_axis.label:
+                replace_map = {subset_axis_var.axis_label: AxisVar(linear_axis)}
+                slice_expr = replace_terminals(slice_component.array, replace_map, assert_modified=True)
+            else:
+                # FIXME: this isn't nice, should the labels ever match here?
+                # labels match, strict=True will cause replace to fail
+                slice_expr = slice_component.array
         slice_expr = replace_terminals(slice_expr, seen_target_exprs)
         component_exprs.append(slice_expr)
 
@@ -1337,7 +1347,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
         if not isinstance(arity, numbers.Integral):
             assert isinstance(arity, LinearDatBufferExpression)
             # arity = arity[map_.index]
-            arity = replace_terminals(map_output.arity, replace_map)
+            arity = replace_terminals(map_output.arity, replace_map, assert_modified=True)
         component = AxisComponent(arity, label=map_output.label)
         components.append(component)
     axis = Axis(components, label=map_name)
@@ -1356,7 +1366,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
         # paths_and_exprs = input_paths_and_exprs | {"anything": ("anything", {leaf_axis: AxisVar(leaf_axis.label})}
         # replace_map = merge_dicts(t for _, t in paths_and_exprs.values())
         replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
-        target_exprs = immutabledict({map_output.target_axis: replace_terminals(map_output.array, replace_map)})
+        target_exprs = immutabledict({map_output.target_axis: replace_terminals(map_output.array, replace_map, assert_modified=True)})
         targets[immutabledict({axis.label: component.label})] = (target_path, target_exprs)
     targets = immutabledict(targets)
 

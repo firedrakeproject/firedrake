@@ -330,6 +330,7 @@ def just_one(iterable):
     try:
         first = next(iterator)
     except StopIteration:
+        breakpoint()
         raise ValueError("Empty iterable found")
 
     try:

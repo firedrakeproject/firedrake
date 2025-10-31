@@ -729,6 +729,18 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
+@utils.frozenrecord()
+class AssignmentShape:
+    axis_trees: tuple[AxisTree, ...]
+    assignee_axis_trees: tuple[AxisTree | None, ...]
+    expression_axis_trees: tuple[AxisTree | None, ...]
+
+    def __post_init__(self) -> None:
+        assert utils.single_valued(
+            map(len, [self.axis_trees, self.assignee_axis_trees, self.expression_axis_trees])
+        )
+
+
 # TODO: not sure need to specify 'array' here
 @utils.frozenrecord()
 class ArrayAssignment(AbstractAssignment):

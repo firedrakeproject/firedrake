@@ -21,6 +21,8 @@ from pyop3.tree.axis_tree import (
     AxisTree,
     as_axis_tree,
     as_axis_forest,
+    collect_unindexed_axis_trees,
+    as_axis_tree_type,
 )
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
@@ -59,14 +61,14 @@ class Dat(Tensor):
 
     # {{{ instance attrs
 
-    axis_forest: AxisForest
+    axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
     _parent: Dat | None
 
     def __init__(
         self,
-        axis_forest,
+        axes: AxisTreeT,
         buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
@@ -82,14 +84,14 @@ class Dat(Tensor):
 
         We could maybe do something similar with dtype...
         """
-        axis_forest = as_axis_forest(axis_forest)
-
-        unindexed = axis_forest.trees[0].unindexed
+        axes = as_axis_tree_type(axes)
+        unindexed_axis_trees = collect_unindexed_axis_trees(axes)
+        sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
             assert buffer_kwargs is None
-            assert buffer.sf == unindexed.sf
+            assert buffer.sf == sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
@@ -97,16 +99,23 @@ class Dat(Tensor):
                 buffer_kwargs = {}
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
-            buffer = ArrayBuffer(data, unindexed.sf, **buffer_kwargs)
+            buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
+        self.axes = axes
+        self._buffer = buffer
         self._name = name
         self._parent = parent
-        self.axis_forest = axis_forest
-        self._buffer = buffer
 
         # self._cache = {}
+
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        # Don't do this, self.axes can be a range of types
+        # assert isinstance(self.axis_forest, (AxisForest, ContextSensitiveAxisTree))
+        pass
 
     # }}}
 
@@ -192,10 +201,6 @@ class Dat(Tensor):
     # }}}
 
     @property
-    def axes(self) -> AbstractAxisTree:
-        return self.axis_forest.trees[0]
-
-    @property
     def _full_str(self) -> str:
         try:
             return "\n".join(
@@ -211,8 +216,8 @@ class Dat(Tensor):
         return self.getitem(indices, strict=False)
 
     def getitem(self, index, *, strict=False):
-        indexed_axes = self.axis_forest.getitem(index, strict=strict)
-        return self.__record_init__(axis_forest=indexed_axes)
+        indexed_axes = self.axes.getitem(index, strict=strict)
+        return self.__record_init__(axes=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -280,11 +285,11 @@ class Dat(Tensor):
 
     # TODO: dont do this here
     def with_context(self, context):
-        return self.__record_init__(axis_forest=self.axis_forest.with_context(context))
+        return self.__record_init__(axes=self.axes.with_context(context))
 
     @property
     def context_free(self):
-        return self.__record_init__(axis_forest=self.axis_forest.context_free)
+        return self.__record_init__(axes=self.axes.context_free)
 
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
@@ -411,7 +416,15 @@ class Dat(Tensor):
 
     @contextlib.contextmanager
     def vec_wo(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_wo, bsize=bsize)
+        # TODO: make this check nicer, and apply to other vec accesses
+        indices = self.axes.owned._buffer_slice
+        if isinstance(indices, slice):
+            yield self._make_vec(array=self.data_wo, bsize=bsize)
+        else:
+            # Cannot return a view, must copy in and out
+            vec = self._make_vec(array=self.data_ro, bsize=bsize)
+            yield vec
+            self.data_wo[...] = vec.buffer_r
 
     @deprecated(".vec_rw")
     def vec(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
@@ -665,6 +678,9 @@ class NonlinearCompositeDat(CompositeDat):
         object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
+
+        if not loop_indices:
+            breakpoint()
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"

@@ -4,7 +4,6 @@ import numpy
 import pyop3 as op3
 import ufl
 
-from pyop2 import op2
 from firedrake import dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -359,7 +358,6 @@ class _SNESContext(object):
         for field in fields:
             F = splitter.split(problem.F, argument_indices=(field,))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u_restrict.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
@@ -368,14 +366,12 @@ class _SNESContext(object):
             # anyway.
             # So we pull it apart and will make a new function on the
             # subspace that shares data.
-            pieces = [us[i].dat for i in field]
-            if len(pieces) == 1:
-                val, = pieces
-                subu = Function(V, val=val)
-                subsplit = (subu, )
+            slice_ = [problem.u_restrict.dat.axes.root.component_labels[i] for i in field]
+            val = problem.u_restrict.dat[slice_]
+            subu = Function(V, val=val)
+            if len(field) == 1:
+                subsplit = (subu,)
             else:
-                val = op2.MixedDat(pieces)
-                subu = Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []

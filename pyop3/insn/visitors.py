@@ -13,7 +13,7 @@ from immutabledict import immutabledict
 import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
-from pyop3.tree.axis_tree import AxisTree
+from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -327,8 +327,11 @@ def _(mat: Mat) -> bool:
     return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.caxes))
 
 
-def _layouts_match(axis_tree) -> bool:
-    return axis_tree.leaf_subst_layouts == axis_tree.unindexed.leaf_subst_layouts
+def _layouts_match(axes: AxisTreeT) -> bool:
+    if isinstance(axes, AxisForest):
+        return utils.strictly_all(map(_layouts_match, axes.trees))
+    else:
+        return axes.leaf_subst_layouts == axes.unindexed.leaf_subst_layouts
 
 
 @functools.singledispatch
@@ -506,35 +509,9 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 @concretize_layouts.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
-    # Determine the overall shape of the assignment by merging the shapes of the
-    # arguments. This allows for assignments with mismatching indices like:
-    #
-    #     dat1[i, j] = dat2[j]
-    axis_trees = []
-    axis_trees_per_arg = tuple(
-        trees
-        for trees in map(get_shape, assignment.arguments)
-        if trees is not None
-    )
-
-    # We can get a mismatch here if we are assigning a scalar (single tree
-    # shape) to a matrix (double tree shape). We should probably be stricter
-    # here (e.g. by asserting it has to be a scalar).
-    # FIXME: I think actually the assignee should just prescribe this.
-    axis_trees_per_arg = (axis_trees_per_arg[0],)
-    for arg_axis_trees in zip_longest(*axis_trees_per_arg):
-        merged_axis_tree = merge_axis_trees(arg_axis_trees)
-
-        # drop zero-sized bits
-        pruned_axis_tree = merged_axis_tree.prune()
-
-        if not pruned_axis_tree:
-            # the assignment is zero-sized
-            return NullInstruction()
-
-        axis_trees.append(pruned_axis_tree)
-    axis_trees = tuple(axis_trees)
-
+    # The shape of the assignment is simply the shape of the assignee, nothing else
+    # makes sense. For more complex things loops should be used.
+    axis_trees = get_shape(assignment.assignee)
     assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
     expression = concretize_expression_layouts(assignment.expression, axis_trees)
 

@@ -117,12 +117,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
+            # NOTE: This is quite tricky for fieldsplit. Previously the fields would
+            # be renumbered when split, but now we retain the labels in the dat but
+            # not the function space.
             subfuncs = []
-            for i in range(len(self.function_space())):
-                # a guess, might not work
-                # subspace = self.function_space().sub(i, weak=False)
-                subspace = self.function_space().sub(i, weak=True)
-                subdat = self.dat[subspace.index]
+            for i, component in enumerate(self.dat.axes.root.components):
+                subspace = self.function_space().sub(i)
+                subdat = self.dat[component.label]
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )

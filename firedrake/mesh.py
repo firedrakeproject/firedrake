@@ -20,7 +20,7 @@ import enum
 import numbers
 from functools import cache, cached_property
 import abc
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 import rtree
 from textwrap import dedent
 from pathlib import Path
@@ -1083,12 +1083,12 @@ class AbstractMeshTopology(abc.ABC):
             return self._fiat_closure(index)
 
     @cached_property
-    def _closure_sizes(self) -> immutabledict[immutabledict]:
+    def _closure_sizes(self) -> idict[idict]:
         """
         Examples
         --------
         UFCInterval:
-            return immutabledict({
+            return idict({
                 # the closure of a vertex is just the vertex
                 0: {0: 1, 1: 0},
                 # the closure of a cell is the cell and two vertices
@@ -1107,7 +1107,7 @@ class AbstractMeshTopology(abc.ABC):
 
         # TODO: This only works for cell closures, in principle it should be
         # possible to do this for sub-dimensions too.
-        return immutabledict({
+        return idict({
             self.cell_label: {
                 dim: len(dim_topology)
                 for dim, dim_topology in fiat_cell.get_topology().items()
@@ -1126,45 +1126,89 @@ class AbstractMeshTopology(abc.ABC):
     def _closure_map(self, ordering):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)
-
         if ordering == ClosureOrdering.PLEX:
-            closure_arrays = dict(enumerate(self._plex_closures_localized))
+            closure_arrayss = dict(enumerate(self._plex_closures_localized))
         elif ordering == ClosureOrdering.FIAT:
             # FIAT ordering is only valid for cell closures
-            closure_arrays = {self.cell_label: self._fiat_cell_closures_localized}
+            closure_arrayss = {self.cell_label: self._fiat_cell_closures_localized}
         else:
             raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
+        # NOTE: This is very similar to what we do for supports
         closures = {}
-        for dim, closure_data in closure_arrays.items():
-            map_components = []
-            for map_dim, map_data in closure_data.items():
-                _, size = map_data.shape
-                if size == 0:
-                    continue
+        for from_dim, closure_arrays in closure_arrayss.items():
+            iterset = self.points[from_dim]
 
-                target_axis = self.name
-                target_dim = map_dim
+            full_map_components = []
+            owned_map_components = []
+            for to_dim, closure_array in closure_arrays.items():
+                # Ideally this should be fine to not have, makes the logic more complicated
+                # _, size = clos.shape
+                # if size == 0:
+                #     continue
 
-                # Discard any parallel information, the maps are purely local
-                outer_axis_component = just_one(c for c in self.points.root.components if c.label == dim)
-                outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
+                # target_axis = self.name
+                # target_dim = map_dim
 
                 # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
                 # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
                 # fix automatically internally via additional replace() arguments.
-                map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: op3.Axis({target_dim: size}, "closure")}
+                closure_axes = op3.AxisTree.from_iterable([
+                    iterset.as_axis(), op3.Axis(self._closure_sizes[from_dim][to_dim], "closure")
+                ])
+                closure_dat = op3.Dat(closure_axes, data=closure_array.flatten())
+                owned_closure_dat = op3.Dat(closure_axes.owned.materialize(), data=closure_dat.data_ro)
+
+                full_map_component = op3.TabulatedMapComponent(
+                    self.points.as_axis().label, to_dim, closure_dat, label=to_dim
                 )
-                map_dat = op3.Dat(
-                    map_axes, data=map_data.flatten(), prefix="closure"
-                )
-                map_components.append(
-                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=target_dim)
+                owned_map_component = op3.TabulatedMapComponent(
+                    self.points.as_axis().label, to_dim, owned_closure_dat, label=to_dim
                 )
 
-            # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-            closures[immutabledict({self.name: dim})] =  (tuple(map_components),)
+                full_map_components.append(full_map_component)
+                owned_map_components.append(owned_map_component)
+
+            full_from_path = idict({iterset.as_axis().label: iterset.as_axis().component.label})
+            owned_from_path  = idict({iterset.owned.as_axis().label: iterset.owned.as_axis().component.label})
+
+            closures[full_from_path] = [full_map_components]
+            closures[owned_from_path] = [owned_map_components]
+
+        # closures = {}
+        # for dim, closure_dats in closure_arrays.items():
+        #     for owned in [False, True]:
+        #         iterset = self.points.as_axis().linearize(dim)
+        #         if owned:
+        #             iterset = iterset.owned
+        #
+        #         axis = iterset.owned.as_axis()
+        #         from_path = idict({axis.label: axis.component.label})
+        #
+        #         map_components = []
+        #         for map_dim, map_data in closure_data.items():
+        #             _, size = map_data.shape
+        #             if size == 0:
+        #                 continue
+        #
+        #             target_axis = self.name
+        #             target_dim = map_dim
+        #
+        #             # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
+        #             # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
+        #             # fix automatically internally via additional replace() arguments.
+        #             map_axes = op3.AxisTree.from_nest(
+        #                 {axis: op3.Axis({target_dim: size}, "closure")}
+        #             )
+        #             map_dat = op3.Dat(
+        #                 map_axes, data=map_data.flatten(), prefix="closure"
+        #             )
+        #             map_components.append(
+        #                 op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=target_dim)
+        #             )
+        #
+        #         # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
+        #         closures[from_path] =  [map_components]
 
         return op3.Map(closures, name="closure")
 
@@ -1201,7 +1245,7 @@ class AbstractMeshTopology(abc.ABC):
                     op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
                 )
             # 1-tuple here because in theory star(cell) could map to other valid things (like points)
-            stars[immutabledict({self.name: str(dim)})] = (tuple(map_components),)
+            stars[idict({self.name: str(dim)})] = (tuple(map_components),)
 
         return op3.Map(stars, name="star")
 
@@ -1275,7 +1319,7 @@ class AbstractMeshTopology(abc.ABC):
 
         # 1-tuple here because in theory support(facet) could map to other valid things (like points)
         exterior_facets_axis = self.exterior_facets.owned.as_axis()
-        supports[immutabledict({exterior_facets_axis.label: exterior_facets_axis.component.label})] = (
+        supports[idict({exterior_facets_axis.label: exterior_facets_axis.component.label})] = (
             (
                 op3.TabulatedMapComponent(
                     self.name,
@@ -1287,7 +1331,7 @@ class AbstractMeshTopology(abc.ABC):
         )
 
         interior_facets_axis = self.interior_facets.owned.as_axis()
-        supports[immutabledict({interior_facets_axis.label: interior_facets_axis.component.label})] = (
+        supports[idict({interior_facets_axis.label: interior_facets_axis.component.label})] = (
             (
                 op3.TabulatedMapComponent(
                     self.name,
@@ -1558,7 +1602,7 @@ class AbstractMeshTopology(abc.ABC):
         for to_dim, size in self._closure_sizes[from_dim].items():
             localized_closures[to_dim] = self._fiat_cell_closures_renumbered[:, offset:offset+size]
             offset += size
-        return immutabledict(localized_closures)
+        return idict(localized_closures)
 
     def _memoize_closures(self, dim) -> np.ndarray:
         def closure_func(_pt):
@@ -3174,7 +3218,7 @@ class ExtrudedMeshTopology(MeshTopology):
             )
 
             # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-            closures[immutabledict({self.name: dim})] =  (tuple(map_components),)
+            closures[idict({self.name: dim})] =  (tuple(map_components),)
 
         return op3.Map(closures, name="closure")
 
@@ -3190,12 +3234,10 @@ class ExtrudedMeshTopology(MeshTopology):
         )
         for iterset, support_dat in supported_supports:
             axis = iterset.owned.as_axis()
-            from_path = immutabledict({axis.label: axis.component.label})
-            supports[from_path] = (
-                (
-                    op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label="XXX"),
-                ),
-            )
+            from_path = idict({axis.label: axis.component.label})
+            supports[from_path] = [[
+                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label="XXX"),
+            ]]
         return op3.Map(supports, name="support")
 
     @utils.cached_property
@@ -3546,7 +3588,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         return op3.Map(
             {
-                immutabledict({self.name: self.cell_label}): [[
+                idict({self.name: self.cell_label}): [[
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
                 ]]
             },
@@ -6364,7 +6406,7 @@ def memoize_supports(plex: PETSc.DMPlex, dim: int):
 
 
 def _memoize_map_ragged(plex: PETSc.DMPlex, dim, map_func):
-    strata = tuple(plex.getDepthStratum(d) for d in range(plex.dimension+1))
+    strata = tuple(plex.getDepthStratum(d) for d in range(plex.getDimension()+1))
     def get_dim(_pt):
         for _d, (_start, _end) in enumerate(strata):
             if _start <= _pt < _end:
@@ -6375,16 +6417,16 @@ def _memoize_map_ragged(plex: PETSc.DMPlex, dim, map_func):
     npoints = p_end - p_start
 
     # Store arities
-    sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(plex.dimension+1)}
+    sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
     for stratum_pt, pt in enumerate(range(p_start, p_end)):
         for map_pt in map_func(pt):
             map_dim = get_dim(map_pt)
             sizes[map_dim][stratum_pt] += 1
 
     # Now store map data
-    map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(plex.dimension+1)}
-    offsets = tuple(op3.utils.steps(sizes[d]) for d in range(plex.dimension+1))
-    plex_pt_offsets = np.empty(plex.dimension+1, dtype=IntType)
+    map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(plex.getDimension()+1)}
+    offsets = tuple(op3.utils.steps(sizes[d]) for d in range(plex.getDimension()+1))
+    plex_pt_offsets = np.empty(plex.getDimension()+1, dtype=IntType)
     for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):
         plex_pt_offsets[...] = 0
         for map_pt in map_func(plex_pt):

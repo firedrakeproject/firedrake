@@ -10,6 +10,7 @@ from typing import Any
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.dtypes import IntType
 from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
@@ -81,26 +82,20 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
                     index_tree = complete_index_tree(index_tree, axes)
                     debug_assert(lambda: _index_tree_completely_indexes_axes(index_tree, axes))
 
-            if found_match:
-                # Each of the index trees in a forest are considered
-                # 'equivalent' in that they represent semantically
-                # equivalent operations, differing only in the axes that
-                # they target. For example, the loop index
-                #
-                #     p = axis[::2].iter()
-                #
-                # will target *both* the unindexed `axis`, as well as the
-                # intermediate indexed axis `axis[::2]`. There are therefore
-                # two index trees in play.
-                #
-                # For maps I think that it is possible for us to have clashes
-                # in the target axes (e.g. points -> points and cells -> points).
-                # If we ever hit this we will need to think a bit.
-                raise NotImplementedError(
-                    "Found multiple matching index trees, I thought this "
-                    "day might come eventually"
-                )
-
+            # Each of the index trees in a forest are considered
+            # 'equivalent' in that they represent semantically
+            # equivalent operations, differing only in the axes that
+            # they target. For example, the loop index
+            #
+            #     p = axis[::2].iter()
+            #
+            # will target *both* the unindexed `axis`, as well as the
+            # intermediate indexed axis `axis[::2]`. There are therefore
+            # multiple index trees in play.
+            #
+            # For maps it is possible for us to have clashes in the target axes
+            # (e.g. cells -> vertices and owned cells -> vertices).
+            # If we ever hit this we will need to think a bit.
             matched_forest.append(index_tree)
             found_match = True
 
@@ -190,8 +185,8 @@ def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
     return tuple(IndexTree(cf_index) for cf_index in cf_indices)
 
 
-@_as_index_forest.register(Sequence)
-def _(seq: Sequence, /, axes, loop_context) -> tuple[IndexTree]:
+@_as_index_forest.register(tuple)
+def _(seq: tuple, /, axes, loop_context) -> tuple[IndexTree]:
     # The indices can contain a mixture of 'true' indices (i.e. subclasses of
     # `Index`) and 'sugar' indices (e.g. integers, strings and slices). The former
     # may be used in any order since they declare the axes they target whereas
@@ -241,6 +236,7 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
 
 
 @_as_index_forest.register(slice)
+@_as_index_forest.register(list)
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 @_as_index_forest.register(Dat)
@@ -305,6 +301,26 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
 
+
+@_desugar_index.register(list)
+def _(list_: list, /, *, axes, path) -> Slice:
+    if path is None:
+        raise RuntimeError("Cannot parse a list here due to ambiguity")
+
+    axis = axes.node_map[path]
+
+    if len(axis.components) == 1:
+        dat = Dat.from_sequence(list_, IntType)
+        return _desugar_index(dat, axes=axes, path=path)
+    else:
+        return Slice(
+            axis.label,
+            [
+                AffineSliceComponent(component_label, label=component_label)
+                for component_label in list_
+            ],
+            label=axis.label,
+        )
 
 @_desugar_index.register(Dat)
 def _(dat: Dat, /, *, axes, path) -> Slice:
@@ -538,28 +554,17 @@ def _(called_map, /, loop_context, **kwargs):
         # then we want to end up with
         #
         #   {
-        #     x -> [[a]],
-        #     y -> [[a]],
+        #     x -> [[a]],  # (should be [a], need a type to capture the extra brackets)
+        #     y -> [[a]],  # (should be [a])
         #   }
         #   and
         #   {
         #     x -> [[b, c]],
         #     y -> [[a]],
         #   }
-        #    etc
+        #   etc
         #
         # In effect for a concrete set of inputs having a concrete set of outputs
-        #
-        # Note that this gets more complicated in cases like
-        #
-        #   { x -> [[a]], y -> [[a]] }
-        #
-        # where we assume x and y to be "equivalent".
-        # because if two equivalent input paths map to the same output then they can
-        # be considered equivalent in the final axis tree.
-        #
-        # This is later work.
-
         possibilities = []
         for equivalent_input_paths in cf_index.leaf_target_paths:
             found = False
@@ -572,11 +577,8 @@ def _(called_map, /, loop_context, **kwargs):
                 breakpoint()
             assert found, "must be at least one matching path"
 
-        if len(possibilities) > 1:
-            # list(itertools.product(possibilities))
-            raise NotImplementedError("Need to think about taking the product of these")
-        else:
-            input_path, output_spec = just_one(possibilities)
+        for input_path, output_spec in possibilities:
+            # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = {input_path: (output_spec,)}
             restricted_map = Map(restricted_connectivity, called_map.name)(cf_index)
             cf_maps.append(restricted_map)

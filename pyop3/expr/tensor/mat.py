@@ -187,8 +187,8 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        indexed_row_axes = self.row_axis_forest.getitem(row_index, strict=strict)
-        indexed_column_axes = self.column_axis_forest.getitem(column_index, strict=strict)
+        indexed_row_axes = as_axis_forest(self.row_axis_forest.getitem(row_index, strict=strict))
+        indexed_column_axes = as_axis_forest(self.column_axis_forest.getitem(column_index, strict=strict))
         return self.__record_init__(row_axis_forest=indexed_row_axes, column_axis_forest=indexed_column_axes)
         # from pyop3.tree.index_tree import index_axes
         # from pyop3.tree.index_tree.parse import as_index_forest

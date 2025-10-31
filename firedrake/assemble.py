@@ -2078,7 +2078,7 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        mesh = next(self._active_exterior_facets)
+        mesh = next(self._active_interior_facets)
         return mesh.interior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)

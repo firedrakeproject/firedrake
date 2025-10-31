@@ -474,7 +474,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @property
     def has_non_trivial_regions(self) ->  bool:
-        return utils.strictly_all(r.label is not None for r in self.regions)
+        return utils.strictly_all(r.label is not None for r in self._all_regions)
 
     @property
     def user_comm(self) -> MPI.Comm | None:
@@ -767,7 +767,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self.getitem(indices, strict=False)
 
     # TODO: Cache this function.
-    def getitem(self, indices, *, strict=False) -> AbstractAxisTree | ContextSensitiveAxisTree:
+    def getitem(self, indices, *, strict=False) -> AbstractAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.tree.index_tree.parse import as_index_forests
         from pyop3.tree.index_tree import index_axes
 
@@ -804,7 +804,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                 indexed_axess.append(indexed_axes)
 
             if len(indexed_axess) > 1:
-                raise NotImplementedError("Need axis forests")
+                return AxisForest(indexed_axess)
             else:
                 return just_one(indexed_axess)
         else:
@@ -1443,7 +1443,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     @cached_property
     def _buffer_slice(self) -> slice:
-        return slice(self.size)
+        return slice(self.local_size)
 
 
 @utils.frozenrecord()
@@ -1730,7 +1730,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
         indices = np.unique(np.sort(indices))
 
-        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.size)
+        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")
@@ -1916,7 +1916,12 @@ class AxisForest(DistributedObject):
     """
     def __init__(self, trees: Sequence[AbstractAxisTree]) -> None:
         # TODO: Should check the trees for compatibility (e.g. do they have the same SF?)
-        self.trees = tuple(trees)
+        trees = tuple(trees)
+
+        if not all(isinstance(tree, (AbstractAxisTree, UnitIndexedAxisTree, _UnitAxisTree)) for tree in trees):
+            raise TypeError
+
+        self.trees = trees
 
     def __repr__(self) -> str:
         return f"AxisForest(({', '.join(repr(tree) for tree in self.trees)}))"
@@ -1925,6 +1930,9 @@ class AxisForest(DistributedObject):
         return self.getitem(indices, strict=False)
 
     def getitem(self, indices, *, strict=False):
+        if indices is Ellipsis:
+            return self
+
         # FIXME: This will not always work, catch exceptions!
         indexed_trees = []
         for tree in self.trees:
@@ -1937,7 +1945,43 @@ class AxisForest(DistributedObject):
         if not indexed_trees:
             raise RuntimeError("Cannot find any indexable candidates")
 
-        return type(self)(indexed_trees)
+        if utils.strictly_all(
+            isinstance(indexed_tree, ContextSensitiveAxisTree) for indexed_tree in indexed_trees
+        ):
+            cs_trees = indexed_trees
+            # We currently assume that if things are context sensitive then
+            # the loop contexts must be the same in all cases.
+            loop_contexts = utils.single_valued(cs_tree.context_map.keys() for cs_tree in cs_trees)
+            axis_forest_context_map = collections.defaultdict(list)
+            for loop_context in loop_contexts:
+                for cs_tree in cs_trees:
+                    indexed_tree = cs_tree.context_map[loop_context]
+                    if isinstance(indexed_tree, AxisForest):
+                        axis_forest_context_map[loop_context].extend(indexed_tree.trees)
+                    else:
+                        axis_forest_context_map[loop_context].append(indexed_tree)
+
+            # now turns lists into axis forests
+            context_map2 = {}
+            for loop_context, trees in axis_forest_context_map.items():
+                if len(trees) == 1:
+                    context_map2[loop_context] = utils.just_one(trees)
+                else:
+                    context_map2[loop_context] = AxisForest(trees)
+            return ContextSensitiveAxisTree(context_map2)
+
+        else:
+            indexed_trees_ = []
+            for indexed_tree in indexed_trees:
+                if isinstance(indexed_tree, AxisForest):
+                    indexed_trees_.extend(indexed_tree.trees)
+                else:
+                    indexed_trees_.append(indexed_tree)
+
+            if len(indexed_trees_) == 1:
+                return utils.just_one(indexed_trees_)
+            else:
+                return AxisForest(indexed_trees_)
 
     @property
     def user_comm(self) -> MPI.Comm:
@@ -1945,6 +1989,13 @@ class AxisForest(DistributedObject):
 
     def materialize(self):
         return type(self)((tree.materialize() for tree in self.trees))
+
+    @cached_property
+    def regionless(self):
+        return type(self)((tree.regionless for tree in self.trees))
+
+    def prune(self) -> AxisForest:
+        return type(self)((tree.prune() for tree in self.trees))
 
     def blocked(self, block_shape):
         return type(self)(map(operator.methodcaller("blocked", block_shape), self.trees))
@@ -2228,6 +2279,7 @@ def relabel_path(path, suffix:str):
     return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}
 
 
+# FIXME: This isn't a sufficient check. The regions can be constant sized and the loop index can come from somewhere else... the targets...
 def loopify_axis_tree(axis_tree: AbstractAxisTree) -> tuple[AxisTree, Mapping]:
     from pyop3.expr.base import get_loop_tree
 
@@ -2363,3 +2415,35 @@ def trim_axis_targets(targets, to_trim):
         }
         for target in targets
     )
+
+
+# ContextFreeSingleAxisTreeT = ???
+# ContextFreeAxisTreeT = ContextFreeSingleAxisTreeT | AxisForest
+# AxisTreeT = ContextFreeAxisTreeT | ContextSensitiveAxisTree
+
+
+def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:
+    if isinstance(candidate, AxisForest):
+        return utils.single_valued(
+            candidate_
+            for candidate_ in candidate.trees
+            if axis_tree_is_valid_subset(candidate_, target)
+        )
+    else:
+        assert axis_tree_is_valid_subset(candidate, target)
+        return candidate
+
+
+def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: ContextFreeSingleAxisTreeT) -> bool:
+    """Return if one axis tree may be 'overlaid' on top of another.
+
+    The trees need not exactly match, but they must have the same number of branches.
+
+    """
+    target_leaf_paths = set(target.leaf_paths)
+    for candidate_leaf_path in candidate.leaf_paths:
+        for target_leaf_path in target_leaf_paths:
+            if candidate_leaf_path.keys() <= target_leaf_path.keys():
+                target_leaf_paths.remove(target_leaf_path)
+                break
+    return not target_leaf_paths

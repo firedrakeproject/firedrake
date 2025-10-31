@@ -16,7 +16,7 @@ include "petschdr.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_renumbering(PETSc.DM plex, numbering, entity_type):
+def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
     """
     Given a section numbering a type of topological entity, return the
     renumberings from original plex numbers to new firedrake numbers

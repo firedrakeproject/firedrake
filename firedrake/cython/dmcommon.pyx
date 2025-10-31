@@ -2616,7 +2616,7 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
     assert ownedPtr_c == nOwned_c
     assert ghostPtr_c == nPoints_c
 
-    parallel_renumbering = PETSc.IS().create(comm=dm.comm)
+    parallel_renumbering = PETSc.IS().create(comm=MPI.COMM_SELF)
     parallel_renumbering.setType("general")
     CHKERR(
         ISGeneralSetIndices(

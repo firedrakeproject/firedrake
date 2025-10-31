@@ -2024,14 +2024,15 @@ class MixedFunctionSpace:
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
-    # this is now the same as for the non-mixed case
-    @utils.cached_property
+    # NOTE: this is the same as for the non-mixed case, should rejig types
+    @cached_property
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this function space."""
-        if self.comm.size > 1:
-            raise NotImplementedError
         vec = PETSc.Vec().create(comm=self.comm)
-        vec.setSizes((self.axes.owned.size, self.axes.global_size), bsize=1)
+        vec.setSizes(
+            (self.layout_axes.owned.local_size, self.layout_axes.global_size),
+            bsize=self.block_size,
+        )
         vec.setUp()
         return vec
 
