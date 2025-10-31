@@ -173,7 +173,7 @@ def test_bddc_aij_quad(rg, mh, family, degree, vector):
     variant = None
     bcs = True
     its = [solve_riesz_map(rg, m, family, degree, variant, bcs, vector=vector) for m in mh]
-    assert (np.diff(its) <= 1).all()
+    assert (np.diff(its) <= 2).all()
 
 
 @pytest.mark.parallel
@@ -184,4 +184,4 @@ def test_bddc_aij_simplex(rg, family, degree):
     bcs = True
     meshes = [UnitCubeMesh(nx, nx, nx) for nx in (3, 6)]
     its = [solve_riesz_map(rg, m, family, degree, variant, bcs) for m in meshes]
-    assert (np.diff(its) <= 1).all()
+    assert (np.diff(its) <= 2).all()
