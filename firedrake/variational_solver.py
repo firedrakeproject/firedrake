@@ -391,6 +391,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
             work.copy(u)
+
+        self.warn_unused_options(
+            options_to_ignore=set(
+                *self.DEFAULT_SNES_PARAMETERS.keys(),
+                *self.DEFAULT_KSP_PARAMETERS.keys()),
+            respect_petsc_options_left=True,
+            obj=self.snes,
+        )
+
         self._setup = True
         if problem.restrict:
             problem.u.interpolate(problem.u_restrict)
