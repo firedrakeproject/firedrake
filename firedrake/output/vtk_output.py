@@ -66,7 +66,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.mesh().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -89,7 +89,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.mesh().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -108,7 +108,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     if continuous:
         family = "CG"
     else:
-        if cell.cellname() in {"interval", "triangle", "tetrahedron"}:
+        if cell.cellname in {"interval", "triangle", "tetrahedron"}:
             family = "DG"
         else:
             family = "DQ"
@@ -215,9 +215,9 @@ def get_topology(coordinates):
     con = connectivity + offsets
     connectivity = con.flatten()
     if not nonLinear:
-        offsets_into_con = numpy.arange(start=cell.num_vertices(),
-                                        stop=cell.num_vertices() * (num_cells + 1),
-                                        step=cell.num_vertices(),
+        offsets_into_con = numpy.arange(start=cell.num_vertices,
+                                        stop=cell.num_vertices * (num_cells + 1),
+                                        step=cell.num_vertices,
                                         dtype=IntType)
     else:
         offsets_into_con = numpy.arange(start=basis_dim,

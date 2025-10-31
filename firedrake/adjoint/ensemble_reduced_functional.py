@@ -488,7 +488,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     The functionals :math:`J_i` and the control must be defined over a common
     `ensemble.comm` communicator. To understand more about how ensemble parallelism
     works, please refer to the `Firedrake manual
-    <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+    <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
     """
     def __init__(self, rfs, functional, control, ensemble=None,
                  bcast_control=True, reduce_functional=True):

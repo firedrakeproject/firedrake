@@ -34,3 +34,4 @@ element systems.
    Shape optimisation.<demos/shape_optimization.py>
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
+   Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>

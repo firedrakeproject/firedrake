@@ -83,7 +83,7 @@ def test_dynamic_meshes_3D(mesh):
     mesh.coordinates.assign(mesh.coordinates + s[0])
 
     x = SpatialCoordinate(mesh)
-    if mesh.cell_dimension() != mesh.geometric_dimension():
+    if mesh.cell_dimension() != mesh.geometric_dimension:
         mesh.init_cell_orientations(x)
 
     V = FunctionSpace(mesh, "CG", 1)

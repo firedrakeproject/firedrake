@@ -1,6 +1,7 @@
 import abc
 import numpy
 
+import petsctools
 from pyop2.utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
@@ -9,7 +10,6 @@ from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
-from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
@@ -140,7 +140,7 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        Citations().register("Hiptmair1998")
+        petsctools.cite("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
         a, bcs = self.form(pc)
@@ -202,7 +202,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = chop(Interpolator(dminus(trial), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 
@@ -230,7 +230,7 @@ def curl_to_grad(ele):
                 degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
-                cells = ele.cell.sub_cells()
+                cells = ele.cell.sub_cells
                 elems = [finat.ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
                 return finat.ufl.TensorProductElement(*elems, cell=cell)
         return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
@@ -261,7 +261,7 @@ def div_to_curl(ele):
         degree = ele.degree()
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
-            family = "DG" if ele.cell.is_simplex() else "DQ"
+            family = "DG" if ele.cell.is_simplex else "DQ"
             degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"
