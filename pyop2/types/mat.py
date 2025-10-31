@@ -783,29 +783,69 @@ class Mat(AbstractMat):
         self.handle.zeroEntries()
 
     @mpi.collective
-    def zero_rows(self, rows, diag_val=1.0):
+    def zero_rows(self,
+                  rows: Sequence | Subset,
+                  diag_val: float = 1.0,
+                  idx: int | None = None):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions.
 
-        :param rows: a :class:`Subset` or an iterable"""
-        self.assemble()
+        Parameters
+        ----------
+        rows:
+            The row indices to be zeroed out.
+        diag_val:
+            The value to be inserted along the diagonal entries of the zeroed rows.
+        idx:
+            For matrices with block row size > 1, this option enables zeroing
+            the component with index `idx`. The default is to zero every component.
+
+        Note
+        ----
+        The indices in ``rows`` should index the process-local rows of
+        the matrix (no mapping to global indexes is applied).
+
+        """
         rows = rows.indices if isinstance(rows, Subset) else rows
+        rows = np.asarray(rows, dtype=dtypes.IntType)
+        rbs, _ = self.dims[0][0]
+        if rbs > 1:
+            if idx is not None:
+                rows = rbs * rows + idx
+            else:
+                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        self.assemble()
         self.handle.zeroRowsLocal(rows, diag_val)
 
     def _flush_assembly(self):
         self.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
 
     @mpi.collective
-    def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+    def set_local_diagonal_entries(self,
+                                   rows: Sequence | Subset,
+                                   diag_val: float = 1.0,
+                                   idx: int | None = None):
         """Set the diagonal entry in ``rows`` to a particular value.
 
-        :param rows: a :class:`Subset` or an iterable.
-        :param diag_val: the value to add
+        Parameters
+        ----------
+        rows:
+            The row indices of the diagonal entries to be modified.
+        diag_val:
+            The value to insert along the diagonal.
+        idx:
+            For matrices with block row size > 1, this option enables setting the
+            diagonal component with index `idx`. The default is to set every
+            component.
 
+        Note
+        ----
         The indices in ``rows`` should index the process-local rows of
         the matrix (no mapping to global indexes is applied).
+
         """
+        rows = rows.indices if isinstance(rows, Subset) else rows
         rows = np.asarray(rows, dtype=dtypes.IntType)
         rbs, _ = self.dims[0][0]
         if rbs > 1:
@@ -915,6 +955,17 @@ class MatBlock(AbstractMat):
     def __iter__(self):
         yield self
 
+    def zero_rows(self, rows, diag_val=1.0, idx=None):
+        rows = rows.indices if isinstance(rows, Subset) else rows
+        rows = np.asarray(rows, dtype=dtypes.IntType)
+        rbs, _ = self.dims[0][0]
+        if rbs > 1:
+            if idx is not None:
+                rows = rbs * rows + idx
+            else:
+                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        self.handle.zeroRowsLocal(rows, diag_val)
+
     def _flush_assembly(self):
         # Need to flush for all blocks
         for b in self._parent:
@@ -922,6 +973,7 @@ class MatBlock(AbstractMat):
         self._parent._flush_assembly()
 
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+        rows = rows.indices if isinstance(rows, Subset) else rows
         rows = np.asarray(rows, dtype=dtypes.IntType)
         rbs, _ = self.dims[0][0]
         if rbs > 1:

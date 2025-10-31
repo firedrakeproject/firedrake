@@ -73,17 +73,21 @@ def test_functional(mesh1, mesh2):
 
     val = assemble(c*dx(domain=mesh2))
 
-    assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension()))
+    assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension))
 
     val = assemble(c*dx(domain=mesh1) + c*dx(domain=mesh2))
 
-    assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension()))
+    assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension))
+
+
+def cell_measure(primal, secondary):
+    return Measure("dx", primal, intersect_measures=(Measure("dx", secondary),))
 
 
 @pytest.mark.parametrize("form,expect", [
     (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1) + conj(v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+    (lambda v, mesh1, mesh2: conj(v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(0.5**dim)),
+    (lambda v, mesh1, mesh2: conj(v)*dx(domain=mesh1) + conj(v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["conj(v)*dx(mesh1)", "conj(v)*dx(mesh2)", "conj(v)*(dx(mesh1) + dx(mesh2)"])
 def test_one_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)
@@ -91,7 +95,7 @@ def test_one_form(mesh1, mesh2, form, expect):
     v = TestFunction(V)
 
     cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
-    dim = mesh1.topological_dimension()
+    dim = mesh1.topological_dimension
 
     form = form(v, mesh1, mesh2)
     expect = expect(cell_volume, dim)
@@ -102,8 +106,8 @@ def test_one_form(mesh1, mesh2, form, expect):
 
 @pytest.mark.parametrize("form,expect", [
     (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1), lambda vol, dim: vol),
-    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim)),
-    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1) + inner(u, v)*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+    (lambda u, v, mesh1, mesh2: inner(u, v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(0.5**dim)),
+    (lambda u, v, mesh1, mesh2: inner(u, v)*dx(domain=mesh1) + inner(u, v)*cell_measure(mesh2, mesh1), lambda vol, dim: vol*(1 + 0.5**dim))
 ], ids=["inner(u, v)*dx(mesh1)", "inner(u, v)*dx(mesh2)", "inner(u, v)*(dx(mesh1) + dx(mesh2)"])
 def test_two_form(mesh1, mesh2, form, expect):
     V = FunctionSpace(mesh1, "DG", 0)
@@ -112,7 +116,7 @@ def test_two_form(mesh1, mesh2, form, expect):
     u = TrialFunction(V)
 
     cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
-    dim = mesh1.topological_dimension()
+    dim = mesh1.topological_dimension
 
     form = form(u, v, mesh1, mesh2)
     expect = expect(cell_volume, dim)

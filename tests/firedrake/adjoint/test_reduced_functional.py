@@ -31,7 +31,7 @@ def test_constant():
 
     c = Function(R, val=1)
     f = Function(V)
-    f.assign(1)
+    f.assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -52,7 +52,7 @@ def test_function():
 
     c = Constant(1)
     f = Function(V)
-    f.assign(1)
+    f.assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -88,7 +88,7 @@ def test_wrt_function_dirichlet_boundary(control):
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
     f = Function(V)
-    f.assign(10)
+    f.assign(10.)
 
     a = inner(grad(u), grad(v))*dx + u**2*v*dx
     L = inner(f, v)*dx + inner(g1, v)*ds(4) + inner(g2, v)*ds(3)
@@ -102,7 +102,7 @@ def test_wrt_function_dirichlet_boundary(control):
         Jhat = ReducedFunctional(J, Control(bc_func))
         g = bc_func
         h = Function(V)
-        h.assign(1)
+        h.assign(1.)
     else:
         Jhat = ReducedFunctional(J, Control(g1))
         g = g1
@@ -131,10 +131,10 @@ def test_time_dependent():
     T = 0.5
     dt = 0.1
     f = Function(V)
-    f.assign(1)
+    f.assign(1.)
 
     u_1 = Function(V)
-    u_1.assign(1)
+    u_1.assign(1.)
     control = Control(u_1)
 
     a = u_1*u*v*dx + dt*f*inner(grad(u), grad(v))*dx
@@ -152,7 +152,7 @@ def test_time_dependent():
     Jhat = ReducedFunctional(J, control)
 
     h = Function(V)
-    h.assign(1)
+    h.assign(1.)
     assert taylor_test(Jhat, control.tape_value(), h) > 1.9
 
 
@@ -172,7 +172,7 @@ def test_mixed_boundary():
     g1 = Constant(2)
     g2 = Constant(1)
     f = Function(V)
-    f.assign(10)
+    f.assign(10.)
 
     a = f*inner(grad(u), grad(v))*dx
     L = inner(f, v)*dx + inner(g1, v)*ds(4) + inner(g2, v)*ds(3)
@@ -183,7 +183,7 @@ def test_mixed_boundary():
 
     Jhat = ReducedFunctional(J, Control(f))
     h = Function(V)
-    h.assign(1)
+    h.assign(1.)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -194,13 +194,13 @@ def test_assemble_recompute():
     R = FunctionSpace(mesh, "R", 0)
 
     f = Function(V)
-    f.assign(2)
+    f.assign(2.)
     expr = Function(R).assign(assemble(f**2*dx))
     J = assemble(expr**2*dx(domain=mesh))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.assign(1)
+    h.assign(1.)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -214,7 +214,7 @@ def test_interpolate():
 
     f = Function(V)
     f.dat.data[:] = 2
-    J = assemble(Interpolate(f**2, c))
+    J = assemble(interpolate(f**2, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
@@ -244,7 +244,7 @@ def test_interpolate_mixed():
     f1, f2 = split(f)
     exprs = [f2 * div(f1)**2, grad(f2) * div(f1)]
     expr = as_vector([e[i] for e in exprs for i in np.ndindex(e.ufl_shape)])
-    J = assemble(Interpolate(expr, c))
+    J = assemble(interpolate(expr, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)

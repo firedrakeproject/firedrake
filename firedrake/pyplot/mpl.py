@@ -18,7 +18,7 @@ from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
-from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
+from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry
@@ -100,10 +100,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
     :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
-    gdim = mesh.geometric_dimension()
-    tdim = mesh.topological_dimension()
+    gdim = mesh.geometric_dimension
+    tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname() == "quadrilateral"
+    quad = mesh.ufl_cell().cellname == "quadrilateral"
 
     if mesh.extruded:
         raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
@@ -120,7 +120,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if element.degree() != 1:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
-        coordinates = assemble(Interpolate(coordinates, V))
+        coordinates = assemble(interpolate(coordinates, V))
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     result = []
@@ -215,7 +215,7 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
+        function = assemble(interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -319,14 +319,14 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
     Q = function.function_space()
     mesh = Q.mesh()
-    if mesh.geometric_dimension() == 3:
+    if mesh.geometric_dimension == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
     _kwargs.update({"shade": False})
 
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
-        function = assemble(Interpolate(sqrt(inner(function, function)), Q))
+        function = assemble(interpolate(sqrt(inner(function, function)), Q))
 
     num_sample_points = kwargs.pop("num_sample_points", 10)
     function_plotter = FunctionPlotter(mesh, num_sample_points)
@@ -355,7 +355,7 @@ def quiver(function, *, complex_component="real", **kwargs):
 
     coords = toreal(extract_unique_domain(function).coordinates.dat.data_ro, "real")
     V = extract_unique_domain(function).coordinates.function_space()
-    function_interp = assemble(Interpolate(function, V))
+    function_interp = assemble(interpolate(function, V))
     vals = toreal(function_interp.dat.data_ro, complex_component)
     C = np.linalg.norm(vals, axis=1)
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
@@ -471,7 +471,7 @@ class Streamplotter(object):
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         self._xmin = coords.min(axis=0)
         xmax = coords.max(axis=0)
-        self._r = self.resolution / np.sqrt(mesh.geometric_dimension())
+        self._r = self.resolution / np.sqrt(mesh.geometric_dimension)
         shape = tuple(((xmax - self._xmin) / self._r).astype(int) + 2)
         self._grid = np.full(shape, 4 * self.resolution)
 
@@ -752,7 +752,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
 
-        if extract_unique_domain(line).geometric_dimension() > 1:
+        if extract_unique_domain(line).geometric_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                              "see tricontourf, tripcolor, quiver, trisurf")
 
@@ -816,7 +816,7 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     mesh = function.function_space().mesh()
     if deg == 0:
         V = FunctionSpace(mesh, "DG", 1)
-        interp = assemble(Interpolate(function, V))
+        interp = assemble(interpolate(function, V))
         return _bezier_plot(interp, axes, complex_component=complex_component,
                             **kwargs)
     y_vals = _bezier_calculate_points(function)
@@ -905,7 +905,7 @@ class FunctionPlotter:
         # num_sample_points must be of the form 3k + 1 for cubic Bezier plotting
         if num_sample_points % 3 != 1:
             num_sample_points = (num_sample_points // 3) * 3 + 1
-        if mesh.topological_dimension() == 1:
+        if mesh.topological_dimension == 1:
             self._setup_1d(mesh, num_sample_points)
         else:
             self._setup_nd(mesh, num_sample_points)
@@ -914,7 +914,7 @@ class FunctionPlotter:
         self._reference_points = np.linspace(0.0, 1.0, num_sample_points).reshape(-1, 1)
 
     def _setup_nd(self, mesh, num_sample_points):
-        cell_name = mesh.ufl_cell().cellname()
+        cell_name = mesh.ufl_cell().cellname
         if cell_name == "triangle":
             x = np.array([0, 0, 1])
             y = np.array([0, 1, 0])
@@ -943,13 +943,13 @@ class FunctionPlotter:
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
         coordinate_values = self(mesh.coordinates)
-        X = coordinate_values.reshape(-1, mesh.geometric_dimension())
+        X = coordinate_values.reshape(-1, mesh.geometric_dimension)
         coords = toreal(X, "real")
 
-        if mesh.geometric_dimension() == 2:
+        if mesh.geometric_dimension == 2:
             x, y = coords[:, 0], coords[:, 1]
             self.triangulation = matplotlib.tri.Triangulation(x, y, triangles=all_triangles)
-        elif mesh.geometric_dimension() == 3:
+        elif mesh.geometric_dimension == 3:
             self.coordinates = coords
             self.triangles = all_triangles
 
@@ -958,7 +958,7 @@ class FunctionPlotter:
         # if the function space is the same as the last one
         Q = function.function_space()
         mesh = Q.mesh()
-        dimension = mesh.topological_dimension()
+        dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 
         fiat_element = Q.finat_element.fiat_equivalent

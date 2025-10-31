@@ -7,6 +7,7 @@ from ufl.duals import is_dual
 from functools import singledispatch, partial
 import firedrake
 from firedrake.petsc import PETSc
+from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -64,6 +65,7 @@ def coarsen(expr, self, coefficient_mapping=None):
 
 
 @coarsen.register(ufl.Mesh)
+@coarsen.register(ufl.MeshSequence)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
@@ -147,7 +149,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
         return V._coarse
 
     V_fine = V
-    mesh_coarse = self(V_fine.mesh(), self)
+    # Handle MixedFunctionSpace : V_fine.reconstruct requires MeshSequence.
+    fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()
+    mesh_coarse = self(fine_mesh, self)
     name = f"coarse_{V.name}" if V.name else None
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
@@ -244,7 +248,7 @@ def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     return firedrake.MixedVectorSpaceBasis(coarse_V, coarse_bases)
 
 
-@coarsen.register(firedrake.solving_utils._SNESContext)
+@coarsen.register(_SNESContext)
 def coarsen_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -282,20 +286,32 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
             default_pmat_type = context.pmat_type
         else:
             default_pmat_type = coarse_mat_type
-
         coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
                                           default_pmat_type)
+
+        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type", "")
+        if coarse_sub_mat_type == "":
+            coarse_sub_mat_type = context.sub_mat_type
+            default_sub_pmat_type = context.sub_pmat_type
+        else:
+            default_sub_pmat_type = coarse_sub_mat_type
+        coarse_sub_pmat_type = opts.getString(f"{solver_prefix}coarse_sub_pmat_type",
+                                              default_sub_pmat_type or "") or None
     else:
         coarse_mat_type = context.mat_type
         coarse_pmat_type = context.pmat_type
+        coarse_sub_mat_type = context.sub_mat_type
+        coarse_sub_pmat_type = context.sub_pmat_type
 
-    coarse = type(context)(problem,
-                           mat_type=coarse_mat_type,
-                           pmat_type=coarse_pmat_type,
-                           appctx=new_appctx,
-                           options_prefix=context.options_prefix,
-                           transfer_manager=context.transfer_manager,
-                           pre_apply_bcs=context.pre_apply_bcs)
+    coarse = _SNESContext(problem,
+                          mat_type=coarse_mat_type,
+                          pmat_type=coarse_pmat_type,
+                          sub_mat_type=coarse_sub_mat_type,
+                          sub_pmat_type=coarse_sub_pmat_type,
+                          appctx=new_appctx,
+                          options_prefix=context.options_prefix,
+                          transfer_manager=context.transfer_manager,
+                          pre_apply_bcs=context.pre_apply_bcs)
     coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
     context._coarse = coarse

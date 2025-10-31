@@ -79,10 +79,10 @@ each supermesh cell.
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
 
-    dim = mesh_A.geometric_dimension()
-    assert dim == mesh_B.geometric_dimension()
-    assert dim == mesh_A.topological_dimension()
-    assert dim == mesh_B.topological_dimension()
+    dim = mesh_A.geometric_dimension
+    assert dim == mesh_B.geometric_dimension
+    assert dim == mesh_A.topological_dimension
+    assert dim == mesh_B.topological_dimension
 
     (mh_A, level_A) = get_level(mesh_A)
     (mh_B, level_B) = get_level(mesh_B)

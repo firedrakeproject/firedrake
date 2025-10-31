@@ -1,10 +1,33 @@
+from functools import wraps
 import weakref
 from itertools import zip_longest
 
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from pyop2.mpi import MPI, internal_comm
 
 __all__ = ("Ensemble", )
+
+
+def _ensemble_mpi_dispatch(func):
+    """
+    This wrapper checks if any arg or kwarg of the wrapped
+    ensemble method is a Function or Cofunction, and if so
+    it calls the specialised Firedrake implementation.
+    Otherwise the standard mpi4py implementation is called.
+    """
+    @wraps(func)
+    def _mpi_dispatch(self, *args, **kwargs):
+        if any(isinstance(arg, (Function, Cofunction))
+               for arg in [*args, *kwargs.values()]):
+            return func(self, *args, **kwargs)
+        else:
+            mpicall = getattr(
+                self.ensemble_comm,
+                func.__name__)
+            return mpicall(*args, **kwargs)
+    return _mpi_dispatch
 
 
 class Ensemble(object):
@@ -79,6 +102,7 @@ class Ensemble(object):
                 raise ValueError("Mismatching function spaces for functions")
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def allreduce(self, f, f_reduced, op=MPI.SUM):
         """
         Allreduce a function f into f_reduced over ``ensemble_comm`` .
@@ -96,6 +120,7 @@ class Ensemble(object):
         return f_reduced
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def iallreduce(self, f, f_reduced, op=MPI.SUM):
         """
         Allreduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` .
@@ -113,6 +138,7 @@ class Ensemble(object):
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
         Reduce a function f into f_reduced over ``ensemble_comm`` to rank root
@@ -136,6 +162,7 @@ class Ensemble(object):
         return f_reduced
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
         """
         Reduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` to rank root
@@ -154,6 +181,7 @@ class Ensemble(object):
                 for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def bcast(self, f, root=0):
         """
         Broadcast a function f over ``ensemble_comm`` from rank root
@@ -169,6 +197,7 @@ class Ensemble(object):
         return f
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def ibcast(self, f, root=0):
         """
         Broadcast (non-blocking) a function f over ``ensemble_comm`` from rank root
@@ -184,6 +213,7 @@ class Ensemble(object):
                 for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def send(self, f, dest, tag=0):
         """
         Send (blocking) a function f over ``ensemble_comm`` to another
@@ -199,6 +229,7 @@ class Ensemble(object):
             self._ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
         """
         Receive (blocking) a function f over ``ensemble_comm`` from
@@ -215,8 +246,10 @@ class Ensemble(object):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
             self._ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
+        return f
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def isend(self, f, dest, tag=0):
         """
         Send (non-blocking) a function f over ``ensemble_comm`` to another
@@ -233,6 +266,7 @@ class Ensemble(object):
                 for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
         """
         Receive (non-blocking) a function f over ``ensemble_comm`` from
@@ -249,6 +283,7 @@ class Ensemble(object):
                 for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def sendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG, status=None):
         """
         Send (blocking) a function fsend and receive a function frecv over ``ensemble_comm`` to another
@@ -270,8 +305,10 @@ class Ensemble(object):
             self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                          recvbuf=recvvec, source=source, recvtag=recvtag,
                                          status=status)
+        return frecv
 
     @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
     def isendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG):
         """
         Send a function fsend and receive a function frecv over ``ensemble_comm`` to another

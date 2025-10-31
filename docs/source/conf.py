@@ -164,14 +164,13 @@ linkcheck_ignore = [
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
     r'https://.*\.baylor\.edu.*',
-    r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
-    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
-    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
+    r'https://www.radissonhotels.com/*',
+    r'https://all.accor.com/hotel/*',
 ]
 linkcheck_timeout = 30
 
@@ -413,10 +412,8 @@ texinfo_documents = [(
 
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
-    'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
-    'FInAT': ('https://finat.github.io/FInAT/', None),
+    'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),

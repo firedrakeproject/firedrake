@@ -5,7 +5,12 @@ from pyop2 import op2
 from pyop2.mpi import internal_comm
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
-from types import SimpleNamespace
+
+
+class DummyOP2Mat:
+    """A hashable implementation of M.handle"""
+    def __init__(self, handle):
+        self.handle = handle
 
 
 class MatrixBase(ufl.Matrix):
@@ -240,8 +245,8 @@ class AssembledMatrix(MatrixBase):
         if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
 
-        # this allows call to self.M.handle without a new class
-        self.M = SimpleNamespace(handle=self.mat())
+        # this mimics op2.Mat.handle
+        self.M = DummyOP2Mat(self.mat())
 
     def mat(self):
         return self.petscmat

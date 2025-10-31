@@ -11,7 +11,7 @@ from firedrake import (
     Function,
     Constant,
     assemble,
-    Interpolate,
+    interpolate,
     FiniteElement,
     interval,
     tetrahedron,
@@ -2351,7 +2351,7 @@ def OctahedralSphereMesh(
     )
     if degree > 1:
         # use it to build a higher-order mesh
-        m = assemble(Interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+        m = assemble(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
         m = mesh.Mesh(
             m,
             name=name,
@@ -2386,11 +2386,11 @@ def OctahedralSphereMesh(
     # Make a copy of the coordinates so that we can blend two different
     # mappings near the pole
     Vc = m.coordinates.function_space()
-    Xlatitudinal = assemble(Interpolate(
+    Xlatitudinal = assemble(interpolate(
         Constant(radius) * ufl.as_vector([x * scale, y * scale, znew]), Vc
     ))
     Vlow = VectorFunctionSpace(m, "CG", 1)
-    Xlow = assemble(Interpolate(Xlatitudinal, Vlow))
+    Xlow = assemble(interpolate(Xlatitudinal, Vlow))
     r = ufl.sqrt(Xlow[0] ** 2 + Xlow[1] ** 2 + Xlow[2] ** 2)
     Xradial = Constant(radius) * Xlow / r
 
@@ -3000,7 +3000,7 @@ def CylinderMesh(
         # 0-----1
 
         offset = np.arange(nl, dtype=np.int32) * nr
-        origquads = np.row_stack(tuple(ring_cells + i for i in offset))
+        origquads = np.vstack(tuple(ring_cells + i for i in offset))
         cells = np.zeros((origquads.shape[0] * 4, 3), dtype=np.int32)
         cellidx = 0
         newvertices = range(len(origvertices), len(origvertices) + len(extras))
@@ -3013,7 +3013,7 @@ def CylinderMesh(
 
     else:
         offset = np.arange(nl, dtype=np.int32) * nr
-        cells = np.row_stack(tuple(ring_cells + i for i in offset))
+        cells = np.vstack(tuple(ring_cells + i for i in offset))
         if not quadrilateral:
             if diagonal == "left":
                 idx = [0, 1, 3, 1, 2, 3]

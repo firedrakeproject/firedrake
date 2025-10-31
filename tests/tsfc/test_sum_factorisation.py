@@ -20,9 +20,9 @@ def helmholtz(cell, degree):
 
 def split_mixed_poisson(cell, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    if cell.cellname() in ['interval * interval', 'quadrilateral']:
+    if cell.cellname in ['interval * interval', 'quadrilateral']:
         hdiv_element = FiniteElement('RTCF', cell, degree)
-    elif cell.cellname() == 'triangle * interval':
+    elif cell.cellname == 'triangle * interval':
         U0 = FiniteElement('RT', triangle, degree)
         U1 = FiniteElement('DG', triangle, degree - 1)
         V0 = FiniteElement('CG', interval, degree)
@@ -30,7 +30,7 @@ def split_mixed_poisson(cell, degree):
         Wa = HDivElement(TensorProductElement(U0, V1))
         Wb = HDivElement(TensorProductElement(U1, V0))
         hdiv_element = EnrichedElement(Wa, Wb)
-    elif cell.cellname() == 'quadrilateral * interval':
+    elif cell.cellname == 'quadrilateral * interval':
         hdiv_element = FiniteElement('NCF', cell, degree)
     RT = FunctionSpace(m, hdiv_element)
     DG = FunctionSpace(m, FiniteElement('DQ', cell, degree - 1))
@@ -43,9 +43,9 @@ def split_mixed_poisson(cell, degree):
 
 def split_vector_laplace(cell, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    if cell.cellname() in ['interval * interval', 'quadrilateral']:
+    if cell.cellname in ['interval * interval', 'quadrilateral']:
         hcurl_element = FiniteElement('RTCE', cell, degree)
-    elif cell.cellname() == 'triangle * interval':
+    elif cell.cellname == 'triangle * interval':
         U0 = FiniteElement('RT', triangle, degree)
         U1 = FiniteElement('CG', triangle, degree)
         V0 = FiniteElement('CG', interval, degree)
@@ -53,7 +53,7 @@ def split_vector_laplace(cell, degree):
         Wa = HCurlElement(TensorProductElement(U0, V0))
         Wb = HCurlElement(TensorProductElement(U1, V1))
         hcurl_element = EnrichedElement(Wa, Wb)
-    elif cell.cellname() == 'quadrilateral * interval':
+    elif cell.cellname == 'quadrilateral * interval':
         hcurl_element = FiniteElement('NCE', cell, degree)
     RT = FunctionSpace(m, hcurl_element)
     CG = FunctionSpace(m, FiniteElement('Q', cell, degree))
