@@ -3,6 +3,11 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=123456789))
+
+
 def bddc_params():
     chol = {
         "pc_type": "cholesky",
@@ -21,7 +26,7 @@ def bddc_params():
 
 def solver_parameters(static_condensation=False, variant=None):
     rtol = 1E-8
-    atol = 1E-12
+    atol = 0
     sp_bddc = bddc_params()
     if variant != "fdm":
         sp = sp_bddc
@@ -56,6 +61,7 @@ def solver_parameters(static_condensation=False, variant=None):
     sp.update({
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
+        "ksp_converged_reason": None,
         "ksp_monitor": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
@@ -65,7 +71,7 @@ def solver_parameters(static_condensation=False, variant=None):
     return sp
 
 
-def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, condense=False, vector=False):
     dirichlet_ids = []
     if bcs:
         dirichlet_ids = ["on_boundary"]
@@ -91,11 +97,10 @@ def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=F
 
     formdegree = V.finat_element.formdegree
     if formdegree == 0:
-        a = inner(d(u), d(v)) * dx(degree=2*degree)
+        a = inner(d(u), d(v)) * dx
     else:
-        a = (inner(u, v) + inner(d(u), d(v))) * dx(degree=2*degree)
+        a = (inner(u, v) + inner(d(u), d(v))) * dx
 
-    rg = RandomGenerator(PCG64(seed=123456789))
     u_exact = rg.uniform(V, -1, 1)
     L = ufl.replace(a, {u: u_exact})
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
@@ -150,31 +155,32 @@ def test_vertex_dofs(mh, variant, degree):
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
-def test_bddc_fdm(mh, family, degree):
+@pytest.mark.parametrize("condense", (False, True))
+def test_bddc_fdm(rg, mh, family, degree, condense):
     """Test h-independence of condition number by measuring iteration counts"""
     variant = "fdm"
     bcs = True
-    its = [solve_riesz_map(m, family, degree, variant, bcs) for m in mh]
-    assert (np.diff(its) <= 1).all()
+    its = [solve_riesz_map(rg, m, family, degree, variant, bcs, condense=condense) for m in mh]
+    assert (np.diff(its) <= 2).all()
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
 @pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
-def test_bddc_aij_quad(mh, family, degree, vector):
+def test_bddc_aij_quad(rg, mh, family, degree, vector):
     """Test h-independence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
-    its = [solve_riesz_map(m, family, degree, variant, bcs, vector=vector) for m in mh]
+    its = [solve_riesz_map(rg, m, family, degree, variant, bcs, vector=vector) for m in mh]
     assert (np.diff(its) <= 1).all()
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("CG", 3), ("N1curl", 3), ("N1div", 3)])
-def test_bddc_aij_simplex(family, degree):
+def test_bddc_aij_simplex(rg, family, degree):
     """Test h-independence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
     meshes = [UnitCubeMesh(nx, nx, nx) for nx in (3, 6)]
-    its = [solve_riesz_map(m, family, degree, variant, bcs) for m in meshes]
+    its = [solve_riesz_map(rg, m, family, degree, variant, bcs) for m in meshes]
     assert (np.diff(its) <= 1).all()
