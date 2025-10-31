@@ -120,6 +120,8 @@ def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=F
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp)
     solver.solve()
+    uerr = Function(V).assign(uh - u_exact)
+    assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < 1E-8
     return solver.snes.getLinearSolveIterations()
 
 
