@@ -4,14 +4,13 @@ import tempfile
 import abc
 import warnings
 from collections.abc import Iterable
-from typing import Literal
 from functools import partial, singledispatch
-from typing import Hashable
+from typing import Hashable, Literal
 
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -25,13 +24,11 @@ import gem
 import finat
 
 import firedrake
-import firedrake.bcs
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
-from firedrake.cofunction import Cofunction
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -48,7 +45,7 @@ __all__ = (
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v,
+    def __init__(self, expr, V,
                  subset=None,
                  access=None,
                  allow_missing_dofs=False,
@@ -60,7 +57,7 @@ class Interpolate(ufl.Interpolate):
         ----------
         expr : ufl.core.expr.Expr or ufl.BaseForm
                The UFL expression to interpolate.
-        v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
+        V : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
         subset : pyop2.types.set.Subset
@@ -95,20 +92,18 @@ class Interpolate(ufl.Interpolate):
                 between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
                 and reduce operations.
         """
-        # Check function space
         expr = ufl.as_ufl(expr)
-        if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(expr)
-            is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            v = Argument(v.dual(), 1 if is_adjoint else 0)
+        if isinstance(V, functionspaceimpl.WithGeometry):
+            expr_args = expr.arguments()[1:] if isinstance(expr, ufl.BaseForm) else extract_arguments(expr)
+            expr_arg_numbers = {arg.number() for arg in expr_args}
+            # Need to create a Firedrake Argument so that it has a .function_space() method
+            V = Argument(V.dual(), 1 if expr_arg_numbers == {0} else 0)
 
-        V = v.arguments()[0].function_space()
-        if len(expr.ufl_shape) != len(V.value_shape):
-            raise RuntimeError(f'Rank mismatch: Expression rank {len(expr.ufl_shape)}, FunctionSpace rank {len(V.value_shape)}')
+        target_shape = V.arguments()[0].function_space().value_shape
+        if expr.ufl_shape != target_shape:
+            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {target_shape}.")
 
-        if expr.ufl_shape != V.value_shape:
-            raise RuntimeError('Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {V.value_shape}')
-        super().__init__(expr, v)
+        super().__init__(expr, V)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
         self.interp_data = {"subset": subset,
@@ -174,32 +169,10 @@ def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, def
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
-    if isinstance(V, (Cofunction, Coargument)):
-        dual_arg = V
-    elif isinstance(V, ufl.BaseForm):
-        rank = len(V.arguments())
-        if rank == 1:
-            dual_arg = V
-        else:
-            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
-    elif isinstance(V, functionspaceimpl.WithGeometry):
-        dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(ufl.as_ufl(expr))
-        if expr_args and expr_args[0].number() == 0:
-            warnings.warn("Passing argument numbered 0 in expression for forward interpolation is deprecated. "
-                          "Use a TrialFunction in the expression.")
-            v, = expr_args
-            expr = replace(expr, {v: v.reconstruct(number=1)})
-    else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
-
-    interp = Interpolate(expr, dual_arg,
-                         subset=subset, access=access,
-                         allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val,
-                         matfree=matfree)
-
-    return interp
+    return Interpolate(
+        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs,
+        default_missing_val=default_missing_val, matfree=matfree
+    )
 
 
 class Interpolator(abc.ABC):
@@ -528,7 +501,7 @@ class CrossMeshInterpolator(Interpolator):
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         f_dest_node_coords = assemble(f_dest_node_coords)
         dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
         try:
@@ -553,7 +526,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
+        self.point_eval_interpolate = interpolate(self.expr_renumbered, P0DG_vom)
         # The parallel decomposition of the nodes of V_dest in the DESTINATION
         # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
         # VOM. This again is an interpolation operation, which, under the hood
@@ -561,7 +534,7 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom_i_o = fs_type(
             self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
         )
-        self.to_input_ordering_interpolate = Interpolate(
+        self.to_input_ordering_interpolate = interpolate(
             firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
         )
         # The P0DG function outputted by the above interpolation has the
