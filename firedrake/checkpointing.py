@@ -533,7 +533,6 @@ class CheckpointFile(object):
         self.commkey = self._comm.py2f()
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
-        self._function_load_utils = {}
         if mode in [PETSc.Viewer.FileMode.WRITE, PETSc.Viewer.FileMode.W, "w"]:
             version = CheckpointFile.latest_version
             self.set_attr_byte_string("/", "dmplex_storage_version", version)
@@ -1058,11 +1057,8 @@ class CheckpointFile(object):
                 cell = base_tmesh.ufl_cell()
                 element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
                 _ = self._load_function_space_topology(base_tmesh, element)
-                base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
-                                                                    base_tmesh._distribution_name,
-                                                                    base_tmesh._permutation_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(base_tmesh, element)
-                _, _, lsf = self._function_load_utils[base_tmesh_key + sd_key]
+                _, _, lsf = self._shared_data_cache(base_tmesh)[sd_key]
                 nroots, _, _ = lsf.getGraph()
                 layers_a = np.empty(nroots, dtype=utils.IntType)
                 layers_a_iset = PETSc.IS().createGeneral(layers_a, comm=self._comm)
@@ -1121,11 +1117,8 @@ class CheckpointFile(object):
                 cell = tmesh.ufl_cell()
                 element = finat.ufl.FiniteElement("DP" if cell.is_simplex else "DQ", cell, 0)
                 cell_orientations_tV = self._load_function_space_topology(tmesh, element)
-                tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
-                                                               tmesh._distribution_name,
-                                                               tmesh._permutation_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
-                _, _, lsf = self._function_load_utils[tmesh_key + sd_key]
+                _, _, lsf = self._shared_data_cache(tmesh)[sd_key]
                 nroots, _, _ = lsf.getGraph()
                 cell_orientations_a = np.empty(nroots, dtype=utils.IntType)
                 cell_orientations_a_iset = PETSc.IS().createGeneral(cell_orientations_a, comm=self._comm)
@@ -1270,11 +1263,8 @@ class CheckpointFile(object):
     def _load_function_space_topology(self, tmesh, element):
         if element.family() == "Real":
             return impl.RealFunctionSpace(tmesh, element, "unused_name")
-        tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
-                                                       tmesh._distribution_name,
-                                                       tmesh._permutation_name)
         sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
-        if tmesh_key + sd_key not in self._function_load_utils:
+        if sd_key not in self._shared_data_cache(tmesh):
             topology_dm = tmesh.topology_dm
             dm = PETSc.DMShell().create(comm=tmesh._comm)
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
@@ -1293,7 +1283,7 @@ class CheckpointFile(object):
                 if dm.getSection() is not cached_section:
                     # The same section has already been cached.
                     dm.setSection(cached_section)
-            self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
+            self._shared_data_cache(tmesh)[sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
     @PETSc.Log.EventDecorator("LoadFunction")
@@ -1379,10 +1369,7 @@ class CheckpointFile(object):
             with tf.dat.vec_wo as vec:
                 vec.setName(tf_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
-                tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
-                                                               tmesh._distribution_name,
-                                                               tmesh._permutation_name)
-                dm, sf, _ = self._function_load_utils[tmesh_key + sd_key]
+                dm, sf, _ = self._shared_data_cache(tmesh)[sd_key]
                 base_tmesh_name = topology_dm.getName()
                 topology_dm.setName(tmesh.name)
                 topology_dm.globalVectorLoad(self.viewer, dm, sf, vec)
@@ -1459,6 +1446,14 @@ class CheckpointFile(object):
             return "_".join([PREFIX, "dm", "real", str(block_size)])
         sd_key = self._get_shared_data_key_for_checkpointing(tmesh, ufl_element)
         return self._generate_dm_name(*sd_key)
+
+    def _shared_data_cache(self, tmesh):
+        # Cache gsf/lsf that push forward the on-disk DoF vector to the in-memory global/local vectors.
+        # Cache on mesh, not on self, so that they can be used across multiple CheckpointFile instances
+        # (at the cost of longer life).
+        if not hasattr(tmesh, "_shared_data_cache"):
+            raise RuntimeError(f"_shared_data_cache not on {tmesh}")
+        return tmesh._shared_data_cache["checkpointfile_" + self.filename]
 
     def _path_to_topologies(self):
         return "topologies"
