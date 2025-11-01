@@ -435,6 +435,8 @@ class RieszMap:
         variational problem that solves for the Riesz map.
     restrict: bool
         If `True`, use restricted function spaces in the Riesz map solver.
+    constant_jacobian : bool
+        Whether the matrix associated with the map is constant.
     """
 
     def __init__(self, function_space_or_inner_product=None,
@@ -539,3 +541,10 @@ class RieszMap:
                 f"Unable to ascertain if {value} is primal or dual."
             )
         return output
+
+    @property
+    def constant_jacobian(self) -> bool:
+        """Whether the matrix associated with the map is constant.
+        """
+
+        return self._constant_jacobian
