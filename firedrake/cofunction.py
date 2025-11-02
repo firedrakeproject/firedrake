@@ -126,7 +126,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for i, component in enumerate(self.dat.axes.root.components):
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
                 subspace = self.function_space().sub(i)
                 subdat = self.dat[component.label]
                 subfunc = type(self)(

@@ -1403,16 +1403,26 @@ class AbstractMeshTopology(abc.ABC):
         _, facet_support_dat = self._support_dats[self.facet_label][self.cell_label]
 
         if facet_type == "exterior":
-            facet_axis = self.exterior_facets.as_axis()
+            facet_axis = self.exterior_facets.owned.as_axis()
             selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True).indices
             arity = 1
         else:
-            facet_axis = self.interior_facets.as_axis()
+            facet_axis = self.interior_facets.owned.as_axis()
             selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True).indices
             arity = 2
 
         # NOTE: HERE
-        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets), label=facet_axis.component.label)], label=facet_axis.label)
+        mysubset = op3.Slice(
+            facet_support_dat.axes.root.label,
+            [
+                op3.Subset(
+                    facet_support_dat.axes.root.component.label,
+                    op3.Dat.from_array(selected_facets),
+                    label=facet_axis.component.label,
+                )
+            ],
+            label=facet_axis.label,
+        )
 
         *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()
         myslice = op3.Slice(leaf_axis_label, [op3.AffineSliceComponent(leaf_component_label, stop=arity)], label="support")

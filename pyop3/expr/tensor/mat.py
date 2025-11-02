@@ -448,7 +448,7 @@ class Mat(Tensor):
     @classmethod
     def from_sparsity(cls, sparsity, **kwargs):
         buffer = sparsity.buffer.materialize()
-        return cls(sparsity.row_axis_forest, sparsity.column_axis_forest, buffer, **kwargs)
+        return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)
 
     def zero(self, *, eager=False):
         if not isinstance(self.buffer, PetscMatBuffer):

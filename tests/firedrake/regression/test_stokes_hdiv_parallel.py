@@ -135,3 +135,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     assert numpy.allclose(err_div, 0, atol=1e-7, rtol=1e-5)
     assert (numpy.log2(err_u[:-1] / err_u[1:]) > 2.8).all()
     assert (numpy.log2(err_p[:-1] / err_p[1:]) > 1.8).all()
+
+
+if __name__ == "__main__":
+    test_stokes_hdiv_parallel("aij", (("RT", 3), ("DG", 2)))

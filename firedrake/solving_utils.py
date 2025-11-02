@@ -366,7 +366,7 @@ class _SNESContext(object):
             # anyway.
             # So we pull it apart and will make a new function on the
             # subspace that shares data.
-            slice_ = [problem.u_restrict.dat.axes.root.component_labels[i] for i in field]
+            slice_ = [problem.u_restrict.dat.axes.trees[0].root.component_labels[i] for i in field]
             val = problem.u_restrict.dat[slice_]
             subu = Function(V, val=val)
             if len(field) == 1:
