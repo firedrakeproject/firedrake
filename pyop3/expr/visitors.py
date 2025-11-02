@@ -479,8 +479,8 @@ def _(dat: op3_expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Dat
 @concretize_layouts.register(op3_expr.Mat)
 def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.BufferExpression:
     nest_indices = ()
-    row_axes = mat.row_axes
-    column_axes = mat.caxes
+    row_axes = matching_axis_tree(mat.row_axes, axis_trees[0])
+    column_axes = matching_axis_tree(mat.column_axes, axis_trees[1])
     if mat.buffer.is_nested:
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
             raise NotImplementedError

@@ -509,13 +509,10 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 @concretize_layouts.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
-    # The shape of the assignment is simply the shape of the assignee, nothing else
-    # makes sense. For more complex things loops should be used.
-    axis_trees = get_shape(assignment.assignee)
-    assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
-    expression = concretize_expression_layouts(assignment.expression, axis_trees)
+    assignee = concretize_expression_layouts(assignment.assignee, assignment.shape)
+    expression = concretize_expression_layouts(assignment.expression, assignment.shape)
 
-    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type, comm=assignment.internal_comm)
+    return NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.internal_comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 5

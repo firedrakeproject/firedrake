@@ -121,7 +121,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
             subfuncs = []
-            for i, component in enumerate(self.dat.axes.root.components):
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
                 subspace = self.function_space().sub(i)
                 subdat = self.dat[component.label]
                 subfunc = CoordinatelessFunction(

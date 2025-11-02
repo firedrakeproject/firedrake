@@ -2038,6 +2038,10 @@ class AxisForest(DistributedObject):
     def owned(self) -> AxisForest:
         return type(self)((tree.owned for tree in self.trees))
 
+    @property
+    def _buffer_slice(self):
+        return self.trees[0]._buffer_slice
+
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable, DistributedObject):
 
@@ -2424,7 +2428,7 @@ def trim_axis_targets(targets, to_trim):
 
 def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:
     if isinstance(candidate, AxisForest):
-        return utils.single_valued(
+        return next(
             candidate_
             for candidate_ in candidate.trees
             if axis_tree_is_valid_subset(candidate_, target)

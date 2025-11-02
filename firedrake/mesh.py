@@ -1351,24 +1351,24 @@ class AbstractMeshTopology(abc.ABC):
             return self.topology_dm.getSupport(pt)
 
         supports = []
-        for dim in range(self.dimension+1):
+        for from_dim in range(self.dimension+1):
             # cells have no support
-            if dim == self.dimension:
+            if from_dim == self.dimension:
                 supports.append({})
                 continue
 
-            map_data, sizes = self._memoize_map(support_func, dim)
+            map_data, sizes = self._memoize_map(support_func, from_dim)
             # renumber it
             for to_dim, size in sizes.items():
                 map_data[to_dim], sizes[to_dim] = self._renumber_map(
                     map_data[to_dim],
-                    dim,
+                    from_dim,
                     to_dim,
                     size,
                 )
 
             # only the next dimension has entries
-            map_dim = dim + 1
+            map_dim = from_dim + 1
             size = sizes[map_dim]
             data = map_data[map_dim]
 
@@ -1379,15 +1379,18 @@ class AbstractMeshTopology(abc.ABC):
                 )
             )
 
-            outer_axis = self.points[dim].root
-            # size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
-            size_dat = op3.Dat(outer_axis, data=size, prefix="size")
-            inner_axis = op3.Axis(size_dat)
-            map_axes = op3.AxisTree.from_nest(
-                {outer_axis: inner_axis}
+            iterset_axis = self.points[from_dim].as_axis()
+            size_dat = op3.Dat(iterset_axis, data=size, prefix="size")
+            support_axes = op3.AxisTree.from_iterable([
+                iterset_axis, op3.Axis(size_dat)
+            ])
+            support_dat = op3.Dat(support_axes, data=data, prefix="support")
+            owned_support_dat = op3.Dat(
+                support_axes.owned.materialize(), data=support_dat.data_ro, prefix="support"
             )
-            map_dat = op3.Dat(map_axes, data=data, prefix="support")
-            supports.append({map_dim: map_dat})
+
+
+            supports.append({map_dim: (support_dat, owned_support_dat)})
         return tuple(supports)
 
     # this is almost completely pointless
@@ -1397,7 +1400,7 @@ class AbstractMeshTopology(abc.ABC):
         # Get the support map for *all* facets in the mesh, not just the
         # exterior/interior ones. We have to filter it. Note that these
         # dats are ragged because support sizes are not consistent.
-        facet_support_dat = self._support_dats[self.facet_label][self.cell_label]
+        _, facet_support_dat = self._support_dats[self.facet_label][self.cell_label]
 
         if facet_type == "exterior":
             facet_axis = self.exterior_facets.as_axis()
@@ -1408,6 +1411,7 @@ class AbstractMeshTopology(abc.ABC):
             selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True).indices
             arity = 2
 
+        # NOTE: HERE
         mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets), label=facet_axis.component.label)], label=facet_axis.label)
 
         *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()

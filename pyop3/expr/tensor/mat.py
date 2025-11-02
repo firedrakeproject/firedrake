@@ -17,11 +17,12 @@ from pyop3 import utils
 from pyop3.typing import KwargsT
 from .base import Tensor
 from .dat import Dat
-from pyop3.tree.axis_tree.tree import (
+from pyop3.tree.axis_tree import (
     AbstractAxisTree,
     AxisForest,
     AxisTree,
     ContextSensitiveAxisTree,
+    as_axis_tree_type,
 )
 from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
 from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
@@ -43,8 +44,8 @@ class Mat(Tensor):
 
     # {{{ instance attributes
 
-    row_axis_forest: AxisForest
-    column_axis_forest: AxisForest
+    row_axes: AxisTreeT
+    column_axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
     _parent: Mat | None
@@ -62,12 +63,12 @@ class Mat(Tensor):
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
-        row_axis_forest = as_axis_forest(row_axes)
-        column_axis_forest = as_axis_forest(column_axes)
+        row_axes = as_axis_tree_type(row_axes)
+        column_axes = as_axis_tree_type(column_axes)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.row_axis_forest = row_axis_forest
-        self.column_axis_forest = column_axis_forest
+        self.row_axes = row_axes
+        self.column_axes = column_axes
         self._buffer = buffer
         self._name = name
         self._parent = parent
@@ -75,8 +76,7 @@ class Mat(Tensor):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        assert isinstance(self.row_axis_forest, AxisForest)
-        assert isinstance(self.column_axis_forest, AxisForest)
+        pass
 
     # }}}
 
@@ -187,9 +187,9 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        indexed_row_axes = as_axis_forest(self.row_axis_forest.getitem(row_index, strict=strict))
-        indexed_column_axes = as_axis_forest(self.column_axis_forest.getitem(column_index, strict=strict))
-        return self.__record_init__(row_axis_forest=indexed_row_axes, column_axis_forest=indexed_column_axes)
+        indexed_row_axes = self.row_axes.getitem(row_index, strict=strict)
+        indexed_column_axes = self.column_axes.getitem(column_index, strict=strict)
+        return self.__record_init__(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
         # from pyop3.tree.index_tree import index_axes
         # from pyop3.tree.index_tree.parse import as_index_forest
         # # does not work as indices may not be hashable, parse first?
@@ -287,9 +287,9 @@ class Mat(Tensor):
         # return mat
 
     def with_context(self, context):
-        row_axes = self.row_axis_forest.with_context(context)
-        col_axes = self.column_axis_forest.with_context(context)
-        return self.__record_init__(row_axis_forest=row_axes, column_axis_forest=col_axes)
+        cf_row_axes = self.row_axes.with_context(context)
+        cf_column_axes = self.column_axes.with_context(context)
+        return self.__record_init__(row_axes=cf_row_axes, column_axes=cf_column_axes)
 
     @property
     def context_free(self):
@@ -299,25 +299,17 @@ class Mat(Tensor):
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     @property
-    def row_axes(self):
-        return self.row_axis_forest.trees[0]
-
-    @property
-    def column_axes(self):
-        return self.column_axis_forest.trees[0]
-
-    @property
     @utils.deprecated("row_axes")
     def raxes(self):
         return self.row_axes
 
     @property
-    @utils.deprecated("row_axes")
+    @utils.deprecated("comn_axes")
     def caxes(self):
-        return self.column_axis_forest.trees[0]
+        return self.column_axes
 
     def with_axes(self, row_axes, col_axes):
-        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]))
+        return self.__record_init__(row_axes=row_axes, column_axes=col_axes)
 
     @property
     def leaf_layouts(self):

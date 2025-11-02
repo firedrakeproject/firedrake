@@ -25,7 +25,7 @@ from pyrsistent import PMap, pmap
 
 from pyop3 import utils
 from pyop3.tree.axis_tree import AxisTree
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
 from pyop3.sf import DistributedObject
 from pyop3.config import config
@@ -729,16 +729,33 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-@utils.frozenrecord()
-class AssignmentShape:
-    axis_trees: tuple[AxisTree, ...]
-    assignee_axis_trees: tuple[AxisTree | None, ...]
-    expression_axis_trees: tuple[AxisTree | None, ...]
-
-    def __post_init__(self) -> None:
-        assert utils.single_valued(
-            map(len, [self.axis_trees, self.assignee_axis_trees, self.expression_axis_trees])
-        )
+# @utils.frozenrecord()
+# class AssignmentShape:
+#     """
+#     This class is necessary to encapsulate more complex assignments. Examples
+#     include:
+#
+#         dat1[i] = dat2[j]
+#         mat[i, j] = dat1[i] + dat2[j]
+#
+#     Ah, this latter case demonstrates that this isn't quite right... the expression
+#     takes bits of the first axis tree and bits of the second.
+#
+#     Also, it would be extremely confusing to have
+#
+#         dat1[i] = dat1[j]
+#
+#     with 2 axis trees. Maybe we need loops in most cases...
+#
+#     """
+#     axis_trees: tuple[AxisTree, ...]
+#     assignee_axis_trees: tuple[AxisTree | None, ...]
+#     expression_axis_trees: tuple[AxisTree | None, ...]
+#
+#     def __post_init__(self) -> None:
+#         assert utils.single_valued(
+#             map(len, [self.axis_trees, self.assignee_axis_trees, self.expression_axis_trees])
+#         )
 
 
 # TODO: not sure need to specify 'array' here
@@ -769,6 +786,21 @@ class ArrayAssignment(AbstractAssignment):
     @property
     def user_comm(self) -> MPI.Comm:
         return utils.common_comm([self.assignee, self.expression], "user_comm", allow_undefined=True) or MPI.COMM_SELF
+
+    # NOTE: Wrong type here...
+    @property
+    def shape(self) -> tuple[AxisTree, ...]:
+        from pyop3.expr.visitors import get_shape
+
+        # The shape of the assignment is simply the shape of the assignee, nothing else
+        # makes sense. For more complex things loops should be used.
+        axis_trees = []
+        for axis_obj in get_shape(self.assignee):
+            if isinstance(axis_obj, AxisForest):
+                # just take the first
+                axis_obj = axis_obj.trees[0]
+            axis_trees.append(axis_obj)
+        return tuple(axis_trees)
 
     # }}}
 

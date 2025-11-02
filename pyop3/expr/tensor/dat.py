@@ -20,7 +20,6 @@ from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
-    as_axis_forest,
     collect_unindexed_axis_trees,
     as_axis_tree_type,
 )

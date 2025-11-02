@@ -29,6 +29,11 @@ def as_axis_forest(arg: Any) -> AxisForest:
     return as_axis_forest(axis_tree)
 
 
+@as_axis_forest.register(ContextSensitiveAxisTree)
+def _(arg):
+    raise TypeError
+
+
 @as_axis_forest.register(AxisForest)
 def _(arg):
     return arg
