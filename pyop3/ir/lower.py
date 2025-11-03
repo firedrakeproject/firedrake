@@ -377,7 +377,8 @@ class CompiledCodeExecutor:
 
         # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
         # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if "idat_0[30" in str(self):
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:

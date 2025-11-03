@@ -2059,15 +2059,15 @@ class MixedFunctionSpace:
 
     def _collect_ises(self, *, local):
         if local:
-            size = self.axes.size
+            size = self.axes.local_size
             start = 0
         else:
-            size = self.axes.owned.size
+            size = self.axes.owned.local_size
             start = self.comm.exscan(size) or 0
 
         ises = []
         for i, subspace in enumerate(self._spaces):
-            nrows = self.axes[i].size if local else self.axes[i].owned.size
+            nrows = self.axes[i].local_size if local else self.axes[i].owned.local_size
             iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
             iset.setBlockSize(subspace.value_size)
             ises.append(iset)
