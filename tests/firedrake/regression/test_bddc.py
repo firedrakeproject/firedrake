@@ -24,14 +24,14 @@ def bddc_params():
     return sp
 
 
-def solver_parameters(static_condensation=False, variant=None):
-    rtol = 1E-8
-    atol = 0
+def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0):
     sp_bddc = bddc_params()
-    if variant != "fdm":
+    if not cellwise:
+        assert not condense
         sp = sp_bddc
 
-    elif static_condensation:
+    elif condense:
+        assert variant == "fdm"
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FacetSplitPC",
@@ -46,10 +46,12 @@ def solver_parameters(static_condensation=False, variant=None):
             "facet_fdm_pc_fieldsplit_diag_use_amat": False,
             "facet_fdm_pc_fieldsplit_off_diag_use_amat": False,
             "facet_fdm_fieldsplit_ksp_type": "preonly",
-            "facet_fdm_fieldsplit_0_pc_type": "jacobi",
+            "facet_fdm_fieldsplit_0_pc_type": "bjacobi",
+            "facet_fdm_fieldsplit_0_pc_type_sub_pc_type": "icc",
             "facet_fdm_fieldsplit_1": sp_bddc,
         }
     else:
+        assert variant == "fdm"
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",
@@ -62,7 +64,6 @@ def solver_parameters(static_condensation=False, variant=None):
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
         "ksp_converged_reason": None,
-        "ksp_monitor": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
     })
@@ -71,7 +72,9 @@ def solver_parameters(static_condensation=False, variant=None):
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, condense=False, vector=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False):
+    """Solve the riesz map for a random manufactured solution and return the
+       square root of the estimated condition number."""
     dirichlet_ids = []
     if bcs:
         dirichlet_ids = ["on_boundary"]
@@ -120,20 +123,25 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, condense=False, vect
     uh = Function(V, name="solution")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
-    sp = solver_parameters(condense, variant=variant)
+    rtol = 1E-8
+    sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol)
+    sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp)
     solver.solve()
-    rtol = sp.get("ksp_rtol", 1E-8)
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
-    return solver.snes.getLinearSolveIterations()
+
+    ew = solver.snes.ksp.computeEigenvalues()
+    assert min(ew) >= 1.0
+    kappa = max(abs(ew)) / min(abs(ew))
+    return kappa ** 0.5
 
 
 @pytest.fixture(params=(2, 3), ids=("square", "cube"))
 def mh(request):
     dim = request.param
-    nx = 3
+    nx = 4
     base = UnitSquareMesh(nx, nx, quadrilateral=True)
     mh = MeshHierarchy(base, 1)
     if dim == 3:
@@ -154,34 +162,35 @@ def test_vertex_dofs(mh, variant, degree):
     assert v.getSizes() == P1.dof_dset.layout_vec.getSizes()
 
 
-@pytest.mark.parallel
-@pytest.mark.parametrize("family,degree", [("Q", 4)])
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family,degree", [("Q", 4), ("E", 3), ("F", 3)])
 @pytest.mark.parametrize("condense", (False, True))
-def test_bddc_fdm(rg, mh, family, degree, condense):
+def test_bddc_cellwise_fdm(rg, mh, family, degree, condense):
     """Test h-independence of condition number by measuring iteration counts"""
     variant = "fdm"
     bcs = True
-    its = [solve_riesz_map(rg, m, family, degree, variant, bcs, condense=condense) for m in mh]
-    assert (np.diff(its) <= 2).all()
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=True, condense=condense) for m in mh]
+    assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
 @pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
 def test_bddc_aij_quad(rg, mh, family, degree, vector):
-    """Test h-independence of condition number by measuring iteration counts"""
+    """Test h-dependence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
-    its = [solve_riesz_map(rg, m, family, degree, variant, bcs, vector=vector) for m in mh]
-    assert (np.diff(its) <= 2).all()
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, vector=vector) for m in mh]
+    assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("CG", 3), ("N1curl", 3), ("N1div", 3)])
 def test_bddc_aij_simplex(rg, family, degree):
-    """Test h-independence of condition number by measuring iteration counts"""
+    """Test h-dependence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
-    meshes = [UnitCubeMesh(nx, nx, nx) for nx in (3, 6)]
-    its = [solve_riesz_map(rg, m, family, degree, variant, bcs) for m in meshes]
-    assert (np.diff(its) <= 2).all()
+    base = UnitCubeMesh(2, 2, 2)
+    meshes = MeshHierarchy(base, 2)
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs) for m in meshes]
+    assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)

@@ -157,7 +157,12 @@ def get_discrete_gradient(V):
 
     Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
     gradient = tabulate_exterior_derivative(Q, V)
-    nsp = VectorSpaceBasis([Function(Q).interpolate(Constant(1))])
+    basis = Function(Q)
+    try:
+        basis.interpolate(Constant(1))
+    except NotImplementedError:
+        basis.project(Constant(1))
+    nsp = VectorSpaceBasis([basis])
     nsp.orthonormalize()
     gradient.setNullSpace(nsp.nullspace())
     if not is_lagrange(Q.finat_element):
