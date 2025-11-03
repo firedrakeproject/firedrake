@@ -65,7 +65,8 @@ class BDDCPC(PCBase):
         # Handle boundary dofs
         ctx = get_appctx(dm)
         bcs = tuple(ctx._problem.dirichlet_bcs())
-        if V.extruded:
+        mesh = V.mesh().unique()
+        if mesh.extruded and not mesh.extruded_periodic:
             boundary_nodes = numpy.unique(numpy.concatenate(list(map(V.boundary_nodes, ("on_boundary", "top", "bottom")))))
         else:
             boundary_nodes = V.boundary_nodes("on_boundary")
