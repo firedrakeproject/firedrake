@@ -473,7 +473,7 @@ class FDMPC(PCBase):
             dku = ufl.div(u) if sobolev == ufl.HDiv else ufl.curl(u)
             eps = expand_derivatives(ufl.diff(ufl.replace(expand_derivatives(dku), {ufl.grad(u): du}), du))
             if sobolev == ufl.HDiv:
-                map_grad = lambda p: ufl.outer(p, eps/tdim)
+                map_grad = lambda p: ufl.conj(ufl.outer(p, eps/tdim))
             elif len(eps.ufl_shape) == 3:
                 map_grad = lambda p: ufl.dot(p, eps/2)
             else:
@@ -2227,7 +2227,7 @@ class PoissonFDMPC(FDMPC):
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=alpha.ufl_shape))
             tensor = coefficients.setdefault("alpha", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), alpha)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ufl.inner(alpha, TestFunction(Q))*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
@@ -2248,7 +2248,7 @@ class PoissonFDMPC(FDMPC):
                 beta = ufl.diag_vector(beta)
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
             tensor = coefficients.setdefault("beta", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), beta)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ufl.inner(beta, TestFunction(Q))*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         family = "CG" if tdim == 1 else "DGT"
         degree = 1 if tdim == 1 else 0
@@ -2270,11 +2270,11 @@ class PoissonFDMPC(FDMPC):
 
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), G), form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ifacet_inner(G, TestFunction(Q)), form_compiler_parameters=fcp).assemble, tensor=tensor))
             PT = Piola.T
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), PT), form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ifacet_inner(PT, TestFunction(Q)), form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # make DGT functions with BC flags
         shape = V.ufl_element().reference_value_shape
@@ -2294,7 +2294,7 @@ class PoissonFDMPC(FDMPC):
                 if beta.ufl_shape:
                     beta = ufl.diag_vector(beta)
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
-                forms.append(ufl.inner(test, beta)*ds_ext)
+                forms.append(ufl.inner(beta, test)*ds_ext)
 
         tensor = coefficients.setdefault("bcflags", Function(Q.dual()))
         if len(forms):
