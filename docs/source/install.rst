@@ -178,7 +178,8 @@ For the default build, running ``firedrake-configure`` with
 
 
    where ``PETSC_DIR=/path/to/petsc`` and ``PETSC_ARCH=arch-firedrake-default``.
-   This will allow the MPI executables (``mpicc``, ``mpiexec``, etc) to be found.
+   This will allow the MPI executables (``mpicc``, ``mpiexec``, etc) installed by
+   PETSc to be found before any other versions installed on your machine.
 
 
 .. _install_firedrake:
