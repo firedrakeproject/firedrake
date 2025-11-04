@@ -407,23 +407,33 @@ class _SNESContext(object):
                 F += problem.compute_bc_lifting(J, subu)
             else:
                 F = replace(F, {problem.u_restrict: u})
+
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
-            bcs = []
-            for bc in problem.bcs:
-                if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
-                elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
-                if bc_temp is not None:
-                    bcs.append(bc_temp)
+
+            if isinstance(J, MatrixBase) and J.has_bcs:
+                bcs = None
+            else:
+                bcs = []
+                for bc in problem.bcs:
+                    if isinstance(bc, DirichletBC):
+                        bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg)
+                    elif isinstance(bc, EquationBC):
+                        bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
+                    if bc_temp is not None:
+                        bcs.append(bc_temp)
+
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
+            splits.append(type(self)(new_problem,
+                                     mat_type=self.mat_type,
+                                     pmat_type=self.pmat_type,
+                                     sub_mat_type=self.sub_mat_type,
+                                     sub_pmat_type=self.sub_pmat_type,
                                      appctx=self.appctx,
                                      transfer_manager=self.transfer_manager,
                                      pre_apply_bcs=self.pre_apply_bcs))
@@ -503,6 +513,15 @@ class _SNESContext(object):
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
+
+        # Bump petsc matrix state of each split by assembling them.
+        # Ensures that if the matrix changed, the preconditioner is
+        # updated if necessary.
+        for field, splits in ctx._splits.items():
+            for subctx in splits:
+                subctx._jac.assemble()
+                if subctx.Jp is not None:
+                    subctx._pjac.assemble()
 
     @staticmethod
     def compute_operators(ksp, J, P):

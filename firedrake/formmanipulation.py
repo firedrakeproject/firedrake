@@ -1,4 +1,3 @@
-
 import numpy
 import collections
 
@@ -161,6 +160,7 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
     def matrix(self, o):
+        from firedrake.bcs import DirichletBC, EquationBC
         ises = []
         args = []
         for a in o.arguments():
@@ -180,8 +180,22 @@ class ExtractSubBlock(MultiFunction):
             args.append(asplit)
 
         submat = o.petscmat.createSubMatrix(*ises)
-        bcs = ()
-        return AssembledMatrix(tuple(args), bcs, submat)
+        bcs = []
+        spaces = [a.function_space() for a in o.arguments()]
+        for bc in o.bcs:
+            W = bc.function_space()
+            W = W.parent or W
+
+            number = spaces.index(W)
+            V = args[number].function_space()
+            field = self.blocks[number]
+            if isinstance(bc, DirichletBC):
+                sub_bc = bc.reconstruct(field=field, V=V, g=bc.function_arg)
+            elif isinstance(bc, EquationBC):
+                raise NotImplementedError("Please get in touch if you need this")
+            if sub_bc is not None:
+                bcs.append(sub_bc)
+        return AssembledMatrix(tuple(args), tuple(bcs), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))

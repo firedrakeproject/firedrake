@@ -152,6 +152,40 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     assert norm(f) < 1e-11
 
 
+def test_nonlinear_fielsplit():
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "DG", 0)
+    Z = V * V * V
+
+    u = Function(Z)
+    u0, u1, u2 = split(u)
+    v0, v1, v2 = TestFunctions(Z)
+
+    F = inner(u0, v0) * dx
+    F += inner(0.5*u1**2 + u1, v1) * dx
+    F += inner(u2, v2) * dx
+    u.subfunctions[1].assign(Constant(1))
+
+    sp = {
+        "mat_type": "nest",
+        "snes_max_it": 10,
+        "ksp_type": "fgmres",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+        "pc_fieldsplit_0_fields": "0",
+        "pc_fieldsplit_1_fields": "1,2",
+        "fieldsplit_1_ksp_view_eigenvalues": None,
+        "fieldsplit": {
+            "ksp_type": "gmres",
+            "pc_type": "jacobi",
+        },
+    }
+    J = derivative(F, u)
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u), solver_parameters=sp)
+    solver.solve()
+    assert np.allclose(solver.snes.ksp.pc.getFieldSplitSubKSP()[1].computeEigenvalues(), 1)
+
+
 def test_matrix_types(W):
     a = inner(TrialFunction(W), TestFunction(W))*dx
 
