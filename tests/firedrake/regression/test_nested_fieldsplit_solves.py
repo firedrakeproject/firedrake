@@ -180,8 +180,8 @@ def test_nonlinear_fieldsplit():
             "pc_type": "jacobi",
         },
     }
-    J = derivative(F, u)
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u), solver_parameters=sp)
+    problem = NonlinearVariationalProblem(F, u)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
     assert np.allclose(solver.snes.ksp.pc.getFieldSplitSubKSP()[1].computeEigenvalues(), 1)
 
