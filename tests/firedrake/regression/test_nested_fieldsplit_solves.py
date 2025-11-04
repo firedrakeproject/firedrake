@@ -152,7 +152,7 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     assert norm(f) < 1e-11
 
 
-def test_nonlinear_fielsplit():
+def test_nonlinear_fieldsplit():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "DG", 0)
     Z = V * V * V
