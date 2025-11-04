@@ -165,7 +165,7 @@ class ASMStarPC(ASMPatchPC):
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
-        validate_overlap(mesh, depth, "star")
+        validate_overlap(mesh_unique, depth, "star")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -248,7 +248,7 @@ class ASMVankaPC(ASMPatchPC):
         else:
             (start, end) = mesh_dm.getHeightStratum(height)
             patch_dim = mesh_dm.getDimension() - height
-        validate_overlap(mesh, patch_dim, "vanka")
+        validate_overlap(mesh_unique, patch_dim, "vanka")
 
         for seed in range(start, end):
             # Only build patches over owned DoFs
@@ -475,7 +475,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             else:
                 continue
 
-            validate_overlap(mesh, base_depth, "star")
+            validate_overlap(mesh_unique, base_depth, "star")
             start, end = mesh_dm.getDepthStratum(base_depth)
             for seed in range(start, end):
                 # Only build patches over owned DoFs
