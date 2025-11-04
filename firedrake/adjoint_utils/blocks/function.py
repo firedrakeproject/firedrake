@@ -202,10 +202,7 @@ class SubfunctionBlock(Block):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         eval_adj = firedrake.Cofunction(block_variable.output.function_space().dual())
-        if type(adj_inputs[0]) is firedrake.Cofunction:
-            eval_adj.sub(self.sub_idx).assign(adj_inputs[0])
-        else:
-            eval_adj.sub(self.sub_idx).assign(adj_inputs[0].function)
+        eval_adj.sub(self.sub_idx).assign(adj_inputs[0])
         return eval_adj
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
@@ -262,28 +259,22 @@ class FunctionMergeBlock(Block):
             adj_inputs[0].subfunctions[self.sub_idx].zero()
             return adj_inputs[0]
 
-    def evaluate_tlm(self, markings=False):
-        tlm_input = self.get_dependencies()[0].tlm_value
-        if tlm_input is None:
-            print("tlm_input[0] is None")
-            return
-        output = self.get_outputs()[0]
-        if markings and not output.is_control_dependent:
-            print(f"{markings = }")
-            print(f"{output.is_control_dependent = }")
-            return
-        fs = output.output.function_space()
-        f = type(output.output)(fs)
-        output.add_tlm_output(
-            type(output.output).assign(f.sub(self.sub_idx), tlm_input)
-        )
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        sub_tlm = tlm_inputs[0]
+        parent_in = tlm_inputs[1]
 
-    # def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
-    #     sub_tlm = tlm_inputs[0]
-    #     parent_in = tlm_inputs[1]
-    #     parent_out = type(parent_in)(parent_in)
-    #     parent_out.sub(self.sub_idx).assign(sub_tlm)
-    #     return parent_out
+        if sub_tlm is None and parent_in is None:
+            return None
+
+        output = self.get_outputs()[0].output
+        parent_out = type(output)(output.function_space())
+
+        if parent_in is not None:
+            parent_out.assign(parent_in)
+        if sub_tlm is not None:
+            parent_out.sub(self.sub_idx).assign(sub_tlm)
+
+        return parent_out
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
