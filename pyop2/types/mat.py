@@ -372,7 +372,7 @@ def mask_ghost_cells(cell_node_map):
 
 
 def unghosted_lgmap(dset, node_maps):
-    """Return a local-to-global map where the nodes on ghost cell are masked out."""
+    """Return a local-to-global map where the nodes on ghost cells are masked out."""
     if len(node_maps) == 1:
         # Non-mixed case
         cmap, = node_maps
