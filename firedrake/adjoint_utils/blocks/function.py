@@ -210,7 +210,7 @@ class SubfunctionBlock(Block):
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
-        return firedrake.Function.sub(tlm_inputs[0], self.sub_idx)
+        return tlm_inputs[0].sub(self.sub_idx)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
@@ -220,9 +220,7 @@ class SubfunctionBlock(Block):
         return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        return maybe_disk_checkpoint(
-            firedrake.Function.sub(inputs[0], self.sub_idx)
-        )
+        return maybe_disk_checkpoint(inputs[0].sub(self.sub_idx))
 
     def __str__(self):
         return f"{self.get_dependencies()[0]}[{self.sub_idx}]"
@@ -267,9 +265,12 @@ class FunctionMergeBlock(Block):
     def evaluate_tlm(self, markings=False):
         tlm_input = self.get_dependencies()[0].tlm_value
         if tlm_input is None:
+            print("tlm_input[0] is None")
             return
         output = self.get_outputs()[0]
-        if markings and not output.marked_in_path:
+        if markings and not output.is_control_dependent:
+            print(f"{markings = }")
+            print(f"{output.is_control_dependent = }")
             return
         fs = output.output.function_space()
         f = type(output.output)(fs)
@@ -277,10 +278,21 @@ class FunctionMergeBlock(Block):
             type(output.output).assign(f.sub(self.sub_idx), tlm_input)
         )
 
+    # def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+    #     sub_tlm = tlm_inputs[0]
+    #     parent_in = tlm_inputs[1]
+    #     parent_out = type(parent_in)(parent_in)
+    #     parent_out.sub(self.sub_idx).assign(sub_tlm)
+    #     return parent_out
+
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        return hessian_inputs[0]
+        if idx == 0:
+            return hessian_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
+        else:
+            hessian_inputs[0].subfunctions[self.sub_idx].zero()
+            return hessian_inputs[0]
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
