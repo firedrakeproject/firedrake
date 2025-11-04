@@ -799,7 +799,7 @@ class PatchBase(PCSNESBase):
             patch_dim = self.plex.getDimension() - patch_codim
         else:
             patch_dim = 0
-        validate_overlap(mesh, patch_dim, patch_type)
+        validate_overlap(mesh_unique, patch_dim, patch_type)
 
         patch = obj.__class__().create(comm=mesh.comm)
         patch.setOptionsPrefix(prefix)
