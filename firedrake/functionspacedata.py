@@ -408,7 +408,7 @@ class FunctionSpaceData(object):
     __slots__ = ("real_tensorproduct", "map_cache", "entity_node_lists",
                  "node_set", "cell_boundary_masks",
                  "interior_facet_boundary_masks", "offset", "offset_quotient",
-                 "extruded", "mesh", "global_numbering", "boundary_set")
+                 "extruded", "extruded_periodic", "mesh", "global_numbering", "boundary_set")
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, ufl_element, boundary_set=None):
@@ -458,6 +458,7 @@ class FunctionSpaceData(object):
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
         self.extruded = mesh.cell_set._extruded
+        self.extruded_periodic = mesh.cell_set._extruded_periodic
         self.mesh = mesh
         self.global_numbering = global_numbering
 

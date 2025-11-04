@@ -592,6 +592,7 @@ class FunctionSpace(object):
         self._shared_data = sdata
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
+        self.extruded_periodic = sdata.extruded_periodic
         self.offset = sdata.offset
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
@@ -1004,6 +1005,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         # sdata carries real_tensorproduct.
         self.real_tensorproduct = sdata.real_tensorproduct
         self.extruded = sdata.extruded
+        self.extruded_periodic = sdata.extruded_periodic
         self.offset = sdata.offset
         self.offset_quotient = sdata.offset_quotient
         self.cell_boundary_masks = sdata.cell_boundary_masks
