@@ -3,9 +3,9 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import FixedIndex, Form, ListTensor, Zero, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.algorithms import expand_derivatives
+from ufl.algorithms import expand_derivatives, expand_indices
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from pyop2 import MixedDat
@@ -78,9 +78,13 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
-        # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
-        if expand_derivatives(f).empty():
+
+        # TODO find a better way to distinguish empty Forms
+        f_expanded = expand_derivatives(f)
+        if isinstance(f_expanded, Form):
+            f_expanded = expand_indices(f_expanded)
+        if f_expanded.empty():
             # Get ZeroBaseForm with the right shape
             f = ZeroBaseForm(tuple(map(self._subspace_argument, form.arguments())))
         return f
