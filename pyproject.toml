@@ -32,7 +32,7 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==3.24.0",
-  "petsctools",
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
   # TODO RELEASE
