@@ -1,0 +1,215 @@
+import petsctools
+from firedrake.petsc import PETSc
+from firedrake.ensemble.ensemble_function import EnsembleFunction
+from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMat
+
+
+def get_default_options(default_prefix, custom_prefix_endings, options=PETSc.Options()):
+    # build all non-default prefixes
+    custom_prefixes = [default_prefix + str(ending)
+                       for ending in custom_prefix_endings]
+    for prefix in custom_prefixes:
+        if not prefix.endswith("_"):
+            prefix += "_"
+
+    default_options = {
+        k.removeprefix(default_prefix): v
+        for k, v in options.getAll().items()
+        if (k.startswith(default_prefix)
+            and not any(k.startswith(prefix) for prefix in custom_prefixes))
+    }
+    assert not any(k.startswith(str(end))
+                   for k in default_options.keys()
+                   for end in custom_prefix_endings)
+    return default_options
+
+
+def obj_name(obj):
+    return f"{type(obj).__module__}.{type(obj).__name__}"
+
+
+class PCBase:
+    needs_python_amat = False
+    needs_python_pmat = False
+
+    def __init__(self):
+        self.initialized = False
+
+    def setUp(self, pc):
+        if not self.initialized:
+            self.initialize(pc)
+            self.initialized = True
+        self.update(pc)
+
+    def initialize(self, pc):
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
+
+        self.A, self.P = pc.getOperators()
+        pcname = obj_name(self)
+        if self.needs_python_amat:
+            if self.A.getType() != "python":
+                raise ValueError(
+                    f"PC {pcname} needs a python type amat, not {self.A.getType()}")
+            self.amat = self.A.getPythonContext()
+        if self.needs_python_pmat:
+            if self.P.getType() != "python":
+                raise ValueError(
+                    f"PC {pcname} needs a python type pmat, not {self.P.getType()}")
+            self.pmat = self.P.getPythonContext()
+
+        self.parent_prefix = pc.getOptionsPrefix() or ""
+        self.full_prefix = self.parent_prefix + self.prefix
+
+    def update(self, pc):
+        pass
+
+    def view(self, pc, viewer=None):
+        if viewer is None:
+            return
+        typ = viewer.getType()
+        if typ != PETSc.Viewer.Type.ASCII:
+            return
+        viewer.printfASCII(
+            f"Python type preconditioner {obj_name(self)}\n")
+
+
+class EnsemblePCBase(PCBase):
+    needs_python_pmat = True
+
+    def initialize(self, pc):
+        super().initialize(pc)
+
+        if not isinstance(self.pmat, EnsembleBlockDiagonalMat):
+            pcname = obj_name(self)
+            pmatname = obj_name(self.pmat)
+            raise TypeError(
+                f"PC {pcname} needs an EnsembleBlockDiagonalMat pmat, but it is a {pmatname}")
+
+        self.ensemble = self.pmat.ensemble
+
+        self.row_space = self.pmat.row_space.dual()
+        self.col_space = self.pmat.col_space.dual()
+
+        self.x = EnsembleFunction(self.row_space)
+        self.y = EnsembleFunction(self.col_space)
+
+    def apply(self, pc, x, y):
+        with self.x.vec_wo() as v:
+            x.copy(result=v)
+
+        self.apply_impl(pc, self.x, self.y)
+
+        with self.y.vec_ro() as v:
+            v.copy(result=y)
+
+    def apply_impl(self, pc, x, y):
+        raise NotImplementedError
+
+
+class EnsembleBJacobiPC(EnsemblePCBase):
+    prefix = "ebjacobi_"
+
+    def initialize(self, pc):
+        super().initialize(pc)
+
+        pc_prefix = self.parent_prefix + "pc_" + self.prefix
+        self.use_amat = PETSc.Options().getBool(pc_prefix + "use_amat", False)
+
+        if not isinstance(self.pmat, EnsembleBlockDiagonalMat):
+            pcname = obj_name(self)
+            matname = obj_name(self.pmat)
+            raise TypeError(
+                f"PC {pcname} needs an EnsembleBlockDiagonalMat pmat, but it is a {matname}")
+
+        if self.use_amat:
+            if not isinstance(self.amat, EnsembleBlockDiagonalMat):
+                pcname = obj_name(self)
+                matname = obj_name(self.amat)
+                raise TypeError(
+                    f"PC {pcname} needs an EnsembleBlockDiagonalMat amat, but it is a {matname}")
+
+        # default to behaving like a PC
+        default_options = {'ksp_type': 'preonly'}
+
+        default_sub_prefix = self.parent_prefix + "sub_"
+        default_sub_options = get_default_options(
+            default_sub_prefix, range(self.col_space.nglobal_spaces))
+        default_options.update(default_sub_options)
+
+        block_offset = self.col_space.global_spaces_offset
+
+        sub_ksps = []
+        for i in range(len(self.pmat.block_mats)):
+            sub_ksp = PETSc.KSP().create(
+                comm=self.ensemble.comm)
+
+            if self.use_amat:
+                sub_amat = self.amat.block_mats[i]
+            else:
+                sub_amat = self.pmat.block_mats[i]
+
+            sub_pmat = self.pmat.block_mats[i]
+
+            sub_ksp.setOperators(sub_amat, sub_pmat)
+
+            sub_prefix = default_sub_prefix + str(block_offset + i)
+
+            petsctools.set_from_options(
+                sub_ksp, parameters=default_options,
+                options_prefix=sub_prefix)
+
+            sub_ksp.incrementTabLevel(1, parent=pc)
+            sub_ksp.pc.incrementTabLevel(1, parent=pc)
+
+            sub_ksps.append(sub_ksp)
+
+        self.sub_ksps = tuple(sub_ksps)
+
+    def apply_impl(self, pc, x, y):
+        sub_vecs = zip(self.x.subfunctions, self.y.subfunctions)
+        for sub_ksp, (subx, suby) in zip(self.sub_ksps, sub_vecs):
+            with subx.dat.vec_ro as rhs, suby.dat.vec_wo as sol:
+                with petsctools.inserted_options(sub_ksp):
+                    sub_ksp.solve(rhs, sol)
+
+    def update(self, pc):
+        for sub_ksp in self.sub_ksps:
+            sub_ksp.setUp()
+
+    def view(self, pc, viewer=None):
+        super().view(pc, viewer=viewer)
+        viewer.printfASCII("  firedrake block Jacobi preconditioner for ensemble Mats\n")
+        if self.use_amat:
+            viewer.printfASCII("  using Amat local matrix\n")
+        viewer.printfASCII(f"  Number of blocks = {self.col_space.nglobal_spaces}, Number of ensemble ranks = {self.ensemble.ensemble_size}\n")
+
+        if viewer.getFormat() != PETSc.Viewer.Format.ASCII_INFO_DETAIL:
+            viewer.printfASCII("  Local solver information for first block is in the following KSP and PC objects on rank 0:\n")
+            prefix = self.parent_prefix
+            viewer.printfASCII(f"  Use -{prefix}ksp_view ::ascii_info_detail to display information for all blocks\n")
+            subviewer = viewer.getSubViewer(self.ensemble.comm)
+            if self.ensemble.ensemble_rank == 0:
+                subviewer.pushASCIITab()
+                self.sub_ksps[0].view(subviewer)
+                subviewer.popASCIITab()
+            viewer.restoreSubViewer(subviewer)
+            # Comment taken from PCView_BJacobi in https://petsc.org/release/src/ksp/pc/impls/bjacobi/bjacobi.c.html#PCBJACOBI
+            # extra call needed because of the two calls to PetscViewerASCIIPushSynchronized() in PetscViewerGetSubViewer()
+            viewer.popASCIISynchronized()
+
+        else:
+            viewer.pushASCIISynchronized()
+            viewer.printfASCII("  Local solver information for each block is in the following KSP and PC objects:\n")
+            viewer.pushASCIITab()
+            subviewer = viewer.getSubViewer(self.ensemble.comm)
+            r = self.ensemble.ensemble_rank
+            offset = self.col_space.global_spaces_offset
+            subviewer.printfASCII(f"[{r}] number of local blocks = {self.col_space.nlocal_spaces}, first local block number = {offset}\n")
+            for i, subksp in enumerate(self.sub_ksps):
+                subviewer.printfASCII(f"[{r}] local block number {i}, global block number {offset + i}\n")
+                subksp.view(subviewer)
+                subviewer.printfASCII("- - - - - - - - - - - - - - - - - -\n")
+            viewer.restoreSubViewer(subviewer)
+            viewer.popASCIITab()
+            viewer.popASCIISynchronized()
