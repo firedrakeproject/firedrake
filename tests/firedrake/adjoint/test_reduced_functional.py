@@ -214,7 +214,7 @@ def test_interpolate():
 
     f = Function(V)
     f.dat.data[:] = 2
-    J = assemble(Interpolate(f**2, c))
+    J = assemble(interpolate(f**2, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
@@ -244,7 +244,7 @@ def test_interpolate_mixed():
     f1, f2 = split(f)
     exprs = [f2 * div(f1)**2, grad(f2) * div(f1)]
     expr = as_vector([e[i] for e in exprs for i in np.ndindex(e.ufl_shape)])
-    J = assemble(Interpolate(expr, c))
+    J = assemble(interpolate(expr, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
