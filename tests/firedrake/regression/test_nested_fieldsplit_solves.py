@@ -152,7 +152,8 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     assert norm(f) < 1e-11
 
 
-def test_nonlinear_fieldsplit():
+@pytest.mark.parametrize("mat_type,pmat_type", [("nest", "nest"), ("matfree", "nest")])
+def test_nonlinear_fieldsplit(mat_type, pmat_type):
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "DG", 0)
     Z = V * V * V
@@ -167,7 +168,8 @@ def test_nonlinear_fieldsplit():
     u.subfunctions[1].assign(Constant(1))
 
     sp = {
-        "mat_type": "nest",
+        "mat_type": mat_type,
+        "pmat_type": pmat_type,
         "snes_max_it": 10,
         "ksp_type": "fgmres",
         "pc_type": "fieldsplit",
@@ -182,8 +184,15 @@ def test_nonlinear_fieldsplit():
     }
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+
+    def mymonitor(snes, it, fnorm):
+        if it == 0:
+            # This call happens before the first linear solve
+            return
+        assert np.allclose(snes.ksp.pc.getFieldSplitSubKSP()[1].computeEigenvalues(), 1)
+
+    solver.snes.setMonitor(mymonitor)
     solver.solve()
-    assert np.allclose(solver.snes.ksp.pc.getFieldSplitSubKSP()[1].computeEigenvalues(), 1)
 
 
 def test_matrix_types(W):

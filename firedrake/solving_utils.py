@@ -353,9 +353,15 @@ class _SNESContext(object):
         splits = []
         problem = self._problem
         splitter = ExtractSubBlock()
+
+        Fbig = problem.F
+        # Reuse the submatrices if we are splitting a MatNest
+        Jbig = self._jac if self._jac.petscmat.type == "nest" else problem.J
+        Jpbig = self._pjac if self._pjac.petscmat.type == "nest" else problem.Jp
+
         for field in fields:
-            F = splitter.split(problem.F, argument_indices=(field, ))
-            J = splitter.split(problem.J, argument_indices=(field, field))
+            F = splitter.split(Fbig, argument_indices=(field, ))
+            J = splitter.split(Jbig, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
@@ -397,7 +403,6 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            J = replace(J, {problem.u_restrict: u})
             if problem.is_linear and isinstance(J, MatrixBase):
                 # The BC lifting term is action(MatrixBase, u).
                 # We cannot replace u with the split solution, as action expects a Function.
@@ -408,13 +413,15 @@ class _SNESContext(object):
             else:
                 F = replace(F, {problem.u_restrict: u})
 
-            if problem.Jp is not None:
-                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+            J = replace(J, {problem.u_restrict: u})
+            if Jpbig is not None:
+                Jp = splitter.split(Jpbig, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
 
             if isinstance(J, MatrixBase) and J.has_bcs:
+                # The BCs of the problem are already encoded in the Jacobian
                 bcs = None
             else:
                 bcs = []
@@ -517,7 +524,7 @@ class _SNESContext(object):
         # Bump petsc matrix state of each split by assembling them.
         # Ensures that if the matrix changed, the preconditioner is
         # updated if necessary.
-        for field, splits in ctx._splits.items():
+        for fields, splits in ctx._splits.items():
             for subctx in splits:
                 subctx._jac.assemble()
                 if subctx.Jp is not None:
