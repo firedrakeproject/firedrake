@@ -4,7 +4,7 @@ from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.ufl_expr import extract_domains
 
 from collections import namedtuple
@@ -668,7 +668,7 @@ class PlaneSmoother(object):
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
             CGk = V.reconstruct(family="Lagrange")
-            coordinates = assemble(Interpolate(coordinates, CGk, access=op2.MAX))
+            coordinates = assemble(interpolate(coordinates, CGk, access=op2.MAX))
 
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
         entities = [(p, self.coords(dm, p, coordinates)) for p in
