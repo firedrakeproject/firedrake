@@ -125,14 +125,17 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
 
-    def assign(self, other, /, *, eager=False):
-        return self._assign(other, "write", eager=eager)
+    def assign(self, other, /, *, eager=False, compiler_parameters=None):
+        return self._assign(other, "write", eager=eager, compiler_parameters=compiler_parameters)
 
-    def iassign(self, other, /, *, eager=False):
-        return self._assign(other, "inc", eager=eager)
+    def iassign(self, other, /, *, eager=False, compiler_parameters=None):
+        return self._assign(other, "inc", eager=eager, compiler_parameters=compiler_parameters)
 
-    def _assign(self, other, mode, /, *, eager=False):
+    def _assign(self, other, mode, /, *, eager: bool, compiler_parameters):
         from pyop3.insn import ArrayAssignment
+
+        if not eager and compiler_parameters:
+            raise RuntimeError
 
         # TODO: If eager should try and convert to some sort of maxpy operation
         # instead of doing a full code generation pass. Would have to make sure
@@ -140,7 +143,7 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
         expr = ArrayAssignment(self, other, mode)
-        return expr() if eager else expr
+        return expr(compiler_parameters=compiler_parameters) if eager else expr
 
     def duplicate(self, *, copy: bool = False) -> Tensor:
         name = f"{self.name}_copy"

@@ -1295,9 +1295,9 @@ class AbstractMeshTopology(abc.ABC):
         else:
             sizes_renum = np.empty_like(sizes)
             offsets = utils.steps(sizes)
-            for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
-                stratum_pt_renum = src_renumbering.getOffset(src_pt)
-                sizes_renum[stratum_pt_renum] = sizes[stratum_pt]
+            for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
+                src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
+                sizes_renum[src_stratum_pt_renum] = sizes[src_stratum_pt]
 
             offsets_renum = utils.steps(sizes_renum)
             map_pts_renum = np.empty_like(map_pts)
@@ -1404,14 +1404,23 @@ class AbstractMeshTopology(abc.ABC):
 
         if facet_type == "exterior":
             facet_axis = self.exterior_facets.owned.as_axis()
-            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True).indices
+            selected_facets_is = dmcommon.section_offsets(
+                self._old_to_new_facet_numbering, self._exterior_facet_plex_indices, sort=True
+            )
             arity = 1
         else:
             facet_axis = self.interior_facets.owned.as_axis()
-            selected_facets = dmcommon.section_offsets(self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True).indices
+            selected_facets_is = dmcommon.section_offsets(
+                self._old_to_new_facet_numbering, self._interior_facet_plex_indices, sort=True
+            )
             arity = 2
 
+        # Remove an ghost indices
+        dmcommon.filter_is(selected_facets_is, 0, facet_axis.local_size)
+        selected_facets = selected_facets_is.indices
+
         # NOTE: HERE
+        breakpoint()
         mysubset = op3.Slice(
             facet_support_dat.axes.root.label,
             [

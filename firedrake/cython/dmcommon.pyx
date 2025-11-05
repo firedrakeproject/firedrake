@@ -4406,7 +4406,7 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
 #     CHKERR(DMLabelDestroy(&orig_label_c))
 
 
-def filter_is(is_: PETSc.IS, start: int, end: int) -> PETSc.IS:
+def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     cdef:
         PETSc.IS filtered_is
 
