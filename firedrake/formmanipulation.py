@@ -193,8 +193,7 @@ class ExtractSubBlock(MultiFunction):
             if isinstance(bc, DirichletBC):
                 sub_bc = bc.reconstruct(field=field, V=V, g=bc.function_arg)
             else:
-                raise NotImplementedError(f"Extracting matrix subblocks not supported with {type(bc).__name__}. "
-                                           "Please get in touch if you need this.")
+                raise NotImplementedError(f"Extracting matrix subblocks not supported with {type(bc).__name__}. Please get in touch if you need this.")
             if sub_bc is not None:
                 bcs.append(sub_bc)
         return AssembledMatrix(tuple(args), tuple(bcs), submat)

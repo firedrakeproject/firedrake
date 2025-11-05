@@ -152,7 +152,7 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     assert norm(f) < 1e-11
 
 
-@pytest.mark.parametrize("mat_type,pmat_type", [("nest", "nest"), ("matfree", "nest")])
+@pytest.mark.parametrize("mat_type,pmat_type", [("nest", "nest"), ("matfree", "nest"), ("matfree", "aij")])
 def test_nonlinear_fieldsplit(mat_type, pmat_type):
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "DG", 0)
