@@ -153,9 +153,10 @@ class ExtractSubBlock(MultiFunction):
         indices = self.blocks[0]
         W = subspace(V, indices)
         # This is needed because the indices and labels do not match when we split things
+        breakpoint()  # fixed???
         slice_ = [
             o.dat.axes.root.component_labels[i]
-            for i in indices
+            for i in indices.values()
         ]
         return Cofunction(W, val=o.dat[slice_])
 
