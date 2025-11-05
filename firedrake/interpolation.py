@@ -283,7 +283,7 @@ class Interpolator(abc.ABC):
         submesh_interp_implemented = \
             all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
             target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
+            target_mesh.topological_dimension == source_mesh.topological_dimension
         if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
@@ -466,8 +466,8 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
-        src_mesh_gdim = src_mesh.geometric_dimension()
-        dest_mesh_gdim = dest_mesh.geometric_dimension()
+        src_mesh_gdim = src_mesh.geometric_dimension
+        dest_mesh_gdim = dest_mesh.geometric_dimension
         if src_mesh_gdim != dest_mesh_gdim:
             raise ValueError(
                 "geometric dimensions of source and destination meshes must match"
