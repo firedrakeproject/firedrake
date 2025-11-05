@@ -358,6 +358,8 @@ class _SNESContext(object):
         # Reuse the submatrices if we are splitting a MatNest
         Jbig = self._jac if self._jac.petscmat.type == "nest" else problem.J
         Jpbig = self._pjac if self._pjac.petscmat.type == "nest" else problem.Jp
+        if Jpbig is Jbig:
+            Jpbig = None
 
         for field in fields:
             F = splitter.split(Fbig, argument_indices=(field, ))
