@@ -100,6 +100,6 @@ def test_facet_split_parallel(pc_type):
 
 
 @pytest.mark.parametrize("quadrilateral", [True])
-@pytest.mark.parametrize("pc_type", ["fdm"])
+@pytest.mark.parametrize("pc_type", ["fdm", "jacobi"])
 def test_facet_split_update(quadrilateral, pc_type):
     assert run_facet_split(quadrilateral, pc_type, betas=[1E4, 0]) < 1E-10
