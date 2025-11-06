@@ -1,7 +1,6 @@
 from functools import wraps
 import weakref
 from itertools import zip_longest
-
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -103,7 +102,7 @@ class Ensemble(object):
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def allreduce(self, f, f_reduced, op=MPI.SUM):
+    def allreduce(self, f, f_reduced=None, op=MPI.SUM):
         """
         Allreduce a function f into f_reduced over ``ensemble_comm`` .
 
@@ -113,6 +112,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
+        f_reduced = f_reduced or f.copy(deepcopy=True).zero()
         self._check_function(f, f_reduced)
 
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
@@ -121,7 +121,7 @@ class Ensemble(object):
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def iallreduce(self, f, f_reduced, op=MPI.SUM):
+    def iallreduce(self, f, f_reduced=None, op=MPI.SUM):
         """
         Allreduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` .
 
@@ -132,6 +132,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
+        f_reduced = f_reduced or f.copy(deepcopy=True).zero()
         self._check_function(f, f_reduced)
 
         return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
@@ -139,7 +140,7 @@ class Ensemble(object):
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
+    def reduce(self, f, f_reduced=None, op=MPI.SUM, root=0):
         """
         Reduce a function f into f_reduced over ``ensemble_comm`` to rank root
 
@@ -150,6 +151,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
+        f_reduced = f_reduced or f.copy(deepcopy=True).zero()
         self._check_function(f, f_reduced)
 
         if self.ensemble_comm.rank == root:
@@ -163,7 +165,7 @@ class Ensemble(object):
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
+    def ireduce(self, f, f_reduced=None, op=MPI.SUM, root=0):
         """
         Reduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` to rank root
 
@@ -175,6 +177,7 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
+        f_reduced = f_reduced or f.copy(deepcopy=True).zero()
         self._check_function(f, f_reduced)
 
         return [self._ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)

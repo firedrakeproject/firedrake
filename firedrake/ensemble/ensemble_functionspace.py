@@ -156,7 +156,7 @@ class EnsembleFunctionSpaceBase:
 
     @cached_property
     def nlocal_spaces(self):
-        """The total number of subspaces across all ensemble ranks.
+        """Number of subspaces on this ensemble rank.
         """
         return len(self.local_spaces)
 
