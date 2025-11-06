@@ -135,13 +135,15 @@ class EnsembleBJacobiPC(EnsemblePCBase):
     Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
     and is (approximately) solved with its own KSP, which defaults to -ksp_type preonly.
 
-    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMat` matrices.
-
     Available options:
 
     * ``-pc_use_amat`` - use Amat to apply block of operator in inner Krylov method
     * ``-sub_%d`` - set options for the ``%d``'th block, numbered from ensemble rank 0.
     * ``-sub_`` - set default options for all blocks.
+
+    Notes
+    -----
+    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMat` matrices.
 
     See Also
     --------
