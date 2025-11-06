@@ -87,7 +87,8 @@ class EnsembleFunctionSpaceBase:
     on each ensemble member using a :class:`~firedrake.functionspaceimpl.FunctionSpace` from
     `EnsembleFunctionSpace.local_spaces`.
 
-    See also:
+    See Also
+    --------
     - Primal ensemble objects: :class:`EnsembleFunctionSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleFunction`.
     - Dual ensemble objects: :class:`EnsembleDualSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`.
     """

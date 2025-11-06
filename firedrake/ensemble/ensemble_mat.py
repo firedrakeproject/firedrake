@@ -1,10 +1,34 @@
+from typing import Iterable
 from firedrake.petsc import PETSc
-from firedrake.ensemble.ensemble_function import EnsembleFunction
+from firedrake.ensemble.ensemble_function import EnsembleFunction, EnsembleFunctionBase
 from firedrake.ensemble.ensemble_functionspace import EnsembleFunctionSpaceBase
 
 
 class EnsembleMatBase:
-    def __init__(self, row_space, col_space):
+    """
+    Base class for python type Mats defined over an :class:`~.ensemble.Ensemble`.
+
+    Parameters
+    ----------
+    row_space :
+        The function space that the matrix acts on.
+        Must have the same number of subspaces on each ensemble rank as col_space.
+    col_space :
+        The function space for the result of the matrix action.
+        Must have the same number of subspaces on each ensemble rank as row_space.
+
+    Notes
+    -----
+    The main use of this base class is to enable users to implement the matrix
+    action as acting on and resulting in an :class:`~.ensemble_function.EnsembleFunction`.
+    This is done by implementing the ``mult_impl`` method.
+
+    See Also
+    --------
+    .ensemble_pc.EnsemblePCBase
+    """
+    def __init__(self, row_space: EnsembleFunctionSpaceBase,
+                 col_space: EnsembleFunctionSpaceBase):
         name = type(self).__name__
         if not isinstance(row_space, EnsembleFunctionSpaceBase):
             raise ValueError(
@@ -27,7 +51,14 @@ class EnsembleMatBase:
         self.x = EnsembleFunction(self.row_space)
         self.y = EnsembleFunction(self.col_space)
 
-    def mult(self, A, x, y):
+    def mult(self, A: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec):
+        """Apply the action of the matrix to x, putting the result in y.
+
+        This method will be called by PETSc with x and y as Vecs, and acts
+        as a wrapper around the ``mult_impl`` method which has x and y as
+        EnsembleFunction for convenience.
+        y is not guaranteed to be zero on entry.
+        """
         with self.x.vec_wo() as xvec:
             x.copy(result=xvec)
 
@@ -36,9 +67,40 @@ class EnsembleMatBase:
         with self.y.vec_ro() as yvec:
             yvec.copy(result=y)
 
+    def mult_impl(self, A: PETSc.Mat, x: EnsembleFunctionBase, y: EnsembleFunctionBase):
+        """Apply the action of the matrix to x, putting the result in y.
+
+        y is not guaranteed to be zero on entry.
+        """
+        raise NotImplementedError
+
 
 class EnsembleBlockDiagonalMat(EnsembleMatBase):
-    def __init__(self, block_mats, row_space, col_space):
+    """
+    A python Mat context for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
+    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
+
+    Parameters
+    ----------
+    block_mats :
+        The PETSc Mats for each block. On each ensemble rank there must be as many
+        Mats as there are local subspaces of ``row_space`` and ``col_space``, and
+        the Mat sizes must match the sizes of the corresponding subspaces.
+    row_space :
+        The function space that the matrix acts on.
+        Must have the same number of subspaces on each ensemble rank as col_space.
+    col_space :
+        The function space for the result of the matrix action.
+        Must have the same number of subspaces on each ensemble rank as row_space.
+
+    See Also
+    --------
+    EnsembleBlockDiagonalMatrix
+    .ensemble_pc.EnsembleBJacobiPC
+    """
+    def __init__(self, block_mats: Iterable[PETSc.Mat],
+                 row_space: EnsembleFunctionSpaceBase,
+                 col_space: EnsembleFunctionSpaceBase):
         super().__init__(row_space, col_space)
         self.block_mats = block_mats
 
@@ -117,7 +179,36 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
             viewer.popASCIISynchronized()
 
 
-def EnsembleBlockDiagonalMatrix(block_mats, row_space, col_space):
+def EnsembleBlockDiagonalMatrix(block_mats: Iterable[PETSc.Mat],
+                                row_space: EnsembleFunctionSpaceBase,
+                                col_space: EnsembleFunctionSpaceBase) -> PETSc.Mat:
+    """
+    A Mat for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
+    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
+    This is a convenience function to create a PETSc.Mat with a :class:`.EnsembleBlockDiagonalMat` Python context.
+
+    Parameters
+    ----------
+    block_mats :
+        The PETSc Mats for each block. On each ensemble rank there must be as many
+        Mats as there are local subspaces of ``row_space`` and ``col_space``, and
+        the Mat sizes must match the sizes of the corresponding subspaces.
+    row_space :
+        The function space that the matrix acts on.
+        Must have the same number of subspaces on each ensemble rank as col_space.
+    col_space :
+        The function space for the result of the matrix action.
+        Must have the same number of subspaces on each ensemble rank as row_space.
+
+    Returns
+    -------
+        The PETSc.Mat with an :class:`.EnsembleBlockDiagonalMat` Python context.
+
+    See Also
+    --------
+    EnsembleBlockDiagonalMat
+    .ensemble_pc.EnsembleBJacobiPC
+    """
     ctx = EnsembleBlockDiagonalMat(block_mats, row_space, col_space)
 
     # number of columns is row length, and vice-versa
