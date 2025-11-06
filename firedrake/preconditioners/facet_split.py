@@ -84,21 +84,22 @@ class FacetSplitPC(PCBase):
                                            form_compiler_parameters=fcp,
                                            mat_type=mat_type,
                                            options_prefix=options_prefix)
-            self.P = form_assembler.allocate()
-            self._assemble_mixed_op = form_assembler.assemble
-            self._assemble_mixed_op(tensor=self.P)
-            self.mixed_opmat = self.P.petscmat
-            self.set_nullspaces(pc)
-            self.work_vecs = self.mixed_opmat.createVecs()
+            tensor = form_assembler.allocate()
+            self._assemble_P = partial(form_assembler.assemble, tensor=tensor)
+            self.mixed_opmat = tensor.petscmat
         elif self.subset:
-            global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
-            self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
-            self.mixed_opmat = self._permute_op()
+            submat = PETSc.Mat()
+            global_indices = PETSc.IS().createGeneral(V.dof_dset.lgmap.apply(self.subset.indices), comm=pc.comm)
+            self._assemble_P = partial(P.createSubMatrix, global_indices, global_indices, submat=submat)
+            self.mixed_opmat = submat
+        else:
+            self._assemble_P = None
+            self.mixed_opmat = P
+
+        if self._assemble_P is not None:
+            self._assemble_P()
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
-        else:
-            self.mixed_opmat = P
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -122,7 +123,7 @@ class FacetSplitPC(PCBase):
         scpc.setOptionsPrefix(options_prefix)
         scpc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
         self.pc = scpc
-        with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=False):
+        with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=True):
             scpc.setFromOptions()
 
     def set_nullspaces(self, pc):
@@ -145,14 +146,8 @@ class FacetSplitPC(PCBase):
         Pmat.setTransposeNullSpace(_restrict_nullspace(P.getTransposeNullSpace()))
 
     def update(self, pc):
-        if hasattr(self, "_permute_op"):
-            for mat in self.pc.getOperators():
-                mat.destroy()
-            P = self._permute_op()
-            self.pc.setOperators(A=P, P=P)
-            self.mixed_opmat = P
-        elif hasattr(self, "P"):
-            self._assemble_mixed_op(tensor=self.P)
+        if self._assemble_P is not None:
+            self._assemble_P()
 
     def prolong(self, x, y):
         if x is not y:
