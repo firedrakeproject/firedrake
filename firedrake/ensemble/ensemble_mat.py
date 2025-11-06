@@ -87,7 +87,7 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
 
     Parameters
     ----------
-    block_mats :
+    block_mats : Iterable[PETSc.Mat]
         The PETSc Mats for each block. On each ensemble rank there must be as many
         Mats as there are local subspaces of ``row_space`` and ``col_space``, and
         the Mat sizes must match the sizes of the corresponding subspaces.
@@ -103,7 +103,7 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
     EnsembleBlockDiagonalMatrix
     .ensemble_pc.EnsembleBJacobiPC
     """
-    def __init__(self, block_mats: Iterable[PETSc.Mat],
+    def __init__(self, block_mats: Iterable,
                  row_space: EnsembleFunctionSpaceBase,
                  col_space: EnsembleFunctionSpaceBase):
         super().__init__(row_space, col_space)
@@ -184,9 +184,9 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
             viewer.popASCIISynchronized()
 
 
-def EnsembleBlockDiagonalMatrix(block_mats: Iterable[PETSc.Mat],
+def EnsembleBlockDiagonalMatrix(block_mats: Iterable,
                                 row_space: EnsembleFunctionSpaceBase,
-                                col_space: EnsembleFunctionSpaceBase) -> PETSc.Mat:
+                                col_space: EnsembleFunctionSpaceBase):
     """
     A Mat for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
     Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
@@ -194,7 +194,7 @@ def EnsembleBlockDiagonalMatrix(block_mats: Iterable[PETSc.Mat],
 
     Parameters
     ----------
-    block_mats :
+    block_mats : Iterable[PETSc.Mat]
         The PETSc Mats for each block. On each ensemble rank there must be as many
         Mats as there are local subspaces of ``row_space`` and ``col_space``, and
         the Mat sizes must match the sizes of the corresponding subspaces.
@@ -207,6 +207,7 @@ def EnsembleBlockDiagonalMatrix(block_mats: Iterable[PETSc.Mat],
 
     Returns
     -------
+    PETSc.Mat :
         The PETSc.Mat with an :class:`.EnsembleBlockDiagonalMat` Python context.
 
     See Also
