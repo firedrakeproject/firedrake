@@ -95,7 +95,7 @@ class EnsemblePCBase(PCBase):
 
     See Also
     --------
-    .ensemble_mat.EnsembleMatBase
+    ~.ensemble_mat.EnsembleMatBase
     """
     needs_python_pmat = True
 
@@ -147,8 +147,8 @@ class EnsembleBJacobiPC(EnsemblePCBase):
 
     See Also
     --------
-    .ensemble_mat.EnsembleBlockDiagonalMatrix
-    .ensemble_mat.EnsembleBlockDiagonalMat
+    ~.ensemble_mat.EnsembleBlockDiagonalMatrix
+    ~.ensemble_mat.EnsembleBlockDiagonalMat
     """
     prefix = "ebjacobi_"
 

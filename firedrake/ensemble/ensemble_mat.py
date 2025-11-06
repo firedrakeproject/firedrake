@@ -98,10 +98,15 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
         The function space for the result of the matrix action.
         Must have the same number of subspaces on each ensemble rank as row_space.
 
+    Notes
+    -----
+    This is a python context, not an actual PETSc.Mat. To create the corresponding
+    PETSc.Mat users should call :func:`~.EnsembleBlockDiagonalMatrix`.
+
     See Also
     --------
     EnsembleBlockDiagonalMatrix
-    .ensemble_pc.EnsembleBJacobiPC
+    ~.ensemble_pc.EnsembleBJacobiPC
     """
     def __init__(self, block_mats: Iterable,
                  row_space: EnsembleFunctionSpaceBase,
@@ -213,7 +218,7 @@ def EnsembleBlockDiagonalMatrix(block_mats: Iterable,
     See Also
     --------
     EnsembleBlockDiagonalMat
-    .ensemble_pc.EnsembleBJacobiPC
+    ~.ensemble_pc.EnsembleBJacobiPC
     """
     ctx = EnsembleBlockDiagonalMat(block_mats, row_space, col_space)
 
