@@ -3,6 +3,11 @@ from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_function import EnsembleFunction, EnsembleFunctionBase
 from firedrake.ensemble.ensemble_functionspace import EnsembleFunctionSpaceBase
 
+__all__ = (
+    "EnsembleBlockDiagonalMat",
+    "EnsembleBlockDiagonalMatrix",
+)
+
 
 class EnsembleMatBase:
     """

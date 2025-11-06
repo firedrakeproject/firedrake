@@ -1,10 +1,16 @@
 import petsctools
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_function import EnsembleFunction
-from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMat
+from firedrake.ensemble.ensemble_mat import EnsembleMatBase, EnsembleBlockDiagonalMat
+
+__all__ = (
+    "EnsembleBJacobiPC",
+)
 
 
 def get_default_options(default_prefix, custom_prefix_endings, options=PETSc.Options()):
+    # TODO: replace with petsctools.get_default_options from https://github.com/firedrakeproject/petsctools/pull/24
+
     # build all non-default prefixes
     custom_prefixes = [default_prefix + str(ending)
                        for ending in custom_prefix_endings]
@@ -29,6 +35,7 @@ def obj_name(obj):
 
 
 class PCBase:
+    # TODO: replace with petsctools.PCBase from https://github.com/firedrakeproject/petsctools/pull/25
     needs_python_amat = False
     needs_python_pmat = False
 
@@ -75,16 +82,31 @@ class PCBase:
 
 
 class EnsemblePCBase(PCBase):
+    """
+    Base class for python type PCs defined over an :class:`~.ensemble.Ensemble`.
+
+    The pc operators must be python Mats with :class:`~.ensemble_mat.EnsembleMatBase`.
+
+    Notes
+    -----
+    The main use of this base class is to enable users to implement the preconditioner
+    action as acting on and resulting in an :class:`~.ensemble_function.EnsembleFunction`.
+    This is done by implementing the ``apply_impl`` method.
+
+    See Also
+    --------
+    .ensemble_mat.EnsembleMatBase
+    """
     needs_python_pmat = True
 
     def initialize(self, pc):
         super().initialize(pc)
 
-        if not isinstance(self.pmat, EnsembleBlockDiagonalMat):
+        if not isinstance(self.pmat, EnsembleMatBase):
             pcname = obj_name(self)
             pmatname = obj_name(self.pmat)
             raise TypeError(
-                f"PC {pcname} needs an EnsembleBlockDiagonalMat pmat, but it is a {pmatname}")
+                f"PC {pcname} needs an EnsembleMatBase pmat, but it is a {pmatname}")
 
         self.ensemble = self.pmat.ensemble
 
@@ -108,13 +130,31 @@ class EnsemblePCBase(PCBase):
 
 
 class EnsembleBJacobiPC(EnsemblePCBase):
+    """
+    A python PC context for a block Jacobi method defined over an :class:`~.ensemble.Ensemble`.
+    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
+    and is (approximately) solved with its own KSP, which defaults to -ksp_type preonly.
+
+    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMat` matrices.
+
+    Available options:
+
+    * ``-pc_use_amat`` - use Amat to apply block of operator in inner Krylov method
+    * ``-sub_%d`` - set options for the ``%d``'th block, numbered from ensemble rank 0.
+    * ``-sub_`` - set default options for all blocks.
+
+    See Also
+    --------
+    .ensemble_mat.EnsembleBlockDiagonalMatrix
+    .ensemble_mat.EnsembleBlockDiagonalMat
+    """
     prefix = "ebjacobi_"
 
     def initialize(self, pc):
         super().initialize(pc)
 
-        pc_prefix = self.parent_prefix + "pc_" + self.prefix
-        self.use_amat = PETSc.Options().getBool(pc_prefix + "use_amat", False)
+        use_amat_prefix = self.parent_prefix + "pc_use_amat"
+        self.use_amat = PETSc.Options().getBool(use_amat_prefix, False)
 
         if not isinstance(self.pmat, EnsembleBlockDiagonalMat):
             pcname = obj_name(self)

@@ -113,7 +113,7 @@ def test_ensemble_pc(default_options):
         'ksp_rtol': 1e-14,
         'ksp_type': 'richardson',
         'pc_type': 'python',
-        'pc_python_type': 'firedrake.ensemble.ensemble_pc.EnsembleBJacobiPC',
+        'pc_python_type': 'firedrake.EnsembleBJacobiPC',
     }
     if default_options:
         parameters['sub_pc_type'] = 'lu'
