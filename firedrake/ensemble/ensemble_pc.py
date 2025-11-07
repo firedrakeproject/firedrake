@@ -34,54 +34,7 @@ def obj_name(obj):
     return f"{type(obj).__module__}.{type(obj).__name__}"
 
 
-class PCBase:
-    # TODO: replace with petsctools.PCBase from https://github.com/firedrakeproject/petsctools/pull/25
-    needs_python_amat = False
-    needs_python_pmat = False
-
-    def __init__(self):
-        self.initialized = False
-
-    def setUp(self, pc):
-        if not self.initialized:
-            self.initialize(pc)
-            self.initialized = True
-        self.update(pc)
-
-    def initialize(self, pc):
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
-        self.A, self.P = pc.getOperators()
-        pcname = obj_name(self)
-        if self.needs_python_amat:
-            if self.A.getType() != "python":
-                raise ValueError(
-                    f"PC {pcname} needs a python type amat, not {self.A.getType()}")
-            self.amat = self.A.getPythonContext()
-        if self.needs_python_pmat:
-            if self.P.getType() != "python":
-                raise ValueError(
-                    f"PC {pcname} needs a python type pmat, not {self.P.getType()}")
-            self.pmat = self.P.getPythonContext()
-
-        self.parent_prefix = pc.getOptionsPrefix() or ""
-        self.full_prefix = self.parent_prefix + self.prefix
-
-    def update(self, pc):
-        pass
-
-    def view(self, pc, viewer=None):
-        if viewer is None:
-            return
-        typ = viewer.getType()
-        if typ != PETSc.Viewer.Type.ASCII:
-            return
-        viewer.printfASCII(
-            f"Python type preconditioner {obj_name(self)}\n")
-
-
-class EnsemblePCBase(PCBase):
+class EnsemblePCBase(petsctools.PCBase):
     """
     Base class for python type PCs defined over an :class:`~.ensemble.Ensemble`.
 
