@@ -46,6 +46,7 @@ class HypreADS(PCBase):
             try:
                 G = chop(assemble(interpolate(grad(TrialFunction(P1)), NC1)).petscmat)
             except NotImplementedError:
+                # dual evaluation not yet implemented see https://github.com/firedrakeproject/fiat/issues/109
                 G = tabulate_exterior_derivative(P1, NC1)
         else:
             G = G_callback(P1, NC1)

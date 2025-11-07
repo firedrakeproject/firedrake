@@ -35,6 +35,7 @@ def test_homogeneous_field(V, mat_type, interface):
     bc = DirichletBC(V, constant_field, (1, 2, 3, 4))
 
     params = {
+        'snes_type': 'ksponly',
         'mat_type': mat_type,
         'pmat_type': 'aij',
         'ksp_type': 'cg',
