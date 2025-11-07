@@ -2160,7 +2160,13 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     @collective
     def facet_markers(self) -> np.ndarray[IntType, ...]:
-        return utils.readonly(self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).allGather().indices)
+        # The IS returned by 'getLabelIdIS' exists on COMM_SELF so if we want
+        # a collective IS we must convert to COMM_WORLD before calling 'allGather'.
+        local_facet_markers_is = self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL)
+        global_facet_markers_is = PETSc.IS().createGeneral(
+            local_facet_markers_is.indices, comm=MPI.COMM_WORLD
+        ).allGather()
+        return utils.readonly(np.unique(np.sort(global_facet_markers_is.indices)))
         # if plex.hasLabel(dmcommon.FACE_SETS_LABEL):
         #     local_facet_markers = frozenset(plex.indices)
         #

@@ -1708,11 +1708,14 @@ class IndexedAxisTree(AbstractAxisTree):
     def _matching_target(self) -> idict:
         return find_matching_target(self)
 
+    # TODO: how do we know if buffer_slice will produce the same object across all ranks?
+    # Need to make forming a slice or a subset an active decision!
     @cached_property
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        if self.size == 0:
+        # IMPORTANT: in parallel this may well lead to issues
+        if self.local_size == 0:
             return slice(0, 0)
 
         # NOTE: The below method might be better...
