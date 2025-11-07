@@ -123,9 +123,9 @@ def test_fn_split_no_annotate(Z):
     h = rg.uniform(Z)
     r = taylor_to_dict(rf, ic, h)
 
-    assert min(r["R0"]["Rate"]) > 0.9
-    assert min(r["R1"]["Rate"]) > 1.9
-    assert min(r["R2"]["Rate"]) > 2.9
+    assert min(r["R0"]["Rate"]) > 0.95
+    assert min(r["R1"]["Rate"]) > 1.95
+    assert min(r["R2"]["Rate"]) > 2.95
 
 
 @pytest.mark.skipcomplex
@@ -148,10 +148,14 @@ def test_merge_blocks():
     w2_const = Function(R, val=0.2)
     w1.project(w1_const)
     w2.project(w2_const)
-    J = assemble(w1*w1*dx)
+    J = assemble(w1**4*dx)
     c = Control(w1_const)
     rf = ReducedFunctional(J, c)
-    assert taylor_test(rf, Function(R, val=0.3), Function(R, val=0.01)) > 1.95
+    assert taylor_test(rf, Function(R, val=0.3), Function(R, val=0.1)) > 1.95
+    taylor = taylor_to_dict(rf, Function(R, val=0.3), Function(R, val=0.01))
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
 @pytest.mark.skipcomplex
@@ -208,8 +212,13 @@ def test_writing_to_subfunctions():
     with set_working_tape() as tape:
         u.assign(kappa)
         usub *= 2
-        J = assemble(inner(u, u) * dx)
+        # quartic norm so Hessian is inexact
+        J = assemble(inner(u, u)**2 * dx)
         rf = ReducedFunctional(J, Control(kappa), tape=tape)
     pause_annotation()
 
-    assert taylor_test(rf, kappa, Constant(0.1)) > 1.9
+    taylor = taylor_to_dict(rf, kappa, Function(R, val=0.1))
+
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
