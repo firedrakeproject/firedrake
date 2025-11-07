@@ -7,7 +7,7 @@ from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
 from ufl import grad, SpatialCoordinate
-from finat.ufl import VectorElement
+from finat.ufl import FiniteElement, TensorElement, VectorElement
 from pyop2.utils import as_tuple
 
 __all__ = ("HypreAMS",)
@@ -48,7 +48,14 @@ class HypreAMS(PCBase):
         if formdegree != 1 or degree != 1:
             raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
-        P1 = V.reconstruct(family="Lagrange", degree=1)
+        # Get the auxiliary Lagrange space and the coordinate space
+        P1_element = FiniteElement("Lagrange", degree=1)
+        coords_element = VectorElement(P1_element)
+        if V.shape:
+            P1_element = TensorElement(P1_element, shape=V.shape)
+        P1 = V.reconstruct(element=P1_element)
+        VectorP1 = V.reconstruct(element=coords_element)
+
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
             G = chop(assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
@@ -68,7 +75,6 @@ class HypreAMS(PCBase):
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
 
-        VectorP1 = P1.reconstruct(element=VectorElement(P1.ufl_element()))
         coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
         pc.setCoordinates(coords.dat.data_ro.copy())
         pc.setFromOptions()

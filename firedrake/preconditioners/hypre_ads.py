@@ -5,7 +5,7 @@ from firedrake.ufl_expr import TestFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.interpolation import interpolate
-from finat.ufl import VectorElement
+from finat.ufl import FiniteElement, TensorElement, VectorElement
 from ufl import grad, curl, SpatialCoordinate
 from pyop2.utils import as_tuple
 
@@ -27,8 +27,18 @@ class HypreADS(PCBase):
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
-        P1 = V.reconstruct(family="Lagrange", degree=1)
-        NC1 = V.reconstruct(family="N1curl" if mesh.ufl_cell().is_simplex() else "NCE", degree=1)
+        # Get the auxiliary Nedelec and Lagrange spaces and the coordinate space
+        NC1_element = FiniteElement("N1curl" if mesh.ufl_cell().is_simplex() else "NCE", degree=1)
+        P1_element = FiniteElement("Lagrange", degree=1)
+        coords_element = VectorElement(P1_element)
+        if V.shape:
+            NC1_element = TensorElement(NC1_element, shape=V.shape)
+            P1_element = TensorElement(P1_element, shape=V.shape)
+
+        NC1 = V.reconstruct(element=NC1_element)
+        P1 = V.reconstruct(element=P1_element)
+        VectorP1 = V.reconstruct(element=coords_element)
+
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
             G = chop(assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
@@ -50,7 +60,6 @@ class HypreADS(PCBase):
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
 
-        VectorP1 = P1.reconstruct(element=VectorElement(P1.ufl_element()))
         coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
         pc.setCoordinates(coords.dat.data_ro.copy())
 
