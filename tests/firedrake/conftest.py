@@ -66,9 +66,9 @@ def _skip_test_dependency(dependency):
             del ngsPETSc
             return not skip
         except ImportError:
-           return skip
+            return skip
 
-     elif dependency == "vtk":
+    elif dependency == "vtk":
         try:
             import vtk  # noqa: F401
             del vtk
