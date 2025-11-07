@@ -673,14 +673,31 @@ class AbstractMeshTopology(abc.ABC):
             with PETSc.Log.Event("Renumber mesh topology"):
                 if isinstance(self.topology_dm, PETSc.DMPlex):
                     if reorder:
-                        rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
-                        # must use an inverse ordering because we want to know the map *back*
-                        # from renumbered to original cell number
-                        cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
+                        # Create an IS mapping from new to old cell numbers. This
+                        # is unfortunately fairly involved, hopefully my choice of
+                        # variable names is sufficient to explain things.
+                        old_to_new_rcm_point_numbering_is = PETSc.IS().createGeneral(
+                            self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM).indices,
+                            comm=MPI.COMM_SELF,
+                        )
+                        new_to_old_rcm_point_numbering_is = \
+                            old_to_new_rcm_point_numbering_is.invertPermutation()
+                        cell_is = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
+                        old_to_new_rcm_cell_numbering_section = dmcommon.entity_numbering(
+                            cell_is, new_to_old_rcm_point_numbering_is
+                        )
+                        old_to_new_rcm_cell_numbering_is = dmcommon.section_offsets(
+                            old_to_new_rcm_cell_numbering_section, cell_is
+                        )
+                        new_to_old_rcm_cell_numbering_is = \
+                            old_to_new_rcm_cell_numbering_is.invertPermutation()
                     else:
-                        cell_ordering = np.arange(self.num_cells, dtype=IntType)
-                    old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                        new_to_old_rcm_cell_numbering_is = None
+                    new_to_old_point_numbering = dmcommon.compute_dm_renumbering(
+                        self, new_to_old_rcm_cell_numbering_is
+                    )
                 else:
+                    raise NotImplementedError("Reverse old-to-new etc")
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if not reorder:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
@@ -704,10 +721,14 @@ class AbstractMeshTopology(abc.ABC):
 
             # Now take this renumbering and partition owned and ghost points, this
             # is the part that pyop3 should ultimately be able to handle.
-            old_to_new_point_renumbering = dmcommon.partition_renumbering(self.topology_dm, old_to_new_point_renumbering)
+            saved_new_to_old_point_numbering = new_to_old_point_numbering
+            new_to_old_point_numbering = dmcommon.partition_renumbering(
+                self.topology_dm, new_to_old_point_numbering
+            )
 
-            self._old_to_new_point_renumbering = old_to_new_point_renumbering
-            self._new_to_old_point_renumbering = old_to_new_point_renumbering.invertPermutation()
+            # TODO: replace "renumbering" with "numbering"
+            self._new_to_old_point_renumbering = new_to_old_point_numbering
+            self._old_to_new_point_renumbering = new_to_old_point_numbering.invertPermutation()
 
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
@@ -753,7 +774,8 @@ class AbstractMeshTopology(abc.ABC):
         else:
             point_sf = op3.local_sf(self.num_points, self._comm).sf
 
-        point_sf_renum = dmcommon.renumber_sf(point_sf, self._old_to_new_point_renumbering)
+        # point_sf_renum = dmcommon.renumber_sf(point_sf, self._old_to_new_point_renumbering)
+        point_sf_renum = dmcommon.renumber_sf(point_sf, self._new_to_old_point_renumbering)
 
         # TODO: Allow the label here to be None
         return op3.Axis(
@@ -1358,6 +1380,7 @@ class AbstractMeshTopology(abc.ABC):
                 continue
 
             map_data, sizes = self._memoize_map(support_func, from_dim)
+
             # renumber it
             for to_dim, size in sizes.items():
                 map_data[to_dim], sizes[to_dim] = self._renumber_map(
@@ -1415,12 +1438,11 @@ class AbstractMeshTopology(abc.ABC):
             )
             arity = 2
 
-        # Remove an ghost indices
-        dmcommon.filter_is(selected_facets_is, 0, facet_axis.local_size)
-        selected_facets = selected_facets_is.indices
+        # Remove ghost indices
+        new_selected_facets_is = dmcommon.filter_is(selected_facets_is, 0, self.facets.owned.local_size)
+        selected_facets = new_selected_facets_is.indices
+        assert selected_facets.size == facet_axis.local_size
 
-        # NOTE: HERE
-        breakpoint()
         mysubset = op3.Slice(
             facet_support_dat.axes.root.label,
             [
@@ -1438,7 +1460,10 @@ class AbstractMeshTopology(abc.ABC):
 
         # TODO: This should ideally work
         # return facet_support_dat[mysubset, slice(arity)]
-        return facet_support_dat[mysubset, myslice]
+        specialized_by_type_facet_support_dat = facet_support_dat[mysubset, myslice]
+        assert specialized_by_type_facet_support_dat.axes.local_size == facet_axis.local_size * arity
+        return specialized_by_type_facet_support_dat
+
 
     # delete?
     def create_section(self, nodes_per_entity, real_tensorproduct=False, block_size=1):
@@ -2291,6 +2316,10 @@ class MeshTopology(AbstractMeshTopology):
         # TODO: Implement and use 'FullComponentSlice' (or similar)
         cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)], label=self.name)
         return self.points[cell_slice]
+
+    @cached_property
+    def facets(self):
+        return self.points[self.facet_label]
 
     @cached_property
     def vertices(self):
@@ -3557,6 +3586,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def cells(self):
         # Need to be more verbose as we don't want to consume the axis
         # return self.points[self.cell_label]
+        # This may no longer be needed
         cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label)])
         return self.points[cell_slice]
 

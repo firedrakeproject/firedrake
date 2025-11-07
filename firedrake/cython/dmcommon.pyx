@@ -2444,8 +2444,8 @@ def validate_mesh(PETSc.DM dm):
 @cython.wraparound(False)
 def compute_dm_renumbering(
     mesh: MeshGeometry,
-    reordering: np.ndarray | None = None,
-    boundary_set=None,
+    new_to_old_cell_numbering_is: PETSc.IS | None = None,
+    # boundary_set=None,
 ) -> PETSc.IS:
     """Return a renumbering of DM points that maximises locality.
 
@@ -2471,7 +2471,6 @@ def compute_dm_renumbering(
     cdef:
         PETSc.IS ordering_is, renumbering_is, perm_is
         PETSc.DM dm
-        np.ndarray reordering_inv
 
         PetscInt pStart_c, pEnd_c, nPoints_c
         PetscInt nOwned_c, nGhost_c
@@ -2482,11 +2481,11 @@ def compute_dm_renumbering(
         PetscBT seen_points = NULL
         PetscInt is_ghost
         DMLabel clabel
-        bint reorder = reordering is not None
-
-    reordering_inv = reordering
+        bint reorder
 
     dm = mesh.topology_dm
+
+    reorder = new_to_old_cell_numbering_is is not None
 
     pStart_c, pEnd_c = dm.getChart()
     nPoints_c = pEnd_c - pStart_c
@@ -2538,7 +2537,7 @@ def compute_dm_renumbering(
 
     for cell in range(cStart, cEnd):
         if reorder:
-            cell = reordering_inv[cell]
+            cell = new_to_old_cell_numbering_is.indices[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -2577,59 +2576,59 @@ def compute_dm_renumbering(
     # renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
     # renumbering_is.setType("general")
 
-    return ordering_is.invertPermutation()
+    # return ordering_is.invertPermutation()
+    return ordering_is
     # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
     # return renumbering_is
 
 
-def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
+def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -> PETSc.IS:
     """Partition a serial point renumbering into owned and ghost points."""
     cdef:
-        PETSc.IS       parallel_renumbering
+        PETSc.IS       parallel_new_to_old_renumbering
 
-        DMLabel        ghostLabel_c
-        PetscInt       nPoints_c, nOwned_c, nGhost_c, isGhost_c, ownedPtr_c, ghostPtr_c, i_c, p_c
-        const PetscInt *serial_renumbering_c = NULL
-        PetscInt       *parallel_renumbering_c = NULL
+        DMLabel        ghost_label_c
+        PetscInt       n_points_c, n_owned_c, n_ghost_c, is_ghost_c
+        PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
+        const PetscInt *serial_new_to_old_renumbering_c = NULL
+        PetscInt       *parallel_new_to_old_renumbering_c = NULL
 
-    CHKERR(ISGetIndices(serial_renumbering.iset, &serial_renumbering_c))
-    CHKERR(ISGetLocalSize(serial_renumbering.iset, &nPoints_c))
-    CHKERR(PetscMalloc1(nPoints_c, &parallel_renumbering_c))
+    CHKERR(ISGetIndices(serial_new_to_old_renumbering.iset, &serial_new_to_old_renumbering_c))
+    CHKERR(ISGetLocalSize(serial_new_to_old_renumbering.iset, &n_points_c))
+    CHKERR(PetscMalloc1(n_points_c, &parallel_new_to_old_renumbering_c))
 
-    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghostLabel_c))
-    CHKERR(DMLabelGetStratumSize(ghostLabel_c, 1, &nGhost_c))
-    nOwned_c = nPoints_c - nGhost_c
+    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghost_label_c))
+    CHKERR(DMLabelGetStratumSize(ghost_label_c, 1, &n_ghost_c))
+    n_owned_c = n_points_c - n_ghost_c
 
-    ownedPtr_c = 0
-    ghostPtr_c = nOwned_c
-
-    for i_c in range(nPoints_c):
-        p_c = serial_renumbering_c[i_c]
-        CHKERR(DMLabelGetValue(ghostLabel_c, p_c, &isGhost_c))
-        if isGhost_c == 1:
-            parallel_renumbering_c[ghostPtr_c] = p_c
-            ghostPtr_c += 1
+    owned_ptr_c = 0
+    ghost_ptr_c = n_owned_c
+    for i_c in range(n_points_c):
+        pt_c = serial_new_to_old_renumbering_c[i_c]
+        CHKERR(DMLabelGetValue(ghost_label_c, pt_c, &is_ghost_c))
+        if is_ghost_c == 1:
+            parallel_new_to_old_renumbering_c[ghost_ptr_c] = pt_c
+            ghost_ptr_c += 1
         else:
-            parallel_renumbering_c[ownedPtr_c] = p_c
-            ownedPtr_c += 1
+            parallel_new_to_old_renumbering_c[owned_ptr_c] = pt_c
+            owned_ptr_c += 1
 
-    assert ownedPtr_c == nOwned_c
-    assert ghostPtr_c == nPoints_c
+    assert owned_ptr_c == n_owned_c
+    assert ghost_ptr_c == n_points_c
 
-    parallel_renumbering = PETSc.IS().create(comm=MPI.COMM_SELF)
-    parallel_renumbering.setType("general")
+    parallel_new_to_old_renumbering = PETSc.IS().create(comm=MPI.COMM_SELF)
+    parallel_new_to_old_renumbering.setType("general")
     CHKERR(
         ISGeneralSetIndices(
-            parallel_renumbering.iset,
-            nPoints_c,
-            parallel_renumbering_c,
+            parallel_new_to_old_renumbering.iset,
+            n_points_c,
+            parallel_new_to_old_renumbering_c,
             PETSC_OWN_POINTER,
         )
     )
-    return parallel_renumbering
+    return parallel_new_to_old_renumbering
 
 
-# TODO: Just int array not IS
 def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     """Renumber an SF.
 
