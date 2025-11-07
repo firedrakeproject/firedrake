@@ -434,6 +434,13 @@ dependency. For example::
 
    $ pip install --no-binary h5py 'firedrake[check,vtk]'
 
+.. warning::
+
+   VTK make releases sporadically so will not always support the latest version
+   of Python. This is commonly an issue on macOS where homebrew will use the
+   latest Python very soon after it is released. To fix this you should use
+   an older version of Python (e.g. 3.13 instead of 3.14).
+
 PyTorch
 ~~~~~~~
 
