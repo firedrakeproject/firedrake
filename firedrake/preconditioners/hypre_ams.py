@@ -62,7 +62,7 @@ class HypreAMS(PCBase):
             try:
                 G = chop(assemble(interpolate(grad(TrialFunction(P1)), V)).petscmat)
             except NotImplementedError:
-                # dual evaluation not yet implemented see https://github.com/FInAT/FInAT/issues/95
+                # dual evaluation not yet implemented see https://github.com/firedrakeproject/fiat/issues/109
                 G = tabulate_exterior_derivative(P1, V)
         else:
             G = G_callback(P1, V)
