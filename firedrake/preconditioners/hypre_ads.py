@@ -29,7 +29,7 @@ class HypreADS(PCBase):
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
         # Get the auxiliary Nedelec and Lagrange spaces and the coordinate space
-        cell = V.ufl_element().ufl_cell()
+        cell = V.ufl_element().cell
         NC1_element = FiniteElement("N1curl" if cell.is_simplex() else "NCE", cell=cell, degree=1)
         P1_element = FiniteElement("Lagrange", cell=cell, degree=1)
         coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension())
