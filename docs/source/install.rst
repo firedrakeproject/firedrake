@@ -426,6 +426,13 @@ To install Firedrake with SLEPc support you should:
 
    $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
+VTK
+~~~
+
+To install Firedrake with VTK, it should be installed using the ``vtk`` optional
+dependency. For example::
+
+   $ pip install --no-binary h5py 'firedrake[check,vtk]'
 
 PyTorch
 ~~~~~~~
