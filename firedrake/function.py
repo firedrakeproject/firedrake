@@ -820,7 +820,7 @@ class PointEvaluator:
             if self.mesh.comm.rank != 0:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
             self.mesh.comm.Bcast(result)
-        return result.reshape((-1,) + shape)
+        return result
 
 
 @PETSc.Log.EventDecorator()

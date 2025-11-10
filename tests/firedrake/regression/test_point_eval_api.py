@@ -315,9 +315,8 @@ def test_point_evaluator_inputs_1d():
         res = e.evaluate(f)
         assert np.allclose(0.2, res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (1, 1)
-        assert isinstance(res[0], np.ndarray)
-        assert isinstance(res[0, 0], Number)
+        assert res.shape == (1,)
+        assert isinstance(res[0], Number)
 
     # multiple points as tuples/list
     for input in [
@@ -326,29 +325,26 @@ def test_point_evaluator_inputs_1d():
     ]:
         e2 = PointEvaluator(mesh, input)
         res = e2.evaluate(f)
-        assert np.allclose([[0.2], [0.3]], res)
+        assert np.allclose([[0.2, 0.3]], res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (len(input),) + f.ufl_shape
-        assert isinstance(res[0], np.ndarray)
-        assert isinstance(res[0, 0], Number)
+        assert res.shape == (len(input),)
+        assert isinstance(res[0], Number)
 
         e3 = PointEvaluator(mesh, list(input))
         res2 = e3.evaluate(f)
-        assert np.allclose([[0.2], [0.3]], res2)
+        assert np.allclose([[0.2, 0.3]], res2)
         assert isinstance(res2, np.ndarray)
-        assert res2.shape == (len(input),) + f.ufl_shape
-        assert isinstance(res2[0], np.ndarray)
-        assert isinstance(res2[0, 0], Number)
+        assert res2.shape == (len(input),)
+        assert isinstance(res2[0], Number)
 
     # multiple points as numpy array
     for input in [np.array([0.2, 0.3]), np.array([[0.2], [0.3]])]:
         e = PointEvaluator(mesh, input)
         res = e.evaluate(f)
-        assert np.allclose([[0.2], [0.3]], res)
+        assert np.allclose([[0.2, 0.3]], res)
         assert isinstance(res, np.ndarray)
-        assert res.shape == (len(input),) + f.ufl_shape
-        assert isinstance(res[0], np.ndarray)
-        assert isinstance(res[0, 0], Number)
+        assert res.shape == (len(input),)
+        assert isinstance(res[0], Number)
 
     # test incorrect inputs
     for input in [[[0.2, 0.3]], ([0.2, 0.3], [0.4, 0.5]), np.array([[0.2, 0.3]])]:
