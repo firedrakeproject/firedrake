@@ -449,7 +449,7 @@ we then use to solve the problem, we can provide one ourselves.
 Recall that :math:`S` is spectrally a Laplacian only in a
 discontinuous space.  A natural choice is therefore to use an interior
 penalty DG formulation for the Laplacian term on the block of the scalar
-variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the trial functions as the first argument and the test functions as the second argument, which is the reverse of the usual convention. ::
+variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the test functions as the first argument and the trial functions as the second argument, which is the reverse of the usual convention. ::
 
     class DGLaplacian(AuxiliaryOperatorPC):
         def form(self, pc, v, u):
