@@ -251,3 +251,14 @@ def test_interpolate_mixed():
     h.subfunctions[0].dat.data[:] = 5
     h.subfunctions[1].dat.data[:] = 6
     assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_parallel():
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R)
+    J = assemble((m-1)**2*dx)
+    Jhat = ReducedFunctional(J, Control(m))
+    minimize(Jhat)
