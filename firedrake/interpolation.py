@@ -1005,33 +1005,19 @@ def rebuild(element, expr_cell, rt_var_name):
 
 @rebuild.register(ScalarFiatElement)
 def rebuild_dg(element, expr_cell, rt_var_name):
-    # To tabulate on the given element (which is on a different mesh to the
-    # expression) we must do so at runtime. We therefore create a quadrature
-    # element with runtime points to evaluate for each point in the element's
-    # dual basis. This exists on the same reference cell as the input element
-    # and we can interpolate onto it before mapping the result back onto the
-    # target space.
-    expr_tdim = expr_cell.topological_dimension
-    # Need point evaluations and matching weights from dual basis.
-    # This could use FIAT's dual basis as below:
-    # num_points = sum(len(dual.get_point_dict()) for dual in element.fiat_equivalent.dual_basis())
-    # weights = []
-    # for dual in element.fiat_equivalent.dual_basis():
-    #     pts = dual.get_point_dict().keys()
-    #     for p in pts:
-    #         for w, _ in dual.get_point_dict()[p]:
-    #             weights.append(w)
-    # assert len(weights) == num_points
-    # but for now we just fix the values to what we know works:
+    # QuadratureElements have a dual basis which is point evaluation at the
+    # quadrature points. By using an UnknownPointSet with one point, TSFC
+    # will generate a kernel with an argument to which we can pass the reference
+    # coordinates of a point and evaluate the expression at that point at runtime.
     if element.degree != 0 or not isinstance(element.cell, Point):
         raise NotImplementedError("Interpolation onto a VOM only implemented for P0DG on vertex cells.")
-    num_points = 1
-    weights = [1.]*num_points
+
     # gem.Variable name starting with rt_ forces TSFC runtime tabulation
     assert rt_var_name.startswith("rt_")
-    runtime_points_expr = Variable(rt_var_name, (num_points, expr_tdim))
+    runtime_points_expr = Variable(rt_var_name, (1, expr_cell.topological_dimension))
     rule_pointset = UnknownPointSet(runtime_points_expr)
-    rule = QuadratureRule(rule_pointset, weights=weights)
+    # What we use for the weight doesn't matter since we are not integrating
+    rule = QuadratureRule(rule_pointset, weights=[0.0])
     return QuadratureElement(as_fiat_cell(expr_cell), rule)
 
 
