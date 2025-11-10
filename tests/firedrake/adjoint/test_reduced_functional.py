@@ -274,4 +274,5 @@ def test_real_space_parallel():
     m = Function(R)
     J = assemble((m-1)**2*dx)
     Jhat = ReducedFunctional(J, Control(m))
-    minimize(Jhat)
+    opt = minimize(Jhat)
+    assert np.allclose(opt.dat.data_ro, 1)
