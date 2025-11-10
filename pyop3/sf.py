@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import abc
+import numbers
+import typing
 from functools import cached_property
 from typing import Any
 
@@ -11,6 +13,10 @@ from petsc4py import PETSc
 from pyop3.dtypes import get_mpi_dtype, IntType
 from pyop2.mpi import internal_comm
 from pyop3.utils import just_one, strict_int
+
+
+if typing.TYPE_CHECKING:
+    from pyop3.tree.axis_tree import AxisComponentRegionSizeT
 
 
 # This is so we can more easily distinguish internal and external comms
@@ -85,6 +91,16 @@ class AbstractStarForest(DistributedObject, abc.ABC):
     def __eq__(self, other: Any, /) -> bool:
         pass
 
+    @property
+    @abc.abstractmethod
+    def num_owned(self) -> AxisComponentRegionSizeT:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def num_ghost(self) -> AxisComponentRegionSizeT:
+        pass
+
     @abc.abstractmethod
     def broadcast_begin(self, *args):
         pass
@@ -94,6 +110,9 @@ class AbstractStarForest(DistributedObject, abc.ABC):
         pass
 
     # }}}
+
+    def __init__(self, size: AxisComponentRegionSizeT) -> None:
+        self.size = size
 
     def broadcast(self, *args):
         self.broadcast_begin(*args)
@@ -124,9 +143,15 @@ class StarForest(AbstractStarForest):
 
     # }}}
 
-    def __init__(self, sf, size: IntType):
+    def __init__(self, sf, size: IntType) -> None:
+        size = strict_int(size)
+
         self.sf = sf
-        self.size = strict_int(size)
+        super().__init__(size)
+
+        # sus, why is this happening
+        if self.num_ghost == 0 and self.num_owned > 10:
+            breakpoint()
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
@@ -243,21 +268,40 @@ class StarForest(AbstractStarForest):
 
 class NullStarForest(AbstractStarForest):
 
+    # {{{ interface impls
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.size))
+
+    def __eq__(self, /, other: Any) -> bool:
+        return type(other) is type(self) and other.size == self.size
+
     @property
-    def user_comm(self) -> MPI.Comm:
-        return MPI.COMM_SELF
+    def num_owned(self) -> AxisComponentRegionSizeT:
+        return self.size
 
-    def __eq__(self, other):
-        return type(other) is type(self)
-
-    def __bool__(self) -> bool:
-        return False
+    @property
+    def num_ghost(self) -> int:
+        return 0
 
     def broadcast_begin(self, *args):
         pass
 
     def broadcast_end(self, *args):
         pass
+
+    # }}}
+
+    # TODO: This leads to some very unclear semantics. Basically there are
+    # subtle differences between having a null star forest and an SF that is
+    # 'None' and sometimes we want to treat them as equivalent and other
+    # times not.
+    def __bool__(self) -> bool:
+        return False
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     def reduce_begin(self, *args):
         pass
@@ -266,7 +310,7 @@ class NullStarForest(AbstractStarForest):
         pass
 
 
-def single_star_sf(comm, size=1, root=0):
+def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 0):
     """Construct a star forest containing a single star.
 
     The single star has leaves on all ranks apart from the "root" rank that

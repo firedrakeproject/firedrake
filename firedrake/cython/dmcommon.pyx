@@ -2708,17 +2708,21 @@ def filter_sf(
 def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
     """Create an SF from an existing SF and section."""
     cdef:
-        PETSc.SF sf_new
-        PetscInt *remoteOffsets_c = NULL
+        PETSc.SF      sf_new
+        PETSc.Section leaf_section
+
         PetscInt start_c, stop_c
+        PetscInt *remote_offsets_c = NULL
 
     sf_new = PETSc.SF().create(comm=sf.comm)
-    if sf.comm.size > 1:
-        CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
-    else:
-        start_c, stop_c = section.getChart()
-        CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
-    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
+    leaf_section = PETSc.Section().create(comm=sf.comm)
+    # if sf.comm.size > 1:
+    #     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+    # else:
+    #     start_c, stop_c = section.getChart()
+    #     CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
+    PETSc.CHKERR(PetscSFDistributeSection(sf.sf, section.sec, &remote_offsets_c, leaf_section.sec))
+    PETSc.CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets_c, leaf_section.sec, &sf_new.sf))
     return sf_new
 
 

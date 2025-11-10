@@ -217,6 +217,9 @@ class Assigner:
         lhs = self._assignee
         funcs = self._functions
 
+        if self._subset and self._subset is not Ellipsis:
+            import pyop3
+            pyop3.extras.debug.enable_conditional_breakpoints("region")
         func_data = np.array([data_ro(f.dat[self._subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
 

@@ -38,7 +38,7 @@ from pyop3.tree.axis_tree.tree import (
     GHOST_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest, local_sf
+from pyop3.sf import NullStarForest, StarForest, local_sf
 from pyop3.tree.labelled_tree import (
     ConcretePathT,
     as_node_map,
@@ -1133,6 +1133,8 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr import AxisVar
     from pyop3.expr.visitors import replace_terminals, collect_axis_vars
+    from pyop3.expr import LinearCompositeDat
+    from pyop3.expr.visitors import get_shape, get_loop_axes, materialize_composite_dat
 
     # TODO: move this code
     from firedrake.cython.dmcommon import filter_sf
@@ -1224,7 +1226,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=seen_target_exprs)
 
-        if target_component.sf is not None:
+        if isinstance(target_component.sf, StarForest):
             # It is not possible to have a star forest attached to a
             # component with variable extent
             assert isinstance(target_component.local_size, numbers.Integral)
@@ -1237,19 +1239,36 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
                 start, stop = steps[region_index:region_index+2]
                 indices = np.arange(start, stop, dtype=IntType)
-                sf = None
+                # import pyop3
+                # pyop3.extras.debug.maybe_breakpoint("region")
+                # 'sf' must be a null star forest instead of 'None' in order to
+                # distinguish between serial-only trees and parallel trees that
+                # have been restricted to the serial component (e.g. the size of
+                # the tree may differ between ranks).
+                sf = NullStarForest(indices.size)
             else:
                 if isinstance(slice_component, AffineSliceComponent):
                     indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
                 else:
                     assert isinstance(slice_component, SubsetSliceComponent)
-                    # NOTE: This isn't quite right. If the array is indexed then we don't
-                    # want everything here
-                    indices = slice_component.array.buffer.buffer.data_ro
+                    # evaluate the subset to get the correct indices
+                    subset_axes = utils.just_one(get_shape(slice_component.array))
+                    subset_loop_axes = get_loop_axes(slice_component.array)
+                    if subset_loop_axes:
+                        raise NotImplementedError
+                    subset_expr = LinearCompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array}, ())
+                    indices = materialize_composite_dat(subset_expr).buffer.buffer.data_ro
 
-                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
-                indexed_size = sum(r.size for r in indexed_regions)
-                sf = StarForest(petsc_sf, indexed_size)
+                if isinstance(target_component.sf, StarForest):
+                    # the issue is here when we are dealing with subsets (as opposed to region slices)
+                    # I have just implemented a new attempt that uses another bit of the PETSc API
+                    breakpoint()
+                    petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
+                    indexed_size = sum(r.size for r in indexed_regions)
+                    sf = StarForest(petsc_sf, indexed_size)
+                else:
+                    assert isinstance(target_component.sf, NullStarForest)
+                    sf = NullStarForest(indices.size)
         else:
             sf = None
 

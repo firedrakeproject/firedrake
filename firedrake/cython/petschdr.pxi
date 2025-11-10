@@ -166,6 +166,7 @@ cdef extern from "petscsf.h" nogil:
     PetscErrorCode PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     PetscErrorCode PetscSFCreateSectionSF(PETSc.PetscSF,PETSc.PetscSection,PetscInt*,PETSc.PetscSection,PETSc.PetscSF*)
     PetscErrorCode PetscSFCreateRemoteOffsets(PETSc.PetscSF,PETSc.PetscSection,PETSc.PetscSection,PetscInt**)
+    PetscErrorCode PetscSFDistributeSection(PETSc.PetscSF,PETSc.PetscSection,PetscInt**,PETSc.PetscSection)
 
 ctypedef PetscErrorCode (*PetscPCPatchComputeFunction)(PETSc.PetscPC,
                                             PetscInt,

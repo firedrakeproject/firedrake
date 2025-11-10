@@ -1,3 +1,5 @@
+import typing as _typing
+
 from .tree import (  # noqa: F401
     Axis,
     trim_axis_targets,
@@ -16,4 +18,7 @@ from .tree import (  # noqa: F401
     UNIT_AXIS_TREE,
     merge_axis_trees,
 )
-from .parse import as_axis_tree, as_axis_forest, as_axis_tree_type, collect_unindexed_axis_trees
+from .parse import as_axis_tree, as_axis_forest, as_axis_tree_type, collect_unindexed_axis_trees  # noqa: F401
+
+if _typing.TYPE_CHECKING:
+    from .tree import AxisComponentRegionSizeT  # noqa: F401

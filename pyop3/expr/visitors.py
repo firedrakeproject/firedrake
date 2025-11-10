@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import itertools
 import numbers
+import typing
 from collections.abc import Iterable, Mapping
 from functools import partial
 from typing import Any, Callable
@@ -18,7 +19,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 # TODO: just namespace these
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, AxisLabelT, MissingVariableException, matching_axis_tree
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -27,9 +28,11 @@ from pyop3.insn.base import loop_
 from .base import ExpressionT, conditional, loopified_shape
 from .tensor import Dat
 
+if typing.TYPE_CHECKING:
+    from pyop3.tree.axis_tree import AxisLabelT
 
-AxisVarMapT = Mapping[AxisLabelT, int]
-LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
+    AxisVarMapT = Mapping[AxisLabelT, int]
+    LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
 
 
 def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
@@ -52,7 +55,7 @@ def _(num, /, **kwargs) -> Any:
     return num
 
 
-@_evaluate.register
+@_evaluate.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis_label]
@@ -60,7 +63,7 @@ def _(axis_var: op3_expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any
         raise MissingVariableException(f"'{axis_var.axis_label}' not found in 'axis_vars'")
 
 
-@_evaluate.register
+@_evaluate.register(op3_expr.LoopIndexVar)
 def _(loop_var: op3_expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_id][loop_var.axis_label]

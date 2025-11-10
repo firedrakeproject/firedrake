@@ -880,6 +880,14 @@ class FunctionSpace:
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
 
+
+        import pyop3.extras.debug
+        pyop3.extras.debug.enable_conditional_breakpoints("nodal_axes")
+
+        # assert axis_tree.sf == self.plex_axes.sf
+        assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
+        assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
+
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
         # means we have to determine the mapping
@@ -899,14 +907,13 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because they mappings will be compressed during compilation.
-        import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("Cythonize")
 
-        node_point_map_array = numpy.empty(num_nodes, dtype=IntType)
-        node_dof_map_array = numpy.empty_like(node_point_map_array)
+        node_point_map_array = numpy.full(num_nodes, -1, dtype=IntType)
+        node_dof_map_array = numpy.full_like(node_point_map_array, -1)
 
         dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
-        ndofs = dof_axis.component.size.buffer.buffer.data_ro
+        ndofs = dof_axis.component.size.buffer.buffer.data_ro_with_halos
 
         node = 0
         for point, ndof in enumerate(ndofs):
@@ -914,6 +921,8 @@ class FunctionSpace:
                 node_point_map_array[node] = point
                 node_dof_map_array[node] = dof
                 node += 1
+
+        assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
         node_point_map_dat = op3.Dat(node_axis, data=node_point_map_array)
         node_dof_map_dat = op3.Dat(node_axis, data=node_dof_map_array)
@@ -2059,15 +2068,15 @@ class MixedFunctionSpace:
 
     def _collect_ises(self, *, local):
         if local:
-            size = self.axes.local_size
+            size = self.axes.owned.local_size
             start = 0
         else:
-            size = self.axes.owned.local_size
+            size = self.axes.local_size
             start = self.comm.exscan(size) or 0
 
         ises = []
         for i, subspace in enumerate(self._spaces):
-            nrows = self.axes[i].local_size if local else self.axes[i].owned.local_size
+            nrows = self.axes[i].owned.local_size if local else self.axes[i].local_size
             iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
             iset.setBlockSize(subspace.value_size)
             ises.append(iset)

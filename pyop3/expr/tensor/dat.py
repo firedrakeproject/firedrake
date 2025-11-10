@@ -100,6 +100,8 @@ class Dat(Tensor):
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
+        assert buffer.size == axes.unindexed.local_size
+
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self.axes = axes
@@ -323,6 +325,8 @@ class Dat(Tensor):
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
+        if "_label_Slice_418" in str(self.axes):
+            breakpoint()
         return self.buffer.data_ro[self.axes.owned._buffer_slice]
 
     @data_ro.setter
@@ -614,6 +618,7 @@ class LinearCompositeDat(CompositeDat):
     # {{{ instance attrs
 
     _axis_tree: AxisTree
+    # TODO: This should arguably only be the leaf expression
     _exprs: Any
     _loop_indices: tuple[Axis]
 

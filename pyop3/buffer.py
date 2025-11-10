@@ -219,7 +219,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         if sf is None:
-            sf = NullStarForest()
+            sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)

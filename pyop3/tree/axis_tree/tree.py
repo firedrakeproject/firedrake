@@ -29,7 +29,7 @@ from petsc4py import PETSc
 from pyop2.caching import active_scoped_cache, cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import DistributedObject, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
+from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
 from pyop2.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
@@ -67,12 +67,18 @@ from pyop3.utils import (
 
 import pyop3.extras.debug
 
+if typing.TYPE_CHECKING:
+    from pyop3.expr import LinearDatBufferExpression
+
+    AxisComponentRegionSizeT = IntType | LinearDatBufferExpression
+    AxisLabelT = NodeLabelT
+    IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
+
 
 OWNED_REGION_LABEL = "owned"
 GHOST_REGION_LABEL = "ghost"
 
 
-AxisLabelT = NodeLabelT
 
 
 class ExpectedLinearAxisTreeException(Pyop3Exception):
@@ -217,6 +223,7 @@ class _UnitAxisTree(CacheMixin):
     size = 1
     max_size = 1
     alloc_size = 1
+    local_size = 1
     depth = 1
     is_linear = True
     is_empty = False
@@ -296,7 +303,7 @@ labels.
 
 @utils.frozenrecord()
 class AxisComponentRegion:
-    size: numbers.Integral | LinearDatBufferExpression
+    size: AxisComponentRegionSizeT
     label: str | None = None
 
     def __init__(self, size, label=None):
@@ -345,15 +352,15 @@ def _(num: numbers.Integral) -> FixedAxisComponentSize:
 
 
 @functools.singledispatch
-def _parse_sf(obj: Any, size) -> StarForest | None:
+def _parse_sf(obj: Any, size) -> AbstractStarForest | None:
     if obj is None:
         return None
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@_parse_sf.register(StarForest)
-def _(sf: StarForest, size) -> StarForest:
+@_parse_sf.register(AbstractStarForest)
+def _(sf: AbstractStarForest, size) -> AbstractStarForest:
     if size != sf.size:
         raise ValueError("Size mismatch between regions and SF")
     return sf
@@ -412,6 +419,9 @@ class AxisComponent(LabelledNodeComponent):
         super().__init__(label=label)
         self.regions = regions
         self.sf = sf
+
+        if sf is not None:
+            assert self.local_size == self.sf.size
 
     def __str__(self) -> str:
         if self.has_non_trivial_regions:
@@ -517,6 +527,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         self.components = components
         super().__init__(label=label)
         CacheMixin.__init__(self)
+
+        if self.label == "_label_Slice_437_owned":
+            breakpoint()
 
     def __eq__(self, other):
         return (
@@ -999,14 +1012,16 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @cached_property
     def sf(self) -> StarForest:
         from pyop3.tree.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+        import pyop3
+        # if self.root.label == "nodes" and self.local_size > 500:
+        #     pyop3.extras.debug.maybe_breakpoint("nodal_axes")
 
         has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
         if has_sfs:
             sfs = collect_star_forests(self)
             return concatenate_star_forests(sfs)
         else:
-            # return local_sf(self.size, self.comm)
-            return NullStarForest()
+            return NullStarForest(self.size)
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat
@@ -1015,14 +1030,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         axis = self.node_map[path]
 
         subpath = path | {axis.label: component.label}
-        size_expr = self.materialize().subtree(subpath).local_size
-
-        # # NOTE: This is bizarre, what was I doing?
-        # if isinstance(size_expr, numbers.Integral):
-        #     size_axes = 
-        # else:
-        #     # size_axes, _ = extract_axes(size_expr, self, (), {})
-        #     size_axes = utils.just_one(size_expr.shape).linearize(subpath, partial=True)
+        if subpath in self.leaf_paths:
+            size_expr = 1
+        else:
+            size_expr = self.materialize().subtree(subpath).local_size
 
         size_dat = Dat.empty(axis.linearize(component.label).regionless, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
@@ -1714,7 +1725,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        # IMPORTANT: in parallel this may well lead to issues
+        # FIXME: parallel!!!
         if self.local_size == 0:
             return slice(0, 0)
 
@@ -1730,6 +1741,9 @@ class IndexedAxisTree(AbstractAxisTree):
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
+
+        if len(indices) > 0 and indices[-1] == 488:
+            breakpoint()
 
         indices = np.unique(np.sort(indices))
 
@@ -2341,9 +2355,6 @@ def full_shape(axes):
         return fulltree, replace_map
     else:
         return axes, replace_map
-
-
-IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
 
 def _iter_axis_tree(axis_tree: AbstractAxisTree) -> GeneratorType[IteratorIndexT]:
