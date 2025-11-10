@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from pytest_mpi.parallel_assert import parallel_assert
 
 from numpy.random import rand
 
@@ -251,3 +252,34 @@ def test_interpolate_mixed():
     h.subfunctions[0].dat.data[:] = 5
     h.subfunctions[1].dat.data[:] = 6
     assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_assign_numpy():
+    """Check that Function._ad_assign_numpy correctly handles
+    zero length arrays on some ranks for Real space in parallel.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    dst = Function(R)
+    src = dst.dat.dataset.layout_vec.array_r.copy()
+    data = 1 + np.arange(src.shape[0])
+    src[:] = data
+    dst._ad_assign_numpy(dst, src, offset=0)
+    parallel_assert(np.allclose(dst.dat.data_ro, data))
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_parallel():
+    """Check that scipy.optimize works for Real space in parallel
+    despite dat.data array having zero length on some ranks.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R)
+    J = assemble((m-1)**2*dx)
+    Jhat = ReducedFunctional(J, Control(m))
+    opt = minimize(Jhat)
+    parallel_assert(np.allclose(opt.dat.data_ro, 1))
