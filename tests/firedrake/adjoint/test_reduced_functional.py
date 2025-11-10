@@ -255,6 +255,19 @@ def test_interpolate_mixed():
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(2)
+def test_real_space_assign_numpy():
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    dst = Function(R)
+    src = dst.dat.dataset.layout_vec.array_r.copy()
+    data = 1 + np.arange(src.shape[0])
+    src[:] = data
+    dst._ad_assign_numpy(dst, src, offset=0)
+    assert np.allclose(dst.dat.data_ro, data)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
 def test_real_space_parallel():
     mesh = UnitSquareMesh(1, 1)
     R = FunctionSpace(mesh, "R", 0)
