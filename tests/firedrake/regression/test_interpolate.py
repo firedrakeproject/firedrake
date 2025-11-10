@@ -623,7 +623,8 @@ def test_mixed_space_bcs():
 
 
 @pytest.mark.parallel([1, 3])
-def test_interpolate_composition():
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_interpolate_composition(mode):
     mesh = UnitSquareMesh(4, 4)
     x, y = SpatialCoordinate(mesh)
 
@@ -633,27 +634,28 @@ def test_interpolate_composition():
     V2 = FunctionSpace(mesh, "CG", 2)
     V1 = FunctionSpace(mesh, "CG", 1)
 
-    u5 = Function(V5).interpolate(sin(x + y))
-    u4 = interpolate(u5, V4)
-    u3 = interpolate(u4, V3)
-    u2 = interpolate(u3, V2)
-    u1 = interpolate(u2, V1)
+    if mode == "forward":
+        u5 = Function(V5).interpolate(sin(x + y))
+        u4 = interpolate(u5, V4)
+        u3 = interpolate(u4, V3)
+        u2 = interpolate(u3, V2)
+        u1 = interpolate(u2, V1)
 
-    assert u1.function_space() == V1
+        assert u1.function_space() == V1
 
-    res = assemble(u1)
-    res2 = assemble(interpolate(sin(x + y), V1))
-    assert np.allclose(res.dat.data_ro, res2.dat.data_ro)
+        res = assemble(u1)
+        res2 = assemble(interpolate(sin(x + y), V1))
+        assert np.allclose(res.dat.data_ro, res2.dat.data_ro)
 
-    # adjoint
-    u1 = conj(TestFunction(V1)) * dx
-    u2 = interpolate(TestFunction(V2), u1)
-    u3 = interpolate(TestFunction(V3), u2)
-    u4 = interpolate(TestFunction(V4), u3)
-    u5 = interpolate(TestFunction(V5), u4)
+    if mode == "adjoint":
+        u1 = conj(TestFunction(V1)) * dx
+        u2 = interpolate(TestFunction(V2), u1)
+        u3 = interpolate(TestFunction(V3), u2)
+        u4 = interpolate(TestFunction(V4), u3)
+        u5 = interpolate(TestFunction(V5), u4)
 
-    assert u5.function_space() == V5.dual()
+        assert u5.function_space() == V5.dual()
 
-    res_adj = assemble(u5)
-    res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
-    assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
+        res_adj = assemble(u5)
+        res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
+        assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
