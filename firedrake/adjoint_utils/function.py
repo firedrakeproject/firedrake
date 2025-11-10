@@ -280,7 +280,7 @@ class FunctionMixin(FloatingType):
         m_a_local = src[offset + range_begin:offset + range_end]
         if dst.function_space().ufl_element().family() == "Real":
             # Real space keeps a redundant copy of the data on every rank
-            comm = dst.function_space().mesh().comm
+            comm = dst.function_space().mesh()._comm
             dst.dat.data_wo[...] = comm.bcast(m_a_local, root=0)
         else:
             dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
