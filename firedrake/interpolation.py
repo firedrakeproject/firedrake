@@ -1178,9 +1178,14 @@ class GlobalWrapper(object):
 
 
 class VomOntoVomMat:
-    """Object that facilitates interpolation between two vertex-only meshes."""
+    """
+    Object that facilitates interpolation between a VertexOnlyMesh and its
+    input_ordering VertexOnlyMesh. This is either a PETSc Star Forest wrapped
+    as a PETSc Mat, or a concrete PETSc seqaij Mat, depending on whether
+    matfree interpolation is requested.
+    """
     def __init__(self, interpolator: VomOntoVomInterpolator):
-        """Initialises the VomOntoVomMat.
+        """Initialise the VomOntoVomMat.
 
         Parameters
         ----------
@@ -1232,10 +1237,13 @@ class VomOntoVomMat:
         """Tuple containing the local and global size of the target space."""
 
         if interpolator.matfree:
-            # If matfree, we use the SF to perform the interpolation
+            # If matfree, we use the SF wrapped as a PETSc Mat
+            # to perform the permutation. This is the default.
             self.handle = self._wrap_python_mat()
         else:
-            # Otherwise we create the permutation matrix
+            # If matfree=False, then we build the concrete permutation
+            # matrix as a PETSc seqaij Mat. This is used to build the 
+            # cross-mesh interpolation matrix.
             self.handle = self._create_permutation_mat()
 
     @property
@@ -1252,7 +1260,7 @@ class VomOntoVomMat:
         self._mpi_type = val
 
     def expr_as_coeff(self, source_vec: PETSc.Vec | None = None) -> Function:
-        """Return a coefficient that corresponds to the expression used at
+        """Return a Function that corresponds to the expression used at
         construction, where the expression has been interpolated into the P0DG
         function space on the source vertex-only mesh.
 
@@ -1322,7 +1330,8 @@ class VomOntoVomMat:
         )
 
     def broadcast(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
-        """Broadcast data in source_vec using the PETSc SF.
+        """Broadcast data in source_vec using the PETSc SF, storing the
+        result in target_vec.
 
         Parameters
         ----------
@@ -1347,7 +1356,8 @@ class VomOntoVomMat:
         )
 
     def mult(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
-        """Applies the interpolation operator.
+        """Apply the interpolation operator to source_vec, storing the
+        result in target_vec.
 
         Parameters
         ----------
@@ -1368,8 +1378,8 @@ class VomOntoVomMat:
                 self.broadcast(coeff_vec, target_vec)
 
     def multHermitian(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
-        """Applies the adjoint of the interpolation operator.
-        Since ``VomOntoVomMat`` represents a permutation, it is
+        """Apply the adjoint of the interpolation operator to source_vec, storing the
+        result in target_vec. Since ``VomOntoVomMat`` represents a permutation, it is
         real-valued and thus the Hermitian adjoint is the transpose.
 
         Parameters
@@ -1384,7 +1394,8 @@ class VomOntoVomMat:
         self.multTranspose(mat, source_vec, target_vec)
 
     def multTranspose(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
-        """Applies the tranpose of the interpolation operator. Called by `self.multHermitian`.
+        """Apply the tranpose of the interpolation operator to source_vec, storing the
+        result in target_vec. Called by `self.multHermitian`.
 
         Parameters
         ----------
@@ -1423,7 +1434,7 @@ class VomOntoVomMat:
             self.reduce(source_vec, target_vec)
 
     def _create_permutation_mat(self) -> PETSc.Mat:
-        """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
+        """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh.
 
         Returns
@@ -1438,19 +1449,24 @@ class VomOntoVomMat:
         start = sum(self._local_sizes[:self.target_space.comm.rank])
         end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
-        perm = numpy.zeros(self.nleaves, dtype=IntType)
+        perm = numpy.zeros(self.nleaves, dtype=IntType)  # result stored in here
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(self.target_size[0] + 1, dtype=IntType)
+        # Vector and Tensor valued spaces are stored in a flattened array, so
+        # we need to space out the column indices according to the block size
         cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
         mat.assemble()
         if self.forward_reduce and not self.is_adjoint:
+            # The mat we have constructed thus far takes us from the input-ordering VOM to the
+            # immersed VOM. If we're going the other way, then we need to transpose it,
+            # unless we're doing the adjoint interpolation in which ca
             mat.transpose()
         return mat
 
     def _wrap_python_mat(self) -> PETSc.Mat:
-        """Wraps this object as a PETSc Mat. Used for matfree interpolation.
+        """Wrap this object as a PETSc Mat. Used for matfree interpolation.
 
         Returns
         -------
@@ -1469,7 +1485,7 @@ class VomOntoVomMat:
         return mat
 
     def duplicate(self, mat: PETSc.Mat | None = None, op: PETSc.Mat.DuplicateOption | None = None) -> PETSc.Mat:
-        """Duplicates the matrix. Needed to wrap as a PETSc Python Mat.
+        """Duplicate the matrix. Needed to wrap as a PETSc Python Mat.
 
         Parameters
         ----------
