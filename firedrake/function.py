@@ -563,8 +563,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
+        coord = np.asarray(coord, dtype=utils.ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
-        return evaluator.evaluate(self)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze(axis=0)
+        return result
 
     def at(self, arg, *args, **kwargs):
         warnings.warn(
@@ -827,7 +831,7 @@ class PointEvaluator:
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
-        result = f_at_points_io.dat.data_ro
+        result = f_at_points_io.dat.data_ro.copy()
 
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
