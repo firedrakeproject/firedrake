@@ -168,7 +168,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        return self.assign(0, subset=subset)
+        return self.assign(ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
