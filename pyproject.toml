@@ -20,7 +20,7 @@ dependencies = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "fenics-ufl>=2025.2.0",
-  "firedrake-fiat>=2025.10.0",
+  "firedrake-fiat>=2025.10.1",
   "h5py>3.12.1",
   "immutabledict",
   "libsupermesh",
