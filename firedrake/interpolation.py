@@ -222,13 +222,13 @@ class Interpolator(abc.ABC):
 
     @abc.abstractmethod
     def _get_callable(
-        self, 
-        tensor: Function | Cofunction | MatrixBase | None = None, 
+        self,
+        tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None
     ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
         """Return a callable to perform interpolation.
 
-        If ``self.rank == 2``, then the callable must return a PETSc matrix. 
+        If ``self.rank == 2``, then the callable must return a PETSc matrix.
         If ``self.rank == 1``, then the callable must return a ``Function``
         or ``Cofunction`` (in the forward and adjoint cases respectively).
         If ``self.rank == 0``, then the callable must return a number.
@@ -649,7 +649,7 @@ class SameMeshInterpolator(Interpolator):
             for l in loops:
                 l()
             if self.rank == 0:
-                return f.dat.data.item() 
+                return f.dat.data.item()
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:
@@ -1237,7 +1237,7 @@ class VomOntoVomMat:
             self.handle = self._wrap_python_mat()
         else:
             # If matfree=False, then we build the concrete permutation
-            # matrix as a PETSc seqaij Mat. This is used to build the 
+            # matrix as a PETSc seqaij Mat. This is used to build the
             # cross-mesh interpolation matrix.
             self.handle = self._create_permutation_mat()
 
