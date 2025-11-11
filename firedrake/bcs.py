@@ -361,7 +361,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg = firedrake.Function(V)
                 interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
                 # Call this here to check if the element supports interpolation
-                interpolator._build_callable()
+                # TODO: It's probably better to have a more explicit way of checking this
+                interpolator._get_callable()
                 self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
