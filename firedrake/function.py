@@ -403,7 +403,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
-        return self.assign(ScalarType(0), subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
