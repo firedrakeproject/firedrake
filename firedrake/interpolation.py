@@ -212,26 +212,26 @@ class Interpolator(abc.ABC):
         """The domain we are interpolating into."""
         self.source_mesh = extract_unique_domain(operand) or self.target_mesh
         """The domain we are interpolating from."""
-        self.callable = None
-        """The function which performs the interpolation."""
 
         # Interpolation options
         self.subset = expr.options.subset
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         self.matfree = expr.options.matfree
-        self.callable = None
         self.access = expr.options.access
 
     @abc.abstractmethod
-    def _build_callable(self, tensor: Function | Cofunction | MatrixBase | None = None,
-                        bcs: Iterable[DirichletBC] | None = None) -> None:
-        """Builds callable to perform interpolation. Stored in ``self.callable``.
+    def _get_callable(
+        self, 
+        tensor: Function | Cofunction | MatrixBase | None = None, 
+        bcs: Iterable[DirichletBC] | None = None
+    ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
+        """Return a callable to perform interpolation.
 
-        If ``self.rank == 2``, then ``self.callable()`` must return an object with a ``handle``
-        attribute that stores a PETSc matrix. If ``self.rank == 1``, then `self.callable()` must
-        return a ``Function`` or ``Cofunction`` (in the forward and adjoint cases respectively).
-        If ``self.rank == 0``, then ``self.callable()`` must return a number.
+        If ``self.rank == 2``, then the callable must return a PETSc matrix. 
+        If ``self.rank == 1``, then the callable must return a ``Function``
+        or ``Cofunction`` (in the forward and adjoint cases respectively).
+        If ``self.rank == 0``, then the callable must return a number.
 
         Parameters
         ----------
@@ -276,17 +276,15 @@ class Interpolator(abc.ABC):
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
-        self._build_callable(tensor=tensor, bcs=bcs)
-        result = self.callable()
+        result = self._get_callable(tensor=tensor, bcs=bcs)()
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
-            # Get the interpolation matrix
-            petsc_mat = result.handle
+            assert isinstance(result, PETSc.Mat)
             if tensor:
-                petsc_mat.copy(tensor.petscmat)
+                result.copy(tensor.petscmat)
                 return tensor
-            return AssembledMatrix(self.interpolate_args, bcs, petsc_mat)
+            return AssembledMatrix(self.interpolate_args, bcs, result)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -416,10 +414,8 @@ class CrossMeshInterpolator(Interpolator):
             # scalar fiat/finat element
             self.dest_element = dest_element
 
-        self._build_symbolic_expressions()
-
-    def _build_symbolic_expressions(self) -> None:
-        """Constructs the symbolic ``Interpolate`` expressions for cross-mesh interpolation.
+    def _get_symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
+        """Return the symbolic ``Interpolate`` expressions for cross-mesh interpolation.
 
         Raises
         ------
@@ -433,7 +429,7 @@ class CrossMeshInterpolator(Interpolator):
         f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
         dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
         try:
-            self.vom = VertexOnlyMesh(
+            vom = VertexOnlyMesh(
                 self.source_mesh,
                 dest_node_coords,
                 redundant=False,
@@ -452,19 +448,20 @@ class CrossMeshInterpolator(Interpolator):
             fs_type = partial(TensorFunctionSpace, shape=shape)
 
         # Get expression for point evaluation at the dest_node_coords
-        self.P0DG_vom = fs_type(self.vom, "DG", 0)
-        self.point_eval = interpolate(self.operand, self.P0DG_vom)
+        P0DG_vom = fs_type(vom, "DG", 0)
+        point_eval = interpolate(self.operand, P0DG_vom)
 
         # If assembling the operator, we need the concrete permutation matrix
         matfree = False if self.rank == 2 else self.matfree
 
         # Interpolate into the input-ordering VOM
-        self.P0DG_vom_input_ordering = fs_type(self.vom.input_ordering, "DG", 0)
+        P0DG_vom_input_ordering = fs_type(vom.input_ordering, "DG", 0)
 
-        arg = Argument(self.P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
-        self.point_eval_input_ordering = interpolate(arg, self.P0DG_vom_input_ordering, matfree=matfree)
+        arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
+        point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering, matfree=matfree)
+        return point_eval, point_eval_input_ordering
 
-    def _build_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
@@ -472,18 +469,20 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
 
+        point_eval, point_eval_input_ordering = self._get_symbolic_expressions()
+        P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
+
         if self.rank == 2:
             # The cross-mesh interpolation matrix is the product of the
             # `self.point_eval_interpolate` and the permutation
             # given by `self.to_input_ordering_interpolate`.
             if self.ufl_interpolate.is_adjoint:
-                symbolic = action(self.point_eval, self.point_eval_input_ordering)
+                symbolic = action(point_eval, point_eval_input_ordering)
             else:
-                symbolic = action(self.point_eval_input_ordering, self.point_eval)
-            self.handle = assemble(symbolic).petscmat
+                symbolic = action(point_eval_input_ordering, point_eval)
 
-            def callable() -> CrossMeshInterpolator:
-                return self
+            def callable() -> PETSc.Mat:
+                return assemble(symbolic).petscmat
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
             # f_src is a cofunction on V_dest.dual
@@ -492,7 +491,7 @@ class CrossMeshInterpolator(Interpolator):
 
             # Our first adjoint operation is to assign the dat values to a
             # P0DG cofunction on our input ordering VOM.
-            f_input_ordering = Cofunction(self.P0DG_vom_input_ordering.dual())
+            f_input_ordering = Cofunction(P0DG_vom_input_ordering.dual())
             f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
 
             # The rest of the adjoint interpolation is the composition
@@ -501,14 +500,14 @@ class CrossMeshInterpolator(Interpolator):
             # because we're going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
             def callable() -> Cofunction:
-                f_src_at_src_node_coords = assemble(action(self.point_eval_input_ordering, f_input_ordering))
-                assemble(action(self.point_eval, f_src_at_src_node_coords), tensor=f)
+                f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
+                assemble(action(point_eval, f_src_at_src_node_coords), tensor=f)
                 return f
         else:
             assert self.rank in {0, 1}
             # We create the input-ordering Function before interpolating so we can
             # set default missing values if required.
-            f_point_eval_input_ordering = Function(self.P0DG_vom_input_ordering)
+            f_point_eval_input_ordering = Function(P0DG_vom_input_ordering)
             if self.default_missing_val is not None:
                 f_point_eval_input_ordering.assign(self.default_missing_val)
             elif self.allow_missing_dofs:
@@ -519,7 +518,7 @@ class CrossMeshInterpolator(Interpolator):
                 f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
             def callable() -> Function | Number:
-                assemble(action(self.point_eval_input_ordering, self.point_eval), tensor=f_point_eval_input_ordering)
+                assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
@@ -533,7 +532,7 @@ class CrossMeshInterpolator(Interpolator):
                     return assemble(action(self.dual_arg, f))
                 else:
                     return f
-        self.callable = callable
+        return callable
 
 
 class SameMeshInterpolator(Interpolator):
@@ -577,7 +576,7 @@ class SameMeshInterpolator(Interpolator):
             self.access = op2.WRITE
 
     def _get_tensor(self) -> op2.Mat | Function | Cofunction:
-        """Return the tensor to interpolate into.
+        """Return a suitable tensor to interpolate into.
 
         Returns
         -------
@@ -613,7 +612,7 @@ class SameMeshInterpolator(Interpolator):
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
 
-    def _build_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None):
         f = tensor or self._get_tensor()
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
 
@@ -646,12 +645,17 @@ class SameMeshInterpolator(Interpolator):
         if bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
-        def callable(loops, f):
+        def callable() -> Function | Cofunction | PETSc.Mat | Number:
             for l in loops:
                 l()
-            return f.dat.data.item() if self.rank == 0 else f
+            if self.rank == 0:
+                return f.dat.data.item() 
+            elif self.rank == 2:
+                return f.handle  # In this case f is an op2.Mat
+            else:
+                return f
 
-        self.callable = partial(callable, loops, f)
+        return callable
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -659,7 +663,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
 
-    def _build_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
         self.mat = VomOntoVomMat(self)
@@ -691,10 +695,10 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             temp_source_func = Function(self.interpolate_args[1].function_space())
             self.mat.mpi_type = _get_mtype(temp_source_func.dat)[0]
 
-            def callable() -> VomOntoVomMat:
-                return self.mat
+            def callable() -> PETSc.Mat:
+                return self.mat.handle
 
-        self.callable = callable
+        return callable
 
 
 @known_pyop2_safe
@@ -705,7 +709,7 @@ def _build_interpolation_callables(
     subset: op2.Subset | None = None,
     bcs: Iterable[DirichletBC] | None = None
 ) -> tuple[Callable, ...]:
-    """Returns tuple of callables which calculate the interpolation.
+    """Return a tuple of callables which calculate the interpolation.
 
     Parameters
     ----------
@@ -756,18 +760,9 @@ def _build_interpolation_callables(
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        # For trans-mesh interpolation we use a FInAT QuadratureElement as the
-        # (base) target element with runtime point set expressions as their
-        # quadrature rule point set and weights from their dual basis.
-        # NOTE: This setup is useful for thinking about future design - in the
-        # future this `rebuild` function can be absorbed into FInAT as a
-        # transformer that eats an element and gives you an equivalent (which
-        # may or may not be a QuadratureElement) that lets you do run time
-        # tabulation. Alternatively (and this all depends on future design
-        # decision about FInAT how dual evaluation should work) the
-        # to_element's dual basis (which look rather like quadrature rules) can
-        # have their pointset(s) directly replaced with run-time tabulated
-        # equivalent(s) (i.e. finat.point_set.UnknownPointSet(s))
+        # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
+        # target element with runtime point set expressions as their
+        # quadrature rule point set.
         rt_var_name = 'rt_X'
         try:
             cell = operand.ufl_element().ufl_cell()
@@ -1556,20 +1551,17 @@ class MixedInterpolator(Interpolator):
 
         return Isub
 
-    def _build_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None):
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
         if self.rank == 2:
-            shape = tuple(len(a.function_space()) for a in self.interpolate_args)
-            blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-            for indices, (interp, sub_bcs) in Isub.items():
-                interp._build_callable(bcs=sub_bcs)
-                blocks[indices] = interp.callable().handle
-            self.handle = PETSc.Mat().createNest(blocks)
-
-            def callable() -> MixedInterpolator:
-                return self
+            def callable() -> PETSc.Mat:
+                shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+                blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
+                for indices, (interp, sub_bcs) in Isub.items():
+                    blocks[indices] = interp._get_callable(bcs=sub_bcs)()
+                return PETSc.Mat().createNest(blocks)
         elif self.rank == 1:
             def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):
@@ -1580,4 +1572,4 @@ class MixedInterpolator(Interpolator):
         else:
             def callable() -> Number:
                 return sum(interp.assemble(bcs=sub_bcs) for (interp, sub_bcs) in Isub.values())
-        self.callable = callable
+        return callable
