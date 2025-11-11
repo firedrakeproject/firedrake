@@ -69,6 +69,7 @@ class MinimizeCallback(Sequence):
 
 
 @pytest.mark.parametrize("family", ("Lagrange", "Discontinuous Lagrange"))
+@pytest.mark.skipcomplex
 def test_transformed_functional_mass_inverse(family):
     mesh = fd.UnitSquareMesh(5, 5, diagonal="crossed")
     x, y = fd.SpatialCoordinate(mesh)
@@ -122,6 +123,7 @@ def test_transformed_functional_mass_inverse(family):
     assert J_hat._test_transformed_functional__ncalls == 3
 
 
+@pytest.mark.skipcomplex
 def test_transformed_functional_poisson():
     mesh = fd.UnitSquareMesh(5, 5, diagonal="crossed")
     x, y = fd.SpatialCoordinate(mesh)
@@ -192,6 +194,7 @@ def test_transformed_functional_poisson():
     assert J_hat._test_transformed_functional__ncalls < 60  # == 55
 
 
+@pytest.mark.skipcomplex
 def test_transformed_functional_poisson_tao_nls():
     mesh = fd.UnitSquareMesh(5, 5, diagonal="crossed")
     x, y = fd.SpatialCoordinate(mesh)
