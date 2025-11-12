@@ -428,7 +428,15 @@ only apply to the normal component of H(div) functions.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
 the value of the barycentric velocity :math:`v` on the inflows and outflows,
 we enforce :math:`v = \rho^{-1}(G_1 + G_2)`. Boundary conditions that couple
-unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
+unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`.
+Since the barycentric velocity is in :math:`[\textrm{CG}_k]^2` it has degrees of freedom located at the points
+where the inlets/outlet meet the walls. Even though the boundary conditions on the inlets/outlet
+and the walls are compatible at these points, :class:`~.EquationBC` enforces the boundary conditions weakly whilst
+:class:`~.DirichletBC` enforces them strongly. Hence, to avoid ambiguity, we set Dirichlet boundary
+conditions on the boundary of the boundary, i.e. the points where the inlets/outlet meet the walls.
+To enforce these Dirichlet boundary conditions, tuples with the numbers of the boundary edges coincidental
+to these points need to be constructed first. This is then passed on to a Dirichlet boundary condition
+which is passed on to :class:`~.EquationBC`.::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
     v_ref_1 = Constant(0.4e-6)                      # Reference inflow velocity of benzene, m / s
@@ -449,7 +457,8 @@ unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` ins
     # Boundary conditions on the barycentric velocity are enforced via EquationBC
     bc_data = {inlet_1_id: rho_v_inflow_1_bc_func, inlet_2_id: rho_v_inflow_2_bc_func, outlet_id: rho_v_outflow_bc_func}
     F_bc = sum(inner(v - rho_inv * flux, u) * ds(*subdomain) for subdomain, flux in bc_data.items())
-    sub_bcs = [DirichletBC(Z_h.sub(2), 0, [(1,2), (2,3), (3,4), (4,5), (5,6), (1,6)])]  # bc on the boundary of the boundary
+    ridges = [(i, j) for i in [*inlet_1_id, *inlet_2_id, *outlet_id] for j in walls_ids]
+    sub_bcs = [DirichletBC(Z_h.sub(2), 0, ridges)]  # bc on the boundary of the boundary
     v_bc = EquationBC(F_bc == 0, solution, (*inlet_1_id, *inlet_2_id, *outlet_id), V=Z_h.sub(2), bcs=sub_bcs)
 
     # The boundary conditions on the fluxes and barycentric velocity
