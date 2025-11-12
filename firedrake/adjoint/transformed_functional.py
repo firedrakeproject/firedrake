@@ -145,9 +145,9 @@ class L2RieszMap(fd.RieszMap):
 
     target
         Function space.
-
-    Keyword arguments are passed to the :class:`firedrake.RieszMap`
-    constructor.
+    kwargs
+        Keyword arguments are passed to the :class:`firedrake.RieszMap`
+        constructor.
     """
 
     def __init__(self, target: WithGeometry, **kwargs):
@@ -209,7 +209,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         - :math:`J` is the functional definining an optimization problem.
         - :math:`\Pi` is the :math:`L^2` projection from a DG space containing
-        the control space as a subspace.
+          the control space as a subspace.
         - :math:`\Xi` represents a change of basis from an :math:`L^2`
           orthonormal basis to the finite element basis for the DG space.
 
