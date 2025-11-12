@@ -1,10 +1,14 @@
+from collections.abc import Sequence
 from contextlib import contextmanager
+from numbers import Real
 from operator import itemgetter
+from typing import Optional, Union
 
 import firedrake as fd
-from firedrake.adjoint import Control, ReducedFunctional
+from firedrake.adjoint import Control, ReducedFunctional, Tape
+from firedrake.functionspaceimpl import WithGeometry
 import finat
-from pyadjoint import no_annotations
+from pyadjoint import OverloadedType, no_annotations
 from pyadjoint.enlisting import Enlist
 from pyadjoint.reduced_functional import AbstractReducedFunctional
 import ufl
@@ -30,13 +34,13 @@ class L2Cholesky:
     Parameters
     ----------
 
-    space : WithGeometry
+    space
         DG space.
-    constant_jacobian : bool
+    constant_jacobian
         Whether the mass matrix is constant.
     """
 
-    def __init__(self, space, *, constant_jacobian=True):
+    def __init__(self, space: WithGeometry, *, constant_jacobian: Optional[bool] = True):
         if fd.utils.complex_mode:
             raise NotImplementedError("complex not supported")
 
@@ -72,8 +76,8 @@ class L2Cholesky:
 
         return pc
 
-    def C_inv_action(self, u):
-        """For the Cholesky factorization
+    def C_inv_action(self, u: Union[fd.Function, fd.Cofunction]) -> fd.Cofunction:
+        r"""For the Cholesky factorization
 
         ... math :
 
@@ -84,14 +88,14 @@ class L2Cholesky:
         Parameters
         ----------
 
-        u : Function or Cofunction
+        u
             Compute :math:`C^{-1} \tilde{u}` where :math:`\tilde{u}` is the
             vector of degrees of freedom for :math:`u`.
 
         Returns
         -------
 
-        v : Cofunction
+        firedrake.Cofunction
             Has vector of degrees of freedom :math:`C^{-1} \tilde{u}`.
         """
 
@@ -102,8 +106,8 @@ class L2Cholesky:
                 pc.applySymmetricLeft(u_v_s, v_v_s)
         return v
 
-    def C_T_inv_action(self, u):
-        """For the Cholesky factorization
+    def C_T_inv_action(self, u: Union[fd.Function, fd.Cofunction]) -> fd.Function:
+        r"""For the Cholesky factorization
 
         ... math :
 
@@ -114,14 +118,14 @@ class L2Cholesky:
         Parameters
         ----------
 
-        u : Function or Cofunction
+        u
             Compute :math:`C^{-T} \tilde{u}` where :math:`\tilde{u}` is the
             vector of degrees of freedom for :math:`u`.
 
         Returns
         -------
 
-        v : Function
+        firedrake.Function
             Has vector of degrees of freedom :math:`C^{-T} \tilde{u}`.
         """
 
@@ -139,26 +143,26 @@ class L2RieszMap(fd.RieszMap):
     Parameters
     ----------
 
-    target : WithGeometry
+    target
         Function space.
 
     Keyword arguments are passed to the :class:`firedrake.RieszMap`
     constructor.
     """
 
-    def __init__(self, target, **kwargs):
+    def __init__(self, target: WithGeometry, **kwargs):
         if not isinstance(target, fd.functionspaceimpl.WithGeometry):
             raise TypeError("Target must be a WithGeometry")
         super().__init__(target, ufl.L2, **kwargs)
 
 
-def is_dg_space(space):
+def is_dg_space(space: WithGeometry) -> bool:
     """Return whether a function space is DG.
 
     Parameters
     ----------
 
-    space : WithGeometry
+    space
         The function space.
 
     Returns
@@ -172,19 +176,19 @@ def is_dg_space(space):
     return e.is_dg()
 
 
-def dg_space(space):
+def dg_space(space: WithGeometry) -> WithGeometry:
     """Construct a DG space containing a given function space as a subspace.
 
     Parameters
     ----------
 
-    space : WithGeometry
+    space
         A function space.
 
     Returns
     -------
 
-    WithGeometry
+    firedrake.functionspaceimpl.WithGeometry
         A DG space containing `space` as a subspace. May be `space`.
     """
 
@@ -219,16 +223,16 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     Parameters
     ----------
 
-    functional : OverloadedType
+    functional
         Functional defining the optimization problem, :math:`J`.
-    controls : Control or Sequence[Control]
+    controls
         Controls. Must be :class:`firedrake.Function` objects.
-    space_D : None, WithGeometry, or Sequence[None or WithGeometry]
+    space_D
         DG space containing the control space.
-    riesz_map : L2RieszMap or Sequence[L2RieszMap]
+    riesz_map
         Used for projecting from the DG space onto the control space. Ignored
         for DG controls.
-    alpha : Real
+    alpha
         Modifies the functional, equivalent to adding an extra term to
         :math:`J \circ \Pi`
 
@@ -238,12 +242,16 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         e.g. in a minimization problem this adds a penalty term which can
         be used to avoid ill-posedness due to the use of a larger DG space.
-    tape : Tape
+    tape
         Tape used in evaluations involving :math:`J`.
     """
 
     @no_annotations
-    def __init__(self, functional, controls, *, space_D=None, riesz_map=None, alpha=0, tape=None):
+    def __init__(self, functional: OverloadedType, controls: Union[Control, Sequence[Control]], *,
+                 space_D: Optional[Union[None, WithGeometry, Sequence[Union[None, WithGeometry]]]] = None,
+                 riesz_map: Optional[Union[L2RieszMap, Sequence[L2RieszMap]]] = None,
+                 alpha: Optional[Real] = 0,
+                 tape: Optional[Tape] = None):
         if not all(isinstance(control.control, fd.Function) for control in Enlist(controls)):
             raise TypeError("controls must be Function objects")
 
@@ -331,13 +339,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         return u.delist(tuple(map(itemgetter(0), vw))), u.delist(tuple(map(itemgetter(1), vw)))
 
     @no_annotations
-    def map_result(self, m):
+    def map_result(self, m: Union[fd.Function, Sequence[fd.Function]]) -> Union[fd.Function, Sequence[fd.Function]]:
         """Map the result of an optimization.
 
         Parameters
         ----------
 
-        m : firedrake.Function or Sequence[firedrake.Function]
+        m
             The result of the optimization. Represents an expansion in an
             :math:`L^2` orthonormal basis for the DG space.
 
