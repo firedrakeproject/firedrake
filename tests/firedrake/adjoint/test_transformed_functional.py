@@ -107,6 +107,12 @@ def test_transformed_functional_mass_inverse(family):
     else:
         raise ValueError(f"Invalid element family: '{family}'")
 
+    continue_annotation()
+    m_0 = fd.Function(space, name="m_0")
+    J = forward(m_0)
+    pause_annotation()
+    c = Control(m_0, riesz_map="l2")
+
     J_hat = L2TransformedFunctional(J, c, alpha=1)
 
     def error_norm(m):
@@ -177,6 +183,12 @@ def test_transformed_functional_poisson():
     assert len(cb) > 80  # == 85
     assert J_hat._test_transformed_functional__ncalls > 90  # == 95
 
+    continue_annotation()
+    m_0 = fd.Function(space, name="m_0")
+    J = forward_J(m_0)
+    pause_annotation()
+    c = Control(m_0, riesz_map="l2")
+
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
 
     def error_norm(m):
@@ -231,7 +243,7 @@ def test_transformed_functional_poisson_tao_nls():
     m_0 = fd.Function(space, name="m_0")
     J = forward_J(m_0)
     pause_annotation()
-    c = Control(m_0)
+    c = Control(m_0, riesz_map="l2")
 
     J_hat = ReducedFunctional(J, c)
 
@@ -250,7 +262,13 @@ def test_transformed_functional_poisson_tao_nls():
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
     assert 1e-2 < error_norm_opt < 5e-2
-    assert J_hat._test_transformed_functional__ncalls > 8  # == 10
+    assert J_hat._test_transformed_functional__ncalls < 10
+
+    continue_annotation()
+    m_0 = fd.Function(space, name="m_0")
+    J = forward_J(m_0)
+    pause_annotation()
+    c = Control(m_0, riesz_map="l2")
 
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
 
