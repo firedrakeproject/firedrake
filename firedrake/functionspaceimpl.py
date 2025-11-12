@@ -8,6 +8,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import functools
+import numbers
 import warnings
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence, Set
@@ -881,9 +882,6 @@ class FunctionSpace:
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
 
 
-        import pyop3.extras.debug
-        pyop3.extras.debug.enable_conditional_breakpoints("nodal_axes")
-
         # assert axis_tree.sf == self.plex_axes.sf
         assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
         assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
@@ -907,13 +905,14 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because they mappings will be compressed during compilation.
+        import pyop3
         pyop3.extras.debug.warn_todo("Cythonize")
 
         node_point_map_array = numpy.full(num_nodes, -1, dtype=IntType)
         node_dof_map_array = numpy.full_like(node_point_map_array, -1)
 
         dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
-        ndofs = dof_axis.component.size.buffer.buffer.data_ro_with_halos
+        ndofs = dof_axis.component.size.buffer.buffer.data_ro
 
         node = 0
         for point, ndof in enumerate(ndofs):
@@ -1458,77 +1457,6 @@ class FunctionSpace:
             if sub_domain == "top":
                 nodes = nodes + offset[mask]*(mesh.layers - 2)
             return numpy.unique(nodes)
-
-    @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, mat_spec) -> PETSc.LGMap:
-        """Return a map from process-local to global DoF numbering.
-
-        # update this#
-
-        Parameters
-        ----------
-        bcs
-            Optional iterable of boundary conditions. If provided these DoFs
-            are masked out (set to -1) in the returned map.
-
-        Returns
-        -------
-        PETSc.LGMap
-            The local-to-global mapping.
-
-        """
-        lgmap = mat_spec.lgmap  # perhaps get from the buffer
-        block_shape = mat_spec.block_shape
-
-        if not bcs:
-            return lgmap
-
-        for bc in bcs:
-            fs = bc.function_space()
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != self.topological:
-                raise RuntimeError("Dirichlet BC defined on a different function space")
-
-        unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if unblocked:
-            indices = lgmap.indices
-            block_shape = ()
-        else:
-            indices = lgmap.block_indices
-
-        # Set constrained values in the lgmap to -1
-        # indices = axes.lgmap(block_shape=block_shape).indices
-        blocked_axes = self.nodal_axes.blocked(block_shape)
-        # indices_dat = op3.Dat(blocked_axes.materialize(), data=indices)
-        indices_dat = op3.Dat(blocked_axes, data=indices)
-        for bc in bcs:
-            # p = self._mesh.points[bc.node_set].index()
-
-            # index_forest = {}
-            if bc.function_space().component != None:
-                breakpoint()
-            # for ctx, index_tree in op3.as_index_forest(p).items():
-            #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
-            #
-            #     if component is not None:
-            #         assert unblocked
-            #         component_slice = op3.ScalarIndex("dim0", "XXX", component)
-            #         index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
-            #
-            #     index_forest[ctx] = index_tree
-
-            # TODO: can this just be 'p'?
-            # op3.do_loop(
-            #     p, idat[index_forest].assign(-1, eager=False)
-            # )
-            # op3.do_loop(p, idat[p].assign(-1))
-            op3.do_loop(p := blocked_axes[bc.node_set].index(), indices_dat[p].assign(-1))
-
-        indices = indices_dat.buffer._data
-        bsize = numpy.prod(block_shape, dtype=int)
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
@@ -2684,3 +2612,62 @@ def entity_permutations_key(entity_permutations):
         key.append(tuple(sub_key))
     key = tuple(key)
     return key
+
+
+# TODO: make return type and arg consistent
+def mask_lgmap(lgmap: LGMap, bcs, idxs=()) -> PETSc.LGMap:
+    """Return a map from process-local to global DoF numbering.
+
+    # update this#
+
+    Parameters
+    ----------
+    bcs
+        Optional iterable of boundary conditions. If provided these DoFs
+        are masked out (set to -1) in the returned map.
+
+    Returns
+    -------
+    PETSc.LGMap
+        The local-to-global mapping.
+
+    """
+    if not bcs:
+        return lgmap.indices.as_lgmap(lgmap.block_shape)
+
+    unblocked = any(bc.function_space().component is not None for bc in bcs)
+    if unblocked:
+        raise NotImplementedError
+    # if unblocked:
+    #     indices = lgmap.indices
+    #     block_shape = ()
+    # else:
+    #     indices = lgmap.block_indices
+    #
+    # # Set constrained values in the lgmap to -1
+    # blocked_axes = self.nodal_axes.blocked(block_shape)
+    # indices_dat = op3.Dat(blocked_axes, data=indices)
+    indices = lgmap.indices.copy()
+    for bc in bcs:
+        # p = self._mesh.points[bc.node_set].index()
+
+        # index_forest = {}
+        if bc.function_space().component != None:
+            breakpoint()
+        # for ctx, index_tree in op3.as_index_forest(p).items():
+        #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+        #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+        #
+        #     if component is not None:
+        #         assert unblocked
+        #         component_slice = op3.ScalarIndex("dim0", "XXX", component)
+        #         index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+        #
+        #     index_forest[ctx] = index_tree
+
+        # try:
+        indices[*idxs][bc.node_set].assign(-1, eager=True)
+        # except:
+        #     breakpoint()
+
+    return indices.as_lgmap(lgmap.block_shape)

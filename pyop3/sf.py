@@ -149,10 +149,6 @@ class StarForest(AbstractStarForest):
         self.sf = sf
         super().__init__(size)
 
-        # sus, why is this happening
-        if self.num_ghost == 0 and self.num_owned > 10:
-            breakpoint()
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
 

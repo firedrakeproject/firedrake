@@ -785,3 +785,13 @@ def unsafe_cache(*args, **kwargs):
     import pyop3
     pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
     return functools.cache(*args, **kwargs)
+
+
+def is_ellipsis_type(obj: Any) -> bool:
+    return (
+        obj is Ellipsis
+        or (
+            isinstance(obj, collections.abc.Sequence)
+            and all(item is Ellipsis for item in obj)
+        )
+    )

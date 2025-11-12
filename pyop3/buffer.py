@@ -318,6 +318,46 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def comm(self) -> MPI.Comm | None:
         return self.internal_comm
 
+    # @property
+    # @not_in_flight
+    # @deprecated(".data_rw")
+    # def data(self):
+    #     return self.data_rw
+
+    # @property
+    # @record_modified
+    # @not_in_flight
+    # def data_rw(self):
+    #     if not self._roots_valid:
+    #         self.reduce_leaves_to_roots()
+    #
+    #     # modifying owned values invalidates ghosts
+    #     self._leaves_valid = False
+    #     return self._owned_data
+
+    # @property
+    # @not_in_flight
+    # def data_ro(self):
+    #     if not self._roots_valid:
+    #         self.reduce_leaves_to_roots()
+    #     return readonly(self._owned_data)
+
+    # @property
+    # @record_modified
+    # @not_in_flight
+    # def data_wo(self):
+    #     """
+    #     Have to be careful. If not setting all values (i.e. subsets) should call
+    #     `reduce_leaves_to_roots` first.
+    #
+    #     When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
+    #     can be dropped.
+    #     """
+    #     # pending writes can be dropped
+    #     self._pending_reduction = None
+    #     self._leaves_valid = False
+    #     return self._owned_data
+
     @property
     @not_in_flight
     @deprecated(".data_rw")
@@ -330,46 +370,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def data_rw(self):
         if not self._roots_valid:
             self.reduce_leaves_to_roots()
-
-        # modifying owned values invalidates ghosts
-        self._leaves_valid = False
-        return self._owned_data
-
-    @property
-    @not_in_flight
-    def data_ro(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        return readonly(self._owned_data)
-
-    @property
-    @record_modified
-    @not_in_flight
-    def data_wo(self):
-        """
-        Have to be careful. If not setting all values (i.e. subsets) should call
-        `reduce_leaves_to_roots` first.
-
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
-        """
-        # pending writes can be dropped
-        self._pending_reduction = None
-        self._leaves_valid = False
-        return self._owned_data
-
-    @property
-    @not_in_flight
-    @deprecated(".data_rw_with_halos")
-    def data_with_halos(self):
-        return self.data_rw_with_halos
-
-    @property
-    @record_modified
-    @not_in_flight
-    def data_rw_with_halos(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
         if not self._leaves_valid:
             self.broadcast_roots_to_leaves()
 
@@ -379,7 +379,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     @not_in_flight
-    def data_ro_with_halos(self):
+    def data_ro(self):
         if not self._roots_valid:
             self.reduce_leaves_to_roots()
         if not self._leaves_valid:
@@ -389,7 +389,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     @record_modified
     @not_in_flight
-    def data_wo_with_halos(self):
+    def data_wo(self):
         """
         Have to be careful. If not setting all values (i.e. subsets) should call
         `reduce_leaves_to_roots` first.
@@ -418,12 +418,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
-    @property
-    def _owned_data(self):
-        if self.sf and self.sf.nleaves > 0:
-            return self._data[: -self.sf.nleaves]
-        else:
-            return self._data
+    # @property
+    # def _owned_data(self):
+    #     if self.sf and self.sf.nleaves > 0:
+    #         return self._data[: -self.sf.nleaves]
+    #     else:
+    #         return self._data
 
     @property
     def _roots_valid(self) -> bool:
@@ -531,6 +531,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
 class MatBufferSpec(abc.ABC):
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class LGMap:
+    indices: Dat[IntType]
+    block_shape: tuple[numbers.Integral, ...]
+
+    def __post_init__(self) -> None:
+        # check that this is valid
+        assert self.indices.dtype == IntType
+        self.indices.axes.blocked(self.block_shape)
+
+    @property
+    def comm(self):
+        return self.indices.comm
+
+    @property
+    def block_size(self) -> IntType:
+        return np.prod(self.block_shape, dtype=IntType)
+
+    def as_petsc_lgmap(self) -> PETSc.LGMap:
+        return PETSc.LGMap().create(self.indices.data_ro_with_halos, bsize=self.block_size, comm=self.indices.comm)
 
 
 class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
@@ -692,7 +714,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             sizes = ((row_spec.size, None), (column_spec.size, None))
             mat.setSizes(sizes)
             mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
-            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
+            mat.setLGMap(row_spec.lgmap.as_petsc_lgmap(), column_spec.lgmap.as_petsc_lgmap())
 
         mat.setUp()
         return mat

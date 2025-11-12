@@ -25,7 +25,7 @@ from pyop3.tree.axis_tree import (
     as_axis_tree_type,
 )
 from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
-from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
+from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, LGMap
 from pyop3.dtypes import ScalarType
 from pyop3.typing import PetscSizeT
 from pyop3.utils import (
@@ -517,15 +517,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             else:
                 blocked_column_axes = column_axes
 
-            row_bsize = np.prod(row_block_shape, dtype=int)
-            column_bsize = np.prod(column_block_shape, dtype=int)
-
-            row_lgmap = PETSc.LGMap().create(
-                blocked_row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
-            )
-            column_lgmap = PETSc.LGMap().create(
-                blocked_column_axes.unindexed.global_numbering, bsize=column_bsize, comm=comm
-            )
+            row_lgmap = LGMap(blocked_row_axes.global_numbering, row_block_shape)
+            column_lgmap = LGMap(blocked_column_axes.global_numbering, column_block_shape)
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)

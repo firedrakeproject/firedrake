@@ -100,7 +100,10 @@ class Dat(Tensor):
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        assert buffer.size == axes.unindexed.local_size
+        try:
+            assert buffer.size == axes.unindexed.local_size
+        except:
+            breakpoint()
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -325,8 +328,6 @@ class Dat(Tensor):
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
-        if "_label_Slice_418" in str(self.axes):
-            breakpoint()
         return self.buffer.data_ro[self.axes.owned._buffer_slice]
 
     @data_ro.setter
@@ -353,14 +354,14 @@ class Dat(Tensor):
         self.buffer.data_wo[self.axes.owned._buffer_slice] = value
 
     @property
-    @deprecated(".data_rw_with_halos")
+    @deprecated(".data_rw")
     def data_with_halos(self):
-        return self.data_rw_with_halos
+        return self.data_rw
 
     @property
     def data_rw_with_halos(self):
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_rw_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_rw[self.axes._buffer_slice]
 
     @property
     def data_ro_with_halos(self):
@@ -369,7 +370,7 @@ class Dat(Tensor):
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
-        return self.buffer.data_ro_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_ro[self.axes._buffer_slice]
 
     @property
     def data_wo_with_halos(self):
@@ -381,11 +382,11 @@ class Dat(Tensor):
         can be dropped.
         """
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_wo_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_wo[self.axes._buffer_slice]
 
     @data_wo.setter
     def data_wo_with_halos(self, value):
-        self.buffer.data_wo_with_halos[self.axes._buffer_slice] = value
+        self.buffer.data_wo[self.axes._buffer_slice] = value
 
 
     @property
@@ -445,6 +446,11 @@ class Dat(Tensor):
             bsize=bsize,
             comm=self.comm,
         )
+
+    def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
+        assert self.dtype == IntType
+        block_size = np.prod(block_shape, dtype=IntType)
+        return PETSc.LGMap().create(self.data_ro_with_halos, bsize=block_size, comm=self.comm)
 
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.

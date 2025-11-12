@@ -367,8 +367,6 @@ def _replace(obj: Any, /, replace_map) -> ExpressionT:
 @_replace.register(op3_expr.AxisVar)
 @_replace.register(op3_expr.LoopIndexVar)
 def _(var: Any, /, replace_map) -> ExpressionT:
-    if isinstance(var, op3_expr.AxisVar) and "Slice_60" in var.axis_label:
-        breakpoint()
     return replace_map.get(var, var)
 
 

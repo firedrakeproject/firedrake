@@ -784,7 +784,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         from pyop3.tree.index_tree.parse import as_index_forests
         from pyop3.tree.index_tree import index_axes
 
-        if indices is Ellipsis:
+        if utils.is_ellipsis_type(indices):
             return self
 
 
@@ -939,24 +939,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @property
     @abc.abstractmethod
-    def regionless(self) -> AbstractAxisTree:
+    def global_numbering(self) -> op3.Dat:
         pass
 
-    @cached_property
-    def global_numbering(self) -> np.ndarray[IntType]:
-        # NOTE: Identical code is used elsewhere
-        if not self.comm:  # maybe goes away if we disallow comm=None
-            numbering = np.arange(self.size, dtype=IntType)
-        else:
-            start = self.sf.internal_comm.exscan(self.owned.local_size) or 0
-            numbering = np.arange(start, start + self.local_size, dtype=IntType)
-
-            # set ghost entries to -1 to make sure they are overwritten
-            # TODO: if config.debug:
-            numbering[self.owned.local_size:] = -1
-            self.sf.broadcast(numbering, MPI.REPLACE)
-            debug_assert(lambda: (numbering >= 0).all())
-        return numbering
+    @property
+    @abc.abstractmethod
+    def regionless(self) -> AbstractAxisTree:
+        pass
 
     @cached_property
     def leaf_target_paths(self):
@@ -1038,7 +1027,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         size_dat = Dat.empty(axis.linearize(component.label).regionless, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
-        sizes = size_dat.buffer.data_ro_with_halos
+        sizes = size_dat.buffer.data_ro
 
         import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("Cythonize")
@@ -1456,6 +1445,24 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def _buffer_slice(self) -> slice:
         return slice(self.local_size)
 
+    @cached_property
+    def global_numbering(self) -> Dat[IntType]:
+        from pyop3 import Dat
+
+        # NOTE: Identical code is used elsewhere
+        if not self.comm:  # maybe goes away if we disallow comm=None
+            numbering = np.arange(self.size, dtype=IntType)
+        else:
+            start = self.sf.internal_comm.exscan(self.owned.local_size) or 0
+            numbering = np.arange(start, start + self.local_size, dtype=IntType)
+
+            # set ghost entries to -1 to make sure they are overwritten
+            # TODO: if config.debug:
+            numbering[self.owned.local_size:] = -1
+            self.sf.broadcast(numbering, MPI.REPLACE)
+            debug_assert(lambda: (numbering >= 0).all())
+        return Dat(self, data=numbering)
+
 
 @utils.frozenrecord()
 class IndexedAxisTree(AbstractAxisTree):
@@ -1740,7 +1747,7 @@ class IndexedAxisTree(AbstractAxisTree):
             p = iterset.index()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
-        indices = indices_dat.buffer.data_ro_with_halos
+        indices = indices_dat.buffer.data_ro
 
         if len(indices) > 0 and indices[-1] == 488:
             breakpoint()
@@ -1772,8 +1779,10 @@ class IndexedAxisTree(AbstractAxisTree):
     # {{{ parallel
 
     @cached_property
-    def lgmap_dat(self) -> Dat:
-        return self.unindexed.lgmap_dat.__record_init__(axes=self)
+    def global_numbering(self) -> Dat[IntType]:
+        from pyop3 import Dat
+
+        return Dat(self, buffer=self.unindexed.global_numbering.buffer)
 
     # }}}
 
@@ -1947,7 +1956,7 @@ class AxisForest(DistributedObject):
         return self.getitem(indices, strict=False)
 
     def getitem(self, indices, *, strict=False):
-        if indices is Ellipsis:
+        if utils.is_ellipsis_type(indices):
             return self
 
         # FIXME: This will not always work, catch exceptions!
@@ -2044,7 +2053,17 @@ class AxisForest(DistributedObject):
 
     @cached_property
     def unindexed(self):
-        return utils.single_valued(tree.unindexed for tree in self.trees)
+        unindexeds = [tree.unindexed for tree in self.trees]
+        if utils.is_single_valued(unindexeds):
+            return utils.single_valued(unindexeds)
+        else:
+            return AxisForest(unindexeds)
+
+    @cached_property
+    def global_numbering(self) -> Dat:
+        from pyop3 import Dat
+
+        return Dat(self, buffer=self.trees[0].global_numbering.buffer)
 
     @property
     @utils.deprecated("internal_comm")

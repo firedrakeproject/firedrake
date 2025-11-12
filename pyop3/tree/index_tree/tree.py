@@ -1262,7 +1262,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 if isinstance(target_component.sf, StarForest):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)
                     # I have just implemented a new attempt that uses another bit of the PETSc API
-                    breakpoint()
+                    # breakpoint()
                     petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
                     indexed_size = sum(r.size for r in indexed_regions)
                     sf = StarForest(petsc_sf, indexed_size)

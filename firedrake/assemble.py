@@ -26,6 +26,7 @@ import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
+from firedrake.functionspaceimpl import mask_lgmap
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.parloops import pack_pyop3_tensor, pack_tensor
@@ -1960,11 +1961,10 @@ class ParloopBuilder:
             if mat_spec.mat_type in {"rvec", "cvec"}:
                 return None
 
-            # breakpoint()
-            # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
-            # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
-            rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
-            clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            # rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(mat_spec.row_spec.lgmap, row_bcs)
+            # clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, (i,))
+            clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, (j,))
             return (rlgmap, clgmap)
         else:
             return None
