@@ -1422,7 +1422,7 @@ def index_axes(
     if orig_axes is not None:
         assert isinstance(orig_axes, (AxisTree, IndexedAxisTree))
 
-    if index_tree is Ellipsis:
+    if utils.is_ellipsis_type(index_tree):
         if orig_axes is not None:
             return orig_axes
         else:
@@ -1706,6 +1706,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             for orig_axis_label, orig_index_expr in orig_target_exprs.items():
                 new_exprs[orig_axis_label] = replace_terminals(orig_index_expr, replace_map)
 
+            assert path_ not in composed_target_paths_and_exprs  # think the line below is wrong... should append?
             composed_target_paths_and_exprs[path_] = (orig_target_path, immutabledict(new_exprs))
 
         if indexed_axes.node_map[path_]:

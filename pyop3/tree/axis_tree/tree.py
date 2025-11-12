@@ -316,6 +316,12 @@ class AxisComponentRegion:
         object.__setattr__(self, "size", size)
         object.__setattr__(self, "label", label)
 
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if isinstance(self.size, numbers.Integral):
+            assert self.size >= 0
+
     def __str__(self) -> str:
         if self.label is None:
             return str(self.size)
@@ -528,7 +534,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         super().__init__(label=label)
         CacheMixin.__init__(self)
 
-        if self.label == "_label_Slice_437_owned":
+        if self.label == "_label_Slice_495":  # expected exterior facets...
             breakpoint()
 
     def __eq__(self, other):
@@ -1748,9 +1754,6 @@ class IndexedAxisTree(AbstractAxisTree):
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro
-
-        if len(indices) > 0 and indices[-1] == 488:
-            breakpoint()
 
         indices = np.unique(np.sort(indices))
 

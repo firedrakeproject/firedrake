@@ -2702,28 +2702,32 @@ def filter_sf(
         CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
     section.setUp()
 
+    # debug
+    section.view()
+
     return create_section_sf(sf, section)
 
 
-def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
-    """Create an SF from an existing SF and section."""
-    cdef:
-        PETSc.SF      sf_new
-        PETSc.Section leaf_section
-
-        PetscInt start_c, stop_c
-        PetscInt *remote_offsets_c = NULL
-
-    sf_new = PETSc.SF().create(comm=sf.comm)
-    leaf_section = PETSc.Section().create(comm=sf.comm)
-    # if sf.comm.size > 1:
-    #     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
-    # else:
-    #     start_c, stop_c = section.getChart()
-    #     CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
-    PETSc.CHKERR(PetscSFDistributeSection(sf.sf, section.sec, &remote_offsets_c, leaf_section.sec))
-    PETSc.CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets_c, leaf_section.sec, &sf_new.sf))
-    return sf_new
+# def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
+#     """Create an SF from an existing SF and section."""
+#     cdef:
+#         PETSc.SF      sf_new
+#         PETSc.Section leaf_section
+#
+#         PetscInt start_c, stop_c
+#         PetscInt *remote_offsets_c = NULL
+#
+#     sf_new = PETSc.SF().create(comm=sf.comm)
+#     leaf_section = PETSc.Section().create(comm=sf.comm)
+#     # if sf.comm.size > 1:
+#     #     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+#     # else:
+#     #     start_c, stop_c = section.getChart()
+#     #     CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
+#     PETSc.CHKERR(PetscSFDistributeSection(sf.sf, section.sec, &remote_offsets_c, leaf_section.sec))
+#     leaf_section.view()  # debug
+#     PETSc.CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets_c, leaf_section.sec, &sf_new.sf))
+#     return sf_new
 
 
 @cython.boundscheck(False)
@@ -3924,7 +3928,7 @@ def to_petsc_local_numbering(PETSc.Vec vec, V):
     return out
 
 
-def create_halo_exchange_sf(PETSc.DM dm):
+def create_section_sf(PETSc.SF sf, PETSc.Section section) -> PETSc.SF:
     """Create the halo exchange sf.
 
     Parameters
@@ -3956,8 +3960,8 @@ def create_halo_exchange_sf(PETSc.DM dm):
         np.ndarray local_offsets
         np.ndarray remote_offsets
 
-    point_sf = dm.getPointSF()
-    local_sec = dm.getLocalSection()
+    point_sf = sf
+    local_sec = section
     CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
     pStart, pEnd = local_sec.getChart()
     assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"

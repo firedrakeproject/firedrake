@@ -128,7 +128,7 @@ class StarForest(AbstractStarForest):
     def __hash__(self) -> int:
         return hash((
             type(self),
-            self.nroots,
+            # self.nroots,  # this isn't a meaningful attr
             self.ilocal.data.tobytes(),
             self.iremote.data.tobytes(),
         ))
@@ -136,15 +136,18 @@ class StarForest(AbstractStarForest):
     def __eq__(self, /, other: Any) -> bool:
         return (
             type(other) is type(self)
-            and other.nroots == self.nroots
+            # and other.nroots == self.nroots  # this isn't a meaningful attr
             and (other.ilocal == self.ilocal).all()
             and (other.iremote == self.iremote).all()
         )
 
     # }}}
 
-    def __init__(self, sf, size: IntType) -> None:
+    def __init__(self, sf: PETSc.SF, size: IntType) -> None:
         size = strict_int(size)
+
+        num_roots, local_leaf_indices, _ = sf.getGraph()
+        assert size >= num_roots and size >= len(local_leaf_indices)
 
         self.sf = sf
         super().__init__(size)
@@ -190,13 +193,16 @@ class StarForest(AbstractStarForest):
         mask[self.ileaf] = False
         return just_one(np.nonzero(mask))
 
-    @property
-    def nroots(self):
-        return self.graph[0]
+    # not useful
+    # @property
+    # def nroots(self):
+    #     return self.graph[0]
 
     @property
     def nowned(self):
-        return self.size - self.nleaves
+        num_owned =  self.size - self.nleaves
+        assert num_owned >= 0
+        return num_owned
 
     # better alias
     @property

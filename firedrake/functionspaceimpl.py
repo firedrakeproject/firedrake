@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import Optional
+from mpi4py import MPI
 
 import finat.ufl
 import numpy
@@ -1026,45 +1027,32 @@ class FunctionSpace:
         vec.setUp()
         return vec
 
-    @utils.cached_property
+    @cached_property
+    @utils.deprecated("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        ises = []
-        nlocal_rows = 0
-        # FIXME will not work for mixed
-        if len(self) > 1:
-            raise NotImplementedError
-        # for dset in self:
-            # nlocal_rows += dset.size * dset.cdim
-        nlocal_rows += self.axes.local_size
-        offset = self.comm.scan(nlocal_rows)
-        offset -= nlocal_rows
+        return self.field_ises
 
-        # for dset in self:
-        #     nrows = dset.size * dset.cdim
-        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-        #                                    comm=self.comm)
-        #     iset.setBlockSize(dset.cdim)
-        #     ises.append(iset)
-        #     offset += nrows
-        nrows = self.axes.local_size
-        iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-                                       comm=self.comm)
-        iset.setBlockSize(self.block_size)
-        ises.append(iset)
-        offset += nrows
-        return tuple(ises)
+    @cached_property
+    def field_ises(self) -> tuple[PETSc.IS]:
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
 
-    @utils.cached_property
-    def _local_ises(self):
-        iset = PETSc.IS().createStride(
-            self.axes.size, first=0, step=1, comm=mpi.COMM_SELF
-        )
-        iset.setBlockSize(self.value_size)
-        return (iset,)
+        Used when extracting blocks from matrices for solvers."""
+        size = self.axes.owned.local_size
+        start = self.comm.exscan(size) or 0
+        is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
+        is_.setBlockSize(self.block_size)
+        return (is_,)
+
+    @cached_property
+    def local_ises(self) -> tuple[PETSc.IS]:
+        is_ = PETSc.IS().createStride(self.axes.local_size, comm=MPI.COMM_SELF)
+        is_.setBlockSize(self.block_size)
+        return (is_,)
 
     # TODO: cythonize
     @utils.cached_property
@@ -1844,7 +1832,7 @@ class MixedFunctionSpace:
         composed."""
         return tuple(fs.node_count for fs in self._spaces)
 
-    @utils.cached_property
+    @cached_property
     def dof_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -1857,28 +1845,50 @@ class MixedFunctionSpace:
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.template_vec.getSize()
 
-    @utils.cached_property
-    def field_ises(self):
+    @cached_property
+    def field_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        return self._ises  # the same???
-        # ises = []
-        # nlocal_rows = 0
-        # for dset in self:
-        #     nlocal_rows += dset.layout_vec.local_size
-        # offset = self.comm.scan(nlocal_rows)
-        # offset -= nlocal_rows
-        # for dset in self:
-        #     nrows = dset.layout_vec.local_size
-        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-        #                                    comm=self.comm)
-        #     iset.setBlockSize(dset.cdim)
-        #     ises.append(iset)
-        #     offset += nrows
-        # return tuple(ises)
+        ises = []
+        start = self._comm.exscan(self.axes.owned.local_size) or 0
+        for subspace in self:
+            size = subspace.axes.owned.local_size
+            is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
+            is_.setBlockSize(subspace.block_size)
+            ises.append(is_)
+            start += size
+        return tuple(ises)
 
+    @property
+    @utils.deprecated("field_ises")
+    def _ises(self):
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers.
+
+        """
+        return self.field_ises
+
+    @cached_property
+    def local_ises(self) -> tuple[PETSc.IS, ...]:
+        """A list of PETSc ISes defining the local indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers.
+
+        """
+        ises = []
+        start = 0
+        for subspace in self:
+            size = subspace.axes.local_size
+            is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
+            is_.setBlockSize(subspace.block_size)
+            ises.append(is_)
+            start += size
+        return tuple(ises)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         r"""Return entity node map rebased on ``source_mesh``.
@@ -1972,44 +1982,6 @@ class MixedFunctionSpace:
         )
         vec.setUp()
         return vec
-
-    # this is very nearly the same as for the non-mixed case
-    @utils.cached_property
-    def _ises(self):
-        """A list of PETSc ISes defining the global indices for each set in
-        the DataSet.
-
-        Used when extracting blocks from matrices for solvers.
-
-        """
-        return self._collect_ises(local=False)
-
-    @utils.cached_property
-    def _local_ises(self):
-        """A list of PETSc ISes defining the local indices for each set in
-        the DataSet.
-
-        Used when extracting blocks from matrices for solvers.
-
-        """
-        return self._collect_ises(local=True)
-
-    def _collect_ises(self, *, local):
-        if local:
-            size = self.axes.owned.local_size
-            start = 0
-        else:
-            size = self.axes.local_size
-            start = self.comm.exscan(size) or 0
-
-        ises = []
-        for i, subspace in enumerate(self._spaces):
-            nrows = self.axes[i].owned.local_size if local else self.axes[i].local_size
-            iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
-            iset.setBlockSize(subspace.value_size)
-            ises.append(iset)
-            start += nrows
-        return tuple(ises)
 
     # FIXME: This loses information for proxy spaces
     def collapse(self):

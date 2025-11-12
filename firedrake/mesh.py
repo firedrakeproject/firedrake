@@ -6373,17 +6373,17 @@ def iteration_set(
         """
     match integral_type:
         case "cell":
-            iterset = mesh.cells
+            iterset = mesh.cells.owned
             dmlabel_name = dmcommon.CELL_SETS_LABEL
             valid_plex_indices = mesh._cell_plex_indices
             old_to_new_entity_numbering  = mesh._old_to_new_cell_numbering
         case "exterior_facet":
-            iterset = mesh.exterior_facets
+            iterset = mesh.exterior_facets.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             valid_plex_indices = mesh._exterior_facet_plex_indices
             old_to_new_entity_numbering  = mesh._old_to_new_exterior_facet_numbering
         case "interior_facet":
-            iterset = mesh.interior_facets
+            iterset = mesh.interior_facets.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             valid_plex_indices = mesh._interior_facet_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_numbering
@@ -6394,12 +6394,12 @@ def iteration_set(
         case "exterior_facet_vert":
             raise NotImplementedError
         case "interior_facet_horiz":
-            iterset = mesh.interior_facets_horiz
+            iterset = mesh.interior_facets_horiz.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             valid_plex_indices = mesh._interior_facet_horiz_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_horiz_numbering
         case "interior_facet_vert":
-            iterset = mesh.interior_facets_vert
+            iterset = mesh.interior_facets_vert.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL
             valid_plex_indices = mesh._interior_facet_vert_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_vert_numbering
@@ -6446,6 +6446,9 @@ def iteration_set(
         # map point 12 to interior facet 3).
         localized_indices = dmcommon.section_offsets(old_to_new_entity_numbering, plex_indices, sort=True)
 
+        # Remove ghost points
+        localized_indices = dmcommon.filter_is(localized_indices, 0, iterset.local_size)
+
         iterset_axis = iterset.as_axis()
         # TODO: Ideally should be able to avoid creating these here and just index
         # with the array
@@ -6453,7 +6456,7 @@ def iteration_set(
         subset = op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
         iterset = iterset[subset]
 
-    return iterset.owned
+    return iterset
 
 
 # NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think
