@@ -87,7 +87,8 @@ class EnsembleFunctionSpaceBase:
     on each ensemble member using a :class:`~firedrake.functionspaceimpl.FunctionSpace` from
     `EnsembleFunctionSpace.local_spaces`.
 
-    See also:
+    See Also
+    --------
     - Primal ensemble objects: :class:`EnsembleFunctionSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleFunction`.
     - Dual ensemble objects: :class:`EnsembleDualSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`.
     """
@@ -156,7 +157,7 @@ class EnsembleFunctionSpaceBase:
 
     @cached_property
     def nlocal_spaces(self):
-        """The total number of subspaces across all ensemble ranks.
+        """The number of subspaces on this ensemble rank.
         """
         return len(self.local_spaces)
 
@@ -184,6 +185,12 @@ class EnsembleFunctionSpaceBase:
         """
         return self.ensemble_comm.allreduce(self.nlocal_comm_dofs)
 
+    @cached_property
+    def global_spaces_offset(self):
+        """Index of the first local subspace in the global mixed space.
+        """
+        return self.ensemble.ensemble_comm.exscan(self.nlocal_spaces) or 0
+
     def _component_indices(self, i):
         """
         Return the indices into the local mixed function storage
@@ -199,9 +206,13 @@ class EnsembleFunctionSpaceBase:
         in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
-        vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))
+        vec.setSizes((self.nlocal_rank_dofs, self.nglobal_dofs))
         vec.setUp()
         return vec
+
+    @cached_property
+    def layout_vec(self):
+        return self.create_vec()
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
