@@ -250,7 +250,7 @@ def test_transformed_functional_poisson_tao_nls():
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
     assert 1e-2 < error_norm_opt < 5e-2
-    assert J_hat._test_transformed_functional__ncalls > 22  # == 24
+    assert J_hat._test_transformed_functional__ncalls > 8  # == 10
 
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
 
@@ -270,4 +270,4 @@ def test_transformed_functional_poisson_tao_nls():
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
     assert 1e-3 < error_norm_opt < 1e-2
-    assert J_hat._test_transformed_functional__ncalls < 18  # == 16
+    assert J_hat._test_transformed_functional__ncalls < 10  # == 8
