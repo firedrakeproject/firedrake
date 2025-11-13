@@ -80,7 +80,13 @@ from firedrake.interpolation import (  # noqa: F401
     CrossMeshInterpolator, SameMeshInterpolator
 )
 from firedrake.linear_solver import LinearSolver  # noqa: F401
-from firedrake.preconditioners import *  # noqa: F401
+from firedrake.preconditioners import (  # noqa: F401
+    PCBase, SNESBase, PCSNESBase, ASMPatchPC, ASMStarPC, ASMVankaPC,
+    ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
+    MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
+    LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
+    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC
+)
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
     SubDomainData, unmarked, DistributedMeshOverlapType,
@@ -89,7 +95,12 @@ from firedrake.mesh import (  # noqa: F401
     VertexOnlyMeshTopology, VertexOnlyMeshMissingPointsError,
     MeshSequenceGeometry, MeshSequenceTopology
 )
-from firedrake.mg import *  # noqa: F401
+from firedrake.mg import (  # noqa: F401
+    HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    prolong, restrict, inject, TransferManager,
+    OpenCascadeMeshHierarchy
+)
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
 from firedrake.parameters import (  # noqa: F401
@@ -101,8 +112,14 @@ from firedrake.parloops import (  # noqa: F401
 from firedrake.projection import (  # noqa: F401
     project, Projector
 )
-from firedrake.slate import *  # noqa: F401
-from firedrake.slope_limiter import *  # noqa: F401
+from firedrake.slate import (  # noqa: F401
+    AssembledVector, Block, Factorization, Tensor, Inverse,
+    Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
+    DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder, SCPC
+)
+from firedrake.slope_limiter import (  # noqa: F401
+    Limiter, VertexBasedLimiter
+)
 from firedrake.solving import solve  # noqa: F401
 from firedrake.ufl_expr import (  # noqa: F401
     Argument, Coargument, TestFunction, TrialFunction,
@@ -127,9 +144,15 @@ from firedrake.variational_solver import (  # noqa: F401
 from firedrake.eigensolver import (  # noqa: F401
     LinearEigenproblem, LinearEigensolver
 )
-from firedrake.ensemble import *  # noqa: F401
+from firedrake.ensemble import (  # noqa: F401
+    Ensemble, EnsembleFunction, EnsembleCofunction,
+    EnsembleFunctionSpace, EnsembleDualSpace
+)
 from firedrake.randomfunctiongen import *  # noqa: F401
-from firedrake.external_operators import *  # noqa: F401
+from firedrake.external_operators import (  # noqa: F401
+    AbstractExternalOperator, assemble_method,
+    PointexprOperator, point_expr, MLOperator
+)
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 
 from firedrake.logging import (  # noqa: F401
