@@ -1,10 +1,9 @@
 import pytest
+import numpy as np
 
 from firedrake import *
 from firedrake.adjoint import *
 from pytest_mpi.parallel_assert import parallel_assert
-
-from numpy.random import rand
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +65,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
