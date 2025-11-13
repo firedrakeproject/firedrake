@@ -375,13 +375,13 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
         # if len(self.loopy_code.callables_table) > 1:
         # if "idat_0[9 + 30" in str(self) or "idat_0[30" in str(self):
         # if "idat_0[30" in str(self):
         # if "idat_0[15 * i_0" in str(self):
         # if "idat_3[i_0] = (int32_t) (dat_1[idat_0[idat_1[i_0]]] + idat_2[idat_1[i_0]]);" in str(self):
-        #     breakpoint()
+            # breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:

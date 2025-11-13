@@ -341,7 +341,7 @@ class Mat(Tensor):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]), _parent=self)
+        return self.__record_init__(row_axes=row_axes, column_axes=col_axes, _parent=self)
 
     @cached_property
     def size(self) -> Any:

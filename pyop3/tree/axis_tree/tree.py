@@ -861,6 +861,18 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def unindexed(self):
         pass
 
+    @cached_property
+    def sf(self) -> StarForest:
+        from pyop3.tree.axis_tree.parallel import collect_star_forests, concatenate_star_forests
+
+        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
+        if has_sfs:
+            sfs = collect_star_forests(self)
+            return concatenate_star_forests(sfs)
+        else:
+            return NullStarForest(self.size)
+
+
     # @property
     # @abc.abstractmethod
     # def paths(self):
@@ -1003,20 +1015,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @cached_property
     def alloc_size(self):
         return self._alloc_size()
-
-    @cached_property
-    def sf(self) -> StarForest:
-        from pyop3.tree.axis_tree.parallel import collect_star_forests, concatenate_star_forests
-        import pyop3
-        # if self.root.label == "nodes" and self.local_size > 500:
-        #     pyop3.extras.debug.maybe_breakpoint("nodal_axes")
-
-        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
-        if has_sfs:
-            sfs = collect_star_forests(self)
-            return concatenate_star_forests(sfs)
-        else:
-            return NullStarForest(self.size)
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat

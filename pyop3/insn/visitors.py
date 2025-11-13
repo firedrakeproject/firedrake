@@ -440,20 +440,19 @@ def _(var, /, access_type):
 @_expand_reshapes.register(Tensor)
 def _(array: Tensor, /, access_type):
     if array.parent:
-        # .materialize?
         if isinstance(array, Dat):
             temp_initial = Dat.null(
-                AxisTree(array.parent.axes.node_map),
+                array.parent.axes.materialize(),
                 dtype=array.dtype,
                 prefix="t"
             )
             temp_reshaped = temp_initial.with_axes(array.axes)
         else:
             assert isinstance(array, Mat)
-            raxes = AxisTree(array.parent.row_axes.node_map)
-            caxes = AxisTree(array.parent.caxes.node_map)
-            temp_initial = Mat.null(raxes, caxes, dtype=array.dtype, prefix="t")
-            temp_reshaped = temp_initial.with_axes(array.row_axes, array.caxes)
+            row_axes = array.parent.row_axes.materialize()
+            column_axes = array.parent.column_axes.materialize()
+            temp_initial = Mat.null(row_axes, column_axes, dtype=array.dtype, prefix="t")
+            temp_reshaped = temp_initial.with_axes(array.row_axes, array.column_axes)
 
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
 

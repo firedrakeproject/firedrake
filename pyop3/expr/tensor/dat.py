@@ -117,9 +117,8 @@ class Dat(Tensor):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        # Don't do this, self.axes can be a range of types
-        # assert isinstance(self.axis_forest, (AxisForest, ContextSensitiveAxisTree))
         pass
+
 
     # }}}
 
@@ -523,7 +522,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axis_forest=AxisForest([axes]), _parent=self)
+        return self.__record_init__(axes=axes, _parent=self)
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -541,7 +540,7 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.__record_init__(axis_forest=AxisForest([axes]))
+        return self.__record_init__(axes=axes)
 
 
 # should inherit from _Dat

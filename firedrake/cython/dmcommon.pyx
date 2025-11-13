@@ -2702,9 +2702,6 @@ def filter_sf(
         CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
     section.setUp()
 
-    # debug
-    section.view()
-
     return create_section_sf(sf, section)
 
 

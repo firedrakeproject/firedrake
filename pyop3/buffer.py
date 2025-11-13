@@ -377,6 +377,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._leaves_valid = False
         return self._data
 
+    # TODO: It would be good to be able to get data_ro but without updating the halos
+    # The issue with the previous approach is we would only return the owned data. This
+    # way we could maybe instead...
+    # IDEA: we can use the SF to get the indices to extract...
     @property
     @not_in_flight
     def data_ro(self):

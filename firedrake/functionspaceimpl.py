@@ -870,7 +870,7 @@ class FunctionSpace:
 
     @cached_property
     def nodes(self) -> op3.Axis:
-        scalar_axis_tree = self.plex_axes.blocked(self.shape)
+        scalar_axis_tree = self.layout_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.local_size
         return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
 
@@ -883,9 +883,9 @@ class FunctionSpace:
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
 
 
-        # assert axis_tree.sf == self.plex_axes.sf
-        assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
-        assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
+        assert axis_tree.sf == self.layout_axes.sf
+        # assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
+        # assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This

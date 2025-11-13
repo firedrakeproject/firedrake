@@ -143,8 +143,13 @@ class StarForest(AbstractStarForest):
 
     # }}}
 
+    # NOTE: I think 'size' now has to equal the number of roots
     def __init__(self, sf: PETSc.SF, size: IntType) -> None:
         size = strict_int(size)
+
+        # TODO: This check only makes sense for SFs that we make (where ghosts are at the end)
+        # in the general case it isn't true
+        # _check_sf(sf)
 
         num_roots, local_leaf_indices, _ = sf.getGraph()
         assert size >= num_roots and size >= len(local_leaf_indices)
@@ -332,8 +337,16 @@ def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
 
 
-def local_sf(size: IntType, comm: MPI.Comm) -> StarForest:
-    nroots = IntType.type(0)
+def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
+    # nroots = IntType.type(0)
+    nroots = IntType.type(size)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+
+
+def _check_sf(sf: PETSc.SF):
+    # sanity check: leaves should always be at the end of the array
+    size, leaf_indices, _ = sf.getGraph()
+    num_leaves = len(leaf_indices)
+    assert (leaf_indices == np.arange(size-num_leaves, size, dtype=IntType)).all()
