@@ -8,7 +8,8 @@ import firedrake as fd
 from firedrake.adjoint import Control, ReducedFunctional, Tape
 from firedrake.functionspaceimpl import WithGeometry
 import finat
-from pyadjoint import OverloadedType, no_annotations
+import pyadjoint
+from pyadjoint import no_annotations
 from pyadjoint.enlisting import Enlist
 from pyadjoint.reduced_functional import AbstractReducedFunctional
 import ufl
@@ -146,8 +147,7 @@ class L2RieszMap(fd.RieszMap):
     target
         Function space.
     kwargs
-        Keyword arguments are passed to the :class:`firedrake.RieszMap`
-        constructor.
+        Keyword arguments are passed to the base class constructor.
     """
 
     def __init__(self, target: WithGeometry, **kwargs):
@@ -226,7 +226,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     functional
         Functional defining the optimization problem, :math:`J`.
     controls
-        Controls. Must be :class:`firedrake.Function` objects.
+        Controls.
     space_D
         DG space containing the control space.
     riesz_map
@@ -247,7 +247,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     """
 
     @no_annotations
-    def __init__(self, functional: OverloadedType, controls: Union[Control, Sequence[Control]], *,
+    def __init__(self, functional: pyadjoint.OverloadedType, controls: Union[Control, Sequence[Control]], *,
                  space_D: Optional[Union[None, WithGeometry, Sequence[Union[None, WithGeometry]]]] = None,
                  riesz_map: Optional[Union[L2RieszMap, Sequence[L2RieszMap]]] = None,
                  alpha: Optional[Real] = 0,
@@ -346,7 +346,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         ----------
 
         m
-            The result of the optimization. Represents an expansion in an
+            The result of the optimization. Represents an expansion in the
             :math:`L^2` orthonormal basis for the DG space.
 
         Returns
@@ -360,7 +360,22 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         return m_J
 
     @no_annotations
-    def __call__(self, values):
+    def __call__(self, values: Union[fd.Function, Sequence[fd.Function]]) -> pyadjoint.AdjFloat:
+        """Evaluate the functional.
+
+        Parameters
+        ---------
+
+        value
+            Control values.
+
+        Returns
+        -------
+
+        pyadjoint.AdjFloat
+            The functional value.
+        """
+
         values = Enlist(values)
         m_D, m_J = self._primal_transform(values)
         J = self._J(m_J)
@@ -372,8 +387,26 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         return J
 
     @no_annotations
-    def derivative(self, adj_input=1.0, apply_riesz=False):
-        if adj_input != 1:
+    def derivative(self, adj_input: Optional[Real] = 1.0,
+                   apply_riesz: Optional[bool] = False) -> Union[fd.Function, fd.Cofunction, list[fd.Function, fd.Cofunction]]:
+        """Evaluate the derivative.
+
+        Parameters
+        ---------
+
+        adj_value
+            Not supported.
+        apply_riesz
+            Whether to apply the Riesz map to the result.
+
+        Returns
+        -------
+
+        Function, Cofunction, or list[Function or Cofunction]
+            The derivative.
+        """
+
+        if not isinstance(adj_input, Real) or adj_input != 1:
             raise NotImplementedError("adj_input != 1 not supported")
 
         u = Enlist(self._J.derivative())
@@ -396,7 +429,30 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         return u.delist(v)
 
     @no_annotations
-    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
+    def hessian(self, m_dot: Union[fd.Function, Sequence[fd.Function]],
+                hessian_input: Optional[None] = None, evaluate_tlm: Optional[bool] = True,
+                apply_riesz: Optional[bool] = False) -> Union[fd.Function, fd.Cofunction, list[fd.Function, fd.Cofunction]]:
+        """Evaluate the Hessian action.
+
+        Parameters
+        ----------
+
+        m_dot
+            Action direction.
+        hessian_input
+            Not supported.
+        evaluate_tlm
+            Whether to re-evaluate the tangent-linear.
+        apply_riesz
+            Whether to apply the Riesz map to the result.
+
+        Returns
+        -------
+
+        Function, Cofunction, or list[Function or Cofunction]
+            The Hessian action.
+        """
+
         if hessian_input is not None:
             raise NotImplementedError("hessian_input not None not supported")
 
@@ -422,7 +478,22 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         return u.delist(v)
 
     @no_annotations
-    def tlm(self, m_dot):
+    def tlm(self, m_dot: Union[fd.Function, Sequence[fd.Function]]) -> Union[fd.Function, list[fd.Function]]:
+        """Evaluate a Jacobian action.
+
+        Parameters
+        ----------
+
+        m_dot
+            Action direction.
+
+        Returns
+        -------
+
+        Function or list[Function]
+            The Jacobian action.
+        """
+
         m_dot = Enlist(m_dot)
         m_dot_D, m_dot_J = self._primal_transform(m_dot)
         tau_J = self._J.tlm(m_dot.delist(m_dot_J))
