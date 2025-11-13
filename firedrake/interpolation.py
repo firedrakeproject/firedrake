@@ -1402,17 +1402,6 @@ class VomOntoVomMat:
             The vector to store the result in.
 
         """
-        # can only do adjoint if our expression exclusively contains a
-        # single argument, making the application of the adjoint operator
-        # straightforward (haven't worked out how to do this otherwise!)
-        if not len(self.arguments) == 1:
-            raise NotImplementedError(
-                "Can only apply adjoint to expressions with one argument!"
-            )
-        if self.arguments[0] is not self.operand:
-            raise NotImplementedError(
-                "Can only apply adjoint to expressions consisting of a single argument at the moment."
-            )
         if self.forward_reduce:
             self.broadcast(source_vec, target_vec)
         else:
