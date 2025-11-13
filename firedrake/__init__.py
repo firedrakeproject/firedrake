@@ -115,7 +115,8 @@ from firedrake.projection import (  # noqa: F401
 from firedrake.slate import (  # noqa: F401
     AssembledVector, Block, Factorization, Tensor, Inverse,
     Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
-    DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder, SCPC
+    DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
+    SCPC, TensorOp
 )
 from firedrake.slope_limiter import (  # noqa: F401
     Limiter, VertexBasedLimiter
