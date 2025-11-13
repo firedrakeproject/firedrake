@@ -96,7 +96,7 @@ class L2Cholesky:
         Returns
         -------
 
-        firedrake.Cofunction
+        firedrake.cofunction.Cofunction
             Has vector of degrees of freedom :math:`C^{-1} \tilde{u}`.
         """
 
@@ -126,7 +126,7 @@ class L2Cholesky:
         Returns
         -------
 
-        firedrake.Function
+        firedrake.function.Function
             Has vector of degrees of freedom :math:`C^{-T} \tilde{u}`.
         """
 
@@ -352,7 +352,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Returns
         -------
 
-        firedrake.Function or Sequence[firedrake.Function]
+        firedrake.function.Function or Sequence[firedrake.function.Function]
             The mapped result in the original control space.
         """
 
@@ -402,7 +402,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Returns
         -------
 
-        Function, Cofunction, or list[Function or Cofunction]
+        firedrake.function.Function, firedrake.cofunction.Cofunction, or list[firedrake.function.Function or firedrake.cofunction.Cofunction]
             The derivative.
         """
 
@@ -449,7 +449,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Returns
         -------
 
-        Function, Cofunction, or list[Function or Cofunction]
+        firedrake.function.Function, firedrake.cofunction.Cofunction, or list[firedrake.function.Function or firedrake.cofunction.Cofunction]
             The Hessian action.
         """
 
@@ -490,7 +490,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Returns
         -------
 
-        Function or list[Function]
+        firedrake.function.Function or list[firedrake.function.Function]
             The Jacobian action.
         """
 
