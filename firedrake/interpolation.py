@@ -100,7 +100,8 @@ class InterpolateOptions:
     matfree : bool
         If ``False``, then construct the permutation matrix for interpolating
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
+        and reduce operations. Only applies when interpolating between a :func:`.VertexOnlyMesh`
+        and its associated input ordering; is ignored in all other cases.
     """
     subset: op2.Subset | None = None
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
