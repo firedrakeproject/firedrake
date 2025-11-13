@@ -247,9 +247,9 @@ class Interpolator(abc.ABC):
         pass
 
     def assemble(
-            self,
-            tensor: Function | Cofunction | MatrixBase | None = None,
-            bcs: Iterable[DirichletBC] | None = None
+        self,
+        tensor: Function | Cofunction | MatrixBase | None = None,
+        bcs: Iterable[DirichletBC] | None = None
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
@@ -382,14 +382,14 @@ class CrossMeshInterpolator(Interpolator):
             )
         else:
             self.access = op2.WRITE
+
         if self.target_space.ufl_element().mapping() != "identity":
             # Identity mapping between reference cell and physical coordinates
-            # implies point evaluation nodes. A more general version would
-            # require finding the global coordinates of all quadrature points
-            # of the target function space in the source mesh.
+            # implies point evaluation nodes.
             raise NotImplementedError(
-                "Can only interpolate into spaces with point evaluation nodes."
+                "Can only cross-mesh interpolate into spaces with point evaluation nodes."
             )
+
         if self.allow_missing_dofs:
             self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
         else:
@@ -1438,7 +1438,7 @@ class VomOntoVomMat:
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(self.target_size[0] + 1, dtype=IntType)
-        # Vector and Tensor valued spaces are stored in a flattened array, so
+        # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
         cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
@@ -1446,7 +1446,8 @@ class VomOntoVomMat:
         if self.forward_reduce and not self.is_adjoint:
             # The mat we have constructed thus far takes us from the input-ordering VOM to the
             # immersed VOM. If we're going the other way, then we need to transpose it,
-            # unless we're doing the adjoint interpolation in which ca
+            # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
+            # are defined assuming we're doing forward interpolation.
             mat.transpose()
         return mat
 
