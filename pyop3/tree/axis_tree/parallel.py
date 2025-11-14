@@ -131,13 +131,13 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
 
             size: 13
             ilocal: [ 4,  5,  6,  7,  8,  9, 10, 11, 12]
-            iremote: [[1, 3], [1, 4], [1, 0], [1, 1], [1, 5], [1, 2], [1, 9], [1, 11], [1, 10]]
+            iremote: [[1, 3], [1, 4], [1, 0], [1, 1], [1, 5], [1, 2], [1, 6], [1, 8], [1, 7]]
 
         rank 1:
 
             size: 13
             ilocal: [9, 10, 11, 12]
-            iremote: [[0, 0], [0, 1], [0, 2], [0, 9]]
+            iremote: [[0, 0], [0, 1], [0, 2], [0, 3]]
 
     """
     total_size = sum(sf.size for sf in star_forests)
@@ -161,9 +161,9 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
         local_leaf_indicess.append(new_local_leaf_indices)
         remote_leaf_indicess.append(new_remote_leaf_indices)
 
-        start += size
+        start += sf.num_owned
         local_leaf_index_start += sf.num_ghost
-    assert start == total_size
+    assert start == total_num_owned
 
     ilocal = np.concatenate(local_leaf_indicess)
     iremote = np.concatenate(remote_leaf_indicess)

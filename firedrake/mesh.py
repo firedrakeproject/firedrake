@@ -774,7 +774,6 @@ class AbstractMeshTopology(abc.ABC):
         else:
             point_sf = op3.local_sf(self.num_points, self._comm).sf
 
-        # point_sf_renum = dmcommon.renumber_sf(point_sf, self._old_to_new_point_renumbering)
         point_sf_renum = dmcommon.renumber_sf(point_sf, self._new_to_old_point_renumbering)
 
         # TODO: Allow the label here to be None
@@ -899,6 +898,10 @@ class AbstractMeshTopology(abc.ABC):
     def _old_to_new_interior_facet_numbering(self):
         return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering)
 
+    @cached_property
+    def _old_to_new_vertex_numbering(self) -> PETSc.Section:
+        return self._plex_to_entity_numbering(0)
+
     # TODO: Cythonize
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
     # but now returns entity numbering to entity numbering
@@ -909,27 +912,9 @@ class AbstractMeshTopology(abc.ABC):
         return dmcommon.entity_numbering(plex_indices, self._new_to_old_point_renumbering)
 
     @cached_property
-    def _global_numbering(self):
-        # NOTE: This doesn't quite work because I think globally we would still
-        # probably number all cells before all vertices etc...
-        # NOTE: We do exactly the same thing inside pyop3, grep for 'exscan'
-
-        # Start with a local numbering
-        if self._is_renumbered:
-            numbering = self._old_to_new_point_renumbering.indices.copy()
-            # numbering = self._new_to_old_point_renumbering.indices.copy()  # testing
-        else:
-            numbering = np.arange(self.points.size, dtype=IntType)
-
-        if self.comm.size > 1:
-            # Then offset by the number of owned points on preceding ranks
-            offset = self._comm.exscan(self.points.owned.local_size) or 0
-            numbering += offset
-
-            # And finally send ghost points their actual global number
-            self.point_sf.broadcast(numbering, MPI.REPLACE)
-
-        return readonly(numbering)
+    def _global_old_to_new_vertex_numbering(self) -> PETSc.Section:
+        # NOTE: This will return negative entries for ghosts
+        return self._old_to_new_vertex_numbering.createGlobalSection(self.topology_dm.getPointSF())
 
     @utils.cached_property
     def cell_closure(self):
@@ -1283,7 +1268,7 @@ class AbstractMeshTopology(abc.ABC):
         cell_orientations = dmcommon.orientations_facet2cell(
             self, cell_ranks, facet_orientations,
         )
-        dmcommon.exchange_cell_orientations(self, cell_orientations)
+        dmcommon.exchange_cell_orientations(self, self._old_to_new_cell_numbering, cell_orientations)
 
         return dmcommon.quadrilateral_closure_ordering(self, cell_orientations)
 

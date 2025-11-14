@@ -654,7 +654,7 @@ def create_cell_closure(plex_closures):
 
     ncells, closureSize = plex_closures.shape
     cell_closure = np.empty_like(plex_closures)
-    CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    # CHKERR(PetscMalloc1(closureSize, &fiat_closure))
     for c in range(ncells):
         # plex_closure = plex_closures[c]
         cell_closure[c, 0] = plex_closures[c, 19]
@@ -684,6 +684,7 @@ def create_cell_closure(plex_closures):
         cell_closure[c, 24] = plex_closures[c, 1]
         cell_closure[c, 25] = plex_closures[c, 2]
         cell_closure[c, 26] = plex_closures[c, 0]
+    # PETSc.CHKERR(PetscFree(fiat_closure))
     return cell_closure
 
 
@@ -756,14 +757,20 @@ def closure_ordering(mesh, closure_data_plex):
     CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
     # Must call this before loop collectively.
-    mesh._global_numbering
+    mesh._global_old_to_new_vertex_numbering
 
     closure_data_reord = np.empty_like(closure_data_plex)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data_plex[cell, vert_offset_plex:]):
             verts[vi] = vert
-            global_verts[vi] = mesh._global_numbering[vert]
+            v = mesh._global_old_to_new_vertex_numbering.getOffset(vert)
+
+            # Correct -ve offsets for non-owned entities
+            if v >= 0:
+                global_verts[vi] = v
+            else:
+                global_verts[vi] = -(v+1)
 
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
@@ -907,7 +914,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
-                g_vertices[vi] = mesh._global_numbering[pt]
+                g_vertices[vi] = mesh._global_old_to_new_vertex_numbering.getOffset(pt)
                 vi += 1
             elif fStart <= pt < fEnd:
                 c_facets[fi] = pt
@@ -2659,7 +2666,8 @@ def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
 
     nPoints_c = renumbering.getLocalSize()
 
-    section = PETSc.Section().create(sf.comm)
+    # section = PETSc.Section().create(sf.comm)
+    section = PETSc.Section().create(MPI.COMM_SELF)
     section.setChart(0, nPoints_c)
     for p_c in range(nPoints_c):
         CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
@@ -2770,7 +2778,7 @@ cdef inline PetscInt cabs(PetscInt i):
         return cneg(i)
 
 cdef inline void get_edge_global_vertices(PETSc.DM plex,
-                                          np.ndarray vertex_numbering,
+                                          PETSc.Section vertex_numbering,
                                           PetscInt facet,
                                           PetscInt *global_v):
     """Returns the global numbers of the vertices of an edge.
@@ -2789,14 +2797,14 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
 
     CHKERR(DMPlexGetCone(plex.dm, facet, &vs))
 
-    global_v[0] = vertex_numbering[vs[0]]
-    global_v[1] = vertex_numbering[vs[1]]
+    global_v[0] = vertex_numbering.getOffset(vs[0])
+    global_v[1] = vertex_numbering.getOffset(vs[1])
 
     # global_v[0] = cabs(global_v[0])
     # global_v[1] = cabs(global_v[1])
 
 cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
-                                                  np.ndarray vertex_numbering,
+                                                  PETSc.Section vertex_numbering,
                                                   PetscInt facet):
     """Returns the local plex direction (ordering in plex cone) relative to
     the global edge direction (from smaller to greater global vertex number).
@@ -2840,7 +2848,7 @@ cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void get_communication_lists(
-    PETSc.DM plex, np.ndarray vertex_numbering,
+    PETSc.DM plex, PETSc.Section vertex_numbering,
     np.ndarray cell_ranks,
     # Output parameters:
     PetscInt *nranks, PetscInt **ranks, PetscInt **offsets,
@@ -3115,7 +3123,7 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
-                                       np.ndarray vertex_numbering,
+                                       PETSc.Section vertex_numbering,
                                        PetscInt *cell_ranks,
                                        PetscInt *facet2index,
                                        PetscInt nfacets_shared,
@@ -3279,7 +3287,7 @@ def quadrilateral_facet_orientations(
     """
     cdef:
         PETSc.DM plex
-        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering
+        PETSc.Section vertex_numbering
 
         PetscInt nranks
         PetscInt *ranks = NULL
@@ -3300,7 +3308,7 @@ def quadrilateral_facet_orientations(
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
 
     plex = mesh.topology_dm
-    vertex_numbering = mesh._global_numbering
+    vertex_numbering = mesh._global_old_to_new_vertex_numbering
     comm = plex.comm.tompi4py()
 
     # Get communication lists
@@ -3502,15 +3510,14 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
                 v = cone[0]
             else:
                 v = cone[1]
-            cell_orientations[c] = mesh._global_numbering[v]
+            cell_orientations[c] = mesh._global_old_to_new_vertex_numbering.getOffset(v)
 
     return cell_orientations
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def exchange_cell_orientations(mesh, np.ndarray orientations):
-    # FIXME
+def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientations):
     """Halo exchange of cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -3541,7 +3548,6 @@ def exchange_cell_orientations(mesh, np.ndarray orientations):
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
     if plex.comm.size > 1 and plex.isDistributed():
-        raise NotImplementedError("Think I just have to do a broadcast using orientations as a buffer")
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 

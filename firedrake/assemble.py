@@ -1540,11 +1540,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for local_kernel, _ in assembler.local_kernels
         ):
             # Handle special cases: slate or split=False
-            allocation_integral_types = {
+            allocation_integral_types = utils.OrderedSet([
                 local_kernel.kinfo.integral_type
                 for assembler in self._all_assemblers
                 for local_kernel, _ in assembler.local_kernels
-            }
+            ])
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, allocation_integral_types
             )

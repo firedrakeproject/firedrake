@@ -474,10 +474,8 @@ class Dat(Tensor):
         In this case, ``self`` is ``y`` and ``other`` is ``x``.
 
         """
-        np.add(
-            alpha * other.data_ro_with_halos, self.data_ro_with_halos,
-            out=self.data_wo_with_halos
-        )
+        dest_array = self.data_rw_with_halos
+        np.add(alpha * other.data_ro_with_halos, dest_array, out=dest_array)
 
     def inner(self, other: Dat, /) -> np.number:
         """Compute the l2 inner product against another dat.

@@ -24,6 +24,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     hdiv, l2 = element_pair
     hdiv_family, degree = hdiv
     for n in [8, 16, 32, 64]:
+        # mesh = UnitSquareMesh(2, 2)
         mesh = UnitSquareMesh(n, n)
 
         V = FunctionSpace(mesh, hdiv_family, degree)
@@ -86,39 +87,40 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         subnullspace.orthonormalize()
         nullspace = MixedVectorSpaceBasis(W, [W.sub(0), subnullspace])
 
-        parameters = {}
-        # parameters = {
-        #     "mat_type": mat_type,
-        #     "pmat_type": "matfree",
-        #     "ksp_type": "minres",
-        #     "ksp_norm_type": "preconditioned",
-        #     "ksp_max_it": 10,
-        #     "ksp_atol": "1.e-16",
-        #     "ksp_rtol": "1.e-11",
-        #     "ksp_monitor_true_residual": None,
-        #     "pc_type": "fieldsplit",
-        #     "pc_fieldsplit_type": "additive",
-        #     "fieldsplit_0": {
-        #         "ksp_type": "preonly",
-        #         "pc_type": "python",
-        #         "pc_python_type": "firedrake.AssembledPC",
-        #         "assembled_pc_type": "lu",
-        #         "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
-        #     },
-        #     "fieldsplit_1": {
-        #         "ksp_type": "preonly",
-        #         "pc_type": "python",
-        #         "pc_python_type": "firedrake.MassInvPC",
-        #         "Mp_mat_type": "matfree",
-        #         "Mp_pc_type": "jacobi",
-        #     }
-        # }
+        parameters = {
+            "mat_type": mat_type,
+            "pmat_type": "matfree",
+            "ksp_type": "minres",
+            "ksp_norm_type": "preconditioned",
+            "ksp_max_it": 10,
+            "ksp_atol": "1.e-16",
+            "ksp_rtol": "1.e-11",
+            "ksp_monitor_true_residual": None,
+            "pc_type": "fieldsplit",
+            "pc_fieldsplit_type": "additive",
+            "fieldsplit_0": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.AssembledPC",
+                "assembled_pc_type": "lu",
+                "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
+            },
+            "fieldsplit_1": {
+                "ksp_type": "preonly",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.MassInvPC",
+                "Mp_mat_type": "matfree",
+                "Mp_pc_type": "jacobi",
+            }
+        }
 
         # Scale for the pressure mass matrix
         mu = 1/gamma
         appctx = {"mu": mu}
 
         UP.assign(0)
+        mat = assemble(a).petscmat
+        breakpoint()
         solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
               appctx=appctx)
 
