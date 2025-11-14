@@ -2,7 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from pyop2.utils import as_tuple
-from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER, PETSc
 
 ksp = {
     "mat_type": "matfree",
