@@ -1271,7 +1271,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         # match for all leaves.
         blocked_tree = self.materialize()
         for block_size in reversed(block_shape):
-            block_axis = utils.single_valued(blocked_tree.leaves)
+            try:
+                block_axis = utils.single_valued(blocked_tree.leaves)
+            except:
+                breakpoint()
             assert block_axis.component.size == block_size
 
             index = ScalarIndex(block_axis.label, block_axis.component.label, 0)
@@ -1949,6 +1952,12 @@ class AxisForest(DistributedObject):
             raise TypeError
 
         self.trees = trees
+
+    def __eq__(self, /, other: Any) -> bool:
+        return type(other) is type(self) and other.trees == self.trees
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.trees))
 
     def __repr__(self) -> str:
         return f"AxisForest(({', '.join(repr(tree) for tree in self.trees)}))"

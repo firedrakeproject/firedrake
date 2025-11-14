@@ -119,8 +119,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         appctx = {"mu": mu}
 
         UP.assign(0)
-        mat = assemble(a).petscmat
-        breakpoint()
+        # mat = assemble(a).petscmat
+        # breakpoint()
         solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
               appctx=appctx)
 

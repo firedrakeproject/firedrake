@@ -149,28 +149,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             components[ix] = component
         return utils.readonly(components)
 
-        if self.function_space().rank == 0:
-            return (self,)
-        else:
-            if self.function_space().value_size == 1:
-                return (CoordinatelessFunction(self.function_space().sub(0, weak=False), val=self.dat,
-                                               name=f"view[0]({self.name()})"),)
-            else:
-                components = []
-                for i, j in enumerate(np.ndindex(self.function_space().shape)):
-                    indices = op3.IndexTree.from_iterable((
-                        op3.ScalarIndex(f"dim{i_}", "XXX", j_)
-                        for i_, j_ in enumerate(j)
-                    ))
-                    subdat = self.dat[indices]
-                    component = CoordinatelessFunction(
-                        self.function_space().sub(i, weak=False),
-                        val=subdat,
-                        name=f"view[{i}]({self.name()})"
-                    )
-                    components.append(component)
-                return tuple(components)
-
     @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.

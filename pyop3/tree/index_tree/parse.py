@@ -14,7 +14,7 @@ from pyop3.dtypes import IntType
 from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
 from pyop3.tree.labelled_tree import ConcretePathT
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
@@ -254,7 +254,12 @@ def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
 def _(int_: numbers.Integral, /, *, axes, path) -> Index:
     if path is None:
         raise RuntimeError("Cannot parse Python slices here due to ambiguity")
-    axis = axes.node_map[path]
+
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
     if len(axis.components) > 1:  # match on component label
         component = just_one(c for c in axis.components if c.label == int_)
         if component.size == 1:
@@ -273,7 +278,11 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
         raise RuntimeError("Cannot parse Python slices here due to ambiguity")
     slice_is_full = slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}
 
-    axis = axes.node_map[path]
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
     if len(axis.components) == 1:
         if slice_is_full:
             return Slice(
@@ -307,7 +316,10 @@ def _(list_: list, /, *, axes, path) -> Slice:
     if path is None:
         raise RuntimeError("Cannot parse a list here due to ambiguity")
 
-    axis = axes.node_map[path]
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
 
     if len(axis.components) == 1:
         dat = Dat.from_sequence(list_, IntType)

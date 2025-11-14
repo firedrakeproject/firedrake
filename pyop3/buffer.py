@@ -539,24 +539,37 @@ class MatBufferSpec(abc.ABC):
 
 @dataclasses.dataclass(frozen=True)
 class LGMap:
-    indices: Dat[IntType]
+    indices: np.ndarray[IntType]
+    axes: AxisTree  # this is unblocked
     block_shape: tuple[numbers.Integral, ...]
 
     def __post_init__(self) -> None:
         # check that this is valid
         assert self.indices.dtype == IntType
-        self.indices.axes.blocked(self.block_shape)
+        assert self.axes.blocked(self.block_shape).local_size == self.indices.size
 
     @property
     def comm(self):
-        return self.indices.comm
+        return self.axes.comm
 
     @property
     def block_size(self) -> IntType:
         return np.prod(self.block_shape, dtype=IntType)
 
     def as_petsc_lgmap(self) -> PETSc.LGMap:
-        return PETSc.LGMap().create(self.indices.data_ro_with_halos, bsize=self.block_size, comm=self.indices.comm)
+        return PETSc.LGMap().create(self.indices, bsize=self.block_size, comm=self.comm)
+
+    @cached_property
+    def unblocked_indices(self) -> LGMap:
+        if not self.block_shape:
+            return self.indices
+        else:
+            # expand indices - e.g. [1, 3, 4] (2,) becomes [2, 3, 6, 7, 8, 9]
+            n = self.block_size
+            unblocked_indices = np.repeat(self.indices, n) * n
+            for i in range(n):
+                unblocked_indices[i::n] += i
+            return unblocked_indices
 
 
 class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):

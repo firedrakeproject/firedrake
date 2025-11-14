@@ -139,46 +139,20 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self,)
-        else:
-            if len(self.function_space().shape) > 1:
-                # This all gets a lot easier if one could insert slices *above*
-                # the relevant indices. Then we could just index with a ScalarIndex.
-                # Instead we have to construct the whole IndexTree and for simplicity
-                # this is disabled for tensor things.
-                raise NotImplementedError
-
-            root_axis = self.dat.axes.root
-            root_index = op3.Slice(
-                root_axis.label,
-                [op3.AffineSliceComponent(c.label) for c in root_axis.components],
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                val=self.dat[indices],
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
-            root_index_tree = op3.IndexTree(root_index)
-            subtree = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
-            for component in root_index.component_labels:
-                root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
-
-            subfuncs = []
-            # This flattens any tensor shape, which pyop3 can now do "properly"
-            for i, j in enumerate(np.ndindex(self.function_space().shape)):
-
-                # just one-tuple supported for now
-                j, = j
-
-                indices = root_index_tree
-                subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
-                for leaf in root_index_tree.leaves:
-                    indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
-
-                subfunc = type(self)(
-                    self.function_space().sub(i, weak=False),
-                    # val=self.dat[indices],
-                    val=self.dat.getitem(indices, strict=True),
-                    name=f"view[{i}]({self.name()})"
-                )
-                subfuncs.append(subfunc)
-            return tuple(subfuncs)
+            components[ix] = component
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):

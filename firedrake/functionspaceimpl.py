@@ -2605,41 +2605,29 @@ def mask_lgmap(lgmap: LGMap, bcs, idxs=()) -> PETSc.LGMap:
 
     """
     if not bcs:
-        return lgmap.indices.as_lgmap(lgmap.block_shape)
+        return lgmap.as_petsc_lgmap()
+
+    # Set constrained values in the lgmap to -1
 
     unblocked = any(bc.function_space().component is not None for bc in bcs)
     if unblocked:
-        raise NotImplementedError
-    # if unblocked:
-    #     indices = lgmap.indices
-    #     block_shape = ()
-    # else:
-    #     indices = lgmap.block_indices
-    #
-    # # Set constrained values in the lgmap to -1
-    # blocked_axes = self.nodal_axes.blocked(block_shape)
-    # indices_dat = op3.Dat(blocked_axes, data=indices)
-    indices = lgmap.indices.copy()
+        indices = lgmap.unblocked_indices
+        axes = lgmap.axes
+        block_size = 1
+    else:
+        indices = lgmap.indices
+        axes = lgmap.axes.blocked(lgmap.block_shape)
+        block_size = lgmap.block_size
+
+    indices = indices.copy()
+    dat = op3.Dat(axes, data=indices)
     for bc in bcs:
-        # p = self._mesh.points[bc.node_set].index()
+        if unblocked:
+            component = bc.function_space().component
+            if component is None:
+                component = Ellipsis
+            dat[*idxs][bc.node_set, *component].assign(-1, eager=True)
+        else:
+            dat[*idxs][bc.node_set].assign(-1, eager=True)
 
-        # index_forest = {}
-        if bc.function_space().component != None:
-            breakpoint()
-        # for ctx, index_tree in op3.as_index_forest(p).items():
-        #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-        #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
-        #
-        #     if component is not None:
-        #         assert unblocked
-        #         component_slice = op3.ScalarIndex("dim0", "XXX", component)
-        #         index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
-        #
-        #     index_forest[ctx] = index_tree
-
-        # try:
-        indices[*idxs][bc.node_set].assign(-1, eager=True)
-        # except:
-        #     breakpoint()
-
-    return indices.as_lgmap(lgmap.block_shape)
+    return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)
