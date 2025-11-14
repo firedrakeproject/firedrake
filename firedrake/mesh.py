@@ -1263,7 +1263,6 @@ class AbstractMeshTopology(abc.ABC):
         petsctools.cite("Homolya2016")
         petsctools.cite("McRae2016")
 
-        breakpoint()
         cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
         facet_orientations = dmcommon.quadrilateral_facet_orientations(self.topology_dm, self._global_old_to_new_vertex_numbering, cell_ranks)
         cell_orientations = dmcommon.orientations_facet2cell(
@@ -1989,6 +1988,7 @@ class MeshTopology(AbstractMeshTopology):
         """
         The union is taken
         """
+        raise NotImplementedError
         if subdomain_ids == "on_boundary":
             label = "exterior_facets"
             subdomain_ids = (1,)

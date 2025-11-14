@@ -1001,15 +1001,15 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell_closure[cell, 0] = vertices[0]
-        cell_closure[cell, 1] = vertices[1]
-        cell_closure[cell, 2] = vertices[3]
-        cell_closure[cell, 3] = vertices[2]
-        cell_closure[cell, 4 + 0] = facets[0]
-        cell_closure[cell, 4 + 1] = facets[2]
-        cell_closure[cell, 4 + 2] = facets[3]
-        cell_closure[cell, 4 + 3] = facets[1]
-        cell_closure[cell, 8] = c
+        cell_closure[c, 0] = vertices[0]
+        cell_closure[c, 1] = vertices[1]
+        cell_closure[c, 2] = vertices[3]
+        cell_closure[c, 3] = vertices[2]
+        cell_closure[c, 4 + 0] = facets[0]
+        cell_closure[c, 4 + 1] = facets[2]
+        cell_closure[c, 4 + 2] = facets[3]
+        cell_closure[c, 4 + 3] = facets[1]
+        cell_closure[c, 8] = c
 
     if closure != NULL:
         restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -2785,7 +2785,7 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
     """Returns the global numbers of the vertices of an edge.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the global vertex numbering
+    :arg vertex_numbering: Section describing the global vertex numbering
     :arg facet: The edge
     :arg global_v: Return buffer, must have capacity for 2 values
     """
@@ -2798,11 +2798,17 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
 
     CHKERR(DMPlexGetCone(plex.dm, facet, &vs))
 
-    global_v[0] = vertex_numbering.getOffset(vs[0])
-    global_v[1] = vertex_numbering.getOffset(vs[1])
+    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[0], &ndofs))
+    assert cabs(ndofs) == 1
+    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[1], &ndofs))
+    assert cabs(ndofs) == 1
 
-    # global_v[0] = cabs(global_v[0])
-    # global_v[1] = cabs(global_v[1])
+    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[0], &global_v[0]))
+    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[1], &global_v[1]))
+
+    global_v[0] = cabs(global_v[0])
+    global_v[1] = cabs(global_v[1])
+
 
 cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
                                                   PETSc.Section vertex_numbering,
@@ -2811,17 +2817,19 @@ cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
     the global edge direction (from smaller to greater global vertex number).
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the global vertex numbering
+    :arg vertex_numbering: Section describing the global vertex numbering
     :arg facet: The edge
     """
     cdef PetscInt v[2]
     get_edge_global_vertices(plex, vertex_numbering, facet, v)
     return v[0] > v[1]
 
+
 cdef struct CommFacet:
     PetscInt remote_rank
     PetscInt global_u, global_v
     PetscInt local_facet
+
 
 cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
     """Three-way comparison C function for CommFacet structs."""
@@ -2858,7 +2866,7 @@ cdef inline void get_communication_lists(
     """Create communication lists for shared facet information exchange.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the universal vertex numbering
+    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
 
