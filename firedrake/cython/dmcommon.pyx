@@ -252,7 +252,7 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
-def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS) -> PETSc.Section:
+def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, MPI.Comm comm) -> PETSc.Section:
     """Return a PETSc section representing the renumbering of a set of points.
 
     The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
@@ -272,7 +272,7 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS) 
         A PETSc section encoding the numbering.
 
     """
-    section = PETSc.Section().create(comm=MPI.COMM_SELF)
+    section = PETSc.Section().create(comm=comm)
     section.setChart(0, new_to_old_numbering.size)
     section.setPermutation(new_to_old_numbering)
     for pt in selected_points.indices:
@@ -892,6 +892,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
+        cell = mesh._old_to_new_cell_numbering.getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # First extract the facets (edges) and the vertices
@@ -914,7 +915,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
-                g_vertices[vi] = mesh._global_old_to_new_vertex_numbering.getOffset(pt)
+                g_vertices[vi] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(pt))
                 vi += 1
             elif fStart <= pt < fEnd:
                 c_facets[fi] = pt
@@ -923,7 +924,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         assert fi == 4
 
         # The first vertex is given by the entry in cell_orientations.
-        start_v = cell_orientations[c]
+        start_v = cell_orientations[cell]
 
         # Based on the cell orientation, we reorder the vertices and facets
         # (edges) from 'c_vertices' and 'c_facets' into 'vertices' and 'facets'.
@@ -1000,15 +1001,15 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell_closure[c, 0] = vertices[0]
-        cell_closure[c, 1] = vertices[1]
-        cell_closure[c, 2] = vertices[3]
-        cell_closure[c, 3] = vertices[2]
-        cell_closure[c, 4 + 0] = facets[0]
-        cell_closure[c, 4 + 1] = facets[2]
-        cell_closure[c, 4 + 2] = facets[3]
-        cell_closure[c, 4 + 3] = facets[1]
-        cell_closure[c, 8] = c
+        cell_closure[cell, 0] = vertices[0]
+        cell_closure[cell, 1] = vertices[1]
+        cell_closure[cell, 2] = vertices[3]
+        cell_closure[cell, 3] = vertices[2]
+        cell_closure[cell, 4 + 0] = facets[0]
+        cell_closure[cell, 4 + 1] = facets[2]
+        cell_closure[cell, 4 + 2] = facets[3]
+        cell_closure[cell, 4 + 3] = facets[1]
+        cell_closure[cell, 8] = c
 
     if closure != NULL:
         restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -3275,27 +3276,25 @@ cdef inline void exchange_edge_orientation_data(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def quadrilateral_facet_orientations(
-    mesh, np.ndarray cell_ranks,
-):
-    # FIXME
-    """Return globally synchronised facet orientations (edge directions)
+    PETSc.DM plex, PETSc.Section vertex_numbering,
+    np.ndarray cell_ranks):
+
+    """Returns globally synchronised facet orientations (edge directions)
     incident to locally owned quadrilateral cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
     """
     cdef:
-        PETSc.DM plex
-        PETSc.Section vertex_numbering
-
         PetscInt nranks
         PetscInt *ranks = NULL
         PetscInt *offsets = NULL
         PetscInt *facets = NULL
         PetscInt *facet2index = NULL
 
-        MPI.Comm comm
+        MPI.Comm comm = plex.comm.tompi4py()
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
         np.ndarray affects
@@ -3306,10 +3305,6 @@ def quadrilateral_facet_orientations(
         PetscInt cells[2]
 
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
-
-    plex = mesh.topology_dm
-    vertex_numbering = mesh._global_old_to_new_vertex_numbering
-    comm = plex.comm.tompi4py()
 
     # Get communication lists
     get_communication_lists(plex, vertex_numbering, cell_ranks,
@@ -3456,6 +3451,8 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
+            cell = mesh._old_to_new_cell_numbering.getOffset(c)
+
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
 
@@ -3510,7 +3507,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
                 v = cone[0]
             else:
                 v = cone[1]
-            cell_orientations[c] = mesh._global_old_to_new_vertex_numbering.getOffset(v)
+            cell_orientations[cell] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(v))
 
     return cell_orientations
 

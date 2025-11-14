@@ -684,7 +684,7 @@ class AbstractMeshTopology(abc.ABC):
                             old_to_new_rcm_point_numbering_is.invertPermutation()
                         cell_is = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
                         old_to_new_rcm_cell_numbering_section = dmcommon.entity_numbering(
-                            cell_is, new_to_old_rcm_point_numbering_is
+                            cell_is, new_to_old_rcm_point_numbering_is, self.comm
                         )
                         old_to_new_rcm_cell_numbering_is = dmcommon.section_offsets(
                             old_to_new_rcm_cell_numbering_section, cell_is
@@ -892,11 +892,11 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _old_to_new_exterior_facet_numbering(self):
-        return dmcommon.entity_numbering(self._exterior_facet_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_interior_facet_numbering(self):
-        return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._interior_facet_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_vertex_numbering(self) -> PETSc.Section:
@@ -909,7 +909,7 @@ class AbstractMeshTopology(abc.ABC):
     def _plex_to_entity_numbering(self, dim):
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         plex_indices = PETSc.IS().createStride(size=p_end-p_start, first=p_start, comm=MPI.COMM_SELF)
-        return dmcommon.entity_numbering(plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _global_old_to_new_vertex_numbering(self) -> PETSc.Section:
@@ -1263,8 +1263,9 @@ class AbstractMeshTopology(abc.ABC):
         petsctools.cite("Homolya2016")
         petsctools.cite("McRae2016")
 
+        breakpoint()
         cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
-        facet_orientations = dmcommon.quadrilateral_facet_orientations(self, cell_ranks)
+        facet_orientations = dmcommon.quadrilateral_facet_orientations(self.topology_dm, self._global_old_to_new_vertex_numbering, cell_ranks)
         cell_orientations = dmcommon.orientations_facet2cell(
             self, cell_ranks, facet_orientations,
         )
