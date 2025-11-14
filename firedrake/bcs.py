@@ -1,7 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import numpy as np
 
-import functools
+from functools import partial, reduce
 import itertools
 
 import ufl
@@ -167,7 +167,7 @@ class BCBase(object):
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
         return np.concatenate(bcnodes)
 
@@ -359,11 +359,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(V)
-                # Use `Interpolator` instead of assembling an `Interpolate` form
-                # as the expression compilation needs to happen at this stage to
-                # determine if we should use interpolation or projection
-                #  -> e.g. interpolation may not be supported for the element.
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
+                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                # Call this here to check if the element supports interpolation
+                # TODO: It's probably better to have a more explicit way of checking this
+                interpolator._get_callable()
+                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)

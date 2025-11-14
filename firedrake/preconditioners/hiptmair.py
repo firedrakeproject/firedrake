@@ -10,7 +10,7 @@ from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
-from firedrake.interpolation import Interpolator
+from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
 import firedrake.utils as utils
@@ -202,7 +202,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(trial), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = chop(assemble(interpolate(dminus(trial), V), bcs=bcs + coarse_space_bcs).mat())
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 
