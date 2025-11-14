@@ -63,7 +63,7 @@ __all__ = (
 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class InterpolateOptions:
     """Options for interpolation operations.
 
@@ -715,7 +715,7 @@ def _build_interpolation_callables(
     Parameters
     ----------
     expr : ufl.Interpolate | ufl.ZeroBaseForm
-        The symbolic interpolation expression, or a zero form. Zero forms
+        The symbolic interpolation expression, or a ZeroBaseForm. ZeroBaseForms
         are simplified here to avoid code generation when access is WRITE or INC.
     tensor : op2.Dat | op2.Mat | op2.Global
         Object to hold the result of the interpolation.
