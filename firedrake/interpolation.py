@@ -29,6 +29,7 @@ from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adj
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
+from firedrake.matrix import AssembledMatrix
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -370,7 +371,7 @@ class Interpolator(abc.ABC):
                 petsc_mat.copy(tensor.petscmat)
             else:
                 res = petsc_mat
-            return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
+            return tensor or AssembledMatrix(arguments, self.bcs, res)
         else:
             # Assembling the action
             cofunctions = ()
@@ -1727,7 +1728,7 @@ class MixedInterpolator(Interpolator):
         for i in self:
             blocks[i] = self[i].callable().handle
         petscmat = PETSc.Mat().createNest(blocks)
-        tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
+        tensor = AssembledMatrix(self.arguments, self.bcs, petscmat)
         return tensor.M
 
     def _interpolate(self, *function, output=None, adjoint=False, **kwargs):

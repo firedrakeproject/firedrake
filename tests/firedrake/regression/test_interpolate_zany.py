@@ -1,5 +1,6 @@
 import numpy
 import pytest
+import ufl
 from firedrake import *
 
 
