@@ -91,6 +91,31 @@ def test_assemble_split_mixed_derivative():
     assert np.allclose(actual.M.values, expect.M.values)
 
 
+@pytest.mark.parametrize("mat_type", ("aij", "nest"))
+@pytest.mark.parametrize("bcs", (True, False))
+def test_split_assembled_matrix(mat_type, bcs):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+    bcs = [DirichletBC(Z.sub(0), 0, "on_boundary")] if bcs else []
+
+    test = TestFunction(Z)
+    trial = TrialFunction(Z)
+
+    a = inner(test, trial)*dx
+    A = assemble(a, bcs=bcs, mat_type=mat_type)
+
+    splitter = ExtractSubBlock()
+    actual = splitter.split(A, (0, 0))
+
+    bcs = [bc.reconstruct(V=V) for bc in bcs]
+    expect = assemble(splitter.split(a, (0, 0)), bcs=bcs)
+
+    expect.petscmat.axpy(-1, actual.petscmat)
+    assert np.allclose(expect.petscmat[:, :], 0)
+
+
 def test_split_coordinate_derivative():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "P", 1)
