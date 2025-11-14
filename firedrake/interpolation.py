@@ -680,8 +680,10 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 assert isinstance(f, Cofunction)
 
                 def callable() -> Cofunction:
-                    with self.dual_arg.dat.vec_ro as source_vec, f.dat.vec_wo as target_vec:
-                        self.mat.handle.multHermitian(source_vec, target_vec)
+                    with self.dual_arg.dat.vec_ro as source_vec:
+                        coeff = self.mat.expr_as_coeff(source_vec)
+                        with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                            self.mat.handle.multHermitian(coeff_vec, target_vec)
                     return f
             else:
                 assert isinstance(f, Function)
@@ -1209,6 +1211,8 @@ class VomOntoVomMat:
         """The PETSc Star Forest representing the permutation between the VOMs."""
         self.target_space = interpolator.target_space
         """The FunctionSpace being interpolated into."""
+        self.target_vom = interpolator.target_mesh
+        """The VOM being interpolated to."""
         self.source_vom = interpolator.source_mesh
         """The VOM being interpolated from."""
         self.operand = interpolator.operand
@@ -1280,24 +1284,26 @@ class VomOntoVomMat:
         # so its dat can be sent to the target mesh.
         with stop_annotating():
             element = self.target_space.ufl_element()  # Could be vector/tensor valued
-            P0DG = FunctionSpace(self.source_vom, element)
             # if we have any arguments in the expression we need to replace
             # them with equivalent coefficients now
-            coeff_expr = self.operand
             if len(self.arguments):
                 if len(self.arguments) > 1:
-                    raise NotImplementedError(
-                        "Can only interpolate expressions with one argument!"
-                    )
+                    raise NotImplementedError("Can only interpolate expressions with one argument!")
                 if source_vec is None:
                     raise ValueError("Need to provide a source dat for the argument!")
+
                 arg = self.arguments[0]
-                arg_coeff = Function(arg.function_space())
+                source_space = arg.function_space()
+                P0DG = FunctionSpace(self.target_vom if self.is_adjoint else self.source_vom, element)
+                arg_coeff = Function(self.target_space if self.is_adjoint else source_space)
                 arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
                     arg_coeff.dat.data_wo.shape
                 )
                 coeff_expr = replace(self.operand, {arg: arg_coeff})
-            coeff = Function(P0DG).interpolate(coeff_expr)
+                coeff = Function(P0DG).interpolate(coeff_expr)
+            else:
+                P0DG = FunctionSpace(self.source_vom, element)
+                coeff = Function(P0DG).interpolate(self.operand)
         return coeff
 
     def reduce(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
