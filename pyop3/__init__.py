@@ -68,6 +68,7 @@ from pyop3.tree.index_tree import (  # noqa: F401
     SubsetSliceComponent,
     TabulatedMapComponent,
     ScalarIndex,
+    as_slice,
 )
 from pyop3.insn import (  # noqa: F401
     INC,

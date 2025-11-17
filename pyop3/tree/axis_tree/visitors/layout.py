@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import numbers
+import typing
 from typing import Any
 
 from immutabledict import immutabledict as idict
@@ -18,13 +19,15 @@ from pyop3.expr.visitors import get_shape, replace
 from pyop3.insn import exscan, loop_
 from pyop3.tree import (
     Axis,
-    ConcretePathT,
     AxisTree,
     merge_axis_trees,
 )
 from pyop3.tree.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
 
 from .size import compute_axis_tree_component_size
+
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
 
 @scoped_cache()

@@ -375,7 +375,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            appctx=self._appctx).allocate()
             else:
                 test, trial = self._form.arguments()
-                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
                 return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
                                      sub_mat_type=self._sub_mat_type,
                                      options_prefix=self._options_prefix)
@@ -403,9 +403,9 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def _as_pyop2_type(tensor, indices=None):
         if isinstance(tensor, (firedrake.Cofunction, firedrake.Function)):
-            return OneFormAssembler._as_pyop2_type(tensor, indices=indices)
+            return OneFormAssembler._as_pyop3_type(tensor, indices=indices)
         elif isinstance(tensor, ufl.Matrix):
-            return ExplicitMatrixAssembler._as_pyop2_type(tensor, indices=indices)
+            return ExplicitMatrixAssembler._as_pyop3_type(tensor, indices=indices)
         else:
             assert indices is None
             return tensor
@@ -1470,7 +1470,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # shouldn't be needed!
             self._mat_type,
             mat,
-            sub_mat_type=self._sub_mat_type,
             options_prefix=self._options_prefix,
             fc_params=self._form_compiler_params,
         )
@@ -1481,6 +1480,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             return "nest"
         else:
             return self._mat_spec.mat_type
+
+    @property
+    def _sub_mat_type(self) -> str | None:
+        if isinstance(self._mat_spec, Mapping):
+            breakpoint()
+            # TODO
+        else:
+            return None
 
     @staticmethod
     def _make_sparsity(test, trial, mat_spec, maps_and_regions):

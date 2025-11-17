@@ -520,7 +520,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # if not space.extruded:
     if space.mesh().ufl_cell().cellname == "hexahedron":
-        raise NotImplementedError("This doesn't work for the general case... does it work for hexahedra?")
         dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
 
     if _needs_static_permutation(space.finat_element):
@@ -606,8 +605,11 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    if not _requires_orientation(space):
-        return axes
+    # if not _requires_orientation(space):
+    #     return axes
+
+    # discard nodal information
+    axes = axes.trees[0]
 
     outer_axes = []
     outer_path = idict()

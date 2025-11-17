@@ -739,11 +739,11 @@ class AbstractMeshTopology(abc.ABC):
         """
         pass
 
-    @property
-    @abc.abstractmethod
-    def local_cell_orientation_dat(self):
-        """Local cell orientation dat."""
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def local_cell_orientation_dat(self):
+    #     """Local cell orientation dat."""
+    #     pass
 
     @property
     @abc.abstractmethod
@@ -870,7 +870,7 @@ class AbstractMeshTopology(abc.ABC):
         # NOTE: This is very similar to what we do for supports
         closures = {}
         for from_dim, closure_arrays in closure_arrayss.items():
-            iterset = self.points[from_dim]
+            iterset = self.points[op3.as_slice(from_dim)]
 
             full_map_components = []
             owned_map_components = []
@@ -1840,7 +1840,7 @@ class MeshTopology(AbstractMeshTopology):
         # it without calling the map.
         closure_axis = self.closure(self.cells.iter()).axes.root
         axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
-        assert axis_tree.size == self.entity_orientations.size
+        assert axis_tree.local_size == self.entity_orientations.size
         return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
 
     def _memoize_map(self, map_func, dim, sizes=None):

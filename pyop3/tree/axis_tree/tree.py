@@ -34,16 +34,10 @@ from pyop2.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
     as_node_map,
-    ComponentLabelT,
-    ComponentRegionLabelT,
-    ComponentT,
-    ConcretePathT,
     LabelledNodeComponent,
     LabelledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
-    NodeLabelT,
-    PathT,
     accumulate_path,
     as_component_label,
     as_path,
@@ -69,10 +63,8 @@ import pyop3.extras.debug
 
 if typing.TYPE_CHECKING:
     from pyop3.expr import LinearDatBufferExpression
+    from pyop3.types import *
 
-    AxisComponentRegionSizeT = IntType | LinearDatBufferExpression
-    AxisLabelT = NodeLabelT
-    IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
 
 OWNED_REGION_LABEL = "owned"

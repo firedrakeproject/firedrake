@@ -15,8 +15,7 @@ from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
-from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
-from pyop3.tree.labelled_tree import ConcretePathT
+from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 import pyop3.extras.debug
@@ -157,6 +156,7 @@ def _(called_map: CalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
+@collect_loop_contexts.register(UnparsedSlice)
 def _(index: Any, /) -> OrderedSet:
     return OrderedSet()
 
@@ -240,6 +240,7 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 @_as_index_forest.register(Dat)
+@_as_index_forest.register(UnparsedSlice)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
     desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
@@ -248,6 +249,11 @@ def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
 @functools.singledispatch
 def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@_desugar_index.register(UnparsedSlice)
+def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
+    return _desugar_index(unparsed.wrappee, axes=axes, path=path)
 
 
 @_desugar_index.register(numbers.Integral)
@@ -352,6 +358,7 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
         )
 
 @_desugar_index.register(str)
+@_desugar_index.register(tuple)
 def _(label: str, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]

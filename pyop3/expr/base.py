@@ -507,8 +507,8 @@ class AxisVar(Terminal):
 class NaN(Terminal):
     # {{{ interface impls
 
-    shape = UNIT_AXIS_TREE
-    loop_axes = ()
+    shape = (UNIT_AXIS_TREE,)
+    loop_axes = idict()
 
     _full_str = "NaN"
 

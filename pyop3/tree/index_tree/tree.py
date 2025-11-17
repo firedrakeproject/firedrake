@@ -40,7 +40,6 @@ from pyop3.tree.axis_tree.tree import (
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf
 from pyop3.tree.labelled_tree import (
-    ConcretePathT,
     as_node_map,
     LabelledNodeComponent,
     LabelledTree,
@@ -197,6 +196,25 @@ class RegionSliceComponent(SliceComponent):
     @property
     def is_full(self) -> bool:
         return False
+
+
+@dataclasses.dataclass(frozen=True)
+class UnparsedSlice:
+    """Placeholder object wrapping arbitrary slice types.
+
+    This class is necessary because the special-casing of tuples in
+    ``__getitem__`` by Python breaks the syntactic sugar we have for
+    slices. For example consider an axis component with (tuple) label
+    '(2, 1)'. We would like to be able to take this slice by executing:
+
+        dat[(2, 1)]
+
+    However, ``__getitem__`` turns this into the very different:
+
+        dat[2, 1]
+
+    """
+    wrappee: Any  # TODO: Can specialise the type here
 
 
 class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
@@ -2243,3 +2261,7 @@ def convert_region_to_affine_slice(region_slice: RegionSliceComponent, axis_comp
     region_index = axis_component.region_labels.index(region_slice.label)
     region_sizes = utils.steps(region.size for region in axis_component.regions)
     return AffineSliceComponent(start=region_sizes[region_index], stop=region_sizes[region_index+1])
+
+
+def as_slice(label: ComponentLabelT) -> UnparsedSlice:
+    return UnparsedSlice(label)

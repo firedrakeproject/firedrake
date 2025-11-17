@@ -181,15 +181,6 @@ class Assigner:
                 "All functions in the expression must be defined on a single domain"
             )
         subset = parse_subset(subset)
-        if len(subset) != len(assignee.function_space()):
-            raise ValueError(f"Provided subset ({subset}) incompatible with assignee ({assignee})")
-        if type(assignee.ufl_element()) == finat.ufl.MixedElement:
-            for subs, el in zip(subset, assignee.function_space().ufl_element().sub_elements):
-                if subs is not None and el.family() == "Real":
-                    raise ValueError(
-                        "Subset is not a valid argument for assigning to a mixed "
-                        "element including a real element"
-                    )
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
@@ -231,51 +222,44 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
         # If mixed, loop over individual components
-        for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
-            target_mesh = extract_unique_domain(lhs_func)
-            target_V = lhs_func.function_space()
-            # Validate / Process subset.
-            if subset is not None:
-                if subset is target_V.node_set:
-                    # The whole set.
-                    subset = None
-                elif subset.superset is target_V.node_set:
-                    # op2.Subset of target_V.node_set
-                    pass
-                else:
-                    raise ValueError(f"subset ({subset}) not a subset of target_V.node_set ({target_V.node_set})")
-            source_meshes = set(extract_unique_domain(f) for f in funcs)
-            if len(source_meshes) == 0:
-                # Assign constants only.
+        lhs_func = self._assignee
+        funcs = self._functions
+        subset = self._subset
+
+        target_mesh = extract_unique_domain(lhs_func)
+        target_V = lhs_func.function_space()
+        source_meshes = set(extract_unique_domain(f) for f in funcs)
+        if len(source_meshes) == 0:
+            # Assign constants only.
+            single_mesh_assign = True
+        elif len(source_meshes) == 1:
+            source_mesh, = source_meshes
+            if target_mesh is source_mesh:
+                # Assign (co)functions from one mesh to the same mesh.
                 single_mesh_assign = True
-            elif len(source_meshes) == 1:
-                source_mesh, = source_meshes
-                if target_mesh is source_mesh:
-                    # Assign (co)functions from one mesh to the same mesh.
-                    single_mesh_assign = True
-                else:
-                    # Assign (co)functions between a submesh and the parent or between two submeshes.
-                    single_mesh_assign = False
             else:
-                raise ValueError("All functions in the expression must be defined on a single domain")
-            if single_mesh_assign:
-                self._assign_single_mesh(lhs_func, subset, funcs, operator)
-            else:
-                self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
+                # Assign (co)functions between a submesh and the parent or between two submeshes.
+                single_mesh_assign = False
+        else:
+            raise ValueError("All functions in the expression must be defined on a single domain")
+        if single_mesh_assign:
+            self._assign_single_mesh(lhs_func, subset, funcs, operator)
+        else:
+            self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
 
     def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
         # disable for now
         assign_to_halos = False
         # assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
-        if assign_to_halos:
-            subset_indices = ... if subset is None else subset.indices
-            data_ro = operator.attrgetter("data_ro_with_halos")
-        else:
-            subset_indices = ... if subset is None else subset.owned_indices
-            data_ro = operator.attrgetter("data_ro")
-        func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+        # if assign_to_halos:
+        #     subset_indices = ... if subset is None else subset.indices
+        #     data_ro = operator.attrgetter("data_ro_with_halos")
+        # else:
+        #     subset_indices = ... if subset is None else subset.owned_indices
+        data_ro = operator.attrgetter("data_ro")
+        func_data = np.array([data_ro(f.dat)[subset] for f in funcs])
         rvalue = self._compute_rvalue(func_data)
-        self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
+        self._assign_single_dat(lhs_func.dat, subset, rvalue, assign_to_halos)
         if assign_to_halos:
             lhs_func.dat.halo_valid = True
 
@@ -355,7 +339,7 @@ class Assigner:
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat[subset]
+        lhs_dat = lhs[subset]
         if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
             if assign_to_halos:
                 lhs_dat.data_wo_with_halos = rvalue
