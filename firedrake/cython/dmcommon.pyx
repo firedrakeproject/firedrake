@@ -4338,7 +4338,7 @@ def get_dm_cell_types(PETSc.DM dm):
     )
 
 
-def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM:
+def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETSc.DM:
     cdef:
         PETSc.DM extruded_mesh
 
