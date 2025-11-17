@@ -416,15 +416,16 @@ class AbstractMeshTopology(abc.ABC):
                     new_to_old_point_numbering = dmcommon.compute_dm_renumbering(
                         self, new_to_old_rcm_cell_numbering_is
                     )
+                    # Now take this renumbering and partition owned and ghost points, this
+                    # is the part that pyop3 should ultimately be able to handle.
+                    # NOTE: probably shouldn't do this for a VoM
+                    new_to_old_point_numbering = dmcommon.partition_renumbering(
+                        self.topology_dm, new_to_old_point_numbering
+                    )
+
                 else:
-                    raise NotImplementedError("Reverse old-to-new etc")
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
-                    if not reorder:
-                        cell_ordering = np.arange(self.num_cells, dtype=IntType)
-                        # must use an inverse ordering because we want to know the map *back*
-                        # from renumbered to original cell number
-                        old_to_new_point_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
-                    else:
+                    if reorder:
                         swarm = self.topology_dm
                         parent = self._parent_mesh.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
@@ -434,17 +435,10 @@ class AbstractMeshTopology(abc.ABC):
                         swarm.restoreField(cell_id_name)
                         new_to_old_point_indices = \
                             np.argsort(old_to_new_parent_cell_indices, stable=True).astype(IntType)
-                        old_to_new_point_renumbering = (
+                        new_to_old_point_numbering = \
                             PETSc.IS().createGeneral(new_to_old_point_indices, comm=MPI.COMM_SELF)
-                            .invertPermutation()
-                        )
-
-            # Now take this renumbering and partition owned and ghost points, this
-            # is the part that pyop3 should ultimately be able to handle.
-            saved_new_to_old_point_numbering = new_to_old_point_numbering
-            new_to_old_point_numbering = dmcommon.partition_renumbering(
-                self.topology_dm, new_to_old_point_numbering
-            )
+                    else:
+                        raise NotImplementedError
 
             # TODO: replace "renumbering" with "numbering"
             self._new_to_old_point_renumbering = new_to_old_point_numbering
@@ -3375,23 +3369,20 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def _entity_indices(self):
         breakpoint()
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
         self.topology_dm.restoreField("parentcellnum")
-        # return cell_parent_cell_list[self.cell_closure[:, -1]]
-        return cell_parent_cell_list[utils.invert(self._cell_numbering)]
-        # return cell_parent_cell_list[op3.utils.invert(self._cell_numbering)]
+        return cell_parent_cell_list[self._old_to_new_cell_numbering_is.invertPermutation().indices]
 
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
-        breakpoint()
         dest_axis = self._parent_mesh.name
         dest_stratum = self._parent_mesh.cell_label
 
@@ -5000,33 +4991,12 @@ def _pic_swarm_in_mesh(
         remove_missing_points=False,
     )
     visible_idxs = parent_cell_nums_local != -1
-    # if parent_mesh.extruded:
-    if False:
-        raise NotImplementedError
-        # need to store the base parent cell number and the height to be able
-        # to map point coordinates back to the parent mesh
-        if parent_mesh.variable_layers:
-            raise NotImplementedError(
-                "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
-            )
-        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
-            parent_cell_nums_local, parent_mesh.layers
-        )
-        # mesh.topology.cell_closure[:, -1] maps Firedrake cell numbers to plex
-        # numbers.
-        # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-        #     base_parent_cell_nums, -1
-        # ]
-        plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
-        base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
-        extrusion_heights_visible = extrusion_heights[visible_idxs]
-    else:
-        # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-        #     parent_cell_nums_local, -1
-        # ]
-        plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
-        base_parent_cell_nums_visible = None
-        extrusion_heights_visible = None
+    # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+    #     parent_cell_nums_local, -1
+    # ]
+    plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
+    base_parent_cell_nums_visible = None
+    extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
 
     # Exclude the invisible points at this stage

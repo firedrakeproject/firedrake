@@ -1071,6 +1071,28 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
+    # Finally, add the target mesh reference coordinates if they appear in the kernel
+    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+        if target_mesh is not source_mesh:
+            # NOTE: TSFC will sometimes drop run-time arguments in generated
+            # kernels if they are deemed not-necessary.
+            # FIXME: Checking for argument name in the inner kernel to decide
+            # whether to add an extra coefficient is a stopgap until
+            # compile_expression_dual_evaluation
+            #   (a) outputs a coefficient map to indicate argument ordering in
+            #       parloops as `compile_form` does and
+            #   (b) allows the dual evaluation related coefficients to be supplied to
+            #       them rather than having to be added post-hoc (likely by
+            #       replacing `to_element` with a CoFunction/CoArgument as the
+            #       target `dual` which would contain `dual` related
+            #       coefficient(s))
+            if rt_var_name in [arg.name for arg in kernel.ast[kernel.name].args]:
+                # Add the coordinates of the target mesh quadrature points in the
+                # source mesh's reference cell as an extra argument for the inner
+                # loop. (With a vertex only mesh this is a single point for each
+                # vertex cell.)
+                coefficients.append(target_mesh.reference_coordinates)
+
     if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
@@ -1118,28 +1140,6 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
-
-    # Finally, add the target mesh reference coordinates if they appear in the kernel
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if target_mesh is not source_mesh:
-            # NOTE: TSFC will sometimes drop run-time arguments in generated
-            # kernels if they are deemed not-necessary.
-            # FIXME: Checking for argument name in the inner kernel to decide
-            # whether to add an extra coefficient is a stopgap until
-            # compile_expression_dual_evaluation
-            #   (a) outputs a coefficient map to indicate argument ordering in
-            #       parloops as `compile_form` does and
-            #   (b) allows the dual evaluation related coefficients to be supplied to
-            #       them rather than having to be added post-hoc (likely by
-            #       replacing `to_element` with a CoFunction/CoArgument as the
-            #       target `dual` which would contain `dual` related
-            #       coefficient(s))
-            if rt_var_name in [arg.name for arg in kernel.ast[kernel.name].args]:
-                # Add the coordinates of the target mesh quadrature points in the
-                # source mesh's reference cell as an extra argument for the inner
-                # loop. (With a vertex only mesh this is a single point for each
-                # vertex cell.)
-                coefficients.append(target_mesh.reference_coordinates)
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(

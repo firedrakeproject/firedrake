@@ -118,17 +118,14 @@ def compile_element(expression, coordinates, parameters=None):
 
     code = {
         "geometric_dimension": domain.geometric_dimension,
-        "layers_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if extruded else "",
-        "layers": ", layers" if extruded else "",
-        "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
     }
-    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map, int const f_offset" % code
-    code["map_args"] = "f->coords_map, f->f_map, f->f_offset"
+    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
+    code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 
@@ -146,14 +143,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     if (!result) {
         return 0;
     }
-#if %(extruded_define)s
-    %(IntType)s layers[2] = {0, 0};
-    %(IntType)s nlayers = f->n_layers;
-    layers[1] = cell %% nlayers + 2;
-    cell = cell / nlayers;
-#endif
 
-    wrap_evaluate(result, found_reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
+    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, %(map_args)s);
     return 0;
 }
 """

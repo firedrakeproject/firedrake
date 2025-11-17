@@ -12,7 +12,6 @@ import subprocess
                         "square",
                         "squarequads",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
@@ -29,8 +28,6 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
-    elif request.param == "extrudedvariablelayers":
-        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -52,9 +49,7 @@ def parentmesh(request):
         return m
 
 
-# UNDO ME
-# @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
-@pytest.fixture(params=[0, 1, 20], ids=lambda x: f"{x}-coords")
+@pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
 def vertexcoords(request, parentmesh):
     size = (request.param, parentmesh.geometric_dimension)
     return pseudo_random_coords(size)
@@ -149,7 +144,8 @@ def immersed_sphere_vertexcoords(mesh, vertexcoords_old):
         return vertexcoords_old
     else:
         # Get the coordinates of the vertices of the mesh
-        meshvertexcoords = allgather(mesh.comm, mesh.coordinates.dat.data_ro)
+        local_coords = mesh.coordinates.dat.data_ro.reshape((-1, mesh.geometric_dimension))
+        meshvertexcoords = allgather(mesh.comm, local_coords)
         return meshvertexcoords[0:len(vertexcoords_old)]
 
 
@@ -161,9 +157,6 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    # Reshaping because for all meshes, we want (-1, gdim) but
-    # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
-    # () and shape (1,).
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))

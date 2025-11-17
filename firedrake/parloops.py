@@ -401,7 +401,7 @@ def _(
         target_mesh = V.mesh()
 
     if V.mesh().topology != target_mesh.topology:
-        index = target_mesh.cell_parent_cell_map(index)
+        loop_index = target_mesh.cell_parent_cell_map(loop_index)
 
     mesh = V.mesh()
 

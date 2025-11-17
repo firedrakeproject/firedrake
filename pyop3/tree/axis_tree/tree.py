@@ -1817,6 +1817,9 @@ class UnitIndexedAxisTree(DistributedObject):
     is_linear = True
     is_empty = False
 
+    def as_axis(self) -> Axis:
+        return Axis(0)
+
     @property
     def regionless(self):
         return self

@@ -257,24 +257,28 @@ def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
 
 
 @_desugar_index.register(numbers.Integral)
-def _(int_: numbers.Integral, /, *, axes, path) -> Index:
+def _(num: numbers.Integral, /, *, axes, path) -> Index:
     if path is None:
-        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
+        raise RuntimeError("Cannot parse integers here due to ambiguity")
 
     try:
         axis = axes.node_map[path]
     except KeyError:
         raise InvalidIndexTargetException
 
-    if len(axis.components) > 1:  # match on component label
-        component = just_one(c for c in axis.components if c.label == int_)
+    # single-component axis - return a scalar index
+    if len(axis.components) == 1 and axis.component.label is None:
+        component = just_one(axis.components)
+        index = ScalarIndex(axis.label, component.label, num)
+
+    # match on component label
+    else:
+        component = just_one(c for c in axis.components if c.label == num)
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
             index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
-    else:  # single-component axis - return a scalar index
-        component = just_one(axis.components)
-        index = ScalarIndex(axis.label, component.label, int_)
+
     return index
 
 

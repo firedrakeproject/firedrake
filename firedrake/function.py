@@ -538,10 +538,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        # c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
-        c_function.f = self.dat.buffer.data_rw.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f_offset = op3.evaluate(self.dat.axes.subst_layouts()[idict({mesh.topology.name: mesh.cell_label})], {mesh.topology.name: 0})
         return c_function
 
     @property
