@@ -205,6 +205,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                                                  cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
                                                                  exterior_facets=(),
                                                                  interior_facets=(),
+                                                                 orientations_cell=(),
                                                                  orientations_exterior_facet=(),
                                                                  orientations_interior_facet=(),),
                        coefficient_numbers=coefficient_numbers,

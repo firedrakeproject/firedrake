@@ -177,8 +177,7 @@ def test_p_multigrid_scalar(mesh, mat_type, restrict):
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
 
     relax = {"ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
+             "ksp_convergence_test": "skip",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
@@ -188,20 +187,12 @@ def test_p_multigrid_scalar(mesh, mat_type, restrict):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_levels_transfer_mat_type": mat_type,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "mg",
-          "pmg_mg_coarse_pc_mg_type": "multiplicative",
           "pmg_mg_coarse_mg_levels": relax,
-          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
     problem = NonlinearVariationalProblem(F, u, bcs, restrict=restrict)
@@ -225,8 +216,6 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     F = inner((Constant(1.0) + u**2) * grad(u), grad(v))*dx - inner(f, v)*dx
 
     relax = {"ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
@@ -236,20 +225,12 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_levels_transfer_mat_type": mat_type,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "mg",
-          "pmg_mg_coarse_pc_mg_type": "multiplicative",
           "pmg_mg_coarse_mg_levels": relax,
-          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
     problem = NonlinearVariationalProblem(F, u, bcs)
@@ -295,14 +276,9 @@ def test_p_multigrid_vector():
           "pc_python_type": "firedrake.PMGPC",
           "pmg_pc_mg_type": "full",
           "pmg_mg_levels_ksp_type": "chebyshev",
-          "pmg_mg_levels_ksp_monitor_true_residual": None,
-          "pmg_mg_levels_ksp_norm_type": "unpreconditioned",
           "pmg_mg_levels_ksp_max_it": 2,
           "pmg_mg_levels_pc_type": "pbjacobi",
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "lu"}
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
@@ -328,16 +304,12 @@ def test_p_multigrid_mixed(mat_type):
 
     relax = {"transfer_mat_type": mat_type,
              "ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
+             "ksp_convergence_test": "skip",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
     coarse = {"mat_type": "aij",  # This circumvents the need for AssembledPC
-              "ksp_type": "richardson",
-              "ksp_max_it": 1,
-              "ksp_norm_type": "unpreconditioned",
-              "ksp_monitor": None,
+              "ksp_type": "preonly",
               "pc_type": "cholesky",
               "pc_factor_shift_type": "nonzero",
               "pc_factor_shift_amount": 1E-10}
@@ -350,7 +322,6 @@ def test_p_multigrid_mixed(mat_type):
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
           "mat_type": mat_type,
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
 
@@ -424,13 +395,10 @@ def test_p_fas_scalar():
     coarse = {
         "mat_type": "aij",
         "ksp_type": "preonly",
-        "ksp_norm_type": None,
         "pc_type": "cholesky"}
 
     relax = {
         "ksp_type": "chebyshev",
-        "ksp_monitor_true_residual": None,
-        "ksp_norm_type": "unpreconditioned",
         "pc_type": "jacobi"}
 
     pmg = {
@@ -512,12 +480,10 @@ def test_p_fas_nonlinear_scalar():
 
     coarse = {
         "ksp_type": "preonly",
-        "ksp_norm_type": None,
         "pc_type": "cholesky"}
 
     relax = {
         "ksp_type": "chebyshev",
-        "ksp_norm_type": "unpreconditioned",
         "ksp_chebyshev_esteig": "0.75,0.25,0,1",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
@@ -531,7 +497,6 @@ def test_p_fas_nonlinear_scalar():
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",
         "pc_python_type": "firedrake.PMGPC",
-        "pmg_pc_mg_type": "multiplicative",
         "pmg_mg_levels": relax,
         "pmg_mg_levels_transfer_mat_type": mat_type,
         "pmg_mg_coarse": coarse}

@@ -25,6 +25,7 @@ import ufl
 from pyop2 import op2, mpi
 from pyop3.utils import just_one, single_valued
 
+from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
 from pyop2.utils import as_tuple
 
@@ -68,6 +69,9 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
+    if isinstance(element.cell, CellSequence) and \
+       type(element) is not finat.ufl.MixedElement:
+        raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
@@ -1555,7 +1559,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.layout_axes, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -1932,7 +1936,7 @@ class MixedFunctionSpace:
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -2341,7 +2345,7 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         assert len(bcs) == 0
         return None
 

@@ -25,11 +25,13 @@ try:
 
     class Linear():
         """Linear layer: y = Wx + b"""
-        def __init__(self, n):
+        def __init__(self, n, m=None):
             # Randomly initialise weights and biases
+            if m is None:
+                m = n
             w_key, b_key = jax.random.split(key)
-            self.weight = jax.random.normal(w_key, (n, n))
-            self.bias = jax.random.normal(b_key, (n,))
+            self.weight = jax.random.normal(w_key, (n, m))
+            self.bias = jax.random.normal(b_key, (m,))
 
         def __call__(self, x):
             return jnp.dot(self.weight, x) + self.bias
@@ -245,3 +247,33 @@ def test_solve(mesh, V):
 
     err_point_expr = assemble((u-u2)**2*dx)/assemble(u**2*dx)
     assert err_point_expr < 1.0e-09
+
+
+@pytest.mark.skipcomplex  # jacrev requires real-valued outputs, but got complex128.
+@pytest.mark.skipjax  # Skip if JAX is not installed
+def test_mixed_space_bcs():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+
+    test = TestFunction(W)
+    bcs = [DirichletBC(W.sub(0), Constant(1), 1),
+           DirichletBC(W.sub(1), Constant(2), 1)]
+
+    model = Linear(W.dim(), V.dim())
+    I = jnp.eye(V.dim())
+    model.weight = jnp.concatenate([I, I], axis=1)
+    model.bias = jnp.zeros(V.dim())
+
+    p1 = ml_operator(model, function_space=V, inputs_format=1)
+    p2 = sum
+
+    results = []
+    for p in (p1, p2):
+        w = Function(W)
+        F = inner(w, test)*dx + inner(p(w), sum(test))*dx
+        solve(F == 0, w, bcs=bcs)
+        results.append(np.ravel(w.dat.data))
+
+    result, expected = results
+    assert np.allclose(result, expected)

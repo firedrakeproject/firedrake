@@ -11,7 +11,7 @@ from firedrake import (
     Function,
     Constant,
     assemble,
-    Interpolate,
+    interpolate,
     FiniteElement,
     interval,
     tetrahedron,
@@ -2350,7 +2350,7 @@ def OctahedralSphereMesh(
     )
     if degree > 1:
         # use it to build a higher-order mesh
-        m = assemble(Interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+        m = assemble(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
         m = mesh.Mesh(
             m,
             name=name,
@@ -2385,11 +2385,11 @@ def OctahedralSphereMesh(
     # Make a copy of the coordinates so that we can blend two different
     # mappings near the pole
     Vc = m.coordinates.function_space()
-    Xlatitudinal = assemble(Interpolate(
+    Xlatitudinal = assemble(interpolate(
         Constant(radius) * ufl.as_vector([x * scale, y * scale, znew]), Vc
     ))
     Vlow = VectorFunctionSpace(m, "CG", 1)
-    Xlow = assemble(Interpolate(Xlatitudinal, Vlow))
+    Xlow = assemble(interpolate(Xlatitudinal, Vlow))
     r = ufl.sqrt(Xlow[0] ** 2 + Xlow[1] ** 2 + Xlow[2] ** 2)
     Xradial = Constant(radius) * Xlow / r
 

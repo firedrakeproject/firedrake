@@ -606,3 +606,63 @@ def test_interpolator_reuse(family, degree, mode):
 
         # Test for correctness
         assert np.allclose(result.dat.data, expected)
+
+
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs[:-1]:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_interpolate_composition(mode):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    V5 = FunctionSpace(mesh, "CG", 5)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    if mode == "forward":
+        u5 = Function(V5).interpolate(sin(x + y))
+        u4 = interpolate(u5, V4)
+        u3 = interpolate(u4, V3)
+        u2 = interpolate(u3, V2)
+        u1 = interpolate(u2, V1)
+
+        assert u1.function_space() == V1
+
+        res = assemble(u1)
+        res2 = assemble(interpolate(sin(x + y), V1))
+        assert np.allclose(res.dat.data_ro, res2.dat.data_ro)
+
+    if mode == "adjoint":
+        u1 = conj(TestFunction(V1)) * dx
+        u2 = interpolate(TestFunction(V2), u1)
+        u3 = interpolate(TestFunction(V3), u2)
+        u4 = interpolate(TestFunction(V4), u3)
+        u5 = interpolate(TestFunction(V5), u4)
+
+        assert u5.function_space() == V5.dual()
+
+        res_adj = assemble(u5)
+        res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
+        assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)

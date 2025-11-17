@@ -350,7 +350,7 @@ def get_array(function):
     return array
 
 
-class VTKFile(object):
+class VTKFile:
     _header = (b'<?xml version="1.0" ?>\n'
                b'<VTKFile type="Collection" version="0.1" '
                b'byte_order="LittleEndian">\n'

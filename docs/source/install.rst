@@ -170,6 +170,17 @@ For the default build, running ``firedrake-configure`` with
 .. literalinclude:: petsc_configure_options.txt
    :language: text
 
+.. note::
+   If you install MPI through PETSc by passing ``--download-openmpi`` or
+   ``--download-mpich`` it is helpful to run the command::
+
+      $ export PATH=$PETSC_DIR/$PETSC_ARCH:$PATH
+
+
+   where ``PETSC_DIR=/path/to/petsc`` and ``PETSC_ARCH=arch-firedrake-default``.
+   This will allow the MPI executables (``mpicc``, ``mpiexec``, etc) installed by
+   PETSc to be found before any other versions installed on your machine.
+
 
 .. _install_firedrake:
 
@@ -223,6 +234,11 @@ install Firedrake. To do this perform the following steps:
       of the current working directory* (i.e. ``<cwd>/petsc``). If
       you have exactly followed the instructions up to this point this should
       already be the case.
+
+   .. note::
+      If you are using a non-system MPI it may be necessary to set ``LD_LIBRARY_PATH``
+      so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
+      for more information.
 
 #. Install Firedrake::
 
@@ -410,6 +426,20 @@ To install Firedrake with SLEPc support you should:
 
    $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
+VTK
+~~~
+
+To install Firedrake with VTK, it should be installed using the ``vtk`` optional
+dependency. For example::
+
+   $ pip install --no-binary h5py 'firedrake[check,vtk]'
+
+.. warning::
+
+   VTK make releases sporadically so will not always support the latest version
+   of Python. This is commonly an issue on macOS where homebrew will use the
+   latest Python very soon after it is released. To fix this you should use
+   an older version of Python (e.g. 3.13 instead of 3.14).
 
 PyTorch
 ~~~~~~~

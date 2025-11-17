@@ -24,7 +24,7 @@ def _ensemble_mpi_dispatch(func):
             return func(self, *args, **kwargs)
         else:
             mpicall = getattr(
-                self.ensemble_comm,
+                self._ensemble_comm,
                 func.__name__)
             return mpicall(*args, **kwargs)
     return _mpi_dispatch

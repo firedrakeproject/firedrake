@@ -1,10 +1,11 @@
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
+from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType, ScalarType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.parloops import pack_tensor, pack_pyop3_tensor
 from firedrake.ufl_expr import extract_domains
 from firedrake import utils
@@ -668,7 +669,7 @@ class PlaneSmoother(object):
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
             CGk = V.reconstruct(family="Lagrange")
-            coordinates = assemble(Interpolate(coordinates, CGk, access=op2.MAX))
+            coordinates = assemble(interpolate(coordinates, CGk, access=op2.MAX))
 
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
         entities = [(p, self.coords(dm, p, coordinates)) for p in
@@ -784,15 +785,24 @@ class PatchBase(PCSNESBase):
         if mesh.extruded:
             raise NotImplementedError("Not implemented on extruded meshes")
 
-        if "overlap_type" not in mesh_unique._distribution_parameters:
-            if mesh.comm.size > 1:
-                # Want to do
-                # warnings.warn("You almost surely want to set an overlap_type in your mesh's distribution_parameters.")
-                # but doesn't warn!
-                PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
+        # Validate the mesh overlap
+        prefix = (obj.getOptionsPrefix() or "") + "patch_"
+        opts = PETSc.Options(prefix)
+        petsc_prefix = self._petsc_prefix
+        patch_type = opts.getString(f"{petsc_prefix}construct_type")
+        patch_dim = opts.getInt(f"{petsc_prefix}construct_dim", -1)
+        patch_codim = opts.getInt(f"{petsc_prefix}construct_codim", -1)
+        if patch_dim != -1:
+            assert patch_codim == -1, "Cannot set both dim and codim"
+        elif patch_codim != -1:
+            assert patch_dim == -1, "Cannot set both dim and codim"
+            patch_dim = self.plex.getDimension() - patch_codim
+        else:
+            patch_dim = 0
+        validate_overlap(mesh_unique, patch_dim, patch_type)
 
         patch = obj.__class__().create(comm=mesh.comm)
-        patch.setOptionsPrefix((obj.getOptionsPrefix() or "") + "patch_")
+        patch.setOptionsPrefix(prefix)
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
@@ -950,6 +960,8 @@ class PatchBase(PCSNESBase):
 
 class PatchPC(PCBase, PatchBase):
 
+    _petsc_prefix = "pc_patch_"
+
     def configure_patch(self, patch, pc):
         (A, P) = pc.getOperators()
         patch.setOperators(A, P)
@@ -962,6 +974,9 @@ class PatchPC(PCBase, PatchBase):
 
 
 class PatchSNES(SNESBase, PatchBase):
+
+    _petsc_prefix = "snes_patch_"
+
     def configure_patch(self, patch, snes):
         patch.setTolerances(max_it=1)
         patch.setConvergenceTest("skip")

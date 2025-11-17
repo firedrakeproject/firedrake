@@ -86,22 +86,22 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 
 def test_mismatching_rank_interpolation(V):
     f = Function(V)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
     VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VVV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
 
 
 def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant([1] * (VV.value_shape[0] + 1)))
 
 
@@ -280,3 +280,53 @@ def test_function_riesz_representation_l2_dat_version(V):
     version = f.dat.dat_version
     _ = f.riesz_representation(riesz_map="l2")
     assert f.dat.dat_version == version
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_function_assign_mixed_subset_3_quads_2_processes():
+    # mesh
+    # rank 0:
+    # 4---12----6---15---(8)-(18)-(10)
+    # |         |         |         |
+    # 11   0   13    1  (17)  (2) (19)
+    # |         |         |         |
+    # 3---14----5---16---(7)-(20)--(9)
+    # rank 1:
+    #          (7)-(13)---3----9----5
+    #           |         |         |
+    #          (12) (1)   8    0   10
+    #           |         |         |    plex points
+    #          (6)-(14)---2---11----4    () = ghost
+    left = 111
+    right = 222
+    mesh = RectangleMesh(
+        3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
+    )
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    f_l = Function(DG0).interpolate(conditional(x < 1.0, 1, 0))
+    f_r = Function(DG0).interpolate(conditional(x > 2.0, 1, 0))
+    mesh = RelabeledMesh(mesh, [f_l, f_r], [left, right])
+    x = SpatialCoordinate(mesh)
+    CG1 = VectorFunctionSpace(mesh, "CG", 1)
+    CG3 = VectorFunctionSpace(mesh, "CG", 3)
+    V = CG1 * CG3
+    cg1cg3 = Function(V)
+    cg1, cg3 = cg1cg3.subfunctions
+    cg1.interpolate(x)
+    cg3.interpolate(x)
+    # Include closure of the right-most cell.
+    subset_cg1_indices = np.where(cg1.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset_cg3_indices = np.where(cg3.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset_cg1 = op2.Subset(CG1.node_set, subset_cg1_indices)
+    subset_cg3 = op2.Subset(CG3.node_set, subset_cg3_indices)
+    subset = op2.MixedSet([subset_cg1, subset_cg3])
+    f = Function(V)
+    c = Constant(7.)
+    f.assign(c)
+    f.assign(cg1cg3, subset=subset)
+    xx = as_vector([x[0], x[1], x[0], x[1]])
+    e = sqrt(assemble(inner(f, f) * dx(left)))
+    assert abs(e - 14.) < 1.e-14
+    e = sqrt(assemble(inner(f - xx, f - xx) * dx(right)))
+    assert abs(e) < 1.e-15

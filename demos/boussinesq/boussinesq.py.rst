@@ -184,8 +184,8 @@ implements a boundary condition that fixes a field at a single point. ::
 
            # Take the basis function with the largest abs value at bc_point
            v = TestFunction(V)
-           F = assemble(Interpolate(inner(v, v), Fvom))
-           with F.vec as Fvec:
+           F = assemble(interpolate(inner(v, v), Fvom))
+           with F.vec_ro as Fvec:
                max_index, _ = Fvec.max()
            nodes = V.dof_dset.lgmap.applyInverse([max_index])
            nodes = nodes[nodes >= 0]

@@ -1,7 +1,7 @@
 from functools import partial
 from mpi4py import MPI
 import pyop3 as op3
-from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
+from finat.ufl import BrokenElement, RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.function import Function
 from firedrake.parloops import pack_tensor
 from firedrake.petsc import PETSc
@@ -211,7 +211,9 @@ def restrict(ele, restriction_domain):
     if isinstance(ele, VectorElement):
         return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
     elif isinstance(ele, TensorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmetry)
+    elif restriction_domain == "broken":
+        return BrokenElement(ele)
     else:
         return RestrictedElement(ele, restriction_domain)
 
@@ -244,7 +246,7 @@ def restricted_dofs(celem, felem):
     cdofs = celem.entity_dofs()
     fdofs = felem.entity_dofs()
     for dim in sorted(cdofs):
-        for entity in cdofs[dim]:
+        for entity in sorted(cdofs[dim]):
             ndofs = len(cdofs[dim][entity])
             indices[cdofs[dim][entity]] = fdofs[dim][entity][:ndofs]
     return indices

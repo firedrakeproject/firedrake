@@ -61,7 +61,7 @@ def run_gtmg_mixed_poisson(custom_transfer=False):
     if custom_transfer:
         P1 = get_p1_space()
         V = FunctionSpace(mesh, "DGT", degree - 1)
-        I = assemble(Interpolate(TrialFunction(P1), V)).petscmat
+        I = assemble(interpolate(TrialFunction(P1), V)).petscmat
         R = PETSc.Mat().createTranspose(I)
         appctx['interpolation_matrix'] = I
         appctx['restriction_matrix'] = R

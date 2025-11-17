@@ -170,10 +170,10 @@ def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched
     if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = jnp.array(x.dat.global_data, **kwargs)
+            x_P = jnp.array(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = jnp.array(x.dat.data_ro, **kwargs)
+            x_P = jnp.array(np.ravel(x.dat.data_ro), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to JAX
             return x_P[None, :]

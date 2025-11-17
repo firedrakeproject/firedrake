@@ -377,11 +377,20 @@ class ImplicitMatrixContext(object):
         row_ises = self._y.function_space()._ises
         col_ises = self._x.function_space()._ises
 
-        row_inds = find_sub_block(row_is, row_ises, comm=self.comm)
-        if row_is == col_is and row_ises == col_ises:
-            col_inds = row_inds
-        else:
-            col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
+        try:
+            row_inds = find_sub_block(row_is, row_ises, comm=self.comm)
+            if row_is == col_is and row_ises == col_ises:
+                col_inds = row_inds
+            else:
+                col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
+        except LookupError:
+            # Attemping to extract a submatrix that does not match with a subfield.
+            # Use default PETSc implementation (MatCreateSubMatrixVirtual) via MATSHELL instead.
+            popmethod = self.createSubMatrix
+            self.createSubMatrix = None
+            submat = mat.createSubMatrix(row_is, col_is)
+            self.createSubMatrix = popmethod
+            return submat
 
         splitter = ExtractSubBlock()
         asub = splitter.split(self.a,
