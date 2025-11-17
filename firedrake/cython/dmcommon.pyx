@@ -4344,6 +4344,7 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
 
         PetscBool tensor_c = PETSC_TRUE
         PetscBool symmetric_c = PETSC_FALSE
+        PetscBool periodic_c = periodic
         PetscReal *normal_c = NULL
         PetscReal *thicknesses_c = NULL
         DMLabel active_label_c = NULL
@@ -4367,7 +4368,7 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, periodic: bool) -> PETSc.DM
         thickness,
         tensor_c,
         symmetric_c,
-        periodic,
+        periodic_c,
         normal_c,
         thicknesses_c,
         active_label_c,
