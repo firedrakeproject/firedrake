@@ -20,7 +20,6 @@ from pyop2.caching import serial_cache
 from pyop3 import READ, WRITE, RW, INC
 from pyop3.expr.visitors import evaluate as eval_expr
 from pyop3.utils import readonly
-from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 

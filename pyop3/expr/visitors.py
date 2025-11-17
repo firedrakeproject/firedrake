@@ -14,7 +14,6 @@ from pyop2.caching import scoped_cache
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
@@ -244,54 +243,6 @@ def _(op: op3_expr.Conditional, /, loop_context):
 @restrict_to_context.register(op3_expr.Tensor)
 def _(array: op3_expr.Tensor, /, loop_context):
     return array.with_context(loop_context)
-
-
-@functools.singledispatch
-def _relabel_axes(obj: Any, suffix: str) -> AbstractAxisTree:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@_relabel_axes.register(AxisTree)
-def _(axes: AxisTree, suffix: str) -> AxisTree:
-    relabelled_node_map = _relabel_node_map(axes.node_map, suffix)
-    return AxisTree(relabelled_node_map)
-
-
-@_relabel_axes.register(IndexedAxisTree)
-def _(axes: IndexedAxisTree, suffix: str) -> IndexedAxisTree:
-    relabelled_node_map = _relabel_node_map(axes.node_map, suffix)
-
-    # I think that I can leave unindexed the same here and just tweak the target expressions
-    relabelled_targetss = tuple(
-        _relabel_targets(targets, suffix)
-        for targets in axes.targets
-    )
-    return IndexedAxisTree(relabelled_node_map, unindexed=axes.unindexed, targets=relabelled_targetss)
-
-
-def _relabel_node_map(node_map: Mapping, suffix: str) -> PMap:
-    relabelled_node_map = {}
-    for parent, children in node_map.items():
-        relabelled_children = []
-        for child in children:
-            if child:
-                relabelled_child = child.copy(label=child.label+suffix)
-                relabelled_children.append(relabelled_child)
-            else:
-                relabelled_children.append(None)
-        relabelled_node_map[parent] = tuple(relabelled_children)
-    return pmap(relabelled_node_map)
-
-
-# NOTE: This only relabels the expressions. The target path is unchanged because I think that that is fine here
-def _relabel_targets(targets: Mapping, suffix: str) -> PMap:
-    relabelled_targets = {}
-    for axis_key, (path, exprs) in targets.items():
-        relabelled_exprs = {
-            axis_label: relabel(expr, suffix) for axis_label, expr in exprs.items()
-        }
-        relabelled_targets[axis_key] = (path, relabelled_exprs)
-    return pmap(relabelled_targets)
 
 
 def replace_terminals(obj: Any, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:

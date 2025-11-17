@@ -13,7 +13,6 @@ from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
-from pyrsistent import pmap
 import pyop3 as op3
 
 from firedrake import utils

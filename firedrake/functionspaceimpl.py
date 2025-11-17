@@ -135,7 +135,6 @@ class WithGeometryBase:
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
-        self.extruded = mesh.extruded
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):

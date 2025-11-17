@@ -21,7 +21,6 @@ import pytools
 from cachetools import cachedmethod
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import PMap, pmap
 
 from pyop3 import utils
 from pyop3.tree.axis_tree import AxisTree
@@ -357,10 +356,6 @@ class Loop(Instruction):
     def comm(self):
         # maybe collect the comm by looking at everything?
         return self.index.iterset.comm
-
-    @cached_property
-    def datamap(self) -> PMap:
-        return self.index.datamap | merge_dicts(s.datamap for s in self.statements)
 
     @cached_property
     def function_arguments(self) -> tuple:

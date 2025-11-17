@@ -1,7 +1,6 @@
 import numpy as np
 import pymbolic as pym
 import pytest
-from pyrsistent import freeze, pmap
 
 import pyop3 as op3
 from pyop3.axtree import merge_trees

@@ -12,7 +12,6 @@ from itertools import product
 from functools import cached_property
 
 import cachetools
-from pyrsistent import freeze, pmap
 import finat
 import loopy as lp
 import firedrake
