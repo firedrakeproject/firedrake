@@ -318,6 +318,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
         target_mesh = target_mesh.unique()
         source_mesh = source_mesh.unique()
     except ValueError:
+        # intercept MeshSequence
         return MixedInterpolator(expr)
 
     submesh_interp_implemented = (
@@ -621,7 +622,8 @@ class SameMeshInterpolator(Interpolator):
         return f
 
     def _get_callable(self, tensor=None, bcs=None):
-        if tensor and isinstance(self.dual_arg, Cofunction) and self.dual_arg.dat == tensor.dat:
+        if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)
+                and set(tensor.dat).intersection(self.dual_arg.dat)):
             f = self._get_tensor()
             copyout = (partial(f.dat.copy, tensor.dat),)
         else:
