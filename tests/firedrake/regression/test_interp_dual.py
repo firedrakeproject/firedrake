@@ -34,13 +34,6 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
-def test_interp_self(V1):
-    a = assemble(conj(TestFunction(V1)) * dx)
-    b = assemble(conj(TestFunction(V1)) * dx)
-    a.interpolate(a)
-    assert np.allclose(a.dat.data_ro, b.dat.data_ro)
-
-
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
     a = assemble(conj(TestFunction(V1)) * dx)
     assemble(interpolate(f1 * TestFunction(V1), a), tensor=a)
@@ -362,7 +355,11 @@ def test_interp_dual_self(target_space):
     tensor = rg.uniform(W.dual())
     expected = Function(tensor)
 
-    result = assemble(interpolate(w, tensor), tensor=tensor)
+    expr = 2 * w
+    for x in expected.subfunctions:
+        x.dat.data[...] *= 2
+
+    result = assemble(interpolate(expr, tensor), tensor=tensor)
     assert result is tensor
     for x, y, in zip(result.subfunctions, expected.subfunctions):
         assert np.allclose(x.dat.data_ro, y.dat.data_ro)
