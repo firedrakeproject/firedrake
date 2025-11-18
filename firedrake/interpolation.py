@@ -622,12 +622,11 @@ class SameMeshInterpolator(Interpolator):
         return f
 
     def _get_callable(self, tensor=None, bcs=None):
-        f = tensor or self._get_tensor()
-        dual_arg, _ = self.ufl_interpolate.argument_slots()
-        if tensor and isinstance(dual_arg, Cofunction) and dual_arg.dat == tensor.dat:
+        if tensor and isinstance(self.dual_arg, Cofunction) and self.dual_arg.dat == tensor.dat:
             f = self._get_tensor()
             copyout = (partial(f.dat.copy, tensor.dat),)
         else:
+            f = tensor or self._get_tensor()
             copyout = ()
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
 
