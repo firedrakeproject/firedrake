@@ -10,10 +10,11 @@ import dataclasses
 import functools
 import numbers
 import warnings
+import operator
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, reduce
 from immutabledict import immutabledict as idict
 from typing import Optional
 from mpi4py import MPI
@@ -1305,7 +1306,7 @@ class FunctionSpace:
         """Return a map from cells to cell closures."""
         return self.mesh()._fiat_closure(cell)
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+    def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
 
         Parameters
@@ -1325,32 +1326,47 @@ class FunctionSpace:
             Entity node map.
 
         """
-        if source_mesh is self.mesh():
-            target_integral_type = source_integral_type
+        if iteration_spec.mesh is self.mesh():
+            target_integral_type = iteration_spec.integral_type
         else:
-            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
         if target_integral_type == "cell":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet_top":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet_bottom":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "interior_facet_horiz":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet":
-            self_map = self.exterior_facet_node_map()
+            def self_map(index):
+                return self.mesh().closure(self.mesh().support(index))
         elif target_integral_type == "exterior_facet_vert":
+            raise NotImplementedError
             self_map = self.exterior_facet_node_map()
         elif target_integral_type == "interior_facet":
+            raise NotImplementedError
             self_map = self.interior_facet_node_map()
         elif target_integral_type == "interior_facet_vert":
+            raise NotImplementedError
             self_map = self.interior_facet_node_map()
         else:
             raise ValueError(f"Unknown integral_type: {target_integral_type}")
-        if source_mesh is self.mesh():
-            return self_map
+
+        # this check is somewhat unnecessary if composed_map is somehow nulled
+        if iteration_spec.mesh is self.mesh():
+            return self_map(iteration_spec.loop_index)
         else:
-            return op2.ComposedMap(self_map, composed_map)
+            # poor man's reduce
+            # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
+            map_ = iteration_spec.loop_index
+            for map2 in composed_map:
+                map_ = map2(map_)
+            return self_map(map_)
 
     # def cell_node_map(self):
     #     r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -1893,29 +1909,6 @@ class MixedFunctionSpace:
             start += size
         return tuple(ises)
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-        r"""Return entity node map rebased on ``source_mesh``.
-
-        Parameters
-        ----------
-        source_mesh : MeshTopology
-            Source (base) mesh topology.
-        source_integral_type : str
-            Integral type on source_mesh.
-        source_subdomain_id : int
-            Subdomain ID on source_mesh.
-        source_all_integer_subdomain_ids : dict
-            All integer subdomain ids on source_mesh.
-
-        Returns
-        -------
-        pyop2.types.map.MixedMap
-            Entity node map.
-
-        """
-        return op2.MixedMap(s.entity_node_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
-                            for s in self._spaces)
-
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
         underlying mesh to the :attr:`node_set` of this
@@ -2314,39 +2307,39 @@ class RealFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    def set_shared_data(self):
-        pass
+    # def set_shared_data(self):
+    #     pass
 
-    def make_dof_dset(self):
-        raise NotImplementedError
-        return op2.GlobalDataSet(self.make_dat())
+    # def make_dof_dset(self):
+    #     raise NotImplementedError
+    #     return op2.GlobalDataSet(self.make_dat())
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-        return None
-
-    def cell_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no cell node map."
-        return None
-
-    def interior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no interior facet node map."
-        return None
-
-    def exterior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no exterior facet node map."
-        return None
-
-    def bottom_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def top_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-        assert len(bcs) == 0
-        return None
+    # def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+    #     return None
+    #
+    # def cell_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no cell node map."
+    #     return None
+    #
+    # def interior_facet_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no interior facet node map."
+    #     return None
+    #
+    # def exterior_facet_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no exterior facet node map."
+    #     return None
+    #
+    # def bottom_nodes(self):
+    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
+    #     return None
+    #
+    # def top_nodes(self):
+    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
+    #     return None
+    #
+    # def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    #     assert len(bcs) == 0
+    #     return None
 
 
 @dataclass

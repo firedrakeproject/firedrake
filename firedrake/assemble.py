@@ -30,7 +30,7 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.parloops import pack_pyop3_tensor, pack_tensor
 from firedrake.petsc import PETSc
-from firedrake.mesh import iteration_set
+from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -1501,34 +1501,49 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         )
 
         if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
-            n = len(test.function_space())
-            if n == 1:
-                # if vector function space revert to standard case
-                diag_blocks = [(Ellipsis, Ellipsis)]
-            else:
-                # otherwise treat each block separately
-                diag_blocks = [(i, i) for i in range(n)]
+            for subspace in test.function_space():
+                i = subspace.index
+                op3.loop(
+                    p := subspace.mesh().points.iter(),
+                    sparsity[i, i][p, p].assign(666),
+                    eager=True,
+                )
         else:
-            diag_blocks = [(Ellipsis, Ellipsis)]
-
-        for rindex, cindex in diag_blocks:
-            op3.do_loop(
-                p := test.ufl_domain().points.index(),
-                sparsity[rindex, cindex][p, p].assign(666)
+            op3.loop(
+                p := test.function_space().mesh().points.iter(),
+                sparsity[p, p].assign(666),
+                eager=True,
             )
+        # if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
+        #     n = len(test.function_space())
+        #     if n == 1:
+        #         # if vector function space revert to standard case
+        #         diag_blocks = [(Ellipsis, Ellipsis)]
+        #     else:
+        #         # otherwise treat each block separately
+        #         diag_blocks = [(i, i) for i in range(n)]
+        # else:
+        #     diag_blocks = [(Ellipsis, Ellipsis)]
+        #
+        # for rindex, cindex in diag_blocks:
+        #     op3.do_loop(
+        #         p := test.ufl_domain().points.index(),
+        #         sparsity[rindex, cindex][p, p].assign(666)
+        #     )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for iter_index, rmap, cmap, indices in maps_and_regions:
+        for iter_index, row_map, column_map, indices in maps_and_regions:
             rindex, cindex = indices
             if rindex is None:
                 rindex = Ellipsis
             if cindex is None:
                 cindex = Ellipsis
 
-            op3.do_loop(
+            op3.loop(
                 iter_index,
-                sparsity[rindex, cindex][rmap, cmap].assign(666)
+                sparsity[rindex, cindex][row_map, column_map].assign(666),
+                eager=True,
             )
 
         sparsity.assemble()
@@ -1562,36 +1577,42 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for assembler in self._all_assemblers:
                 all_meshes = extract_domains(assembler._form)
                 for local_kernel, subdomain_id in assembler.local_kernels:
+                    i, j = local_kernel.indices
                     integral_type = local_kernel.kinfo.integral_type
 
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
 
-                    Vrow = test.function_space()
-                    Vcol = trial.function_space()
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
+                    # Make Sparsity independent of the subdomain of integration for better reusability;
+                    # subdomain_id is passed here only to determine the integration_type on the target domain
+                    # (see ``entity_node_map``).
+                    iter_spec = get_iteration_spec(mesh, integral_type, subdomain_id)
+                    rmap = test.function_space().topological[i].entity_node_map(iter_spec)
+                    cmap = trial.function_space().topological[j].entity_node_map(iter_spec)
 
-                    rindex, cindex = local_kernel.indices
-                    if rindex is not None:
-                        Vrow = Vrow[rindex]
-                    if cindex is not None:
-                        Vcol = Vcol[cindex]
+                    # Vrow = test.function_space()
+                    # Vcol = trial.function_space()
+                    #
+                    # rindex, cindex = local_kernel.indices
+                    # if rindex is not None:
+                    #     Vrow = Vrow[rindex]
+                    # if cindex is not None:
+                    #     Vcol = Vcol[cindex]
 
-                    iterset = iteration_set(mesh, integral_type, "everywhere")
-                    index = iterset.index()
 
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    # TODO: account for subdomain_id for submeshes
-                    if integral_type == "cell":
-                        rmap = mesh.closure(index)
-                        cmap = rmap
-                    else:
-                        assert "facet" in integral_type
-                        rmap = mesh.closure(mesh.support(index))
-                        cmap = rmap
+                    # if integral_type == "cell":
+                    #     rmap = mesh.closure(index)
+                    #     cmap = rmap
+                    # else:
+                    #     assert "facet" in integral_type
+                    #     rmap = mesh.closure(mesh.support(index))
+                    #     cmap = rmap
 
-                    loop = (index, rmap, cmap, local_kernel.indices)
+                    loop = (iter_spec.loop_index, rmap, cmap, local_kernel.indices)
                     loops.append(loop)
             return tuple(loops)
 
@@ -1612,17 +1633,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
                     mesh = Vrow.mesh()
-                    iterset = iteration_set(mesh, integral_type, "everywhere")
-                    index = iterset.index()
-                    if integral_type == "cell":
-                        rmap = mesh.closure(index)
-                        cmap = rmap
-                    else:
-                        assert "facet" in integral_type
-                        rmap = mesh.closure(mesh.support(index))
-                        cmap = rmap
+                    # NOTE: This means that we are always looping over the 'row mesh' - is this
+                    # always the right thing to do?
+                    iterset = get_iteration_spec(mesh, integral_type, "everywhere")
+                    index = iterset.iter()
 
-                    loop = (index, rmap, cmap, (i, j))
+                    rmap = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    cmap = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
+
+                    # if integral_type == "cell":
+                    #     # rmap = mesh.closure(index)
+                    # else:
+                    #     assert "facet" in integral_type
+                    #     rmap = mesh.closure(mesh.support(index))
+                    #     cmap = rmap
+
+                    loop = (index, rmap(index), cmap(index), (i, j))
                     loops.append(loop)
         return tuple(loops)
 
@@ -1870,7 +1896,7 @@ class ParloopBuilder:
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        p = self._iterset.index()
+        p = self._iterset.loop_index
         packed_args = []
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
@@ -2022,11 +2048,11 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return iteration_set(
+            return get_iteration_spec(
                 self._topology,
                 self._integral_type,
                 self._subdomain_id,
-                self._all_integer_subdomain_ids
+                all_integer_subdomain_ids=self._all_integer_subdomain_ids,
             )
 
     @functools.singledispatchmethod
@@ -2048,10 +2074,10 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(dat, V, index, self._integral_type)
+            return pack_pyop3_tensor(dat, V, self._iterset)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type)
+            return pack_pyop3_tensor(mat, *Vs, self._iterset)
         else:
             raise AssertionError
 
@@ -2062,16 +2088,16 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
+        return pack_tensor(self._mesh.coordinates, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        return pack_tensor(coeff, index, self._integral_type)
+        return pack_tensor(coeff, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
-        return pack_tensor(self._mesh.cell_orientations(), index, self._integral_type)
+        return pack_tensor(self._mesh.cell_orientations(), self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):

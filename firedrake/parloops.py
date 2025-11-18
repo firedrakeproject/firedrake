@@ -28,7 +28,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
 from firedrake.matrix import Matrix
-from firedrake.mesh import iteration_set
+from firedrake.mesh import IterationSpec, get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
@@ -65,7 +65,7 @@ over degrees of freedom."""
 
 
 def indirect_measure(mesh, measure):
-    return iteration_set(mesh, measure.integral_type(), measure.subdomain_id())
+    return get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
 
 
 _maps = {
@@ -346,23 +346,21 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
 
 
 @functools.singledispatch
-def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str, **kwargs):
+def pack_tensor(tensor: Any, iter_spec: IterationSpec, **kwargs):
     raise TypeError(f"No handler defined for {type(tensor).__name__}")
 
 
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None, nodes=False):
-    return pack_pyop3_tensor(
-        func.dat, func.function_space(), index, integral_type, target_mesh=target_mesh
-    )
+def _(func, iter_spec: IterationSpec, *, nodes=False):
+    return pack_pyop3_tensor(func.dat, func.function_space(), iter_spec)
 
 
 @pack_tensor.register
-def _(matrix: Matrix, index: op3.LoopIndex, integral_type: str):
+def _(matrix: Matrix, iter_spec):
     return pack_pyop3_tensor(
-        matrix.M, *matrix.ufl_function_spaces(), index, integral_type
+        matrix.M, *matrix.ufl_function_spaces(), iter_spec
     )
 
 
@@ -376,11 +374,9 @@ def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
 @pack_pyop3_tensor.register(op3.Dat)
 def _(
     dat: op3.Dat,
-    V: WithGeometry,
-    loop_index: op3.LoopIndex,
-    integral_type: str,
+    space: WithGeometry,
+    iter_spec: IterationSpec,
     *,
-    target_mesh=None,
     nodes: bool = False,
 ):
     """
@@ -396,15 +392,13 @@ def _(
     We use the terminology of 'local' and 'global' representations of the packed data.
 
     """
-    if target_mesh is None:
-        target_mesh = V.mesh()
+    if space.mesh().topology != iter_spec.mesh.topology:
+        breakpoint()
+        loop_index = iter_spec.mesh.cell_parent_cell_map(iter_spec.loop_index)
 
-    if V.mesh().topology != target_mesh.topology:
-        loop_index = target_mesh.cell_parent_cell_map(loop_index)
+    mesh = space.mesh()
 
-    mesh = V.mesh()
-
-    if len(V) > 1:
+    if len(space) > 1:
         # do a loop
         raise NotImplementedError
         # This is tricky. Consider the case where you have a mixed space with hexes and
@@ -421,91 +415,106 @@ def _(
         # down. We can then combine everything at the top-level
 
     if not nodes:
-        if integral_type == "cell":
-            cell = loop_index
-            packed_dat = dat[mesh.closure(cell)]
-            depth = 0
-        else:
-            assert "facet" in integral_type
-            facet = loop_index
-            cell = mesh.support(facet)
-            packed_dat = dat[mesh.closure(cell)]
-            depth = 1
+        map_ = space.entity_node_map(iter_spec)
+        cell_index = map_.index
+        packed_dat = dat[map_]
+        # bit of a hack, find the depth of the axis labelled 'closure', this relies
+        # on the fact that the tree is always linear at the top
+        depth = [axis.label for axis in packed_dat.axes.axes].index("closure")
     else:
-        if integral_type == "cell":
-            cell = loop_index
-            packed_dat = dat[V.cell_node_map(cell)]
-            depth = 0
-        else:
-            assert "facet" in integral_type
-            raise NotImplementedError
-            facet = loop_index
-            cell = mesh.support(facet)
-            packed_dat = dat[mesh.closure(cell)]
-            depth = 1
+        raise NotImplementedError
+    #     if iter_spec.integral_type == "cell":
+    #         cell = iter_spec.loop_index
+    #         packed_dat = dat[mesh.closure(cell)]
+    #         depth = 0
+    #     else:
+    #         assert "facet" in integral_type
+    #         facet = loop_index
+    #         cell = mesh.support(facet)
+    #         packed_dat = dat[mesh.closure(cell)]
+    #         depth = 1
+    # else:
+    #     if integral_type == "cell":
+    #         cell = loop_index
+    #         packed_dat = dat[V.cell_node_map(cell)]
+    #         depth = 0
+    #     else:
+    #         assert "facet" in integral_type
+    #         raise NotImplementedError
+    #         facet = loop_index
+    #         cell = mesh.support(facet)
+    #         packed_dat = dat[mesh.closure(cell)]
+    #         depth = 1
 
-    return transform_packed_cell_closure_dat(packed_dat, V, cell, depth=depth, nodes=nodes)
+    return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, nodes=nodes)
 
 
 @pack_pyop3_tensor.register(op3.Mat)
 def _(
     mat: op3.Mat,
-    Vrow: WithGeometry,
-    Vcol: WithGeometry,
-    index: op3.LoopIndex,
-    integral_type: str,
+    row_space: WithGeometry,
+    column_space: WithGeometry,
+    iter_spec: IterationSpec,
     *,
-    target_mesh=None,
     nodes: bool = False,
 ):
     if mat.buffer.mat_type == "python":
         mat_context = mat.buffer.mat.getPythonContext()
         if isinstance(mat_context, op3.RowDatPythonMatContext):
-            space = Vrow
+            space = row_space
         else:
             assert isinstance(mat_context, op3.ColumnDatPythonMatContext)
-            space = Vcol
+            space = column_space
         dat = mat_context.dat
-        return pack_pyop3_tensor(dat, space, index, integral_type, nodes=nodes)
+        return pack_pyop3_tensor(dat, space, iter_spec, nodes=nodes)
 
-    if Vrow.mesh() is not Vcol.mesh():
-        raise NotImplementedError("Think we need to have different loop indices for row+col")
-
-    if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {Vrow, Vcol}):
+    if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {row_space, column_space}):
         raise NotImplementedError
 
-    if target_mesh and Vrow.mesh().topology != target_mesh.topology:
-        rindex = Vrow.mesh().cell_parent_cell_map(index)
-    else:
-        rindex = index
-    if target_mesh and Vcol.mesh().topology != target_mesh.topology:
-        cindex = Vrow.mesh().cell_parent_cell_map(index)
-    else:
-        cindex = index
+    # vom case
+    # if row_space.mesh().topology != iter_spec.mesh.topology:
+    if row_space.mesh().submesh_youngest_common_ancester(iter_spec.mesh) is None:
+        breakpoint()
+        # rindex = Vrow.mesh().cell_parent_cell_map(index)
+    # else:
+    #     rindex = index
+    # if column_space.mesh().topology != iter_spec.mesh.topology:
+    if column_space.mesh().submesh_youngest_common_ancester(iter_spec.mesh) is None:
+        breakpoint()
+        # cindex = Vcol.mesh().cell_parent_cell_map(index)
+    # else:
+    #     cindex = index
 
-    if not nodes:
-        if integral_type == "cell":
-            rcell = rindex
-            ccell = cindex
-            depth = 0
-        else:
-            assert "facet" in integral_type
-            rfacet = rindex
-            cfacet = cindex
-            rcell = Vrow.mesh().support(rfacet)
-            ccell = Vcol.mesh().support(cfacet)
-            depth = 1
-        packed_mat = mat[Vrow.mesh().closure(rcell), Vcol.mesh().closure(ccell)]
-    else:
-        if integral_type == "cell":
-            rcell = rindex
-            ccell = cindex
-            depth = 0
-            packed_mat = mat[Vrow.cell_node_map(rcell), Vcol.cell_node_map(ccell)]
-        else:
-            raise NotImplementedError
+    # if not nodes:
+    #     if integral_type == "cell":
+    #         rcell = rindex
+    #         ccell = cindex
+    #         depth = 0
+    #     else:
+    #         assert "facet" in integral_type
+    #         rfacet = rindex
+    #         cfacet = cindex
+    #         rcell = Vrow.mesh().support(rfacet)
+    #         ccell = Vcol.mesh().support(cfacet)
+    #         depth = 1
+    #     packed_mat = mat[Vrow.mesh().closure(rcell), Vcol.mesh().closure(ccell)]
+    # else:
+    #     if integral_type == "cell":
+    #         rcell = rindex
+    #         ccell = cindex
+    #         depth = 0
+    #         packed_mat = mat[Vrow.cell_node_map(rcell), Vcol.cell_node_map(ccell)]
+    #     else:
+    #         raise NotImplementedError
+    row_map = row_space.entity_node_map(iter_spec)
+    column_map = column_space.entity_node_map(iter_spec)
 
-    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, rcell, ccell, row_depth=depth, column_depth=depth, nodes=nodes)
+    packed_mat = mat[row_map, column_map]
+
+    row_depth = [axis.label for axis in packed_mat.row_axes.axes].index("closure")
+    column_depth = [axis.label for axis in packed_mat.column_axes.axes].index("closure")
+
+    return transform_packed_cell_closure_mat(packed_mat, row_space, column_space, row_map.index, column_map.index, row_depth=row_depth, column_depth=column_depth, nodes=nodes)
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):

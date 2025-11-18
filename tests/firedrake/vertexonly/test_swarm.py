@@ -309,7 +309,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert nptsglobal == swarm.getSize()
 
     # Check the parent cell indexes match those in the parent mesh
-    cell_indexes = parentmesh.cell_closure[:, -1]
+    cell_indexes = parentmesh._new_to_old_cell_numbering
     for index in localparentcellindices:
         assert np.any(index == cell_indexes)
 

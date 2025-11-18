@@ -4278,8 +4278,8 @@ def submesh_create_cell_closure(
                 raise RuntimeError(f"Num. support = {nsupport} (<= 0) for parent facet {c}")
             # Assume single cell type mesh and pick arbitrary side.
             c = support[0]
-        CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        # CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
+        # CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         get_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
@@ -4287,10 +4287,12 @@ def submesh_create_cell_closure(
             subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
         subcl = 0
         for cl in range(nclosure):
-            p = cell_closure[cell, cl]
+            # p = cell_closure[cell, cl]
+            p = cell_closure[c, cl]
             subp = subpoint_indices_inv[p]
             if subp >= 0:
-                subcell_closure[subcell, subcl] = subp
+                # subcell_closure[subcell, subcl] = subp
+                subcell_closure[subc-subcStart, subcl] = subp
                 subcl += 1
         if subcl != nsubclosure:
             raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")

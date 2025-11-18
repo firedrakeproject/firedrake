@@ -827,8 +827,6 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         assignee_ = assignee[iforest]
 
         if assignee_.size > 0:
-            # debugging
-            # assignee_.assign(expr, eager=True, compiler_parameters={"optimize": True})
             assignee_.assign(expr, eager=True)
         else:
             to_skip.add(leaf_path)

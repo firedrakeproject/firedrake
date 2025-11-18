@@ -14,6 +14,7 @@ from pyop2.mpi import MPI
 from pyop3.utils import (  # noqa: F401
     OrderedSet,
     readonly,
+    pairwise,
     steps,
     just_one,
     single_valued,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import numpy as np
 import collections
 import ctypes
@@ -593,7 +594,6 @@ class AbstractMeshTopology(abc.ABC):
         cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
         return dmcommon.section_offsets(self._old_to_new_cell_numbering, cell_indices)
 
-    # TODO: return an IS
     @cached_property
     def _new_to_old_cell_numbering(self) -> np.ndarray:
         cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
@@ -1322,10 +1322,40 @@ class AbstractMeshTopology(abc.ABC):
 
         """
         plex_closures = self._plex_closures[self.dimension]
-        if self.ufl_cell().is_simplex:
+
+        if (
+            self.submesh_parent is not None
+            and not (
+                self.submesh_parent.ufl_cell().cellname == "hexahedron"
+                and self.ufl_cell().cellname == "quadrilateral"
+            )
+            and len(self.submesh_parent.dm_cell_types) == 1
+        ):
+            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
+            # inherit cell_closure from the hex mesh as the cell_closure
+            # must follow the special orientation restriction. This means
+            # that, when the quad submesh works with the parent hex mesh,
+            # quadrature points must be permuted (i.e. use the canonical
+            # quadrature point ordering based on the cone ordering).
+            topology = FIAT.ufc_cell(self.ufl_cell()).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+            return dmcommon.submesh_create_cell_closure(
+                self.topology_dm,
+                self.submesh_parent.topology_dm,
+                self._old_to_new_cell_numbering,
+                self.submesh_parent._old_to_new_cell_numbering,
+                self.submesh_parent._fiat_cell_closures,
+                entity_per_cell,
+            )
+
+        elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
+
         elif self.ufl_cell() == ufl.quadrilateral:
             return self._reorder_closure_fiat_quad(plex_closures)
+
         else:
             assert self.ufl_cell() == ufl.hexahedron
             return self._reorder_closure_fiat_hex(plex_closures)
@@ -1454,7 +1484,6 @@ class AbstractMeshTopology(abc.ABC):
             Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
 
         """
-        raise NotImplementedError
         common = self.submesh_youngest_common_ancester(other)
         if common is None:
             raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
@@ -1469,7 +1498,8 @@ class AbstractMeshTopology(abc.ABC):
         for b in reversed(bb[:bb.index(common)]):
             m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
             maps.append(m)
-        return op2.ComposedMap(*reversed(maps)), integral_type, subset_points
+
+        return tuple(reversed(maps)), integral_type, subset_points
 
     # trans mesh
 
@@ -1703,114 +1733,6 @@ class MeshTopology(AbstractMeshTopology):
     def dm_cell_types(self):
         """All DM.PolytopeTypes of cells in the mesh."""
         return dmcommon.get_dm_cell_types(self.topology_dm)
-
-    def subdomain_subset(self, subdomain_ids) -> op3.Slice:
-        """
-        The union is taken
-        """
-        raise NotImplementedError
-        if subdomain_ids == "on_boundary":
-            label = "exterior_facets"
-            subdomain_ids = (1,)
-
-        plex = self.topology_dm
-        tdim = plex.getDimension()
-
-        # Cell numbering and global vertex numbering
-        cell_numbering = self._cell_numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
-
-        cell = self.ufl_cell()
-        assert tdim == cell.topological_dimension
-        if self.submesh_parent is not None and \
-                not (self.submesh_parent.ufl_cell().cellname == "hexahedron" and cell.cellname == "quadrilateral") and \
-                len(self.submesh_parent.dm_cell_types) == 1:
-            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
-            # inherit cell_closure from the hex mesh as the cell_closure
-            # must follow the special orientation restriction. This means
-            # that, when the quad submesh works with the parent hex mesh,
-            # quadrature points must be permuted (i.e. use the canonical
-            # quadrature point ordering based on the cone ordering).
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-            return dmcommon.submesh_create_cell_closure(
-                plex,
-                self.submesh_parent.topology_dm,
-                cell_numbering,
-                self.submesh_parent._cell_numbering,
-                self.submesh_parent.cell_closure,
-                entity_per_cell,
-            )
-        elif cell.is_simplex:
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-
-            return dmcommon.closure_ordering(plex, vertex_numbering,
-                                             cell_numbering, entity_per_cell)
-
-        elif cell.cellname == "quadrilateral":
-            petsctools.cite("Homolya2016")
-            petsctools.cite("McRae2016")
-            # Quadrilateral mesh
-            cell_ranks = dmcommon.get_cell_remote_ranks(plex)
-
-            facet_orientations = dmcommon.quadrilateral_facet_orientations(
-                plex, vertex_numbering, cell_ranks)
-
-            cell_orientations = dmcommon.orientations_facet2cell(
-                plex, vertex_numbering, cell_ranks,
-                facet_orientations, cell_numbering)
-
-            dmcommon.exchange_cell_orientations(plex,
-                                                cell_numbering,
-                                                cell_orientations)
-
-            return dmcommon.quadrilateral_closure_ordering(
-                plex, vertex_numbering, cell_numbering, cell_orientations)
-        elif cell.cellname == "hexahedron":
-            # TODO: Should change and use create_cell_closure() for all cell types.
-            topology = FIAT.ufc_cell(cell).get_topology()
-            closureSize = sum([len(ents) for _, ents in topology.items()])
-            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
-        else:
-            label = dmcommon.FACE_SETS_LABEL
-
-        if isinstance(subdomain_ids, numbers.Integral):
-            subdomain_ids = (subdomain_ids,)
-
-        # if not dm.hasLabel(label):
-        #     raise RuntimeError(f"Label {label} does not exist")
-            # return tuple(np.empty(0, dtype=IntType) for _ in range(self.dimension+1))
-
-        points = np.sort(
-            np.unique(
-                np.concatenate([
-                    self.topology_dm.getStratumIS(label, subdomain_id).indices
-                    for subdomain_id in subdomain_ids
-                ])
-            )
-        )
-
-        # split by dimension
-        point_offsets = np.searchsorted(points, self.strata_offsets)
-        points_split = []
-        for dim in range(self.dimension+1):
-            p_start, p_end = self.topology_dm.getDepthStratum(dim)
-            start, stop = np.searchsorted(points, [p_start, p_end])
-            points_split.append(points[start:stop])
-
-        # now renumber
-        points_renum = tuple(
-            self._plex_to_entity_numbering(dim)[pts - self.strata_offsets[dim]]
-            for dim, pts in enumerate(points_split)
-        )
-
-        # this is a tuple of arrays, not a subset
-        return points_renum
 
     @cached_property
     def strata_offsets(self) -> tuple[int, ...]:
@@ -2118,89 +2040,101 @@ class MeshTopology(AbstractMeshTopology):
     # submesh
 
     def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, child_parent_map):
-        raise NotImplementedError
-        assert from_set.total_size == len(from_points)
-        assert to_set.total_size == len(to_points)
+        assert from_set.local_size == len(from_points)
+        assert to_set.local_size == len(to_points)
         with self.topology_dm.getSubpointIS() as subpoints:
             if child_parent_map:
                 _, from_indices, to_indices = np.intersect1d(subpoints[from_points], to_points, return_indices=True)
             else:
                 _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
-        values = np.full(from_set.total_size, -1, dtype=IntType)
+        values = np.full(from_set.local_size, -1, dtype=IntType)
         values[from_indices] = to_indices
-        return op2.Map(from_set, to_set, 1, values.reshape((-1, 1)), f"{self}_submesh_map_{from_set}_{to_set}")
+        map_name = f"{self}_submesh_map_{from_set}_{to_set}"
+        to_label = to_set.as_axis().component.label
+        map_axes = op3.AxisTree.from_iterable([
+            from_set.as_axis(), op3.Axis(1, map_name)
+        ])
+        map_dat = op3.Dat(map_axes, data=values)
+        return op3.Map(
+            {
+                from_set.leaf_path: [[
+                    op3.TabulatedMapComponent(to_set.as_axis().label, to_label, map_dat, label=to_label),
+                ]],
+            },
+            name=map_name,
+        )
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_cell_map(self):
-        return self._submesh_make_entity_entity_map(self.cell_set, self.submesh_parent.cell_set, self.cell_closure[:, -1], self.submesh_parent.cell_closure[:, -1], True)
+        return self._submesh_make_entity_entity_map(self.cells, self.submesh_parent.cells, self._new_to_old_cell_numbering, self.submesh_parent._new_to_old_cell_numbering, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_exterior_facet_parent_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_interior_facet_parent_exterior_facet_map(self):
         raise RuntimeError("Should never happen")
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_interior_facet_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_exterior_facet_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_cell_child_cell_map(self):
-        return self._submesh_make_entity_entity_map(self.submesh_parent.cell_set, self.cell_set, self.submesh_parent.cell_closure[:, -1], self.cell_closure[:, -1], False)
+        return self._submesh_make_entity_entity_map(self.submesh_parent.cells, self.cells, self.submesh_parent._new_to_old_cell_numbering, self._new_to_old_cell_numbering, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_interior_facet_map(self):
         raise RuntimeError("Should never happen")
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_cell_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_cell_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.
@@ -2249,8 +2183,9 @@ class MeshTopology(AbstractMeshTopology):
                 raise NotImplementedError("Unsupported combination")
         else:
             raise NotImplementedError("Unsupported combination")
+
         if target_integral_type_temp == "cell":
-            _cell_numbers = target.cell_closure[:, -1]
+            _cell_numbers = target._new_to_old_cell_numbering
             with self.topology_dm.getSubpointIS() as subpoints:
                 if reverse:
                     _, target_indices_cell, source_indices_cell = np.intersect1d(subpoints[_cell_numbers], source_subset_points, return_indices=True)
@@ -2309,7 +2244,7 @@ class MeshTopology(AbstractMeshTopology):
 
     # trans mesh
 
-    def trans_mesh_entity_map(self, base_mesh, base_integral_type, base_subdomain_id, base_all_integer_subdomain_ids):
+    def trans_mesh_entity_map(self, iter_spec):
         """Create entity-entity (composed) map from base_mesh to `self`.
 
         Parameters
@@ -2329,17 +2264,25 @@ class MeshTopology(AbstractMeshTopology):
             `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
 
         """
+        base_mesh = iter_spec.mesh
+        base_integral_type = iter_spec.integral_type
+
+        if base_indices_is := iter_spec.indices:
+            base_indices = base_indices_is.indices
+        else:
+            base_indices = Ellipsis
+
         common = self.submesh_youngest_common_ancester(base_mesh)
         if common is None:
             raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
         elif base_mesh is self:
-            raise NotImplementedError("Currenlty can not return identity map")
+            raise NotImplementedError("Currently cannot return identity map")
         else:
             if base_integral_type == "cell":
-                base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
-                base_subset_points = base_mesh.cell_closure[:, -1][base_subset.indices]
+                base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
             elif base_integral_type in ["interior_facet", "exterior_facet"]:
-                base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
+                raise NotImplementedError
+                # base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
                 if base_integral_type == "interior_facet":
                     _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
                     base_subset_points = _interior_facet_numbers[base_subset.indices]
@@ -3407,7 +3350,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
         cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum").ravel())
         self.topology_dm.restoreField("parentcellbasenum")
-        return cell_parent_base_cell_list[self.cell_closure[:, -1]]
+        return cell_parent_base_cell_list[self._new_to_old_cell_numbering]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
@@ -3429,7 +3372,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight").ravel())
         self.topology_dm.restoreField("parentcellextrusionheight")
-        return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
+        return cell_parent_extrusion_height_list[self._new_to_old_cell_numbering]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
@@ -6069,15 +6012,36 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     return submesh
 
 
-MeshT = MeshGeometry | AbstractMeshTopology
+@dataclasses.dataclass(frozen=True)
+class IterationSpec:
+    mesh: MeshGeometry
+    integral_type: str
+    iterset: op3.IndexedAxisTree
+    indices: PETSc.IS | None
+
+    @cached_property
+    def loop_index(self) -> op3.LoopIndex:
+        return self.iterset[self.subset].iter()
+
+    @cached_property
+    def subset(self) -> op3.Slice | Ellipsis:
+        if self.indices is None:
+            return Ellipsis
+        else:
+            iterset_axis = self.iterset.as_axis()
+            # TODO: Ideally should be able to avoid creating these here and just index
+            # with the array
+            subset_dat = op3.Dat.from_array(self.indices.indices)
+            return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
 
 
-def iteration_set(
-    mesh: MeshT,
+def get_iteration_spec(
+    mesh: MeshGeometry,
     integral_type: str,
-    subdomain_id: int | tuple[int, ...] | Literal["everywhere"] | Literal["otherwise"],
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere"] | Literal["otherwise"] = "everywhere",
+    *,
     all_integer_subdomain_ids: Iterable[int] | None = None,
-) -> op3.IndexedAxisTree:
+) -> IterationSpec:
     """Return an iteration set appropriate for the requested integral type.
 
     :arg integral_type: The type of the integral (should be a valid UFL measure).
@@ -6132,7 +6096,7 @@ def iteration_set(
             raise AssertionError(f"Integral type {integral_type} not recognised")
 
     if subdomain_id == "everywhere":
-        pass
+        localized_indices = None
     else:
         if subdomain_id == "otherwise":
             subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
@@ -6174,14 +6138,7 @@ def iteration_set(
         # Remove ghost points
         localized_indices = dmcommon.filter_is(localized_indices, 0, iterset.local_size)
 
-        iterset_axis = iterset.as_axis()
-        # TODO: Ideally should be able to avoid creating these here and just index
-        # with the array
-        subset_dat = op3.Dat.from_array(localized_indices.indices)
-        subset = op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
-        iterset = iterset[subset]
-
-    return iterset
+    return IterationSpec(mesh, integral_type, iterset, localized_indices)
 
 
 # NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think

@@ -1,12 +1,27 @@
 import os
 import pytest
 import numpy as np
+from firedrake import utils
 from firedrake import *
 from firedrake.cython import dmcommon
 from petsc4py import PETSc
 
 
 cwd = os.path.abspath(os.path.dirname(__file__))
+
+
+def get_sparsity(petscmat, *nest_indices):
+    subpetscmat = petscmat.getNestSubMatrix(*nest_indices)
+    row_ptrs, _ = subpetscmat.getRowIJ()
+    row_sizes = np.full(len(row_ptrs)-1, -1, dtype=int)
+    for row_index, (row_start, row_end) in enumerate(utils.pairwise(row_ptrs)):
+        row_sizes[row_index] = row_end - row_start
+    return row_sizes
+
+
+def get_values(petscmat, *nest_indices):
+    subpetscmat = petscmat.getNestSubMatrix(*nest_indices)
+    return subpetscmat[:, :]
 
 
 def test_submesh_assemble_cell_cell_integral_cell():
@@ -28,16 +43,18 @@ def test_submesh_assemble_cell_cell_integral_cell():
     dx1 = Measure("dx", domain=subm, intersect_measures=(Measure("dx", mesh),))
     a = inner(u1, v0) * dx0(999) + inner(u0, v1) * dx1
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0])
-    assert np.allclose(A.M.sparsity[1][0].nnz, [4, 4, 4, 4])
-    assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
+
+    assert np.allclose(get_sparsity(A.petscmat, 0, 0), [1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A.petscmat, 0, 1), [4, 4, 4, 4, 0, 0])
+    assert np.allclose(get_sparsity(A.petscmat, 1, 0), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A.petscmat, 1, 1), [1, 1, 1, 1])  # bc nodes
+
     M10 = np.array([[1./9. , 1./18., 1./36., 1./18., 0., 0.],   # noqa: E203
                     [1./18., 1./9. , 1./18., 1./36., 0., 0.],   # noqa: E203
                     [1./36., 1./18., 1./9. , 1./18., 0., 0.],   # noqa: E203
                     [1./18., 1./36., 1./18., 1./9. , 0., 0.]])  # noqa: E203
-    assert np.allclose(A.M[0][1].values, np.transpose(M10))
-    assert np.allclose(A.M[1][0].values, M10)
+    assert np.allclose(get_values(A.petscmat, 0, 1), np.transpose(M10))
+    assert np.allclose(get_values(A.petscmat, 1, 0), M10)
 
 
 def test_submesh_assemble_cell_cell_integral_facet():

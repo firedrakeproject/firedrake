@@ -30,7 +30,7 @@ import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.parloops import pack_tensor, pack_pyop3_tensor, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.cofunction import Cofunction
 from mpi4py import MPI
@@ -1017,7 +1017,8 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
                 cell = source_mesh.ufl_cell()
             to_element = rebuild(to_element, cell, rt_var_name)
 
-    cell_set = target_mesh.topology.cells.owned
+    iter_spec = get_iteration_spec(target_mesh, "cell")
+
     if not (subset is None or subset is Ellipsis):
         raise NotImplementedError
         assert subset.superset == cell_set
@@ -1044,7 +1045,7 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
         weight = firedrake.Function(W)
         op3.loop(
-            c := cell_set.iter(),
+            c := iter_spec.loop_index,
             weight.dat[target_mesh.closure(c)].iassign(1),
             eager=True,
         )
@@ -1064,7 +1065,6 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
     kernel = compile_expression(target_mesh._comm, expr, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters)
 
-    cell_index = cell_set.index()
     local_kernel_args = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
@@ -1102,11 +1102,11 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
     if not arguments:
         V_dest = firedrake.FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, cell_index, "cell", target_mesh=target_mesh)
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1125,26 +1125,24 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
 
-        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, cell_index, "cell", target_mesh=target_mesh)
+        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, iter_spec)
         local_kernel_args.append(packed_tensor)
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        local_kernel_args.append(pack_tensor(co, cell_index, "cell", target_mesh=target_mesh))
+        local_kernel_args.append(pack_tensor(co, iter_spec))
     if kernel.needs_cell_sizes:
         cs = source_mesh.cell_sizes
-        local_kernel_args.append(pack_tensor(cs, cell_index, "cell", target_mesh=target_mesh))
+        local_kernel_args.append(pack_tensor(cs, iter_spec))
 
     for coefficient in coefficients:
-        packed_coeff = pack_tensor(coefficient, cell_index, "cell", target_mesh=target_mesh)
+        packed_coeff = pack_tensor(coefficient, iter_spec)
         local_kernel_args.append(packed_coeff)
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
-    parloop = op3.loop(
-        cell_index,expression_kernel(*local_kernel_args),
-    )
+    parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
     def parloop_callable():
         parloop(compiler_parameters={"optimize": True})
 
@@ -1152,42 +1150,6 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
         return parloop_callable, tensor.assemble
     else:
         return copyin + (parloop_callable, ) + copyout
-
-
-def get_interp_node_map(source_mesh, target_mesh, fs):
-    """Return the map between cells of the target mesh and nodes of the function space.
-
-    If the function space is defined on the source mesh then the node map is composed
-    with a map between target and source cells.
-    """
-    assert False, "old code"
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        coeff_mesh = fs.mesh()
-        m_ = fs.cell_node_map()
-        if coeff_mesh is target_mesh or not coeff_mesh:
-            # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
-            # a Real space
-            pass
-        elif coeff_mesh is source_mesh:
-            if m_:
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    m_ = vom_cell_parent_node_map_extruded(target_mesh, m_)
-                else:
-                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, m_)
-            else:
-                # m_ is allowed to be None when interpolating from a Real space,
-                # even in the trans-mesh case.
-                pass
-        else:
-            raise ValueError("Have coefficient with unexpected mesh")
-    else:
-        m_ = fs.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
-    return m_
 
 
 try:

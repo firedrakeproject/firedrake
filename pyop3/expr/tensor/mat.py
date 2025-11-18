@@ -518,7 +518,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
                 blocked_column_axes = column_axes
 
             row_lgmap = LGMap(blocked_row_axes.global_numbering.data_ro_with_halos, row_axes, row_block_shape)
-            column_lgmap = LGMap(blocked_column_axes.global_numbering.data_ro_with_halos, row_axes, column_block_shape)
+            column_lgmap = LGMap(blocked_column_axes.global_numbering.data_ro_with_halos, column_axes, column_block_shape)
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
