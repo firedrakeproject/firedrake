@@ -352,3 +352,17 @@ def test_interp_dual_mixed(source_space, target_space):
             assert result is tensor
         for x, y, in zip(result.subfunctions, expected.subfunctions):
             assert np.allclose(x.dat.data_ro, y.dat.data_ro)
+
+
+def test_interp_dual_self(target_space):
+    W = target_space
+    w = TestFunction(W)
+
+    rg = RandomGenerator(PCG64(seed=123456))
+    tensor = rg.uniform(W.dual())
+    expected = Function(tensor)
+
+    result = assemble(interpolate(w, tensor), tensor=tensor)
+    assert result is tensor
+    for x, y, in zip(result.subfunctions, expected.subfunctions):
+        assert np.allclose(x.dat.data_ro, y.dat.data_ro)

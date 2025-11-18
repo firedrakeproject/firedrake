@@ -312,11 +312,15 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
 
     operand, = expr.ufl_operands
     target_mesh = expr.target_space.mesh()
-    try:
-        target_mesh = target_mesh.unique()
-    except ValueError:
-        pass
     source_mesh = extract_unique_domain(operand) or target_mesh
+
+    has_mesh_sequence = any(len(m) > 1 for m in [target_mesh, source_mesh])
+    if has_mesh_sequence:
+        return MixedInterpolator(expr)
+    else:
+        target_mesh = target_mesh.unique()
+        source_mesh = source_mesh.unique()
+
     submesh_interp_implemented = (
         all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
         and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
@@ -619,6 +623,12 @@ class SameMeshInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None):
         f = tensor or self._get_tensor()
+        dual_arg, _ = self.ufl_interpolate.argument_slots()
+        if tensor and isinstance(dual_arg, Cofunction) and dual_arg.dat == tensor.dat:
+            f = self._get_tensor()
+            copyout = (partial(f.dat.copy, tensor.dat),)
+        else:
+            copyout = ()
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
 
         loops = []
@@ -651,6 +661,8 @@ class SameMeshInterpolator(Interpolator):
 
         if bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
+
+        loops.extend(copyout)
 
         def callable() -> Function | Cofunction | PETSc.Mat | Number:
             for l in loops:
