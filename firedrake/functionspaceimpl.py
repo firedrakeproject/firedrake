@@ -1326,7 +1326,8 @@ class FunctionSpace:
             Entity node map.
 
         """
-        if iteration_spec.mesh is self.mesh():
+        mesh = self.mesh()
+        if iteration_spec.mesh is mesh:
             target_integral_type = iteration_spec.integral_type
         else:
             composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
@@ -1346,11 +1347,11 @@ class FunctionSpace:
             def self_map(index):
                 return self.mesh().closure(self.mesh().support(index))
         elif target_integral_type == "exterior_facet_vert":
-            raise NotImplementedError
-            self_map = self.exterior_facet_node_map()
+            def self_map(index):
+                return mesh.closure(mesh.support(index))
         elif target_integral_type == "interior_facet":
-            raise NotImplementedError
-            self_map = self.interior_facet_node_map()
+            def self_map(index):
+                return mesh.closure(mesh.support(index))
         elif target_integral_type == "interior_facet_vert":
             raise NotImplementedError
             self_map = self.interior_facet_node_map()

@@ -432,10 +432,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         # Add return arg
         funarg = self.generate_arg_from_expression(self.return_variables)
         args = [kernel_args.OutputKernelArg(funarg)]
-        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers({d: self.coefficient_map[c] for d, c in self.domain_coordinate.items()},
+        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers({d: (self.coefficient_map[c],kernel_args.CoordinatesKernelArg) for d, c in self.domain_coordinate.items()},
                                                                                    active_variables,
-                                                                                   kernel_args.CoordinatesKernelArg)
+                                                                                   )
         args.extend(args_)
+        breakpoint()  # FIXME
         active_domain_numbers_cell_orientations, args_ = self.make_active_domain_numbers(self._cell_orientations,
                                                                                          active_variables,
                                                                                          kernel_args.CellOrientationsKernelArg,
@@ -466,15 +467,15 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         ext_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
-        if info.integral_type == "exterior_facet":
-            kernel_arg_type = kernel_args.ExteriorFacetKernelArg
-        else:
-            kernel_arg_type = kernel_args.ExteriorFacetVertKernelArg
+            if integral_type == "exterior_facet":
+                ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetKernelArg)
+            elif integral_type == "exterior_facet_vert":
+                ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetVertKernelArg)
+            else:
+                ext_dict[domain] = None
         active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_arg_type,
             dtype=numpy.uint32,
         )
         args.extend(args_)
@@ -482,48 +483,45 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         int_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert"] else None
-        if info.integral_type == "interior_facet":
-            kernel_arg_type = kernel_args.InteriorFacetKernelArg
-        else:
-            kernel_arg_type = kernel_args.InteriorFacetVertKernelArg
+            if integral_type == "interior_facet":
+                int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetKernelArg)
+            elif integral_type == "interior_facet_vert":
+                int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetVertKernelArg)
+            else:
+                int_dict[domain] = None
         active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_arg_type,
             dtype=numpy.uint32,
         )
         args.extend(args_)
         cell_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            cell_dict[domain] = expr[None].expression if integral_type == "cell" else None
+            cell_dict[domain] = (expr[None].expression, kernel_args.OrientationsCellKernelArg) if integral_type == "cell" else None
         active_domain_numbers_orientations_cell, args_ = self.make_active_domain_numbers(
             cell_dict,
             active_variables,
-            kernel_args.OrientationsCellKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+            ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetOrientationKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
         active_domain_numbers_orientations_exterior_facet, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_args.ExteriorFacetOrientationKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
         int_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
+            int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetOrientationKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
         active_domain_numbers_orientations_interior_facet, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_args.InteriorFacetOrientationKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
@@ -563,7 +561,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         return None
 
-    def make_active_domain_numbers(self, domain_expr_dict, active_variables, kernel_arg_type, dtype=None):
+    def make_active_domain_numbers(self, domain_expr_dict, active_variables, dtype=None):
         """Make active domain numbers.
 
         Parameters
@@ -585,7 +583,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         active_dns = []
         args = []
-        for i, expr in enumerate(domain_expr_dict.values()):
+        for i, (expr, kernel_arg_type) in enumerate(domain_expr_dict.values()):
             if expr is None:
                 var = None
             else:

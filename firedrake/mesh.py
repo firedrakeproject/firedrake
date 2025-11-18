@@ -571,20 +571,6 @@ class AbstractMeshTopology(abc.ABC):
     def points(self):
         return self.flat_points[self._strata_slice]
 
-    # @abc.abstractmethod
-    # def _mark_entity_classes(self):
-    #     """Mark entities with pyop2 classes."""
-    #     pass
-    #
-    # @abc.abstractmethod
-    # def _renumber_entities(self, reorder):
-    #     """Renumber entities."""
-    #     pass
-
-    # @cached_property
-    # def _vertex_numbering(self):
-    #     return self._entity_numbering(0)
-
     @cached_property
     def _old_to_new_cell_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(self.dimension)
@@ -599,6 +585,28 @@ class AbstractMeshTopology(abc.ABC):
         cell_indices = PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF)
         renumbering_is = dmcommon.section_offsets(self._old_to_new_cell_numbering, cell_indices)
         return renumbering_is.invertPermutation().indices
+
+    @cached_property
+    def _new_to_old_interior_facet_numbering_is(self) -> PETSc.IS:
+        old_to_new_numbering_is = dmcommon.section_offsets(
+            self._old_to_new_interior_facet_numbering, self._interior_facet_plex_indices
+        )
+        return old_to_new_numbering_is.invertPermutation()
+
+    @property
+    def _new_to_old_interior_facet_numbering(self) -> np.ndarray[IntType]:
+        return self._new_to_old_interior_facet_numbering_is.indices
+
+    @cached_property
+    def _new_to_old_exterior_facet_numbering_is(self) -> PETSc.IS:
+        old_to_new_numbering_is = dmcommon.section_offsets(
+            self._old_to_new_exterior_facet_numbering, self._exterior_facet_plex_indices
+        )
+        return old_to_new_numbering_is.invertPermutation()
+
+    @property
+    def _new_to_old_exterior_facet_numbering(self) -> np.ndarray[IntType]:
+        return self._new_to_old_exterior_facet_numbering_is.indices
 
     @cached_property
     def _old_to_new_facet_numbering(self) -> PETSc.Section:
@@ -1831,6 +1839,29 @@ class MeshTopology(AbstractMeshTopology):
         f_start, _ = self.topology_dm.getDepthStratum(self.dimension-1)
         return utils.readonly(indices_plex - f_start)
 
+    # def _facet_numbers_classes_set(self, kind):
+    #     if kind not in ["interior", "exterior"]:
+    #         raise ValueError("Unknown facet type '%s'" % kind)
+    #     # Can not call target.{interior, exterior}_facets.facets
+    #     # if target is a mixed cell mesh (cell_closure etc. can not be defined),
+    #     # so directly call dmcommon.get_facets_by_class.
+    #     _numbers, _classes = dmcommon.get_facets_by_class(self.topology_dm, (kind + "_facets"), self._facet_ordering)
+    #     _classes = as_tuple(_classes, int, 3)
+    #     _set = op2.Set(_classes, f"{kind.capitalize()[:3]}Facets", comm=self.comm)
+    #     return _numbers, _classes, _set
+
+    # @cached_property
+    # def _exterior_facet_numbers_classes_set(self):
+    #     return self._facet_numbers_classes_set("exterior")
+    #
+    # @cached_property
+    # def _interior_facet_numbers_classes_set(self):
+    #     return self._facet_numbers_classes_set("interior")
+    #
+    # @cached_property
+    # def _facet_ordering(self):
+    #     return dmcommon.get_facet_ordering(self.topology_dm, self._old_to_new_facet_numbering)
+
     @cached_property
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
@@ -2076,9 +2107,9 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
-        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
+        # _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        # _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.exterior_facets, self.submesh_parent.interior_facets, self._exterior_facet_plex_indices.indices, self.submesh_parent._interior_facet_plex_indices.indices, True)
 
     @cached_property
     def submesh_child_interior_facet_parent_exterior_facet_map(self):
@@ -2116,9 +2147,9 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
-        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+        # _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
+        # _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets, self.exterior_facets, self.submesh_parent._interior_facet_plex_indices.indices, self._exterior_facet_plex_indices.indices, False)
 
     @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
@@ -2201,8 +2232,8 @@ class MeshTopology(AbstractMeshTopology):
             if reverse:
                 target_subset_points = _cell_numbers[target_indices_cell]
         elif target_integral_type_temp == "facet":
-            _exterior_facet_numbers, _, _ = target._exterior_facet_numbers_classes_set
-            _interior_facet_numbers, _, _ = target._interior_facet_numbers_classes_set
+            _exterior_facet_numbers = target._exterior_facet_plex_indices.indices
+            _interior_facet_numbers = target._interior_facet_plex_indices.indices
             with self.topology_dm.getSubpointIS() as subpoints:
                 if reverse:
                     _, target_indices_int, source_indices_int = np.intersect1d(subpoints[_interior_facet_numbers], source_subset_points, return_indices=True)
@@ -2281,14 +2312,17 @@ class MeshTopology(AbstractMeshTopology):
             if base_integral_type == "cell":
                 base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
             elif base_integral_type in ["interior_facet", "exterior_facet"]:
-                raise NotImplementedError
-                # base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
                 if base_integral_type == "interior_facet":
-                    _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
-                    base_subset_points = _interior_facet_numbers[base_subset.indices]
-                elif base_integral_type == "exterior_facet":
-                    _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
-                    base_subset_points = _exterior_facet_numbers[base_subset.indices]
+                    # IMPORTANT: This probably makes a renumbering error!
+                    # _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
+                    # base_subset_points = base_mesh._new_to_old_interior_facet_numbering[base_indices]
+                    base_subset_points = base_mesh._interior_facet_plex_indices.indices[base_indices]
+                    # base_subset_points = _interior_facet_numbers[base_indices]
+                else:
+                    assert base_integral_type == "exterior_facet"
+                    base_subset_points = base_mesh._exterior_facet_plex_indices.indices[base_indices]
+                    # _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
+                    # base_subset_points = _exterior_facet_numbers[base_indices]
             else:
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
@@ -2429,7 +2463,7 @@ class ExtrudedMeshTopology(MeshTopology):
         nlayers = int(self.layers) - 1
         return self._base_mesh.num_vertices * (nlayers+1)
 
-    @utils.cached_property
+    @cached_property
     def _new_to_old_point_renumbering(self) -> PETSc.IS:
         return self._old_to_new_point_renumbering.invertPermutation()
 
