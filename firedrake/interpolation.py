@@ -312,6 +312,10 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
 
     operand, = expr.ufl_operands
     target_mesh = expr.target_space.mesh()
+    try:
+        target_mesh = target_mesh.unique()
+    except ValueError:
+        pass
     source_mesh = extract_unique_domain(operand) or target_mesh
     submesh_interp_implemented = (
         all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
@@ -618,6 +622,8 @@ class SameMeshInterpolator(Interpolator):
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
 
         loops = []
+        if self.access == op2.INC:
+            loops.append(op2_tensor.zero)
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
@@ -912,8 +918,6 @@ def _build_interpolation_callables(
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble
     else:
-        if access == op2.INC:
-            copyin += (tensor.zero,)
         return copyin + (parloop, ) + copyout
 
 
