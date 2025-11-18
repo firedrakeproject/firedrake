@@ -314,12 +314,11 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     target_mesh = expr.target_space.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
 
-    has_mesh_sequence = any(len(m) > 1 for m in [target_mesh, source_mesh])
-    if has_mesh_sequence:
-        return MixedInterpolator(expr)
-    else:
+    try:
         target_mesh = target_mesh.unique()
         source_mesh = source_mesh.unique()
+    except ValueError:
+        return MixedInterpolator(expr)
 
     submesh_interp_implemented = (
         all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
