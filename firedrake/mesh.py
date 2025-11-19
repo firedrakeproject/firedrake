@@ -1507,7 +1507,7 @@ class AbstractMeshTopology(abc.ABC):
             m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
             maps.append(m)
 
-        return tuple(reversed(maps)), integral_type, subset_points
+        return tuple(maps), integral_type, subset_points
 
     # trans mesh
 
@@ -2080,7 +2080,7 @@ class MeshTopology(AbstractMeshTopology):
                 _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
         values = np.full(from_set.local_size, -1, dtype=IntType)
         values[from_indices] = to_indices
-        map_name = f"{self}_submesh_map_{from_set}_{to_set}"
+        map_name = f"{self.name}_submesh_map_{from_set.root.label}_{to_set.root.label}"
         to_label = to_set.as_axis().component.label
         map_axes = op3.AxisTree.from_iterable([
             from_set.as_axis(), op3.Axis(1, map_name)
@@ -2097,19 +2097,33 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_child_cell_parent_cell_map(self):
-        return self._submesh_make_entity_entity_map(self.cells, self.submesh_parent.cells, self._new_to_old_cell_numbering, self.submesh_parent._new_to_old_cell_numbering, True)
+        return self._submesh_make_entity_entity_map(
+            self.cells,
+            self.submesh_parent.cells,
+            self._new_to_old_cell_numbering,
+            self.submesh_parent._new_to_old_cell_numbering,
+            True,
+        )
 
     @cached_property
     def submesh_child_exterior_facet_parent_exterior_facet_map(self):
-        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(
+            self.exterior_facets,
+            self.submesh_parent.exterior_facets,
+            self._exterior_facet_plex_indices.indices,
+            self.submesh_parent._exterior_facet_plex_indices.indices,
+            True,
+        )
 
     @cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
-        # _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        # _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.exterior_facets, self.submesh_parent.interior_facets, self._exterior_facet_plex_indices.indices, self.submesh_parent._interior_facet_plex_indices.indices, True)
+        return self._submesh_make_entity_entity_map(
+            self.exterior_facets,
+            self.submesh_parent.interior_facets,
+            self._exterior_facet_plex_indices.indices,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            True,
+        )
 
     @cached_property
     def submesh_child_interior_facet_parent_exterior_facet_map(self):
@@ -2117,17 +2131,20 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
+        raise NotImplementedError
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
     @cached_property
     def submesh_child_cell_parent_interior_facet_map(self):
+        raise NotImplementedError
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
 
     @cached_property
     def submesh_child_cell_parent_exterior_facet_map(self):
+        raise NotImplementedError
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
 
@@ -2137,6 +2154,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
+        raise NotImplementedError
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
@@ -2147,23 +2165,30 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
-        # _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        # _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.submesh_parent.interior_facets, self.exterior_facets, self.submesh_parent._interior_facet_plex_indices.indices, self._exterior_facet_plex_indices.indices, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.interior_facets,
+            self.exterior_facets,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            self._exterior_facet_plex_indices.indices,
+            False,
+        )
 
     @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
+        raise NotImplementedError
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
     @cached_property
     def submesh_parent_exterior_facet_child_cell_map(self):
+        raise NotImplementedError
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
 
     @cached_property
     def submesh_parent_interior_facet_child_cell_map(self):
+        raise NotImplementedError
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
 
@@ -2271,6 +2296,7 @@ class MeshTopology(AbstractMeshTopology):
             map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
         else:
             map_ = getattr(self, f"submesh_child_{source_integral_type}_parent_{target_integral_type}_map")
+        breakpoint()
         return map_, target_integral_type, target_subset_points
 
     # trans mesh
