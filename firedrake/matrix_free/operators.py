@@ -397,11 +397,6 @@ class ImplicitMatrixContext(object):
                 bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
             elif isinstance(bc, EquationBCSplit):
                 bc_temp = bc.reconstruct(field=row_inds, V=Wrow, row_field=row_inds, col_field=col_inds, use_split=True)
-                if bc_temp is None:
-                    # The split logic in EquationBC fails on the off-diagonal when the BC does not couple the fields.
-                    # The entire row needs to be zeroed out in this case. As a workaround, split a homogeneous DirichletBC.
-                    bc = DirichletBC(bc.function_space(), 0, bc.sub_domain)
-                    bc_temp = bc.reconstruct(field=row_inds, V=Wrow, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=True)
             if bc_temp is not None:
                 row_bcs.append(bc_temp)
 
