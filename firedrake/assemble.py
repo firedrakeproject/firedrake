@@ -1500,35 +1500,21 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             buffer_spec=mat_spec,
         )
 
-        if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
-            for subspace in test.function_space():
-                i = subspace.index
-                op3.loop(
-                    p := subspace.mesh().points.iter(),
-                    sparsity[i, i][p, p].assign(666),
-                    eager=True,
-                )
-        else:
-            op3.loop(
-                p := test.function_space().mesh().points.iter(),
-                sparsity[p, p].assign(666),
-                eager=True,
-            )
+        sparsity.buffer.set_diagonal(666)
+        # breakpoint()
         # if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
-        #     n = len(test.function_space())
-        #     if n == 1:
-        #         # if vector function space revert to standard case
-        #         diag_blocks = [(Ellipsis, Ellipsis)]
-        #     else:
-        #         # otherwise treat each block separately
-        #         diag_blocks = [(i, i) for i in range(n)]
+        #     for subspace in test.function_space():
+        #         i = subspace.index
+        #         op3.loop(
+        #             p := subspace.mesh().points.iter(),
+        #             sparsity[i, i][p, p].assign(666),
+        #             eager=True,
+        #         )
         # else:
-        #     diag_blocks = [(Ellipsis, Ellipsis)]
-        #
-        # for rindex, cindex in diag_blocks:
-        #     op3.do_loop(
-        #         p := test.ufl_domain().points.index(),
-        #         sparsity[rindex, cindex][p, p].assign(666)
+        #     op3.loop(
+        #         p := test.function_space().mesh().points.iter(),
+        #         sparsity[p, p].assign(666),
+        #         eager=True,
         #     )
 
         # Pretend that we are doing assembly by looping over the right
@@ -1578,11 +1564,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 all_meshes = extract_domains(assembler._form)
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     i, j = local_kernel.indices
-                    integral_type = local_kernel.kinfo.integral_type
-
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-
                     all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
@@ -2109,11 +2092,17 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
         mesh = next(self._active_exterior_facets)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "exterior_facet"
         return mesh.exterior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
         mesh = next(self._active_interior_facets)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "interior_facet"
         return mesh.interior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)

@@ -124,8 +124,8 @@ class KernelBuilderBase(_KernelBuilderBase):
             All domains in the form.
 
         """
-        # Cell orientation
         self._cell_orientations = {}
+        kernel_arg_type = kernel_args.CellOrientationsKernelArg
         for i, domain in enumerate(domains):
             integral_type = self._domain_integral_type_map[domain]
             if integral_type is None:
@@ -133,11 +133,11 @@ class KernelBuilderBase(_KernelBuilderBase):
                 self._cell_orientations[domain] = None
             elif integral_type.startswith("interior_facet"):
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (2,), dtype=gem.uint_type)
-                self._cell_orientations[domain] = (gem.Indexed(cell_orientations, (0,)),
-                                                   gem.Indexed(cell_orientations, (1,)))
+                self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),
+                                                   gem.Indexed(cell_orientations, (1,))), kernel_arg_type)
             else:
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (1,), dtype=gem.uint_type)
-                self._cell_orientations[domain] = (gem.Indexed(cell_orientations, (0,)),)
+                self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),), kernel_arg_type)
 
     def set_cell_sizes(self, domains):
         """Setup a fake coefficient for "cell sizes" for each domain.
@@ -163,7 +163,7 @@ class KernelBuilderBase(_KernelBuilderBase):
                 # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
                 expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
-                self._cell_sizes[domain] = expr
+                self._cell_sizes[domain] = (expr, kernel_args.CellSizesKernelArg)
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -436,15 +436,12 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                                                                                    active_variables,
                                                                                    )
         args.extend(args_)
-        breakpoint()  # FIXME
         active_domain_numbers_cell_orientations, args_ = self.make_active_domain_numbers(self._cell_orientations,
                                                                                          active_variables,
-                                                                                         kernel_args.CellOrientationsKernelArg,
                                                                                          dtype=numpy.int32)
         args.extend(args_)
         active_domain_numbers_cell_sizes, args_ = self.make_active_domain_numbers(self._cell_sizes,
-                                                                                  active_variables,
-                                                                                  kernel_args.CellSizesKernelArg)
+                                                                                  active_variables)
         args.extend(args_)
         coefficient_indices = OrderedDict()
         for coeff, (number, index) in self.coefficient_number_index_map.items():
@@ -583,10 +580,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         active_dns = []
         args = []
-        for i, (expr, kernel_arg_type) in enumerate(domain_expr_dict.values()):
+        for i, expr in enumerate(domain_expr_dict.values()):
             if expr is None:
                 var = None
             else:
+                (expr, kernel_arg_type) = expr
                 var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
             if var in active_variables:
                 funarg = self.generate_arg_from_expression(expr, dtype=dtype)

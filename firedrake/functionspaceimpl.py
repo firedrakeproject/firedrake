@@ -1362,12 +1362,7 @@ class FunctionSpace:
         if iteration_spec.mesh is self.mesh():
             return self_map(iteration_spec.loop_index)
         else:
-            # poor man's reduce
-            # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
-            map_ = iteration_spec.loop_index
-            for map2 in composed_map:
-                map_ = map2(map_)
-            return self_map(map_)
+            return self_map(composed_map)
 
     # def cell_node_map(self):
     #     r"""Return the :class:`pyop2.types.map.Map` from cels to

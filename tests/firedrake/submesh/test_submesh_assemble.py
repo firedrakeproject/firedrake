@@ -10,8 +10,8 @@ from petsc4py import PETSc
 cwd = os.path.abspath(os.path.dirname(__file__))
 
 
-def get_sparsity(petscmat, *nest_indices):
-    subpetscmat = petscmat.getNestSubMatrix(*nest_indices)
+def get_sparsity(mat, *nest_indices):
+    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
     row_ptrs, _ = subpetscmat.getRowIJ()
     row_sizes = np.full(len(row_ptrs)-1, -1, dtype=int)
     for row_index, (row_start, row_end) in enumerate(utils.pairwise(row_ptrs)):
@@ -19,8 +19,8 @@ def get_sparsity(petscmat, *nest_indices):
     return row_sizes
 
 
-def get_values(petscmat, *nest_indices):
-    subpetscmat = petscmat.getNestSubMatrix(*nest_indices)
+def get_values(mat, *nest_indices):
+    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
     return subpetscmat[:, :]
 
 
@@ -44,17 +44,17 @@ def test_submesh_assemble_cell_cell_integral_cell():
     a = inner(u1, v0) * dx0(999) + inner(u0, v1) * dx1
     A = assemble(a, mat_type="nest")
 
-    assert np.allclose(get_sparsity(A.petscmat, 0, 0), [1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(get_sparsity(A.petscmat, 0, 1), [4, 4, 4, 4, 0, 0])
-    assert np.allclose(get_sparsity(A.petscmat, 1, 0), [4, 4, 4, 4])
-    assert np.allclose(get_sparsity(A.petscmat, 1, 1), [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 0), [1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 1), [4, 4, 4, 4, 0, 0])
+    assert np.allclose(get_sparsity(A, 1, 0), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A, 1, 1), [1, 1, 1, 1])  # bc nodes
 
     M10 = np.array([[1./9. , 1./18., 1./36., 1./18., 0., 0.],   # noqa: E203
                     [1./18., 1./9. , 1./18., 1./36., 0., 0.],   # noqa: E203
                     [1./36., 1./18., 1./9. , 1./18., 0., 0.],   # noqa: E203
                     [1./18., 1./36., 1./18., 1./9. , 0., 0.]])  # noqa: E203
-    assert np.allclose(get_values(A.petscmat, 0, 1), np.transpose(M10))
-    assert np.allclose(get_values(A.petscmat, 1, 0), M10)
+    assert np.allclose(get_values(A, 0, 1), np.transpose(M10))
+    assert np.allclose(get_values(A, 1, 0), M10)
 
 
 def test_submesh_assemble_cell_cell_integral_facet():
@@ -76,24 +76,26 @@ def test_submesh_assemble_cell_cell_integral_facet():
     ds1 = Measure("ds", domain=subm, intersect_measures=(Measure("dS", mesh),))
     a = inner(u1, v0('+')) * dS0 + inner(u0('+'), v1) * ds1(5)
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 4, 4, 4, 4])
-    assert np.allclose(A.M.sparsity[1][0].nnz, [8, 8, 8, 8])
-    assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 0), [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 1), [4, 4, 4, 4, 4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A, 1, 0), [8, 8, 8, 8])
+    assert np.allclose(get_sparsity(A, 1, 1), [1, 1, 1, 1])  # bc nodes
+
     M10 = np.array([[0., 0., 0., 0., 0., 0., 1. / 3., 1. / 6.],
                     [0., 0., 0., 0., 0., 0., 1. / 6., 1. / 3.],
                     [0., 0., 0., 0., 0., 0., 0., 0.],
                     [0., 0., 0., 0., 0., 0., 0., 0.]])
-    assert np.allclose(A.M[0][1].values, np.transpose(M10))
-    assert np.allclose(A.M[1][0].values, M10)
+    assert np.allclose(get_values(A, 0, 1), np.transpose(M10))
+    assert np.allclose(get_values(A, 1, 0), M10)
+
     b = inner(u1, v0('+')) * ds1(5) + inner(u0('+'), v1) * dS0
     B = assemble(b, mat_type="nest")
-    assert np.allclose(B.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(B.M.sparsity[0][1].nnz, [4, 4, 4, 4, 4, 4, 4, 4])
-    assert np.allclose(B.M.sparsity[1][0].nnz, [8, 8, 8, 8])
-    assert np.allclose(B.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
-    assert np.allclose(B.M[0][1].values, A.M[0][1].values)
-    assert np.allclose(B.M[1][0].values, A.M[1][0].values)
+    assert np.allclose(get_sparsity(B, 0, 0), [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(B, 0, 1), [4, 4, 4, 4, 4, 4, 4, 4])
+    assert np.allclose(get_sparsity(B, 1, 0), [8, 8, 8, 8])
+    assert np.allclose(get_sparsity(B, 1, 1), [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_values(B, 0, 1), get_values(A, 0, 1))
+    assert np.allclose(get_values(B, 1, 0), get_values(A, 1, 0))
 
 
 def test_submesh_assemble_cell_cell_cell_cell_integral_various():

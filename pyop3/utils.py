@@ -433,31 +433,14 @@ def invert_mapping(mapping, *, mapping_type=dict):
     return mapping_type((v, k) for k, v in mapping.items())
 
 
-@functools.singledispatch
 def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@strict_cast.register(numbers.Integral)
-def _(num: numbers.Integral, dtype: DTypeT) -> np.number:
-    if not isinstance(dtype, np.dtype):
-        dtype = np.dtype(dtype)
-
-    iinfo = np.iinfo(dtype)
-    if not (iinfo.min <= num <= iinfo.max):
-        raise TypeError(f"{num} exceeds the limits of {dtype}")
-    return dtype.type(num)
-
-
-@strict_cast.register(np.ndarray)
-def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
-    return array.astype(dtype, casting="safe")
+    if isinstance(obj, numbers.Number):
+        return np.array([obj]).astype(dtype, casting="same_kind").item()
+    else:
+        return obj.astype(dtype, casting="same_kind")
 
 
 def strict_int(num: numbers.Number) -> IntType:
-    if int(num) != num:
-        raise TypeError
-
     return strict_cast(num, IntType)
 
 

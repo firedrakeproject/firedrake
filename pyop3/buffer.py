@@ -21,6 +21,8 @@ from pyop2.mpi import COMM_SELF
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
+from ._buffer_cy import set_petsc_mat_diagonal
+
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -735,6 +737,11 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
         mat.setUp()
         return mat
+
+    # TODO: Could also accept a vector here
+    def set_diagonal(self, value: numbers.Number) -> None:
+        value = utils.strict_cast(value, PETSc.ScalarType)
+        set_petsc_mat_diagonal(self.petscmat, value)
 
 
 @utils.record()

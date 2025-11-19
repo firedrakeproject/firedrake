@@ -38,7 +38,7 @@ from pyop3.tree.axis_tree.tree import (
     GHOST_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.sf import NullStarForest, StarForest, local_sf
+from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
 from pyop3.tree.labelled_tree import (
     as_node_map,
     LabelledNodeComponent,
@@ -1154,9 +1154,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr import LinearCompositeDat
     from pyop3.expr.visitors import get_shape, get_loop_axes, materialize_composite_dat
 
-    # TODO: move this code
-    from firedrake.cython.dmcommon import filter_sf
-
 
     # If we are just taking a component from a multi-component array,
     # e.g. mesh.points["cells"], then relabelling the axes just leads to
@@ -1280,7 +1277,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 if isinstance(target_component.sf, StarForest):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)
                     # I have just implemented a new attempt that uses another bit of the PETSc API
-                    petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
+                    petsc_sf = filter_petsc_sf(target_component.sf.sf, indices, 0, target_component.local_size)
 
                     indexed_size = sum(r.size for r in indexed_regions)
                     sf = StarForest(petsc_sf, indexed_size)

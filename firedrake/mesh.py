@@ -489,7 +489,7 @@ class AbstractMeshTopology(abc.ABC):
         else:
             point_sf = op3.local_sf(self.num_points, self._comm).sf
 
-        point_sf_renum = dmcommon.renumber_sf(point_sf, self._new_to_old_point_renumbering)
+        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
 
         # TODO: Allow the label here to be None
         return op3.Axis(
@@ -1352,8 +1352,8 @@ class AbstractMeshTopology(abc.ABC):
             return dmcommon.submesh_create_cell_closure(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
-                self._old_to_new_cell_numbering,
-                self.submesh_parent._old_to_new_cell_numbering,
+                self._old_to_new_cell_numbering,  # not used
+                self.submesh_parent._old_to_new_cell_numbering,  # not used
                 self.submesh_parent._fiat_cell_closures,
                 entity_per_cell,
             )
@@ -2326,7 +2326,12 @@ class MeshTopology(AbstractMeshTopology):
             else:
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
-            return composed_map, integral_type
+            # poor man's reduce
+            # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
+            map_ = iter_spec.loop_index
+            for map2 in composed_map:
+                map_ = map2(map_)
+            return map_, integral_type
 
 
 # NOTE: I don't think that we need an extra class here. The public API is exactly the same as 'MeshTopology'.
@@ -2410,7 +2415,7 @@ class ExtrudedMeshTopology(MeshTopology):
         section.setChart(0, base_point_sf.size)
         for pt in range(base_point_sf.size):
             section.setDof(pt, 2*n_extr_cells+1)
-        point_sf = op3.StarForest(dmcommon.create_section_sf(base_point_sf.sf, section), npoints)
+        point_sf = op3.StarForest(op3.sf.create_petsc_section_sf(base_point_sf.sf, section), npoints)
 
         return op3.Axis(
             [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],

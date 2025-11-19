@@ -11,7 +11,7 @@ from pyop3.tree.axis_tree.tree import AbstractAxisTree
 
 from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype
-from pyop3.sf import StarForest, _check_sf
+from pyop3.sf import StarForest, _check_sf, create_petsc_section_sf
 
 
 def reduction_op(op, invec, inoutvec, datatype):
@@ -61,9 +61,6 @@ def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
 
 # NOTE: This function does not check for nested SFs
 def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[StarForest, ...]:
-    # TODO: not in firedrake
-    from firedrake.cython.dmcommon import create_section_sf
-
     axis = axis_tree.node_map[path]
 
     sfs = []
@@ -74,7 +71,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             # do not recurse further
             if path_ in axis_tree.node_map:
                 section = axis_tree.section(path, component)
-                petsc_sf = create_section_sf(component.sf.sf, section)
+                petsc_sf = create_petsc_section_sf(component.sf.sf, section)
                 _check_sf(petsc_sf)
             else:
                 petsc_sf = component.sf.sf

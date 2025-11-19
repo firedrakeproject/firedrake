@@ -19,6 +19,9 @@ if typing.TYPE_CHECKING:
     from pyop3.tree.axis_tree import AxisComponentRegionSizeT
 
 
+from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
+
+
 # This is so we can more easily distinguish internal and external comms
 # It is still necessary to register weakref finalizers for these (see what
 # we do in Firedrake).

@@ -208,6 +208,19 @@ def extensions():
         sources=[os.path.join("pyop2", "sparsity.pyx")],
         **(petsc_ + numpy_)
     ))
+    cython_list.append(Extension(
+        name="pyop3._buffer_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_buffer_cy.pyx")],
+        **(petsc_ + numpy_)
+    ))
+    cython_list.append(Extension(
+        name="pyop3._sf_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_sf_cy.pyx")],
+        **(petsc_ + numpy_)
+    ))
+
     # PYBIND11 EXTENSIONS
     pybind11_list = []
     # tinyasm/tinyasm.cpp: petsc, pybind11
