@@ -209,7 +209,7 @@ class Interpolator(abc.ABC):
         """The dual argument slot of the Interpolate expression."""
         self.target_space = dual_arg.function_space().dual()
         """The primal space we are interpolating into."""
-        self.target_mesh = self.target_space.mesh()
+        self.target_mesh = self.target_space.mesh().unique()
         """The domain we are interpolating into."""
         self.source_mesh = extract_unique_domain(operand) or self.target_mesh
         """The domain we are interpolating from."""
@@ -312,7 +312,18 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
 
     operand, = expr.ufl_operands
     target_mesh = expr.target_space.mesh()
-    source_mesh = extract_unique_domain(operand) or target_mesh
+
+    try:
+        source_mesh = extract_unique_domain(operand) or target_mesh
+    except ValueError:
+        raise NotImplementedError("Interpolating an expression defined on multiple meshes is not implemented yet.")
+
+    try:
+        target_mesh = target_mesh.unique()
+        source_mesh = source_mesh.unique()
+    except RuntimeError:
+        return MixedInterpolator(expr)
+
     submesh_interp_implemented = (
         all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
         and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
@@ -321,11 +332,8 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     if target_mesh is source_mesh or submesh_interp_implemented:
         return SameMeshInterpolator(expr)
 
-    target_topology = target_mesh.topology
-    source_topology = source_mesh.topology
-
-    if isinstance(target_topology, VertexOnlyMeshTopology):
-        if isinstance(source_topology, VertexOnlyMeshTopology):
+    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+        if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
             return VomOntoVomInterpolator(expr)
         if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
             raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
@@ -614,10 +622,19 @@ class SameMeshInterpolator(Interpolator):
         return f
 
     def _get_callable(self, tensor=None, bcs=None):
-        f = tensor or self._get_tensor()
-        op2_tensor = f if isinstance(f, op2.Mat) else f.dat
+        if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
+            # adjoint one-form case: we need a zero tensor, so if it shares dats with
+            # the dual_arg we cannot use it directly
+            f = self._get_tensor()
+            copyout = (partial(f.dat.copy, tensor.dat),)
+        else:
+            f = tensor or self._get_tensor()
+            copyout = ()
 
+        op2_tensor = f if isinstance(f, op2.Mat) else f.dat
         loops = []
+        if self.access is op2.INC:
+            loops.append(op2_tensor.zero)
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
@@ -645,6 +662,8 @@ class SameMeshInterpolator(Interpolator):
 
         if bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
+
+        loops.extend(copyout)
 
         def callable() -> Function | Cofunction | PETSc.Mat | Number:
             for l in loops:
@@ -912,8 +931,6 @@ def _build_interpolation_callables(
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble
     else:
-        if access == op2.INC:
-            copyin += (tensor.zero,)
         return copyin + (parloop, ) + copyout
 
 
