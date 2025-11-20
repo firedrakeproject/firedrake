@@ -624,7 +624,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
             # Assembly
             return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
-        elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
+        elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, matrix.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
             return tensor.zero()
