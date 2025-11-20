@@ -156,7 +156,7 @@ class EnsembleFunctionSpaceBase:
 
     @cached_property
     def nlocal_spaces(self):
-        """The total number of subspaces across all ensemble ranks.
+        """Number of subspaces on this ensemble rank.
         """
         return len(self.local_spaces)
 
@@ -199,9 +199,13 @@ class EnsembleFunctionSpaceBase:
         in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
-        vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))
+        vec.setSizes((self.nlocal_rank_dofs, self.nglobal_dofs))
         vec.setUp()
         return vec
+
+    @cached_property
+    def layout_vec(self):
+        return self.create_vec()
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
