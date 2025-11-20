@@ -57,7 +57,7 @@ def test_interpolate_operator():
     cofunc = assemble(TestFunction(V) * dx)  # a cofunction in V*
     res1 = assemble(interpolate(TestFunction(U), cofunc))  # a cofunction in U*
     # [test_interpolate_operator 17]
-    res2 = assemble(action(Istar1, cofunc))  # same as res1  
+    res2 = assemble(action(Istar1, cofunc))  # same as res1
     # [test_interpolate_operator 18]
     res3 = assemble(action(Istar2, cofunc))  # same as res1
     assert isinstance(res1, Cofunction)
