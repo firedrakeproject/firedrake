@@ -8,28 +8,6 @@ __all__ = (
 )
 
 
-def get_default_options(default_prefix, custom_prefix_endings, options=PETSc.Options()):
-    # TODO: replace with petsctools.get_default_options from https://github.com/firedrakeproject/petsctools/pull/24
-
-    # build all non-default prefixes
-    custom_prefixes = [default_prefix + str(ending)
-                       for ending in custom_prefix_endings]
-    for prefix in custom_prefixes:
-        if not prefix.endswith("_"):
-            prefix += "_"
-
-    default_options = {
-        k.removeprefix(default_prefix): v
-        for k, v in options.getAll().items()
-        if (k.startswith(default_prefix)
-            and not any(k.startswith(prefix) for prefix in custom_prefixes))
-    }
-    assert not any(k.startswith(str(end))
-                   for k in default_options.keys()
-                   for end in custom_prefix_endings)
-    return default_options
-
-
 def obj_name(obj):
     return f"{type(obj).__module__}.{type(obj).__name__}"
 
@@ -124,13 +102,19 @@ class EnsembleBJacobiPC(EnsemblePCBase):
                 raise TypeError(
                     f"PC {pcname} needs an EnsembleBlockDiagonalMat amat, but it is a {matname}")
 
-        # default to behaving like a PC
-        default_options = {'ksp_type': 'preonly'}
+        # # default to behaving like a PC
+        # default_options = {'ksp_type': 'preonly'}
+
+        # default_sub_prefix = self.parent_prefix + "sub_"
+        # default_sub_options = get_default_options(
+        #     default_sub_prefix, range(self.col_space.nglobal_spaces))
+        # default_options.update(default_sub_options)
 
         default_sub_prefix = self.parent_prefix + "sub_"
-        default_sub_options = get_default_options(
-            default_sub_prefix, range(self.col_space.nglobal_spaces))
-        default_options.update(default_sub_options)
+
+        default_options = petsctools.DefaultOptionSet(
+            base_prefix=default_sub_prefix,
+            custom_prefix_endings=range(self.col_space.nglobal_spaces))
 
         block_offset = self.col_space.global_spaces_offset
 
@@ -143,16 +127,21 @@ class EnsembleBJacobiPC(EnsemblePCBase):
                 sub_amat = self.amat.block_mats[i]
             else:
                 sub_amat = self.pmat.block_mats[i]
-
             sub_pmat = self.pmat.block_mats[i]
-
             sub_ksp.setOperators(sub_amat, sub_pmat)
 
             sub_prefix = default_sub_prefix + str(block_offset + i)
 
-            petsctools.set_from_options(
-                sub_ksp, parameters=default_options,
-                options_prefix=sub_prefix)
+            petsctools.attach_options(
+                sub_ksp, parameters={},
+                options_prefix=sub_prefix,
+                default_options_set=default_options)
+
+            # default to behaving like a PC
+            petsctools.set_default_parameter(
+                sub_ksp, "ksp_type", "preonly")
+
+            petsctools.set_from_options(sub_ksp)
 
             sub_ksp.incrementTabLevel(1, parent=pc)
             sub_ksp.pc.incrementTabLevel(1, parent=pc)
