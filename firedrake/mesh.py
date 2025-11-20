@@ -490,7 +490,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
+    def __init__(self, topology_dm, name, reorder, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -501,11 +501,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             Name of the mesh topology.
         reorder : bool
             Whether to reorder the mesh entities.
-        sfXB : PETSc.PetscSF
-            `PETSc.SF` that pushes forward the global point number
-            slab ``[0, NX)`` to input (naive) plex (only significant when
-            the mesh topology is loaded from file and only passed from inside
-            `~.CheckpointFile`).
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_dm_renumbering``; only
             makes sense if we know the exact parallel distribution of ``plex``
@@ -526,10 +521,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
         r"The PETSc DM representation of the mesh topology."
-        self.sfBC = None
-        r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
-        self.sfXB = sfXB
-        r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
         self.submesh_parent = submesh_parent
         # User comm
         self.user_comm = comm
@@ -540,8 +531,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self._grown_halos = False
         if self.comm.size > 1:
             self._add_overlap()
-        if self.sfXB is not None:
-            self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
         dmcommon.label_facets(self.topology_dm)
         dmcommon.complete_facet_labels(self.topology_dm)
         # TODO: Allow users to set distribution name if they want to save
@@ -1067,7 +1056,6 @@ class MeshTopology(AbstractMeshTopology):
         name,
         reorder,
         distribution_parameters,
-        sfXB=None,
         perm_is=None,
         distribution_name=None,
         permutation_name=None,
@@ -1086,11 +1074,6 @@ class MeshTopology(AbstractMeshTopology):
             Whether to reorder the mesh entities.
         distribution_parameters : dict
             Options controlling mesh distribution; see `Mesh` for details.
-        sfXB : PETSc.PetscSF
-            `PETSc.SF` that pushes forward the global point number
-            slab ``[0, NX)`` to input (naive) plex (only significant when
-            the mesh topology is loaded from file and only passed from inside
-            `~.CheckpointFile`).
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_dm_renumbering``; only
             makes sense if we know the exact parallel distribution of ``plex``
@@ -1121,7 +1104,7 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
+        super().__init__(plex, name, reorder, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
 
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
@@ -1132,9 +1115,8 @@ class MeshTopology(AbstractMeshTopology):
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
             original_name = plex.getName()
-            sfBC = plex.distribute(overlap=0)
+            _ = plex.distribute(overlap=0)
             plex.setName(original_name)
-            self.sfBC = sfBC
             # plex carries a new dm after distribute, which
             # does not inherit partitioner from the old dm.
             # It probably makes sense as chaco does not work
@@ -1150,17 +1132,15 @@ class MeshTopology(AbstractMeshTopology):
         elif overlap_type in [DistributedMeshOverlapType.FACET, DistributedMeshOverlapType.RIDGE]:
             dmcommon.set_adjacency_callback(self.topology_dm, overlap_type)
             original_name = self.topology_dm.getName()
-            sfBC = self.topology_dm.distributeOverlap(overlap)
+            _ = self.topology_dm.distributeOverlap(overlap)
             self.topology_dm.setName(original_name)
-            self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             dmcommon.clear_adjacency_callback(self.topology_dm)
             self._grown_halos = True
         elif overlap_type == DistributedMeshOverlapType.VERTEX:
             # Default is FEM (vertex star) adjacency.
             original_name = self.topology_dm.getName()
-            sfBC = self.topology_dm.distributeOverlap(overlap)
+            _ = self.topology_dm.distributeOverlap(overlap)
             self.topology_dm.setName(original_name)
-            self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
@@ -2025,7 +2005,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
-        super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
+        super().__init__(swarm, name, reorder, perm_is, distribution_name, permutation_name, parentmesh.comm)
 
     def _distribute(self):
         pass

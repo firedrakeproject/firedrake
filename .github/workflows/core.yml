@@ -156,9 +156,10 @@ jobs:
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
           else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+            git clone https://gitlab.com/petsc/petsc.git
           fi
           cd petsc
+          git checkout ksagiyam/preserve_global_point_number
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=8 --download-slepc
