@@ -102,14 +102,6 @@ class EnsembleBJacobiPC(EnsemblePCBase):
                 raise TypeError(
                     f"PC {pcname} needs an EnsembleBlockDiagonalMat amat, but it is a {matname}")
 
-        # # default to behaving like a PC
-        # default_options = {'ksp_type': 'preonly'}
-
-        # default_sub_prefix = self.parent_prefix + "sub_"
-        # default_sub_options = get_default_options(
-        #     default_sub_prefix, range(self.col_space.nglobal_spaces))
-        # default_options.update(default_sub_options)
-
         default_sub_prefix = self.parent_prefix + "sub_"
 
         default_options = petsctools.DefaultOptionSet(
