@@ -179,6 +179,34 @@ def test_tao_simple_inversion(minimize, riesz_representation):
     assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
 
+@pytest.mark.parametrize("minimize", [minimize_tao_lmvm,
+                                      pytest.param(minimize_tao_nls, marks=pytest.mark.xfail)])
+@pytest.mark.parametrize("riesz_representation", ["L2", "H1"])
+@pytest.mark.skipcomplex
+def test_tao_cofunction_control(minimize, riesz_representation):
+    """Test inversion of source term in helmholtz eqn using TAO."""
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    source_ref = Function(V)
+    x = SpatialCoordinate(mesh)
+    source_ref.interpolate(cos(pi*x**2))
+
+    # compute reference solution
+    with stop_annotating():
+        u_ref = _simple_helmholz_model(V, source_ref)
+
+    # now rerun annotated model with zero source
+    source = Cofunction(V.dual())
+    c = Control(source, riesz_map=riesz_representation)
+    u = _simple_helmholz_model(V, source.riesz_representation(riesz_representation))
+
+    J = assemble(1e6 * (u - u_ref)**2*dx)
+    rf = ReducedFunctional(J, c)
+
+    x = minimize(rf).riesz_representation(riesz_representation)
+    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
+
+
 class TransformType(Enum):
     PRIMAL = auto()
     DUAL = auto()
