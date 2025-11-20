@@ -1248,6 +1248,9 @@ class OneFormAssembler(ParloopFormAssembler):
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
+            if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
+                # form is empty, do nothing
+                return
             OneFormAssembler(bc.f, bcs=bc.bcs,
                              form_compiler_parameters=self._form_compiler_params,
                              needs_zeroing=False,
