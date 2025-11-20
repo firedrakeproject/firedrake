@@ -67,3 +67,14 @@ def test_cofunction_riesz_representation_l2_dat_version(V):
     version = f.dat.dat_version
     _ = f.riesz_representation(riesz_map="l2")
     assert f.dat.dat_version == version
+
+
+@pytest.mark.parametrize("solver_parameters", [None, {"ksp_type": "preonly", "pc_type": "lu"}])
+def test_cofunction_riesz_representation_L2(V, solver_parameters):
+    mesh = V.mesh()
+    v = TestFunction(V)
+    x, = SpatialCoordinate(mesh)
+    f_ref = assemble(inner(x ** 2, v) * dx)
+    f_r = f_ref.riesz_representation(riesz_map="L2", solver_parameters=solver_parameters)
+    f = assemble(inner(f_r, v) * dx)
+    assert np.allclose(f.dat.data_ro, f_ref.dat.data_ro)
