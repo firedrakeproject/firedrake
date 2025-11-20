@@ -71,7 +71,7 @@ def test_moore_spence():
     bcs = [DirichletBC(Z.sub(0), 0.0, "on_boundary"), DirichletBC(Z.sub(2), 0.0, "on_boundary")]
 
     solve(F == 0, z, bcs=bcs)
-    with z.sub(1).dat.vec_ro as x:
+    with z.sub(1).vec_ro as x:
         param = x.norm()
 
     assert abs(param - pi) < 1.0e-4

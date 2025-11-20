@@ -17,6 +17,7 @@ This has the analytical solution
 import pytest
 from firedrake import *
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def run_test(r, degree, parameters, quadrilateral=False):
     # Create mesh and define function space

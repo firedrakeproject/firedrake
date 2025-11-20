@@ -93,6 +93,7 @@ class LocalKernel(abc.ABC):
                  requires_zeroed_output_arguments=False,
                  user_code="",
                  events=()):
+        assert False, "old code"
         self.code = code
         self.name = name
         self.accesses = accesses

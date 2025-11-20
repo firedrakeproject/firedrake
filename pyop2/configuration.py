@@ -90,7 +90,8 @@ class Configuration(dict):
         "simd_width":
             ("PYOP2_SIMD_WIDTH", int, 4),
         "debug":
-            ("PYOP2_DEBUG", bool, False),
+            # PYOP2_DEBUG is dead!
+            ("PYOP3_DEBUG", bool, False),
         "compute_kernel_flops":
             ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
         "type_check":
@@ -101,6 +102,8 @@ class Configuration(dict):
             ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "cache_dir":
             ("PYOP2_CACHE_DIR", str, cache_dir),
+        "scratch_dir":
+            ("PYOP2_SCRATCH_DIR", str, cache_dir),
         "node_local_compilation":
             ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
         "no_fork_available":

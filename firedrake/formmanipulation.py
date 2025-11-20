@@ -8,9 +8,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
-from pyop2 import MixedDat
-from pyop2.utils import as_tuple
-
+from firedrake import utils
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
@@ -70,7 +68,7 @@ class ExtractSubBlock(MultiFunction):
         """
         args = form.arguments()
         self._arg_cache = {}
-        self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+        self.blocks = dict(enumerate(map(utils.as_tuple, argument_indices)))
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -109,7 +107,6 @@ class ExtractSubBlock(MultiFunction):
         else:
             return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
 
-    @PETSc.Log.EventDecorator()
     def argument(self, o):
         V = o.function_space()
 
@@ -155,10 +152,13 @@ class ExtractSubBlock(MultiFunction):
         # We only need the test space for Cofunction
         indices = self.blocks[0]
         W = subspace(V, indices)
-        if len(W) == 1:
-            return Cofunction(W, val=o.dat[indices[0]])
-        else:
-            return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+        # This is needed because the indices and labels do not match when we split things
+        breakpoint()  # fixed???
+        slice_ = [
+            o.dat.axes.root.component_labels[i]
+            for i in indices.values()
+        ]
+        return Cofunction(W, val=o.dat[slice_])
 
     def matrix(self, o):
         ises = []
@@ -169,11 +169,11 @@ class ExtractSubBlock(MultiFunction):
             if a.number() in self.blocks:
                 asplit = self._subspace_argument(a)
                 for f in self.blocks[a.number()]:
-                    fset = V.dof_dset.field_ises[f]
+                    fset = V.field_ises[f]
                     iset = iset.expand(fset)
             else:
                 asplit = a
-                for fset in V.dof_dset.field_ises:
+                for fset in V.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
@@ -266,5 +266,10 @@ def split_form(form, diagonal=False):
             if i != j:
                 continue
         f = splitter.split(form, idx)
+        # Set any non-mixed components to None, rather than zero
+        idx = tuple(
+            x if shape[i] > 1 else None
+            for i, x in enumerate(idx)
+        )
         forms.append(SplitForm(indices=idx[:rank], form=f))
     return tuple(forms)

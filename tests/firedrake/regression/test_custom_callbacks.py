@@ -24,7 +24,7 @@ def test_callbacks():
         alpha.assign(1.0)
 
     def update_beta(current_solution):
-        with temp.dat.vec as foo:
+        with temp.vec as foo:
             current_solution.copy(foo)
 
         # introduce current-solution-dependent behaviour

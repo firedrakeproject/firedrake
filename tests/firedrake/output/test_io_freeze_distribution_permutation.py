@@ -4,6 +4,7 @@ from pyop2.mpi import COMM_WORLD
 import numpy as np
 import os
 
+
 cwd = os.path.abspath(os.path.dirname(__file__))
 mesh_name = "m"
 func_name = "f"

@@ -85,5 +85,9 @@ class LinearSolver(LinearVariationalSolver):
 
         self.x.assign(x)
         self.b.assign(b)
+
+        # debugging
+        assert (self.x.dat.data_ro == x.dat.data_ro).all()
+
         super().solve()
         x.assign(self.x)

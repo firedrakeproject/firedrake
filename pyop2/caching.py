@@ -33,6 +33,7 @@
 
 """Provides common base classes for cached objects."""
 import cachetools
+import contextlib
 import functools
 import hashlib
 import os
@@ -59,6 +60,37 @@ from petsc4py import PETSc
 
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []
+
+
+def cached_on(obj, key=cachetools.keys.hashkey):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            cache = obj(*args, **kwargs)
+            assert isinstance(cache, CacheMixin)
+
+            k = key(*args, **kwargs)
+            try:
+                return cache.cache_get(k)
+            except KeyError:
+                value = func(*args, **kwargs)
+                cache.cache_set(k, value)
+                return value
+        return wrapper
+    return decorator
+
+class CacheMixin:
+    """Mixin class for objects that may be treated as a cache."""
+    def __init__(self):
+        self._cache = {}
+
+    def cache_get(self, key):
+        return self._cache[key]
+
+    def cache_set(self, key, value):
+        self._cache[key] = value
+
+
+
 
 
 # FIXME: (Later) Remove ObjectCached
@@ -525,6 +557,7 @@ def parallel_cache(
         def wrapper(*args, **kwargs):
             # Create a PyOP2 comm associated with the key, so it is decrefed
             # when the wrapper exits
+
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
                 # Get the right cache from the comm
                 comm_caches = get_comm_caches(comm)
@@ -599,7 +632,7 @@ def clear_memory_cache(comm):
 memory_cache = parallel_cache
 
 
-def serial_cache(hashkey, cache_factory=lambda: DEFAULT_CACHE()):
+def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_CACHE()):
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 
@@ -611,3 +644,78 @@ def memory_and_disk_cache(*args, cachedir=configuration["cache_dir"], **kwargs):
     def decorator(func):
         return memory_cache(*args, **kwargs)(disk_only_cache(*args, cachedir=cachedir, **kwargs)(func))
     return decorator
+
+
+# I *think* that we are fine to not worry about comms here because we can
+# be confident about collectiveness.
+_active_scoped_cache = None
+
+
+class active_scoped_cache:
+    def __init__(self, cache):
+        self._cache = cache
+
+    def __enter__(self):
+        global _active_scoped_cache
+
+        if _active_scoped_cache is None:
+            _active_scoped_cache = self._cache
+            self._set_cache = True
+        else:
+            self._set_cache = False
+
+    def __exit__(self, *exc):
+        global _active_scoped_cache
+
+        if self._set_cache:
+            _active_scoped_cache = None
+
+
+def scoped_cache(*args, **kwargs):
+    """Cache decorator for 'heavy' objects.
+
+    Unlike the other cache decorators this cache is scoped to another object
+    and will be cleaned up with that object.
+
+    If a cache scope has not been set with `active_scoped_cache` then no
+    caching happens.
+
+    """
+    return cachetools.cached(cache=_active_scoped_cache, **kwargs)
+
+
+# HEAVY_CACHE_COMM_KEYVAL = MPI.Comm.Create_keyval()
+#
+#
+# def scoped_cache(*args, **kwargs):
+#     """Cache decorator for 'heavy' objects.
+#
+#     Unlike the other cache decorators this cache is scoped to another object
+#     and will be cleaned up with that object.
+#
+#     If a cache scope has not been set with `active_scoped_cache` then no
+#     caching happens.
+#
+#     """
+#     return memory_cache(*args, **kwargs, scoped=True)
+#
+#
+# class active_scoped_cache:
+#     """
+#     """
+#     def __init__(self, lifetime_obj):
+#         self._lifetime_obj = lifetime_obj
+#
+#     def __enter__(self):
+#         with temp_internal_comm(self._lifetime_obj.comm) as comm:
+#             # only overwrite if no object exists yet
+#             if comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL) is None:
+#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, self._lifetime_obj)
+#                 self._set = True
+#             else:
+#                 self._set = False
+#
+#     def __exit__(self, *exc):
+#         if self._set:
+#             with temp_internal_comm(self._lifetime_obj.comm) as comm:
+#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, None)

@@ -54,13 +54,26 @@ class InteriorFacetKernelArg(KernelArg):
     ...
 
 
+class ExteriorFacetVertKernelArg(KernelArg):
+    ...
+
+
 class OrientationsCellKernelArg(KernelArg):
     ...
 
 
+# duplicate?
 class OrientationsExteriorFacetKernelArg(KernelArg):
     ...
 
 
-class OrientationsInteriorFacetKernelArg(KernelArg):
+class InteriorFacetVertKernelArg(KernelArg):
+    ...
+
+
+class ExteriorFacetOrientationKernelArg(KernelArg):
+    ...
+
+
+class InteriorFacetOrientationKernelArg(KernelArg):
     ...

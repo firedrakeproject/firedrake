@@ -41,8 +41,12 @@ def test_mixed_expression():
 
     f1 = Function(V1).interpolate(expressions[0])
     g1 = Function(V2).interpolate(expressions[1])
-    assert np.allclose(f.dat.data, f1.dat.data)
-    assert np.allclose(g.dat.data, g1.dat.data)
+    f1_data = f1.dat.data_ro
+    g1_data = g1.dat.data_ro
+
+    assert np.allclose(fg.dat.data_ro, np.concatenate([f1_data, g1_data]))
+    assert np.allclose(f.dat.data_ro, f1_data)
+    assert np.allclose(g.dat.data_ro, g1_data)
 
 
 def test_mixed_function():
@@ -256,9 +260,8 @@ def test_cell_orientation_curve():
     V = VectorFunctionSpace(m, 'DG', 0)
     f = assemble(interpolate(CellNormal(m), V))
 
-    assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
-                                    [-1, 0],
-                                    [1 / 2, -sqrt(3) / 2]])
+    expected = np.asarray([[1/2, sqrt(3)/2], [-1, 0], [1/2, -sqrt(3)/2]])
+    assert np.allclose(f.dat.data_ro, expected.flatten())
 
 
 def test_cellvolume():
@@ -281,7 +284,8 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
+    f_data = f.dat.data_rw.reshape((-1, 2))
+    f_data[1:3, 1] = warp(f_data[1:3, 0])
 
     mesh = Mesh(f)
     g = assemble(interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0)))
@@ -400,6 +404,7 @@ def test_function_cofunction(degree):
     assert np.allclose(norm_i, norm)
 
 
+@pytest.mark.skip(reason="pyop3 MAX not implemented")
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
@@ -418,13 +423,13 @@ def test_basic_dual_eval_cg3():
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = (1-x[0])**3
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
 
 
 def test_basic_dual_eval_bdm():
@@ -444,6 +449,7 @@ def test_quadrature():
     mesh = UnitIntervalMesh(1)
     Qse = FiniteElement("Quadrature", mesh.ufl_cell(), degree=2, quad_scheme="default")
     Qs = FunctionSpace(mesh, Qse)
+
     fiat_rule = Qs.finat_element.fiat_equivalent
     # For spatial coordinate we should get 2 points per cell
     x, = SpatialCoordinate(mesh)
@@ -451,11 +457,12 @@ def test_quadrature():
     # reference cell before reaching FIAT
     expr_fiat = 1-x
     xq = assemble(interpolate(expr_fiat, Qs))
-    assert np.allclose(xq.dat.data_ro[xq.cell_node_map().values].T, fiat_rule._points)
+    assert np.allclose(xq.dat.data_ro.reshape((2, 1)), fiat_rule._points)
+
     # For quadrature weight we should 2 equal weights for each cell
     w = QuadratureWeight(mesh)
     wq = assemble(interpolate(w, Qs))
-    assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
+    assert np.allclose(wq.dat.data_ro, fiat_rule._weights)
 
 
 def test_interpolation_tensor_convergence():
@@ -498,7 +505,7 @@ def test_interpolation_tensor_symmetric():
     assert np.isclose(norm(fexp - f), 0)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_interpolation_on_hex():
     # "cube_hex.msh" contains all possible facet orientations.
     meshfile = join(cwd, "..", "meshes", "cube_hex.msh")

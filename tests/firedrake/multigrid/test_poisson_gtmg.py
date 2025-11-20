@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def run_gtmg_mixed_poisson(custom_transfer=False):

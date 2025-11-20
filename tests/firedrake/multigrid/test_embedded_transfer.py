@@ -10,8 +10,8 @@ def hierarchy():
 
     mh = MeshHierarchy(base, 3, distribution_parameters=distribution_parameters)
     for m in mh:
-        m.coordinates.dat.data[:, 0] -= 1
-        m.coordinates.dat.data[:, 1] -= 1
+        m.coordinates.dat.data_rw[::2] -= 1
+        m.coordinates.dat.data_rw[1::2] -= 1
     return mh
 
 
@@ -101,6 +101,8 @@ def solver(V, space, solver_parameters):
     return solver
 
 
+# FIXME: fails because of pcpatch
+@pytest.mark.parallel([1, 3])
 @pytest.mark.skipcomplexnoslate
 def test_riesz(V, solver, use_averaging):
     if use_averaging == "Default":
@@ -113,9 +115,3 @@ def test_riesz(V, solver, use_averaging):
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() < 15
-
-
-@pytest.mark.parallel(nprocs=3)
-@pytest.mark.skipcomplexnoslate
-def test_riesz_parallel(V, solver, use_averaging):
-    test_riesz(V, solver, use_averaging)

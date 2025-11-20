@@ -1,14 +1,36 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+
 from decorator import decorator
+from petsc4py import PETSc
+
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
+from pyop3.utils import (  # noqa: F401
+    OrderedSet,
+    readonly,
+    steps,
+    just_one,
+    single_valued,
+    is_single_valued,
+    has_unique_entries,
+    strictly_all,
+    debug_assert,
+    freeze,
+    strict_int,
+    StrictlyUniqueDict,
+    invert,
+    split_by,
+    as_tuple,
+)
+
 import petsctools
+
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -114,25 +136,6 @@ def tuplify(item):
     return tuple((k, tuplify(item[k])) for k in sorted(item))
 
 
-def split_by(condition, items):
-    """Split an iterable in two according to some condition.
-
-    :arg condition: Callable applied to each item in ``items``, returning ``True``
-        or ``False``.
-    :arg items: Iterable to split apart.
-    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
-        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
-        of those where ``condition`` is ``False``.
-    """
-    result = [], []
-    for item in items:
-        if condition(item):
-            result[0].append(item)
-        else:
-            result[1].append(item)
-    return tuple(result[0]), tuple(result[1])
-
-
 def assert_empty(iterator):
     """Check that an iterator has been fully consumed.
 
@@ -168,3 +171,13 @@ def deprecated(prefer=None, internal=False):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
+    """Return a non-null index set.
+
+    This function is useful because sometimes petsc4py returns index sets that
+    are not correctly initialised.
+
+    """
+    return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()

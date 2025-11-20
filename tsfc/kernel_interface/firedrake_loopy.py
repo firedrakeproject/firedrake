@@ -462,25 +462,35 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             args.append(kernel_args.ConstantKernelArg(funarg))
         coefficient_indices = tuple(tuple(v) for v in coefficient_indices.values())
         assert len(coefficient_indices) == len(info.coefficient_numbers)
+
         ext_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
             ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+        if info.integral_type == "exterior_facet":
+            kernel_arg_type = kernel_args.ExteriorFacetKernelArg
+        else:
+            kernel_arg_type = kernel_args.ExteriorFacetVertKernelArg
         active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_args.ExteriorFacetKernelArg,
+            kernel_arg_type,
             dtype=numpy.uint32,
         )
         args.extend(args_)
+
         int_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
             int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert"] else None
+        if info.integral_type == "interior_facet":
+            kernel_arg_type = kernel_args.InteriorFacetKernelArg
+        else:
+            kernel_arg_type = kernel_args.InteriorFacetVertKernelArg
         active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_args.InteriorFacetKernelArg,
+            kernel_arg_type,
             dtype=numpy.uint32,
         )
         args.extend(args_)
@@ -502,7 +512,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         active_domain_numbers_orientations_exterior_facet, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_args.OrientationsExteriorFacetKernelArg,
+            kernel_args.ExteriorFacetOrientationKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
@@ -513,7 +523,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         active_domain_numbers_orientations_interior_facet, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_args.OrientationsInteriorFacetKernelArg,
+            kernel_args.InteriorFacetOrientationKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)

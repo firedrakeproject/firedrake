@@ -51,6 +51,8 @@ from finat.ufl import *
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
+from pyop3 import READ, WRITE, RW, INC  # noqa: F401
+
 # Register possible citations
 import firedrake.citations  # noqa: F401
 petsctools.cite("FiredrakeUserManual")
@@ -65,6 +67,7 @@ from firedrake.deflation import *
 from firedrake.exceptions import *
 from firedrake.function import *
 from firedrake.functionspace import *
+from firedrake.functionspaceimpl import InvalidFunctionSpaceLayoutException
 from firedrake.interpolation import *
 from firedrake.linear_solver import *
 from firedrake.preconditioners import *
