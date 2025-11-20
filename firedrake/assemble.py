@@ -1501,21 +1501,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         )
 
         sparsity.buffer.set_diagonal(666)
-        # breakpoint()
-        # if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
-        #     for subspace in test.function_space():
-        #         i = subspace.index
-        #         op3.loop(
-        #             p := subspace.mesh().points.iter(),
-        #             sparsity[i, i][p, p].assign(666),
-        #             eager=True,
-        #         )
-        # else:
-        #     op3.loop(
-        #         p := test.function_space().mesh().points.iter(),
-        #         sparsity[p, p].assign(666),
-        #         eager=True,
-        #     )
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -2064,36 +2049,36 @@ class ParloopBuilder:
         else:
             raise AssertionError
 
-    @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
-    def _as_parloop_arg_constant(self, arg, index):
-        const = next(self._constants)
-        return const.dat
-
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, self._iterset)
+        coords = next(self._active_coordinates)
+        return pack_tensor(coords, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
         return pack_tensor(coeff, self._iterset)
 
+    @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
+    def _as_parloop_arg_constant(self, arg, index):
+        const = next(self._constants)
+        return const.dat
+
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
-        return pack_tensor(self._mesh.cell_orientations(), self._iterset)
+        func = next(self._active_cell_orientations)
+        return pack_tensor(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
-        raise NotImplementedError
-        func = self._mesh.cell_sizes
-        m = self._get_map(func.function_space())
-        return func.dat[m(index)]
+        func = next(self._active_cell_sizes)
+        return pack_tensor(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
         mesh = next(self._active_exterior_facets)
         if mesh is not self._mesh:
-            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
             assert integral_type == "exterior_facet"
         return mesh.exterior_facet_local_facet_indices[index]
 
@@ -2101,19 +2086,45 @@ class ParloopBuilder:
     def _as_parloop_arg_interior_facet(self, _, index):
         mesh = next(self._active_interior_facets)
         if mesh is not self._mesh:
-            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
             assert integral_type == "interior_facet"
         return mesh.interior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
     def _(self, _, index):
         raise NotImplementedError
+        next()
         return self._topology.exterior_facet_vert_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetVertKernelArg)
     def _(self, _, index):
         raise NotImplementedError
+        next()
         return self._topology.interior_facet_vert_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsCellKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_cell)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "cell"
+        return mesh.local_cell_orientation_dat[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_exterior_facet)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "exterior_facet"
+        return mesh._exterior_facet_local_orientation_dat[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_interior_facet)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "interior_facet"
+        return mesh._interior_facet_local_orientation_dat[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
@@ -2130,11 +2141,6 @@ class ParloopBuilder:
             comm=self._iterset.comm
         )
         return op2.GlobalParloopArg(glob)
-
-    @_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_exterior_facet_orientation(self, _, facet_index: op3.LoopIndex):
-        mesh = next(self._active_orientations_exterior_facet)
-        return mesh.exterior_facets.local_facet_orientation_dat[facet_index]
 
 
 class _FormHandler:

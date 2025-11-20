@@ -505,7 +505,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetOrientationKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+            ext_dict[domain] = (expr[None].expression, kernel_args.OrientationsExteriorFacetKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
         active_domain_numbers_orientations_exterior_facet, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
@@ -515,7 +515,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         int_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetOrientationKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
+            int_dict[domain] = (expr['+'].expression, kernel_args.OrientationsInteriorFacetKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
         active_domain_numbers_orientations_interior_facet, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,

@@ -508,7 +508,8 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 
 @_as_context_free_indices.register(slice)
 @_as_context_free_indices.register(numbers.Integral)
-def _(obj: slice, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
+@_as_context_free_indices.register(UnparsedSlice)
+def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 

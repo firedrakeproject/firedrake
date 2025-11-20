@@ -84,7 +84,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             sf = StarForest(petsc_sf, size)
             sfs.append(sf)
         elif subaxis := axis_tree.node_map.get(path_):
-            if component.local_size > 1:  # parallel unsafe
+            if isinstance(size := component.size, numbers.Integral) and size > 1:
                 raise NotImplementedError("This will be very inefficient")
 
             # FIXME: Only need to call the inner bit once and repeatedly add?

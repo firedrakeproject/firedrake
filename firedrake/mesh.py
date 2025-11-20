@@ -549,6 +549,110 @@ class AbstractMeshTopology(abc.ABC):
         axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.as_axis(), 2])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
+    @cached_property
+    def _exterior_facet_local_numbers_dat(self):
+        return self._local_facet_numbers_dat("exterior")
+
+    @cached_property
+    def _interior_facet_local_numbers_dat(self):
+        return self._local_facet_numbers_dat("interior")
+
+    # TODO: Make a standalone function
+    def _local_facet_numbers_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
+        if facet_type == "exterior":
+            facet_axes = self.exterior_facets
+            arity = 1
+        else:
+            assert facet_type == "interior"
+            facet_axes = self.interior_facets
+            arity = 2
+
+        local_facet_numbers = dmcommon.local_facet_number(self, facet_type)
+        owned_local_facet_numbers = local_facet_numbers[:facet_axes.owned.local_size]
+
+        # only ghost facets can have negative entries
+        utils.debug_assert(lambda: (owned_local_facet_numbers >= 0).all())
+
+        # FIXME: cast dtype, should be avoidable
+        owned_local_facet_numbers = owned_local_facet_numbers.astype(np.uint32)
+
+        axes = op3.AxisTree.from_iterable([facet_axes.owned.as_axis(), arity])
+        return op3.Dat(axes, data=owned_local_facet_numbers.flatten())
+
+    @cached_property
+    def _exterior_facet_local_orientation_dat(self) -> op3.Dat:
+        return self._local_facet_orientation_dat("exterior")
+
+    @cached_property
+    def _interior_facet_local_orientation_dat(self) -> op3.Dat:
+        return self._local_facet_orientation_dat("interior")
+
+    # TODO: make a standalone function
+    def _local_facet_orientation_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
+        if facet_type == "exterior":
+            local_facet_numbers_dat = self._exterior_facet_local_numbers_dat
+            arity = 1
+            facet_to_cell_map = self._facet_support_dat("exterior").data_ro
+        else:
+            assert facet_type == "interior"
+            local_facet_numbers_dat = self._interior_facet_local_numbers_dat
+            arity = 2
+            facet_to_cell_map = self._facet_support_dat("interior").data_ro
+
+        facet_to_cell_map = facet_to_cell_map.reshape((-1, arity))
+
+        dtype = gem.uint_type
+        # Make a map from cell to facet orientations.
+        fiat_cell = as_fiat_cell(self.ufl_cell())
+        topo = fiat_cell.topology
+        num_entities = [0]
+        for d in range(len(topo)):
+            num_entities.append(len(topo[d]))
+        offsets = np.cumsum(num_entities)
+        local_facet_start = offsets[-3]
+        local_facet_end = offsets[-2]
+        map_from_cell_to_facet_orientations = self.entity_orientations[:, local_facet_start:local_facet_end]
+
+        # but shuffle to use the cell renumbering
+        # NOTE: I am guessing that it is this way around
+        # map_from_cell_to_facet_orientations = map_from_cell_to_facet_orientations[self._new_to_old_cell_numbering]
+        map_from_cell_to_facet_orientations = map_from_cell_to_facet_orientations[self._old_to_new_cell_numbering_is.indices]
+
+        # Make output data;
+        # this is a map from an exterior/interior facet to the corresponding
+        # local facet orientation/orientations.
+        # The local facet orientation/orientations of a halo facet is/are also
+        # used in some submesh problems.
+        #
+        #  Example:
+        #
+        #         +-------+-------+
+        #         |       |       |
+        #  meshA  |   g   g   o   |
+        #         |       |       |
+        #         +-------+-------+
+        #                 +-------+
+        #                 |       |
+        #  meshB          o   o   |    o: owned
+        #                 |       |    g: ghost
+        #                 +-------+
+        #
+        #  form = FacetNormal(meshA)[0] * ds(meshB, interface)
+        #
+        # Reshape local_facets as (-1, self._rank) to uniformly handle exterior and interior facets.
+        local_facets = local_facet_numbers_dat.data_ro.reshape((-1, arity))
+        # Make slice for masking out rows for which orientations are not needed.
+        slice_ = (facet_to_cell_map != -1).all(axis=1)
+        data = np.full_like(local_facets, np.iinfo(dtype).max)
+        data[slice_, :] = np.take_along_axis(
+            map_from_cell_to_facet_orientations[facet_to_cell_map[slice_, :]],
+            local_facets.reshape(local_facets.shape + (1, ))[slice_, :, :],  # reshape as required by take_along_axis.
+            axis=2,
+        ).reshape(local_facets.shape)
+        return op3.Dat(
+            local_facet_numbers_dat.axes, data=data.flatten(),
+            name=f"{self.name}_{facet_type}_local_facet_orientation"
+        )
 
     @property
     @abc.abstractmethod
@@ -740,12 +844,6 @@ class AbstractMeshTopology(abc.ABC):
         of orientations.
         """
         pass
-
-    # @property
-    # @abc.abstractmethod
-    # def local_cell_orientation_dat(self):
-    #     """Local cell orientation dat."""
-    #     pass
 
     @property
     @abc.abstractmethod
@@ -1767,6 +1865,16 @@ class MeshTopology(AbstractMeshTopology):
         assert axis_tree.local_size == self.entity_orientations.size
         return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
 
+    @cached_property
+    def local_cell_orientation_dat(self):
+        return self.entity_orientations_dat[:, op3.as_slice(self.cell_label)]
+        # return op2.Dat(
+        #     op2.DataSet(self.cell_set, 1),
+        #     self.entity_orientations[:, [-1]],
+        #     gem.uint_type,
+        #     f"{self.name}_local_cell_orientation"
+        # )
+
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
             return self._memoize_map_fixed(map_func, dim, sizes), sizes
@@ -2131,33 +2239,53 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
-        raise NotImplementedError
-        _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(
+            self.interior_facets,
+            self.submesh_parent.interior_facets,
+            self._interior_facet_plex_indices.indices,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            True,
+        )
 
     @cached_property
     def submesh_child_cell_parent_interior_facet_map(self):
-        raise NotImplementedError
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(
+            self.cells,
+            self.submesh_parent.interior_facets,
+            self._new_to_old_cell_numbering,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            True,
+        )
 
     @cached_property
     def submesh_child_cell_parent_exterior_facet_map(self):
-        raise NotImplementedError
-        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self._new_to_old_cell_numbering, _parent_numbers, True)
+        return self._submesh_make_entity_entity_map(
+            self.cells,
+            self.submesh_parent.exterior_facets,
+            self._new_to_old_cell_numbering,
+            self.submesh_parent._exterior_facet_plex_indices.indices,
+            True,
+        )
 
     @cached_property
     def submesh_parent_cell_child_cell_map(self):
-        return self._submesh_make_entity_entity_map(self.submesh_parent.cells, self.cells, self.submesh_parent._new_to_old_cell_numbering, self._new_to_old_cell_numbering, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.cells,
+            self.cells,
+            self.submesh_parent._new_to_old_cell_numbering,
+            self._new_to_old_cell_numbering,
+            False,
+        )
 
     @cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
-        raise NotImplementedError
-        _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.exterior_facets,
+            self.exterior_facets,
+            self.submesh_parent._exterior_facet_plex_indices.indices,
+            self._exterior_facet_plex_indices.indices,
+            False,
+        )
 
     @cached_property
     def submesh_parent_exterior_facet_child_interior_facet_map(self):
@@ -2175,22 +2303,33 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
-        raise NotImplementedError
-        _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.interior_facets,
+            self.interior_facets,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            self._interior_facet_plex_indices.indices,
+            False,
+        )
 
     @cached_property
     def submesh_parent_exterior_facet_child_cell_map(self):
-        raise NotImplementedError
-        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.exterior_facets,
+            self.cells,
+            self.submesh_parent._exterior_facet_plex_indices.indices,
+            self._new_to_old_cell_numbering,
+            False,
+        )
 
     @cached_property
     def submesh_parent_interior_facet_child_cell_map(self):
-        raise NotImplementedError
-        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self._new_to_old_cell_numbering, False)
+        return self._submesh_make_entity_entity_map(
+            self.submesh_parent.interior_facets,
+            self.cells,
+            self.submesh_parent._interior_facet_plex_indices.indices,
+            self._new_to_old_cell_numbering,
+            False,
+        )
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.
@@ -2296,7 +2435,6 @@ class MeshTopology(AbstractMeshTopology):
             map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
         else:
             map_ = getattr(self, f"submesh_child_{source_integral_type}_parent_{target_integral_type}_map")
-        breakpoint()
         return map_, target_integral_type, target_subset_points
 
     # trans mesh

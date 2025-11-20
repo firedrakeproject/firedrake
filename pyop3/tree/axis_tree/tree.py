@@ -1899,6 +1899,7 @@ class UnitIndexedAxisTree(DistributedObject):
 
 
 def find_matching_target(self):
+    # NOTE: I don't currently know why we still need this, but we apparently do as things otherwise fail
     matching_targets = []
     for target in self.targets:
         all_leaves_match = True
@@ -1913,7 +1914,8 @@ def find_matching_target(self):
             # NOTE: We assume that if we get an empty target path then something has
             # gone wrong. This is needed because of .get() calls which are needed
             # because sometimes targets are incomplete.
-            if not target_path or not target_path in self.unindexed.node_map:
+            # if not target_path or not target_path in self.unindexed.node_map:
+            if not target_path or not target_path in self.unindexed.leaf_paths:
                 all_leaves_match = False
                 break
 

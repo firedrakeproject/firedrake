@@ -11,7 +11,7 @@ import functools
 import numbers
 import warnings
 import operator
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property, reduce
@@ -630,9 +630,6 @@ class FunctionSpace:
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
-        if layout is None:
-            layout = ()
-
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -681,6 +678,9 @@ class FunctionSpace:
         nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
         real_tensor_product = is_real_tensor_product_element(self.finat_element)
         key = (nodes_per_entity, real_tensor_product, self.shape)
+
+        if layout is None:
+            layout = ("mesh", "dof") + tuple(f"dim{i}" for i in range(self.rank))
 
         self.layout = layout
         self.extruded = isinstance(mesh, ExtrudedMeshTopology)
@@ -760,9 +760,7 @@ class FunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        retval = layout_from_spec(self.layout, self.axis_constraints)
-        retval.subst_layouts()  # debugging
-        return retval
+        return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
@@ -2393,15 +2391,18 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
         if axis_spec not in candidate_axis_specs
     )
 
-    if axis_specs:
+    if axis_specs:  # are there any remaining axes to attach?
         axis_nest = {selected_axis: []}
         if len(layout_spec) > 1:
             # 'sub_layout_specs' can either be flat (e.g. '["axis1", "axis2"]')
             # or nested (e.g. '[["axis1", ["axis2"]], ["axis3"]]'). If the former
             # then the spec is broadcasted to all components. Otherwise we assume
             # that the spec is per-component.
+            # Using the example from above, '["axis1", "axis2"]' gets exploded to
+            # [["axis1", "axis2"], ["axis1", "axis2"]] (assuming there are two
+            # components for the current axis).
             if isinstance(layout_spec[1], str):  # flat case
-                sub_layout_specs = [layout_spec[1]] * len(selected_axis.components)
+                sub_layout_specs = [layout_spec[1:]] * len(selected_axis.components)
             else:  # nested
                 assert len(layout_spec) == 2
                 sub_layout_specs = layout_spec[1]
@@ -2441,7 +2442,7 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
 
         return idict(axis_nest)
     else:
-        assert not sub_layout_specs, "More layout information provided than available axes"
+        assert not layout_spec[1:], "More layout information provided than available axes"
         return selected_axis
 
 
@@ -2472,7 +2473,7 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
 
 def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequence[AxisConstraint]]) -> tuple[AxisConstraint]:
     # start by collecting like axes
-    axis_info = collections.defaultdict(dict)
+    axis_info: defaultdict[op3.Axis, dict[op3.ComponentLabelT, idict]] = defaultdict(dict)
     for root_component, constraints in zip(root_axis.components, axis_constraintss, strict=True):
         for constraint in constraints:
             axis_info[constraint.axis][root_component.label] = constraint.within_axes
@@ -2484,10 +2485,14 @@ def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequ
     #
     # * Consider the "dof" axis for a mixed space with identical subspaces:
     #
-    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}
+    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}}
     #
-    #   The constraints are identical for all components and so do not need to
-    #   be specialised. The final constraint is thus:
+    #   Here this is saying that 'dof_axis' exists under root components 0 and 1
+    #   and each time must satisfy the constraint of having '{"mesh": None}'
+    #   above them.
+    #
+    #   Since the constraints are identical for all components they do not need
+    #   to be specialised. The final constraint is thus:
     #
     #     AxisConstraint(dof_axis, {"mesh": None})
     #

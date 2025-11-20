@@ -392,7 +392,8 @@ def _(
     We use the terminology of 'local' and 'global' representations of the packed data.
 
     """
-    if space.mesh().topology != iter_spec.mesh.topology:
+    # vom case
+    if space.mesh().submesh_youngest_common_ancester(iter_spec.mesh) is None:
         breakpoint()
         loop_index = iter_spec.mesh.cell_parent_cell_map(iter_spec.loop_index)
 

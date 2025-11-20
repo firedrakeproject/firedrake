@@ -182,24 +182,24 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_various():
     v_l, v_rl = TestFunctions(V)
     a = inner(u_rl, v_l) * ds_l(label_int) + inner(u_l, v_rl) * ds_rl(label_int)
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0, 0, 0])
-    assert np.allclose(A.M.sparsity[1][0].nnz, [4, 4, 4, 4])
-    assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 0), [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 1), [4, 4, 4, 4, 0, 0, 0, 0])
+    assert np.allclose(get_sparsity(A, 1, 0), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A, 1, 1), [1, 1, 1, 1])  # bc nodes
     M10 = np.array([[0., 0., 1. / 3., 1. / 6., 0., 0., 0., 0.],
                     [0., 0., 1. / 6., 1. / 3., 0., 0., 0., 0.],
                     [0., 0., 0., 0., 0., 0., 0., 0.],
                     [0., 0., 0., 0., 0., 0., 0., 0.]])
-    assert np.allclose(A.M[0][1].values, np.transpose(M10))
-    assert np.allclose(A.M[1][0].values, M10)
+    assert np.allclose(get_values(A, 0, 1), np.transpose(M10))
+    assert np.allclose(get_values(A, 1, 0), M10)
     b = inner(u_rl, v_l) * dS(label_int) + inner(u_l, v_rl) * dS(label_int)
     B = assemble(b, mat_type="nest")
-    assert np.allclose(B.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
-    assert np.allclose(B.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0, 0, 0])
-    assert np.allclose(B.M.sparsity[1][0].nnz, [4, 4, 4, 4])
-    assert np.allclose(B.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
-    assert np.allclose(B.M[0][1].values, A.M[0][1].values)
-    assert np.allclose(B.M[1][0].values, A.M[1][0].values)
+    assert np.allclose(get_sparsity(B, 0, 0), [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(B, 0, 1), [4, 4, 4, 4, 0, 0, 0, 0])
+    assert np.allclose(get_sparsity(B, 1, 0), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(B, 1, 1), [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_values(B, 0, 1), get_values(A, 0, 1))
+    assert np.allclose(get_values(B, 1, 0), get_values(A, 1, 0))
 
 
 def test_submesh_assemble_cell_cell_cell_cell_integral_avg():
@@ -338,10 +338,10 @@ def test_submesh_assemble_cell_cell_equation_bc():
     assert np.allclose(Function(V_l).interpolate(SpatialCoordinate(mesh_l)[1]).dat.data, [0., 1., 1., 0.])
     assert np.allclose(Function(V_r).interpolate(SpatialCoordinate(mesh_r)[0]).dat.data, [1., 1., 2., 2.])
     assert np.allclose(Function(V_r).interpolate(SpatialCoordinate(mesh_r)[1]).dat.data, [0., 1., 1., 0.])
-    assert np.allclose(A.M.sparsity[0][0].nnz, [4, 4, 4, 4])
-    assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4])
-    assert np.allclose(A.M.sparsity[1][0].nnz, [0, 0, 0, 0])
-    assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
+    assert np.allclose(get_sparsity(A, 0, 0), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A, 0, 1), [4, 4, 4, 4])
+    assert np.allclose(get_sparsity(A, 1, 0), [0, 0, 0, 0])
+    assert np.allclose(get_sparsity(A, 1, 1), [1, 1, 1, 1])  # bc nodes
     M00 = np.array([[1. / 9. , 1. / 18., 1. / 36., 1. / 18.],  # noqa: E203
                     [1. / 18., 1. / 9. , 1. / 18., 1. / 36.],  # noqa: E203
                     [0., 0., 1. / 3., 1. / 6.],
@@ -350,8 +350,8 @@ def test_submesh_assemble_cell_cell_equation_bc():
                     [0., 0., 0., 0.],
                     [- 1. / 6., - 1. / 3., 0., 0.],
                     [- 1. / 3., - 1. / 6., 0., 0.]])
-    assert np.allclose(A.M[0][0].values, M00)
-    assert np.allclose(A.M[0][1].values, M01)
+    assert np.allclose(get_values(A, 0, 0), M00)
+    assert np.allclose(get_values(A, 0, 1), M01)
 
 
 def test_submesh_assemble_cell_facet_integral_various():
@@ -422,22 +422,22 @@ def test_submesh_assemble_cell_facet_integral_various():
     )
     a = inner(u0('-'), v1) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10)
+    assert np.allclose(get_values(A, 1, 0), M10)
     a = inner(u1, v0('+')) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[0][1].values, np.transpose(M10))
+    assert np.allclose(get_values(A, 0, 1), np.transpose(M10))
     a = y * inner(u0('-'), v1) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10w)
+    assert np.allclose(get_values(A, 1, 0), M10w)
     a = y * suby * inner(u0('-'), v1) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10ww)
+    assert np.allclose(get_values(A, 1, 0), M10ww)
     a = coords0[1] * inner(u0('-'), v1) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10w)
+    assert np.allclose(get_values(A, 1, 0), M10w)
     a = coords0[1] * coords1[1] * inner(u0('-'), v1) * measure
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10ww)
+    assert np.allclose(get_values(A, 1, 0), M10ww)
     # Use mesh as primal integration domain.
     measure = Measure(
         "dS", mesh,
@@ -447,10 +447,10 @@ def test_submesh_assemble_cell_facet_integral_various():
     )
     a = inner(u0('+'), v1) * measure(subdomain_id)
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[1][0].values, M10)
+    assert np.allclose(get_values(A, 1, 0), M10)
     a = inner(u1, v0('-')) * measure(subdomain_id)
     A = assemble(a, mat_type="nest")
-    assert np.allclose(A.M[0][1].values, np.transpose(M10))
+    assert np.allclose(get_values(A, 0, 1), np.transpose(M10))
 
 
 @pytest.mark.parallel([1, 2, 3])
@@ -529,25 +529,25 @@ def test_submesh_assemble_quad_triangle():
     c_ref = x_q**2 * y_q**2
     a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_t(label_interf)
     A_ref = assemble(a_ref)
-    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    assert np.allclose(get_values(A, 1, 0), A_ref.M.values)
     c = x_t**2 * y_q**2
     a = c * inner(u_q, v_t) * ds_t(label_interf)
     A = assemble(a)
     c_ref = x_q**2 * y_t**2
     a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_t(label_interf)
     A_ref = assemble(a_ref)
-    assert np.allclose(A.M[0][1].values, A_ref.M.values)
+    assert np.allclose(get_values(A, 0, 1), A_ref.M.values)
     c = dot(n_t, n_t)
     a = c * inner(u_t, v_q) * ds_q(label_interf)
     A = assemble(a)
     c_ref = dot(n_q, n_q)
     a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_q(label_interf)
     A_ref = assemble(a_ref)
-    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    assert np.allclose(get_values(A, 1, 0), A_ref.M.values)
     c = dot(n_t, n_q)
     a = c * inner(u_q, v_t) * ds_q(label_interf)
     A = assemble(a)
     c_ref = dot(n_q, n_t)
     a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_q(label_interf)
     A_ref = assemble(a_ref)
-    assert np.allclose(A.M[0][1].values, A_ref.M.values)
+    assert np.allclose(get_values(A, 0, 1), A_ref.M.values)
