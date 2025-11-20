@@ -209,7 +209,8 @@ class Interpolator(abc.ABC):
         """The dual argument slot of the Interpolate expression."""
         self.target_space = dual_arg.function_space().dual()
         """The primal space we are interpolating into."""
-        self.target_mesh = self.target_space.mesh().unique()
+        # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
+        self.target_mesh = self.target_space.mesh()
         """The domain we are interpolating into."""
         self.source_mesh = extract_unique_domain(operand) or self.target_mesh
         """The domain we are interpolating from."""
@@ -254,16 +255,16 @@ class Interpolator(abc.ABC):
         """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
 
-        * rank-2: assemble the operator and return a matrix
-        * rank-1: assemble the action and return a function or cofunction
-        * rank-0: assemble the action and return a scalar by applying the dual argument
+        * rank 2: assemble the operator and return a matrix
+        * rank 1: assemble the action and return a function or cofunction
+        * rank 0: assemble the action and return a scalar by applying the dual argument
 
         Parameters
         ----------
         tensor
-            Optional tensor to store the interpolated result. For rank-2
+            Optional tensor to store the interpolated result. For rank 2
             expressions this is expected to be a subclass of
-            :class:`~firedrake.matrix.MatrixBase`. For lower-rank expressions
+            :class:`~firedrake.matrix.MatrixBase`. For rank 1 expressions
             this is a :class:`~firedrake.function.Function` or :class:`~firedrake.cofunction.Cofunction`,
             for forward and adjoint interpolation respectively.
         bcs
@@ -316,7 +317,9 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     try:
         source_mesh = extract_unique_domain(operand) or target_mesh
     except ValueError:
-        raise NotImplementedError("Interpolating an expression defined on multiple meshes is not implemented yet.")
+        raise NotImplementedError(
+            "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+        )
 
     try:
         target_mesh = target_mesh.unique()
@@ -384,6 +387,7 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
+        self.target_mesh = self.target_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -555,6 +559,7 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr):
         super().__init__(expr)
+        self.target_mesh = self.target_mesh.unique()
         subset = self.subset
         if subset is None:
             target = self.target_mesh.topology
@@ -623,8 +628,8 @@ class SameMeshInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None):
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
-            # adjoint one-form case: we need a zero tensor, so if it shares dats with
-            # the dual_arg we cannot use it directly
+            # adjoint one-form case: we need an empty tensor, so if it shares dats with
+            # the dual_arg we cannot use it directly, so we store it
             f = self._get_tensor()
             copyout = (partial(f.dat.copy, tensor.dat),)
         else:
@@ -765,10 +770,14 @@ def _build_interpolation_callables(
         # Reconstruct the expression as an Interpolate
         V = expr.arguments()[-1].function_space().dual()
         expr = interpolate(zero(V.value_shape), V)
+
     if not isinstance(expr, Interpolate):
         raise ValueError("Expecting to interpolate a symbolic Interpolate expression.")
+
     dual_arg, operand = expr.argument_slots()
+    assert isinstance(dual_arg, Cofunction | Coargument)
     V = dual_arg.function_space().dual()
+
     try:
         to_element = create_element(V.ufl_element())
     except KeyError:
@@ -808,8 +817,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    needs_weight = isinstance(dual_arg, Cofunction) and not to_element.is_dg()
-    if needs_weight:
+    if isinstance(dual_arg, Cofunction) and not to_element.is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -1184,14 +1192,6 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_c
     )
 
 
-class GlobalWrapper(object):
-    """Wrapper object that fakes a Global to behave like a Function."""
-    def __init__(self, glob):
-        self.dat = glob
-        self.cell_node_map = lambda *arguments: None
-        self.ufl_domain = lambda: None
-
-
 class VomOntoVomMat:
     """
     Object that facilitates interpolation between a VertexOnlyMesh and its
@@ -1523,13 +1523,15 @@ class MixedInterpolator(Interpolator):
         """
         super().__init__(expr)
 
-    def _get_sub_interpolators(self, bcs: Iterable[DirichletBC] | None = None) -> dict[tuple[int, int], tuple[Interpolator, list[DirichletBC]]]:
-        """Gets `Interpolator`s anf boundary conditions for each sub-Interpolate
+    def _get_sub_interpolators(
+            self, bcs: Iterable[DirichletBC] | None = None
+    ) -> dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]]:
+        """Gets `Interpolator`s and boundary conditions for each sub-Interpolate
         in the mixed expression.
 
         Returns
         -------
-        dict[tuple[int, int], tuple[Interpolator, list[DirichletBC]]]
+        dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]]
             A map from block index tuples to `Interpolator`s and bcs.
         """
         # Get the primal spaces
@@ -1549,7 +1551,7 @@ class MixedInterpolator(Interpolator):
             self.ufl_interpolate = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
 
         # Get sub-interpolators and sub-bcs for each block
-        Isub: dict[tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
+        Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
         for indices, form in split_form(self.ufl_interpolate):
             if isinstance(form, ZeroBaseForm):
                 # Ensure block sparsity
