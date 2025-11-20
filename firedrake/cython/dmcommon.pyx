@@ -4257,3 +4257,36 @@ def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
     filtered_is = is_.duplicate()
     PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
     return filtered_is
+
+
+# TODO: also do for ragged maps
+# TODO: the naming conventions here do not make it clear that we are 'localising'
+# the indices when we call getOffset
+def renumber_map_fixed(
+    # src_pts: np.ndarray[IntType, ndim=1],  should be cnp.ndarray...
+    # map_data: np.ndarray[IntType, ndim=2],
+    src_pts,
+    map_data,
+    src_numbering: PETSc.Section,
+    dest_numbering: PETSc.Section,
+) -> np.ndarray[IntType]:
+    """
+    """
+    cdef:
+        PetscInt num_src_pts_c, num_dest_pts_c, i_c, j_c, src_pt_c, src_pt_renum_c, dest_pt_c, dest_pt_renum_c
+
+    num_src_pts_c, num_dest_pts_c = map_data.shape
+    assert src_pts.shape == (num_src_pts_c,)
+
+    map_data_renum = np.empty_like(map_data)
+    for i_c in range(num_src_pts_c):
+        src_pt_c = src_pts[i_c]
+        PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
+        for j_c in range(num_dest_pts_c):
+            dest_pt_c = map_data[i_c, j_c]
+            if dest_numbering.getDof(dest_pt_c) == 1:
+                PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
+                map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
+            else:
+                map_data_renum[src_pt_renum_c, j_c] = -1
+    return utils.readonly(map_data_renum)

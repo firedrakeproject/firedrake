@@ -1105,15 +1105,19 @@ class AbstractMeshTopology(abc.ABC):
         return self._star(k=k)(index)
 
     # TODO: Cythonize
-    def _renumber_map(self, map_pts, src_dim, dest_dim, sizes=None):
+    def _renumber_map(self, map_pts, src_dim, dest_dim, sizes=None, *, src_mesh = None):
         """
         sizes :
             If `None` implies non-ragged
         """
-        src_renumbering = self._plex_to_entity_numbering(src_dim)
+        # debug
+        if src_mesh is None:
+            src_mesh = self
+
+        src_renumbering = src_mesh._plex_to_entity_numbering(src_dim)
         dest_renumbering = self._plex_to_entity_numbering(dest_dim)
 
-        src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
+        src_start, src_end = src_mesh.topology_dm.getDepthStratum(src_dim)
         dest_start, dest_end = self.topology_dm.getDepthStratum(dest_dim)
 
         map_pts_renum = np.empty_like(map_pts)
@@ -2178,22 +2182,41 @@ class MeshTopology(AbstractMeshTopology):
 
     # submesh
 
-    def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, child_parent_map):
+    def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, from_numbering, to_numbering, child_parent_map):
         assert from_set.local_size == len(from_points)
         assert to_set.local_size == len(to_points)
-        with self.topology_dm.getSubpointIS() as subpoints:
-            if child_parent_map:
-                _, from_indices, to_indices = np.intersect1d(subpoints[from_points], to_points, return_indices=True)
-            else:
-                _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
-        values = np.full(from_set.local_size, -1, dtype=IntType)
-        values[from_indices] = to_indices
+        # this always maps from child plex point to parent plex point
+        subpoint_is = self.topology_dm.getSubpointIS()
+        if child_parent_map:
+            # this is a dense map from the child points to the parent points
+            plex_index_map = subpoint_is.indices
+        else:
+            # this is a sparse map from the parent points (of a particular type) to the child points
+            # first need to construct it...
+            parent_to_child_plex_indices = np.full(self.submesh_parent.num_points, -1, dtype=IntType)
+            parent_to_child_plex_indices[subpoint_is.indices] = np.arange(subpoint_is.size, dtype=IntType)
+            plex_index_map = parent_to_child_plex_indices
+
+        subpoints = plex_index_map[from_points]
+        values = dmcommon.renumber_map_fixed(
+            from_points,
+            subpoints[:, np.newaxis],  # arity 1 map between plex points
+            from_numbering,
+            to_numbering,
+        )
+        breakpoint()
+        # if child_parent_map:
+        #     _, from_indices, to_indices = np.intersect1d(subpoints[from_points], to_points, return_indices=True)
+        # else:
+        #     _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
+        # values = np.full(from_set.local_size, -1, dtype=IntType)
+        # values[from_indices] = to_indices
         map_name = f"{self.name}_submesh_map_{from_set.root.label}_{to_set.root.label}"
         to_label = to_set.as_axis().component.label
         map_axes = op3.AxisTree.from_iterable([
             from_set.as_axis(), op3.Axis(1, map_name)
         ])
-        map_dat = op3.Dat(map_axes, data=values)
+        map_dat = op3.Dat(map_axes, data=values.flatten())
         return op3.Map(
             {
                 from_set.leaf_path: [[
@@ -2208,8 +2231,10 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(
             self.cells,
             self.submesh_parent.cells,
-            self._new_to_old_cell_numbering,
-            self.submesh_parent._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+            PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
+            self._old_to_new_cell_numbering,
+            self.submesh_parent._old_to_new_cell_numbering,
             True,
         )
 
@@ -2220,6 +2245,8 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.exterior_facets,
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._exterior_facet_plex_indices.indices,
+            self._old_to_new_exterior_facet_numbering,
+            self.submesh_parent._old_to_new_exterior_facet_numbering,
             True,
         )
 
@@ -2230,6 +2257,8 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.interior_facets,
             self._exterior_facet_plex_indices.indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
+            self._old_to_new_exterior_facet_numbering,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
             True,
         )
 
@@ -2244,6 +2273,8 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.interior_facets,
             self._interior_facet_plex_indices.indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
+            self._old_to_new_interior_facet_numbering,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
             True,
         )
 
@@ -2252,8 +2283,10 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(
             self.cells,
             self.submesh_parent.interior_facets,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
             self.submesh_parent._interior_facet_plex_indices.indices,
+            self._old_to_new_cell_numbering,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
             True,
         )
 
@@ -2298,6 +2331,8 @@ class MeshTopology(AbstractMeshTopology):
             self.exterior_facets,
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._exterior_facet_plex_indices.indices,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
+            self._old_to_new_exterior_facet_numbering,
             False,
         )
 
@@ -2308,6 +2343,8 @@ class MeshTopology(AbstractMeshTopology):
             self.interior_facets,
             self.submesh_parent._interior_facet_plex_indices.indices,
             self._interior_facet_plex_indices.indices,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
+            self._old_to_new_interior_facet_numbering,
             False,
         )
 
@@ -2473,6 +2510,7 @@ class MeshTopology(AbstractMeshTopology):
         elif base_mesh is self:
             raise NotImplementedError("Currently cannot return identity map")
         else:
+            breakpoint()  # FIXME: see  _submesh_make_entity_entity_map for what to do!
             if base_integral_type == "cell":
                 base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
             elif base_integral_type in ["interior_facet", "exterior_facet"]:

@@ -1604,19 +1604,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # NOTE: This means that we are always looping over the 'row mesh' - is this
                     # always the right thing to do?
                     iterset = get_iteration_spec(mesh, integral_type, "everywhere")
-                    index = iterset.iter()
+                    index = iterset.loop_index
 
-                    rmap = Vrow.topological.entity_node_map(mesh.topology, integral_type, None, None)
-                    cmap = Vcol.topological.entity_node_map(mesh.topology, integral_type, None, None)
+                    rmap = Vrow.topological.entity_node_map(iterset)
+                    cmap = Vcol.topological.entity_node_map(iterset)
 
-                    # if integral_type == "cell":
-                    #     # rmap = mesh.closure(index)
-                    # else:
-                    #     assert "facet" in integral_type
-                    #     rmap = mesh.closure(mesh.support(index))
-                    #     cmap = rmap
-
-                    loop = (index, rmap(index), cmap(index), (i, j))
+                    loop = (index, rmap, cmap, (i, j))
                     loops.append(loop)
         return tuple(loops)
 
