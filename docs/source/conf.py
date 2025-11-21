@@ -171,6 +171,7 @@ linkcheck_ignore = [
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
+    r'https://fluids.leeds.ac.uk/',
 ]
 linkcheck_timeout = 30
 
