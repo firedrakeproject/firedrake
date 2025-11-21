@@ -523,15 +523,6 @@ class _SNESContext(object):
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
 
-        # Bump petsc matrix state of each split by assembling them.
-        # Ensures that if the matrix changed, the preconditioner is
-        # updated if necessary.
-        for fields, splits in ctx._splits.items():
-            for subctx in splits:
-                subctx._jac.assemble()
-                if subctx.Jp is not None:
-                    subctx._pjac.assemble()
-
     @staticmethod
     def compute_operators(ksp, J, P):
         r"""Form the Jacobian for this problem

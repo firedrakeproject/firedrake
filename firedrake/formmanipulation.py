@@ -160,7 +160,7 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
     def matrix(self, o):
-        from firedrake.bcs import DirichletBC
+        from firedrake.bcs import DirichletBC, EquationBCSplit
         ises = []
         args = []
         for a in o.arguments():
@@ -180,6 +180,7 @@ class ExtractSubBlock(MultiFunction):
             args.append(asplit)
 
         submat = o.petscmat.createSubMatrix(*ises)
+
         bcs = []
         spaces = [a.function_space() for a in o.arguments()]
         for bc in o.bcs:
@@ -191,11 +192,14 @@ class ExtractSubBlock(MultiFunction):
             V = args[number].function_space()
             field = self.blocks[number]
             if isinstance(bc, DirichletBC):
-                sub_bc = bc.reconstruct(field=field, V=V, g=bc.function_arg)
-            else:
-                raise NotImplementedError(f"Extracting matrix subblocks not supported with {type(bc).__name__}. Please get in touch if you need this.")
-            if sub_bc is not None:
-                bcs.append(sub_bc)
+                bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
+            elif isinstance(bc, EquationBCSplit):
+                row_field = self.blocks[0]
+                col_field = self.blocks[1]
+                bc_temp = bc.reconstruct(field=field, V=V, row_field=row_field, col_field=col_field, use_split=True)
+            if bc_temp is not None:
+                bcs.append(bc_temp)
+
         return AssembledMatrix(tuple(args), tuple(bcs), submat)
 
     def zero_base_form(self, o):
