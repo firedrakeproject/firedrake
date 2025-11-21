@@ -2,7 +2,7 @@
 name = "firedrake"
 # <year>.<month>.<patch>
 # TODO RELEASE
-version = "2025.10.2.dev0"
+version = "2025.10.3.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -42,7 +42,6 @@ dependencies = [
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
-  "vtk",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -85,6 +84,7 @@ docs = [
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
   "sphinx-copybutton",
+  "vtk",  # needed to resolve API
 ]
 jax = [
   "jax",
@@ -97,6 +97,9 @@ slepc = [
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
+]
+vtk = [
+  "vtk",
 ]
 
 # Dependencies needed to run the full test suite
@@ -117,6 +120,7 @@ ci = [
   "pytest-xdist",
   "slepc4py==3.24.0",
   "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
 ]
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
@@ -132,6 +136,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-timeout",
   "pytest-xdist",
   "slepc4py==3.24.0",
+  "vtk",
 ]
 
 [build-system]
