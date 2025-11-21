@@ -40,6 +40,7 @@ CompiledKernel = namedtuple('CompiledKernel', ["funptr", "kinfo"])
 
 
 def get_map(V, base_mesh, base_integral_type):
+    raise NotImplementedError
     return V.topological.entity_node_map(base_mesh.topology, base_integral_type, None, None)
 
 

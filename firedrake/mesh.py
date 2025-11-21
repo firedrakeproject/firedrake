@@ -2186,16 +2186,11 @@ class MeshTopology(AbstractMeshTopology):
         assert from_set.local_size == len(from_points)
         assert to_set.local_size == len(to_points)
         # this always maps from child plex point to parent plex point
-        subpoint_is = self.topology_dm.getSubpointIS()
         if child_parent_map:
             # this is a dense map from the child points to the parent points
-            plex_index_map = subpoint_is.indices
+            plex_index_map = self._submesh_to_parent_plex_index_map
         else:
-            # this is a sparse map from the parent points (of a particular type) to the child points
-            # first need to construct it...
-            parent_to_child_plex_indices = np.full(self.submesh_parent.num_points, -1, dtype=IntType)
-            parent_to_child_plex_indices[subpoint_is.indices] = np.arange(subpoint_is.size, dtype=IntType)
-            plex_index_map = parent_to_child_plex_indices
+            plex_index_map = self._parent_to_submesh_plex_index_map
 
         subpoints = plex_index_map[from_points]
         values = dmcommon.renumber_map_fixed(
@@ -2204,13 +2199,6 @@ class MeshTopology(AbstractMeshTopology):
             from_numbering,
             to_numbering,
         )
-        breakpoint()
-        # if child_parent_map:
-        #     _, from_indices, to_indices = np.intersect1d(subpoints[from_points], to_points, return_indices=True)
-        # else:
-        #     _, from_indices, to_indices = np.intersect1d(from_points, subpoints[to_points], return_indices=True)
-        # values = np.full(from_set.local_size, -1, dtype=IntType)
-        # values[from_indices] = to_indices
         map_name = f"{self.name}_submesh_map_{from_set.root.label}_{to_set.root.label}"
         to_label = to_set.as_axis().component.label
         map_axes = op3.AxisTree.from_iterable([
@@ -2305,8 +2293,10 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(
             self.submesh_parent.cells,
             self.cells,
-            self.submesh_parent._new_to_old_cell_numbering,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.submesh_parent.num_cells, comm=MPI.COMM_SELF).indices,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+            self.submesh_parent._old_to_new_cell_numbering,
+            self._old_to_new_cell_numbering,
             False,
         )
 
@@ -2317,6 +2307,8 @@ class MeshTopology(AbstractMeshTopology):
             self.exterior_facets,
             self.submesh_parent._exterior_facet_plex_indices.indices,
             self._exterior_facet_plex_indices.indices,
+            self.submesh_parent._old_to_new_exterior_facet_numbering,
+            self._old_to_new_exterior_facet_numbering,
             False,
         )
 
@@ -2354,7 +2346,9 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.exterior_facets,
             self.cells,
             self.submesh_parent._exterior_facet_plex_indices.indices,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+            self.submesh_parent._old_to_new_exterior_facet_numbering,
+            self._old_to_new_cell_numbering,
             False,
         )
 
@@ -2364,7 +2358,9 @@ class MeshTopology(AbstractMeshTopology):
             self.submesh_parent.interior_facets,
             self.cells,
             self.submesh_parent._interior_facet_plex_indices.indices,
-            self._new_to_old_cell_numbering,
+            PETSc.IS().createStride(self.num_cells, comm=MPI.COMM_SELF).indices,
+            self.submesh_parent._old_to_new_interior_facet_numbering,
+            self._old_to_new_cell_numbering,
             False,
         )
 
@@ -2417,55 +2413,98 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError("Unsupported combination")
 
         if target_integral_type_temp == "cell":
-            _cell_numbers = target._new_to_old_cell_numbering
-            with self.topology_dm.getSubpointIS() as subpoints:
-                if reverse:
-                    _, target_indices_cell, source_indices_cell = np.intersect1d(subpoints[_cell_numbers], source_subset_points, return_indices=True)
-                else:
-                    target_subset_points = subpoints[source_subset_points]
-                    _, target_indices_cell, source_indices_cell = np.intersect1d(_cell_numbers, target_subset_points, return_indices=True)
-            n_cell = len(source_indices_cell)
-            n_cell_max = self._comm.allreduce(n_cell, op=MPI.MAX)
-            if n_cell_max > 0:
-                if n_cell > len(source_subset_points):
-                    raise RuntimeError("Found inconsistent data")
-            target_integral_type = "cell"
+            # _cell_numbers = target._new_to_old_cell_numbering
+            # with self.topology_dm.getSubpointIS() as subpoints:
+            #     if reverse:
+            #         _, target_indices_cell, source_indices_cell = np.intersect1d(subpoints[_cell_numbers], source_subset_points, return_indices=True)
+            #     else:
+            #         target_subset_points = subpoints[source_subset_points]
+            #         _, target_indices_cell, source_indices_cell = np.intersect1d(_cell_numbers, target_subset_points, return_indices=True)
+            # n_cell = len(source_indices_cell)
+            # n_cell_max = self._comm.allreduce(n_cell, op=MPI.MAX)
+            # if n_cell_max > 0:
+            #     if n_cell > len(source_subset_points):
+            #         raise RuntimeError("Found inconsistent data")
+            # target_integral_type = "cell"
+            # if reverse:
+            #     target_subset_points = _cell_numbers[target_indices_cell]
+
+            # NOTE: we don't really use target_subset_points at all...
             if reverse:
-                target_subset_points = _cell_numbers[target_indices_cell]
-        elif target_integral_type_temp == "facet":
-            _exterior_facet_numbers = target._exterior_facet_plex_indices.indices
-            _interior_facet_numbers = target._interior_facet_plex_indices.indices
-            with self.topology_dm.getSubpointIS() as subpoints:
-                if reverse:
-                    _, target_indices_int, source_indices_int = np.intersect1d(subpoints[_interior_facet_numbers], source_subset_points, return_indices=True)
-                    _, target_indices_ext, source_indices_ext = np.intersect1d(subpoints[_exterior_facet_numbers], source_subset_points, return_indices=True)
-                else:
-                    target_subset_points = subpoints[source_subset_points]
-                    _, target_indices_int, source_indices_int = np.intersect1d(_interior_facet_numbers, target_subset_points, return_indices=True)
-                    _, target_indices_ext, source_indices_ext = np.intersect1d(_exterior_facet_numbers, target_subset_points, return_indices=True)
-            n_int = len(source_indices_int)
-            n_ext = len(source_indices_ext)
-            n_int_max = self._comm.allreduce(n_int, op=MPI.MAX)
-            n_ext_max = self._comm.allreduce(n_ext, op=MPI.MAX)
-            if n_int_max > 0:
-                if n_ext_max != 0:
-                    raise RuntimeError(f"integral_type on the target mesh is interior facet, but {n_ext_max} exterior facet entities are also included")
-                if n_int > len(source_subset_points):
-                    raise RuntimeError("Found inconsistent data")
-                target_integral_type = "interior_facet"
-            elif n_ext_max > 0:
-                if n_int_max != 0:
-                    raise RuntimeError(f"integral_type on the target mesh is exterior facet, but {n_int_max} interior facet entities are also included")
-                if n_ext > len(source_subset_points):
-                    raise RuntimeError("Found inconsistent data")
-                target_integral_type = "exterior_facet"
+                target_subset_points = self._parent_to_submesh_plex_index_map[source_subset_points]
             else:
-                raise RuntimeError("Can not find a map from source to target.")
+                target_subset_points = self._submesh_to_parent_plex_index_map[source_subset_points]
+            target_integral_type = "cell"
+
+        elif target_integral_type_temp == "facet":
             if reverse:
-                if target_integral_type == "interior_facet":
-                    target_subset_points = _interior_facet_numbers[target_indices_int]
-                elif target_integral_type == "exterior_facet":
-                    target_subset_points = _exterior_facet_numbers[target_indices_ext]
+                target_subset_points = self._parent_to_submesh_plex_index_map[source_subset_points]
+            else:
+                target_subset_points = self._submesh_to_parent_plex_index_map[source_subset_points]
+
+            # It is possible for an exterior facet integral on the submesh to correspond to
+            # and interior facet integral on the parent mesh (but never the other way around
+            # or to a mix of facet types).
+            # We don't know a priori what this type is so we instead detect it here.
+            target_exterior_facets = dmcommon.intersect_is(
+                PETSc.IS().createGeneral(target_subset_points),
+                target._exterior_facet_plex_indices,
+            )
+            includes_exterior_facets = self._comm.allreduce(
+                target_exterior_facets.size>0, MPI.LOR
+            )
+
+            target_interior_facets = dmcommon.intersect_is(
+                PETSc.IS().createGeneral(target_subset_points),
+                target._interior_facet_plex_indices,
+            )
+            includes_interior_facets = self._comm.allreduce(
+                target_interior_facets.size>0, MPI.LOR
+            )
+
+            if includes_exterior_facets and includes_interior_facets:
+                raise RuntimeError(f"Attempting to target a mix of interior and exterior facets")
+            elif includes_exterior_facets:
+                target_integral_type = "exterior_facet"
+            elif includes_interior_facets:
+                target_integral_type = "interior_facet"
+            else:
+                # should this ever happen? and could we just continue with an empty set if so?
+                raise RuntimeError("Can not find a map from source to target.")
+
+            # _exterior_facet_numbers = target._exterior_facet_plex_indices.indices
+            # _interior_facet_numbers = target._interior_facet_plex_indices.indices
+            # with self.topology_dm.getSubpointIS() as subpoints:
+            #     if reverse:
+            #         _, target_indices_int, source_indices_int = np.intersect1d(subpoints[_interior_facet_numbers], source_subset_points, return_indices=True)
+            #         _, target_indices_ext, source_indices_ext = np.intersect1d(subpoints[_exterior_facet_numbers], source_subset_points, return_indices=True)
+            #     else:
+            #         target_subset_points = subpoints[source_subset_points]
+            #         _, target_indices_int, source_indices_int = np.intersect1d(_interior_facet_numbers, target_subset_points, return_indices=True)
+            #         _, target_indices_ext, source_indices_ext = np.intersect1d(_exterior_facet_numbers, target_subset_points, return_indices=True)
+            # n_int = len(source_indices_int)
+            # n_ext = len(source_indices_ext)
+            # n_int_max = self._comm.allreduce(n_int, op=MPI.MAX)
+            # n_ext_max = self._comm.allreduce(n_ext, op=MPI.MAX)
+            # if n_int_max > 0:
+            #     if n_ext_max != 0:
+            #         raise RuntimeError(f"integral_type on the target mesh is interior facet, but {n_ext_max} exterior facet entities are also included")
+            #     if n_int > len(source_subset_points):
+            #         raise RuntimeError("Found inconsistent data")
+            #     target_integral_type = "interior_facet"
+            # elif n_ext_max > 0:
+            #     if n_int_max != 0:
+            #         raise RuntimeError(f"integral_type on the target mesh is exterior facet, but {n_int_max} interior facet entities are also included")
+            #     if n_ext > len(source_subset_points):
+            #         raise RuntimeError("Found inconsistent data")
+            #     target_integral_type = "exterior_facet"
+            # else:
+            #     raise RuntimeError("Can not find a map from source to target.")
+            # if reverse:
+            #     if target_integral_type == "interior_facet":
+            #         target_subset_points = _interior_facet_numbers[target_indices_int]
+            #     elif target_integral_type == "exterior_facet":
+            #         target_subset_points = _exterior_facet_numbers[target_indices_ext]
         else:
             raise NotImplementedError
         if reverse:
@@ -2475,6 +2514,22 @@ class MeshTopology(AbstractMeshTopology):
         return map_, target_integral_type, target_subset_points
 
     # trans mesh
+
+    @cached_property
+    def _submesh_to_parent_plex_index_map(self) -> np.ndarray[IntType]:
+        return self.topology_dm.getSubpointIS().indices
+
+    @cached_property
+    def _parent_to_submesh_plex_index_map(self) -> np.ndarray[IntType]:
+        """
+
+        Points that are not present in ``self`` are given as '-1's.
+
+        """
+        submesh_to_parent_map = self._submesh_to_parent_plex_index_map
+        parent_to_submesh_map = np.full(self.submesh_parent.num_points, -1, dtype=IntType)
+        parent_to_submesh_map[submesh_to_parent_map] = np.arange(submesh_to_parent_map.size, dtype=IntType)
+        return parent_to_submesh_map
 
     def trans_mesh_entity_map(self, iter_spec):
         """Create entity-entity (composed) map from base_mesh to `self`.
@@ -2499,41 +2554,40 @@ class MeshTopology(AbstractMeshTopology):
         base_mesh = iter_spec.mesh
         base_integral_type = iter_spec.integral_type
 
-        if base_indices_is := iter_spec.indices:
-            base_indices = base_indices_is.indices
+        if plex_indices_is := iter_spec.plex_indices:
+            base_plex_points = plex_indices_is.indices
         else:
-            base_indices = Ellipsis
+            base_plex_points = np.arange(iter_spec.iterset.local_size, dtype=IntType)
 
         common = self.submesh_youngest_common_ancester(base_mesh)
         if common is None:
             raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
         elif base_mesh is self:
             raise NotImplementedError("Currently cannot return identity map")
-        else:
-            breakpoint()  # FIXME: see  _submesh_make_entity_entity_map for what to do!
-            if base_integral_type == "cell":
-                base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
-            elif base_integral_type in ["interior_facet", "exterior_facet"]:
-                if base_integral_type == "interior_facet":
-                    # IMPORTANT: This probably makes a renumbering error!
-                    # _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
-                    # base_subset_points = base_mesh._new_to_old_interior_facet_numbering[base_indices]
-                    base_subset_points = base_mesh._interior_facet_plex_indices.indices[base_indices]
-                    # base_subset_points = _interior_facet_numbers[base_indices]
-                else:
-                    assert base_integral_type == "exterior_facet"
-                    base_subset_points = base_mesh._exterior_facet_plex_indices.indices[base_indices]
-                    # _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
-                    # base_subset_points = _exterior_facet_numbers[base_indices]
-            else:
-                raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
-            composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
-            # poor man's reduce
-            # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
-            map_ = iter_spec.loop_index
-            for map2 in composed_map:
-                map_ = map2(map_)
-            return map_, integral_type
+        # else:
+        #     if base_integral_type == "cell":
+        #         base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
+        #     elif base_integral_type in ["interior_facet", "exterior_facet"]:
+        #         if base_integral_type == "interior_facet":
+        #             # IMPORTANT: This probably makes a renumbering error!
+        #             # _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
+        #             # base_subset_points = base_mesh._new_to_old_interior_facet_numbering[base_indices]
+        #             base_subset_points = base_mesh._interior_facet_plex_indices.indices[base_indices]
+        #             # base_subset_points = _interior_facet_numbers[base_indices]
+        #         else:
+        #             assert base_integral_type == "exterior_facet"
+        #             base_subset_points = base_mesh._exterior_facet_plex_indices.indices[base_indices]
+        #             # _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
+        #             # base_subset_points = _exterior_facet_numbers[base_indices]
+        #     else:
+        #         raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
+        composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_plex_points)
+        # poor man's reduce
+        # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
+        map_ = iter_spec.loop_index
+        for map2 in composed_map:
+            map_ = map2(map_)
+        return map_, integral_type
 
 
 # NOTE: I don't think that we need an extra class here. The public API is exactly the same as 'MeshTopology'.
@@ -6258,7 +6312,8 @@ class IterationSpec:
     mesh: MeshGeometry
     integral_type: str
     iterset: op3.IndexedAxisTree
-    indices: PETSc.IS | None
+    plex_indices: PETSc.IS | None
+    old_to_new_numbering: PETSc.Section
 
     @cached_property
     def loop_index(self) -> op3.LoopIndex:
@@ -6275,7 +6330,21 @@ class IterationSpec:
             subset_dat = op3.Dat.from_array(self.indices.indices)
             return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
 
+    @cached_property
+    def indices(self) -> PETSc.IS | None:
+        if self.plex_indices is None:
+            return None
+        # We now have the correct set of indices represented in DMPlex numbering, now
+        # we have to convert this to a numbering specific to the iteration set (e.g.
+        # map point 12 to interior facet 3).
+        localized_indices = dmcommon.section_offsets(self.old_to_new_numbering, self.plex_indices, sort=True)
 
+        # Remove ghost points
+        localized_indices = dmcommon.filter_is(localized_indices, 0, self.iterset.local_size)
+        return localized_indices
+
+
+# NOTE: The API is a bit tangled now. The class carries almost all of this information now.
 def get_iteration_spec(
     mesh: MeshGeometry,
     integral_type: str,
@@ -6337,7 +6406,7 @@ def get_iteration_spec(
             raise AssertionError(f"Integral type {integral_type} not recognised")
 
     if subdomain_id == "everywhere":
-        localized_indices = None
+        plex_indices = None
     else:
         if subdomain_id == "otherwise":
             subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
@@ -6371,15 +6440,9 @@ def get_iteration_spec(
         if complement:
             plex_indices = valid_plex_indices.difference(plex_indices)
 
-        # We now have the correct set of indices represented in DMPlex numbering, now
-        # we have to convert this to a numbering specific to the iteration set (e.g.
-        # map point 12 to interior facet 3).
-        localized_indices = dmcommon.section_offsets(old_to_new_entity_numbering, plex_indices, sort=True)
+        # NOTE: Should we sort plex indices?
 
-        # Remove ghost points
-        localized_indices = dmcommon.filter_is(localized_indices, 0, iterset.local_size)
-
-    return IterationSpec(mesh, integral_type, iterset, localized_indices)
+    return IterationSpec(mesh, integral_type, iterset, plex_indices, old_to_new_entity_numbering)
 
 
 # NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think

@@ -4284,7 +4284,9 @@ def renumber_map_fixed(
         PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
         for j_c in range(num_dest_pts_c):
             dest_pt_c = map_data[i_c, j_c]
-            if dest_numbering.getDof(dest_pt_c) == 1:
+            if dest_pt_c == -1:
+                map_data_renum[src_pt_renum_c, j_c] = -1
+            elif dest_numbering.getDof(dest_pt_c) == 1:
                 PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
                 map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
             else:

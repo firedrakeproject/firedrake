@@ -1304,6 +1304,7 @@ class FunctionSpace:
         """Return a map from cells to cell closures."""
         return self.mesh()._fiat_closure(cell)
 
+    # NOTE: This shouldn't ever really be used, doesn't do the right permutations..
     def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
 

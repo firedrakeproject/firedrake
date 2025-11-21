@@ -267,6 +267,7 @@ class Assigner:
         target_mesh = extract_unique_domain(lhs_func)
         target_V = lhs_func.function_space()
         source_V, = set(f.function_space() for f in funcs)
+        raise NotImplementedError("entity node map is the wrong choice")
         composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
         indices_active = composed_map.indices_active_with_halo
         indices_active_all = indices_active.all()

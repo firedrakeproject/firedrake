@@ -1500,7 +1500,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             buffer_spec=mat_spec,
         )
 
-        sparsity.buffer.set_diagonal(666)
+        # not really sure about this
+        if sparsity.row_axes == sparsity.column_axes:
+            sparsity.buffer.set_diagonal(666)
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -1528,20 +1530,20 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 test, trial, self._allocation_integral_types
             )
 
-        elif utils.strictly_all(
-            local_kernel.indices == (None, None)
-            for assembler in self._all_assemblers
-            for local_kernel, _ in assembler.local_kernels
-        ):
-            # Handle special cases: slate or split=False
-            allocation_integral_types = utils.OrderedSet([
-                local_kernel.kinfo.integral_type
-                for assembler in self._all_assemblers
-                for local_kernel, _ in assembler.local_kernels
-            ])
-            return ExplicitMatrixAssembler._make_maps_and_regions_default(
-                test, trial, allocation_integral_types
-            )
+        # elif utils.strictly_all(
+        #     local_kernel.indices == (None, None)
+        #     for assembler in self._all_assemblers
+        #     for local_kernel, _ in assembler.local_kernels
+        # ):
+        #     # Handle special cases: slate or split=False
+        #     allocation_integral_types = utils.OrderedSet([
+        #         local_kernel.kinfo.integral_type
+        #         for assembler in self._all_assemblers
+        #         for local_kernel, _ in assembler.local_kernels
+        #     ])
+        #     return ExplicitMatrixAssembler._make_maps_and_regions_default(
+        #         test, trial, allocation_integral_types
+        #     )
 
         else:
             loops = []
@@ -1556,29 +1558,16 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
                     iter_spec = get_iteration_spec(mesh, integral_type, subdomain_id)
-                    rmap = test.function_space().topological[i].entity_node_map(iter_spec)
-                    cmap = trial.function_space().topological[j].entity_node_map(iter_spec)
 
-                    # Vrow = test.function_space()
-                    # Vcol = trial.function_space()
-                    #
-                    # rindex, cindex = local_kernel.indices
-                    # if rindex is not None:
-                    #     Vrow = Vrow[rindex]
-                    # if cindex is not None:
-                    #     Vcol = Vcol[cindex]
+                    test_space = test.function_space()
+                    if i is not None:
+                        test_space = test_space[i]
+                    trial_space = trial.function_space()
+                    if j is not None:
+                        trial_space = trial_space[j]
 
-
-                    # Make Sparsity independent of the subdomain of integration for better reusability;
-                    # subdomain_id is passed here only to determine the integration_type on the target domain
-                    # (see ``entity_node_map``).
-                    # if integral_type == "cell":
-                    #     rmap = mesh.closure(index)
-                    #     cmap = rmap
-                    # else:
-                    #     assert "facet" in integral_type
-                    #     rmap = mesh.closure(mesh.support(index))
-                    #     cmap = rmap
+                    rmap = test_space.entity_node_map(iter_spec)
+                    cmap = trial_space.entity_node_map(iter_spec)
 
                     loop = (iter_spec.loop_index, rmap, cmap, local_kernel.indices)
                     loops.append(loop)
@@ -1959,6 +1948,12 @@ class ParloopBuilder:
 
             # rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(mat_spec.row_spec.lgmap, row_bcs)
             # clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            # NOTE: 21/11/25 the following is necessary for
+            # tests/firedrake/submesh/test_submesh_assemble.py::test_submesh_assemble_cell_cell_equation_bc
+            # to pass. I think I need to figure out how this works for mat nests...
+            # rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, ())  # still failing though...
+            # clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, ())
+            # (old)
             rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, (i,))
             clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, (j,))
             return (rlgmap, clgmap)

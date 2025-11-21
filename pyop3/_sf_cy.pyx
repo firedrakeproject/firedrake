@@ -126,7 +126,7 @@ def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSectio
     return halo_exchange_sf
 
 
-def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> petsc_.PetscSF_py:
+def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> petsc_c.PetscSF_py:
     """Renumber an SF.
 
     Parameters

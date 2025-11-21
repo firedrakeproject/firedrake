@@ -20,8 +20,11 @@ def get_sparsity(mat, *nest_indices):
 
 
 def get_values(mat, *nest_indices):
-    subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
-    return subpetscmat[:, :]
+    if mat.petscmat.type == "nest":
+        subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
+        return subpetscmat[:, :]
+    else:
+        return mat.M[nest_indices].values
 
 
 def test_submesh_assemble_cell_cell_integral_cell():
