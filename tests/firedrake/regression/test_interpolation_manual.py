@@ -54,7 +54,7 @@ def test_interpolate_operator():
     # [test_interpolate_operator 15]
     Istar2 = adjoint(interpolate(TrialFunction(U), V))
     # [test_interpolate_operator 16]
-    cofunc = assemble(TestFunction(V) * dx)  # a cofunction in V*
+    cofunc = assemble(inner(1, TestFunction(V)) * dx)  # a cofunction in V*
     res1 = assemble(interpolate(TestFunction(U), cofunc))  # a cofunction in U*
     # [test_interpolate_operator 17]
     res2 = assemble(action(Istar1, cofunc))  # same as res1
