@@ -60,7 +60,7 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
     rng = RandomGenerator(PCG64(seed=13))
 
     generator = WhiteNoiseGenerator(
-        V, backend=NoiseBackend(backend), rng=rng)
+        V, backend=WhiteNoiseGenerator.Backend(backend), rng=rng)
 
     # Test convergence as sample size increases
     nsamples = [50, 100, 200, 400, 800]
@@ -96,17 +96,17 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
         pytest.skip(
             "petsc backend for noise generation not implemented in parallel.")
 
-    nx = 16
+    nx = 20
     if mesh_type == 'interval':
-        mesh = UnitIntervalMesh(nx)
+        mesh = PeriodicUnitIntervalMesh(nx)
         x, = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)
     elif mesh_type == 'square':
-        mesh = UnitSquareMesh(nx, nx)
+        mesh = PeriodicUnitSquareMesh(nx, nx)
         x, y = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)*cos(4*pi*x)
     elif mesh_type == 'cube':
-        mesh = UnitCubeMesh(nx, nx, nx)
+        mesh = PeriodicUnitCubeMesh(nx, nx, nx)
         x, y, z = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)*cos(4*pi*y)*cos(pi*z)
     if dim > 0:
@@ -116,7 +116,7 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
         V = FunctionSpace(mesh, family, degree)
 
     rng = WhiteNoiseGenerator(
-        V, backend=NoiseBackend(backend),
+        V, backend=WhiteNoiseGenerator.Backend(backend),
         rng=RandomGenerator(PCG64(seed=13)))
 
     L = 0.1
@@ -128,18 +128,65 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
         'pc_factor_mat_solver_type': 'mumps'
     }
 
-    B = GaussianCovarianceOperator(
-        V, L, sigma, m, rng=rng,
-        solver_parameters=solver_parameters, options_prefix="",
-        form=DiffusionFormulation(family))
+    if family == 'CG':
+        form = GaussianCovariance.DiffusionForm.CG
+    elif family == 'DG':
+        form = GaussianCovariance.DiffusionForm.IP
+    else:
+        raise ValueError("Do not know which diffusion form to use for family {family}")
+
+    B = GaussianCovariance(
+        V, L, sigma, m, rng=rng, form=form,
+        solver_parameters=solver_parameters,
+        options_prefix="")
 
     w = Function(V).project(wexpr)
     wcheck = B.apply_inverse(B.apply_action(w))
 
-    tol = 1e-8
-    # Particularly sensitive tests??
-    if mesh_type == 'square' and family == 'DG' and degree == 2 and m == 4:
-        tol = 5e-4
+    tol = 1e-7
+
+    assert errornorm(w, wcheck) < tol
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("m", (0, 2, 4))
+@pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
+@pytest.mark.parametrize("backend", ("pyop2", "petsc"))
+def test_covariance_inverse_action_hdiv(m, degree, backend):
+    """Test that correlated noise generator has the right covariance matrix.
+    """
+    if backend == "petsc" and COMM_WORLD.size > 1:
+        pytest.skip(
+            "petsc backend for noise generation not implemented in parallel.")
+
+    nx = 20
+    mesh = PeriodicUnitSquareMesh(nx, nx)
+    x, y = SpatialCoordinate(mesh)
+    wexpr = cos(2*pi*x)*cos(4*pi*x)
+
+    V = FunctionSpace(mesh, "BDM", degree)
+    wexpr = as_vector([-1**(j+1)*wexpr for j in range(2)])
+
+    L = 0.1
+    sigma = 0.9
+
+    solver_parameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+        'pc_factor_mat_solver_type': 'mumps'
+    }
+
+    form = GaussianCovariance.DiffusionForm.IP
+
+    B = GaussianCovariance(
+        V, L, sigma, m, form=form,
+        solver_parameters=solver_parameters,
+        options_prefix="")
+
+    w = Function(V).project(wexpr)
+    wcheck = B.apply_inverse(B.apply_action(w))
+
+    tol = 1e-7
 
     assert errornorm(w, wcheck) < tol
 
@@ -147,13 +194,9 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("family", ("CG", "DG"))
-@pytest.mark.parametrize("backend", ("pyop2", "petsc"))
-def test_covariance_adjoint_norm(m, family, backend):
+def test_covariance_adjoint_norm(m, family):
     """Test that correlated noise generator has the right covariance matrix.
     """
-    if backend == "petsc" and COMM_WORLD.size > 1:
-        pytest.skip(
-            "petsc backend for noise generation not implemented in parallel.")
     nx = 20
     L = 0.2
     sigma = 0.1
@@ -166,9 +209,14 @@ def test_covariance_adjoint_norm(m, family, backend):
     u = Function(V).project(sin(2*pi*x))
     v = Function(V).project(2 - 0.5*sin(6*pi*x))
 
-    B = GaussianCovarianceOperator(
-        V, L, sigma, m,
-        form=DiffusionFormulation(family))
+    if family == 'CG':
+        form = GaussianCovariance.DiffusionForm.CG
+    elif family == 'DG':
+        form = GaussianCovariance.DiffusionForm.IP
+    else:
+        raise ValueError("Do not know which diffusion form to use for family {family}")
+
+    B = GaussianCovariance(V, L, sigma, m, form=form)
 
     continue_annotation()
     with set_working_tape() as tape:

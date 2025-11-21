@@ -20,38 +20,6 @@ from firedrake import (
 )
 
 
-class DiffusionFormulation(Enum):
-    CG = 'CG'
-    DG = 'DG'
-
-
-def diffusion_form(u, v, kappa, formulation=DiffusionFormulation.CG):
-    if formulation == DiffusionFormulation.CG:
-        return inner(u, v)*dx + inner(kappa*grad(u), grad(v))*dx
-
-    elif formulation == DiffusionFormulation.DG:
-        mesh = v.function_space().mesh()
-        n = FacetNormal(mesh)
-        h = CellSize(mesh)
-        h_avg = 0.5*(h('+') + h('-'))
-        alpha_h = Constant(4.0)/h_avg
-        gamma_h = Constant(8.0)/h
-        return (
-            inner(u, v)*dx + kappa*(
-                inner(grad(u), grad(v))*dx
-                - inner(avg(2*outer(u, n)), avg(grad(v)))*dS
-                - inner(avg(grad(u)), avg(2*outer(v, n)))*dS
-                + alpha_h*inner(avg(2*outer(u, n)), avg(2*outer(v, n)))*dS
-                - inner(outer(u, n), grad(v))*ds
-                - inner(grad(u), outer(v, n))*ds
-                + gamma_h*inner(u, v)*ds
-            )
-        )
-
-    else:
-        raise ValueError("Unknown DiffusionFormulation {formulation}")
-
-
 class CholeskyFactorisation:
     def __init__(self, V, form=None):
         self._V = V
@@ -103,11 +71,6 @@ class CholeskyFactorisation:
             self.pc.applySymmetricRight(u_v, v_v)
         v = self.assemble_action(v)
         return v
-
-
-class NoiseBackend(Enum):
-    PYOP2 = 'pyop2'
-    PETSC = 'petsc'
 
 
 class NoiseBackendBase:
@@ -296,9 +259,9 @@ class PyOP2NoiseBackend(NoiseBackendBase):
 class WhiteNoiseGenerator:
     r""" Generates a white noise sample
 
-    :arg V: The :class: `firedrake.FunctionSpace` to construct a
+    :arg V: The :class:`firedrake.FunctionSpace` to construct a
         white noise sample on
-    :arg backend: The :enum: `NoiseBackend` specifying how to calculate
+    :arg backend: The :enum:`WhiteNoiseGenerator.Backend` specifying how to calculate
         and apply the mass matrix square root.
     :arg rng: Initialised random number generator to use for obtaining
         random numbers. Defaults to PCG64.
@@ -311,13 +274,17 @@ class WhiteNoiseGenerator:
     For details see [Croci et al 2018]:
     https://epubs.siam.org/doi/10.1137/18M1175239
     """
-
     # TODO: Add Croci to citations manager
 
-    def __init__(self, V, backend=NoiseBackend.PYOP2, rng=None):
-        if backend == NoiseBackend.PYOP2:
+    class Backend(Enum):
+        PYOP2 = 'pyop2'
+        PETSC = 'petsc'
+
+    def __init__(self, V, backend=None, rng=None):
+        backend = backend or self.Backend.PYOP2
+        if backend == self.Backend.PYOP2:
             self.backend = PyOP2NoiseBackend(V, rng=rng)
-        elif backend == NoiseBackend.PETSC:
+        elif backend == self.Backend.PETSC:
             self.backend = PetscNoiseBackend(V, rng=rng)
         else:
             raise ValueError(
@@ -331,10 +298,16 @@ class WhiteNoiseGenerator:
             rng=rng, tensor=tensor, apply_riesz=apply_riesz)
 
 
-class GaussianCovarianceOperator:
+class GaussianCovariance:
+    class DiffusionForm(Enum):
+        CG = 'CG'
+        IP = 'IP'
+
     def __init__(self, V, L, sigma=1, m=2, rng=None,
-                 bcs=None, form=DiffusionFormulation.CG,
+                 bcs=None, form=None,
                  solver_parameters=None, options_prefix=None):
+
+        form = form or self.DiffusionForm.CG
 
         self.rng = rng or WhiteNoiseGenerator(V)
         self.function_space = self.rng.function_space
@@ -360,7 +333,7 @@ class GaussianCovarianceOperator:
 
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
-            if isinstance(form, DiffusionFormulation):
+            if isinstance(form, self.DiffusionForm):
                 a = diffusion_form(u, v, self.kappa, formulation=form)
             else:
                 a = form
@@ -377,6 +350,8 @@ class GaussianCovarianceOperator:
             # setup mass solver
             M = inner(u, v)*dx
             rhs = replace(a, {u: self._rhs})
+            # rhs = a(self._rhs, v)
+            # rhs = action(a, self._rhs)
 
             self.mass_solver = LinearVariationalSolver(
                 LinearVariationalProblem(M, rhs, self._u, bcs=bcs,
@@ -399,7 +374,6 @@ class GaussianCovarianceOperator:
         return tensor.assign(self.lamda*self._u)
 
     def norm(self, x):
-
         if self.iterations == 0:
             sigma_x = self.stddev*x
             return assemble(inner(sigma_x, sigma_x)*dx)
@@ -443,3 +417,30 @@ class GaussianCovarianceOperator:
             self.solver.solve()
 
         return tensor.assign(self.lamda*self._u)
+
+
+def diffusion_form(u, v, kappa, formulation):
+    if formulation == GaussianCovariance.DiffusionForm.CG:
+        return inner(u, v)*dx + inner(kappa*grad(u), grad(v))*dx
+
+    elif formulation == GaussianCovariance.DiffusionForm.IP:
+        mesh = v.function_space().mesh()
+        n = FacetNormal(mesh)
+        h = CellSize(mesh)
+        h_avg = 0.5*(h('+') + h('-'))
+        alpha_h = Constant(4.0)/h_avg
+        gamma_h = Constant(8.0)/h
+        return (
+            inner(u, v)*dx + kappa*(
+                inner(grad(u), grad(v))*dx
+                - inner(avg(2*outer(u, n)), avg(grad(v)))*dS
+                - inner(avg(grad(u)), avg(2*outer(v, n)))*dS
+                + alpha_h*inner(avg(2*outer(u, n)), avg(2*outer(v, n)))*dS
+                - inner(outer(u, n), grad(v))*ds
+                - inner(grad(u), outer(v, n))*ds
+                + gamma_h*inner(u, v)*ds
+            )
+        )
+
+    else:
+        raise ValueError("Unknown GaussianCovariance.DiffusionForm {formulation}")
