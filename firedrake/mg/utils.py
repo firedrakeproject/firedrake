@@ -40,10 +40,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
-        try:
-            fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-        except IndexError:
-            breakpoint()
+        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
 
         src_axis = Vf.nodal_axes.root
         target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])

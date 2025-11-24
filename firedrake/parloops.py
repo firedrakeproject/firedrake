@@ -618,7 +618,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
     #     return axes
 
     # discard nodal information
-    axes = axes.trees[0]
+    if isinstance(axes, op3.AxisForest):
+        axes = axes.trees[0]
 
     outer_axes = []
     outer_path = idict()

@@ -526,8 +526,8 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         super().__init__(label=label)
         CacheMixin.__init__(self)
 
-        if self.label == "_label_Slice_495":  # expected exterior facets...
-            breakpoint()
+        # if self.label == "closure" and len(components) == 1 and self.component.label is None:
+        #     breakpoint()
 
     def __eq__(self, other):
         return (
