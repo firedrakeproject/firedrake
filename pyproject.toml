@@ -188,3 +188,6 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+pyop3 = [
+  "*.pyx",
+]
