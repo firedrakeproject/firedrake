@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+from threading import local
 import numpy
 import os
 import tempfile
@@ -595,14 +596,14 @@ class SameMeshInterpolator(Interpolator):
 
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            if self.access and self.access != op2.INC:
+            if self.access and self.access != op3.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
-            self.access = op2.INC
+            self.access = op3.INC
         elif self.access is None:
             # Default access for forward 1-form or 2-form (forward and adjoint)
-            self.access = op2.WRITE
+            self.access = op3.WRITE
 
-    def _get_tensor(self) -> op2.Mat | Function | Cofunction:
+    def _get_tensor(self) -> op3.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
         Returns
@@ -650,7 +651,7 @@ class SameMeshInterpolator(Interpolator):
             f = tensor or self._get_tensor()
             copyout = ()
 
-        op2_tensor = f if isinstance(f, op2.Mat) else f.dat
+        op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
         if self.access is op3.INC:
             loops.append(tensor.zero)
@@ -870,50 +871,51 @@ def _build_interpolation_callables(
 
     if any(c.dat == tensor for c in coefficients):
         output = tensor
-        tensor = op2.Dat(tensor.dataset)
-        if access is not op2.WRITE:
+        tensor = op3.Dat.empty_like(tensor)
+        if access is not op3.WRITE:
             copyin += (partial(output.copy, tensor), )
         copyout += (partial(tensor.copy, output), )
 
     arguments = expr.arguments()
-    if isinstance(tensor, op2.Global):
-        parloop_args.append(tensor(access))
-    elif isinstance(tensor, op2.Dat):
-        V_dest = arguments[-1].function_space()
-        m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
-        parloop_args.append(tensor(access, m_))
+    if not arguments:
+        V_dest = FunctionSpace(target_mesh, "Real", 0)
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
+        local_kernel_args.append(packed_tensor)
+    elif len(arguments) < 2:
+        V_dest = utils.just_one(arguments).function_space()
+        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
+        local_kernel_args.append(packed_tensor)
     else:
-        assert access == op2.WRITE  # Other access descriptors not done for Matrices.
+        assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
-        rows_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-        columns_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
+
         lgmaps = None
         if bcs:
+            # NOTE: Probably shouldn't overwrite Vrow and Vcol here...
             if is_dual(Vrow):
                 Vrow = Vrow.dual()
             if is_dual(Vcol):
                 Vcol = Vcol.dual()
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
-            lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
+            lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
 
-    if oriented:
-        co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
+        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, iter_spec)
+        local_kernel_args.append(packed_tensor)
 
-    if needs_cell_sizes:
-        cs = source_mesh.cell_sizes
-        parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+    if kernel.oriented:
+        local_kernel_args.append(pack_tensor(target_mesh.cell_orientations()))
+
+    if kernel.needs_cell_sizes:
+        local_kernel_args.append(pack_tensor(source_mesh.cell_sizes))
 
     for coefficient in coefficients:
-        m_ = get_interp_node_map(source_mesh, target_mesh, coefficient.function_space())
-        parloop_args.append(coefficient.dat(op2.READ, m_))
+        local_kernel_args.append(pack_tensor(coefficient, iter_spec))
 
     for const in extract_firedrake_constants(expr):
-        parloop_args.append(const.dat(op2.READ))
+        local_kernel_args.append(const.dat)
 
     # Finally, add the target mesh reference coordinates if they appear in the kernel
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
@@ -944,46 +946,6 @@ def _build_interpolation_callables(
             copyin += (lambda: tensor.assign(output, eager=True),)
         copyout += (lambda: output.assign(tensor, eager=True),)
 
-    if not arguments:
-        V_dest = firedrake.FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
-        local_kernel_args.append(packed_tensor)
-    elif len(arguments) < 2:
-        V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
-        local_kernel_args.append(packed_tensor)
-    else:
-        assert access == op3.WRITE  # Other access descriptors not done for Matrices.
-        Vrow = arguments[0].function_space()
-        Vcol = arguments[1].function_space()
-        assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
-
-        lgmaps = None
-        if bcs:
-            # NOTE: Probably shouldn't overwrite Vrow and Vcol here...
-            if ufl.duals.is_dual(Vrow):
-                Vrow = Vrow.dual()
-            if ufl.duals.is_dual(Vcol):
-                Vcol = Vcol.dual()
-            bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
-            bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
-            lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
-
-        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, iter_spec)
-        local_kernel_args.append(packed_tensor)
-    if kernel.oriented:
-        co = target_mesh.cell_orientations()
-        local_kernel_args.append(pack_tensor(co, iter_spec))
-    if kernel.needs_cell_sizes:
-        cs = source_mesh.cell_sizes
-        local_kernel_args.append(pack_tensor(cs, iter_spec))
-
-    for coefficient in coefficients:
-        packed_coeff = pack_tensor(coefficient, iter_spec)
-        local_kernel_args.append(packed_coeff)
-
-    for const in extract_firedrake_constants(expr):
-        local_kernel_args.append(const.dat)
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))

@@ -31,14 +31,13 @@ from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_interpolator
+from firedrake.parloops import pack_tensor, pack_pyop3_tensor
 from firedrake.petsc import PETSc
 from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
-from pyop2 import op2
 from pyop2.caching import active_scoped_cache
-from pyop2.exceptions import MapValueError, SparsityFormatError
 
 
 __all__ = "assemble",
