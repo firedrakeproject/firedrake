@@ -819,7 +819,9 @@ def parse_loop_properly_this_time(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component.size != 1:
+        if component.size == 0:
+            continue
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
                 component.size,
@@ -1093,7 +1095,9 @@ def compile_array_assignment(
     axis = axis_tree.node_map[paths[-1]]
 
     for component in axis.components:
-        if component.size != 1:
+        if component.size == 0:
+            continue
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
 
             extent_var = register_extent(

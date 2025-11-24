@@ -72,7 +72,7 @@ class KernelBuilderBase(KernelInterface):
         if not hasattr(self, "_cell_orientations"):
             raise RuntimeError("Haven't called set_cell_orientations")
         f = {None: 0, '+': 0, '-': 1}[restriction]
-        co_int = self._cell_orientations[domain][f]
+        co_int = self._cell_orientations[domain][f][0]
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
                                gem.Literal(-1),
                                gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),

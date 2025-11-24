@@ -231,7 +231,13 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     extr_mesh = ext_coords.function_space().mesh()
     base_mesh = extr_mesh._base_mesh
-    iterset = extr_mesh.cells.owned
+
+    from firedrake.parloops import pack_tensor
+    from firedrake.mesh import get_iteration_spec
+
+    iter_spec = get_iteration_spec(extr_mesh, "cell")
+
+    iterset = iter_spec.iterset
 
     # trick to pass the right layer through to the local kernel
     # TODO: make this a mesh attribute
@@ -240,12 +246,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
 
-    from firedrake.parloops import pack_tensor
 
     op3.do_loop(
-        p := iterset.index(),
+        p := iter_spec.loop_index,
         kernel(
-            pack_tensor(ext_coords, p, "cell"),
+            pack_tensor(ext_coords, iter_spec),
             base_coords.dat[extr_mesh.base_mesh_closure(p)],
             layer_height,
             my_layer_dat[p]

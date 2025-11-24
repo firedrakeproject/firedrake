@@ -250,7 +250,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         """
         args = [self.output_arg]
         if self.oriented:
-            cell_orientations, = tuple(self._cell_orientations.values())
+            cell_orientations, = tuple(x for x, _ in self._cell_orientations.values())
             funarg = self.generate_arg_from_expression(cell_orientations, dtype=numpy.int32)
             args.append(kernel_args.CellOrientationsKernelArg(funarg))
         if self.cell_sizes:

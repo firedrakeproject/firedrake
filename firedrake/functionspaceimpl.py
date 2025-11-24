@@ -680,7 +680,11 @@ class FunctionSpace:
         key = (nodes_per_entity, real_tensor_product, self.shape)
 
         if layout is None:
-            layout = ("mesh", "dof") + tuple(f"dim{i}" for i in range(self.rank))
+            # NOTE: Indicates bad inheritance
+            if isinstance(self, RealFunctionSpace):
+                layout = ("dof",)
+            else:
+                layout = ("mesh", "dof") + tuple(f"dim{i}" for i in range(self.rank))
 
         self.layout = layout
         self.extruded = isinstance(mesh, ExtrudedMeshTopology)

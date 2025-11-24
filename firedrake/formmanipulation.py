@@ -153,12 +153,15 @@ class ExtractSubBlock(MultiFunction):
         indices = self.blocks[0]
         W = subspace(V, indices)
         # This is needed because the indices and labels do not match when we split things
-        breakpoint()  # fixed???
         slice_ = [
-            o.dat.axes.root.component_labels[i]
-            for i in indices.values()
+            o.dat.axes.trees[0].root.component_labels[i]
+            for i in indices
         ]
-        return Cofunction(W, val=o.dat[slice_])
+        if len(indices) == 1:
+            # return a non-mixed thing
+            return Cofunction(W, val=o.dat[utils.just_one(slice_)])
+        else:
+            return Cofunction(W, val=o.dat[slice_])
 
     def matrix(self, o):
         ises = []

@@ -1116,14 +1116,14 @@ def _interpolator(tensor, expr, subset, access, bcs=None):
 
         lgmaps = None
         if bcs:
-            raise NotImplementedError
+            # NOTE: Probably shouldn't overwrite Vrow and Vcol here...
             if ufl.duals.is_dual(Vrow):
                 Vrow = Vrow.dual()
             if ufl.duals.is_dual(Vcol):
                 Vcol = Vcol.dual()
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
-            lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
+            lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
 
         packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, iter_spec)
         local_kernel_args.append(packed_tensor)
@@ -1656,7 +1656,7 @@ class MixedInterpolator(Interpolator):
             Vtarget = vi.function_space().dual()
             sub_bcs = []
             for space, index in zip(spaces, indices):
-                subspace = space.sub(index)
+                subspace = space.sub(index) if index is not None else space
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
@@ -1678,8 +1678,8 @@ class MixedInterpolator(Interpolator):
         shape = tuple(len(a.function_space()) for a in self.arguments)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         # Assemble the sparse block matrix
-        for i in self:
-            blocks[i] = self[i].callable().handle
+        for i, bi in zip(self, numpy.ndindex(blocks.shape), strict=True):
+            blocks[bi] = self[i].callable().handle
         petscmat = PETSc.Mat().createNest(blocks)
         tensor = firedrake.AssembledMatrix(self.arguments, self.bcs, petscmat)
         return tensor.M
