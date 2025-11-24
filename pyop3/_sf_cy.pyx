@@ -13,8 +13,8 @@ from pyop3.dtypes import IntType
 # ---
 cimport numpy as np_c
 
-from pyop3 cimport petsc as petsc_c
-from pyop3.petsc cimport CHKERR as CHKERR_c
+from petsctools cimport cpetsc as petsc_c
+from petsctools.cpetsc cimport CHKERR as CHKERR_c
 
 
 def filter_petsc_sf(

@@ -6,8 +6,8 @@ should be exposed inside 'pyop3.buffer'.
 """
 from petsc4py import PETSc
 
-from pyop3 cimport petsc as petsc_c
-from pyop3.petsc cimport CHKERR as CHKERR_c
+from petsctools cimport cpetsc as petsc_c
+from petsctools.cpetsc cimport CHKERR as CHKERR_c
 
 
 def set_petsc_mat_diagonal(mat: petsc_c.Mat_py, value: petsc_c.PetscScalar) -> None:
