@@ -194,8 +194,7 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            # UNDO ME
-            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git@connorjward/ufl-cell-fix netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_BUILD_ARGS='--no-isolation'
@@ -315,7 +314,12 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            GUSTO_BRANCH='main'
+          else
+            GUSTO_BRANCH='future'
+          fi
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
           pip install --verbose ./gusto-repo
           python -m pytest -n 8 --verbose \
             gusto-repo/integration-tests/balance/test_saturated_balance.py \

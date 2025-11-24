@@ -28,7 +28,9 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.functionspaceimpl import mask_lgmap
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.parloops import pack_pyop3_tensor, pack_tensor
+from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
+from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
@@ -625,17 +627,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # Get the target space
-            V = v.function_space().dual()
-
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            if rank == 1 and isinstance(tensor, firedrake.Function):
-                V = tensor
-            interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
-            # Assembly
-            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
+            interpolator = get_interpolator(expr)
+            return interpolator.assemble(tensor=tensor, bcs=bcs)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):

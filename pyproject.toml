@@ -92,14 +92,14 @@ docs = [
 jax = [
   "jax",
 ]
-netgen = [
-  # TODO RELEASE
-  # "ngsPETSc>=0.1.1",
-]
-slepc = [
-  # TODO RELEASE
-  # "slepc4py==3.24.0",
-]
+# TODO RELEASE
+# netgen = [
+#   "ngsPETSc>=0.1.1",
+# ]
+# TODO RELEASE
+# slepc = [
+#   "slepc4py==3.24.0",
+# ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
 ]

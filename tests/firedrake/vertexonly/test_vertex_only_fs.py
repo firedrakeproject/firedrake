@@ -76,7 +76,7 @@ def pseudo_random_coords(size):
 
 # Function Space Generation Tests
 
-def functionspace_tests(vm, petsc_raises):
+def functionspace_tests(vm):
     # Prep
     num_cells = vm.cells.owned.size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
@@ -168,17 +168,10 @@ def functionspace_tests(vm, petsc_raises):
 
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(interpolate(TestFunction(V), h_star))
-    assert np.allclose(
-        g.dat.data_ro_with_halos,
-        np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1),
-    )
-    with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolates with expressions yet
-        g2 = assemble(interpolate(2 * TestFunction(V), h_star))
-        assert np.allclose(
-            g2.dat.data_ro_with_halos,
-            2*np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1),
-        )
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1))
+
+    g2 = assemble(interpolate(2 * TestFunction(V), h_star))
+    assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(reshape(vm.coordinates.dat.data_ro_with_halos), axis=1))
 
     h_star = assemble(interpolate(TestFunction(W), g))
     h = h_star.riesz_representation(riesz_map="l2")
@@ -187,13 +180,9 @@ def functionspace_tests(vm, petsc_raises):
         np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
     )
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolates with expressions yet
-        h2 = assemble(interpolate(2 * TestFunction(W), g))
-        assert np.allclose(
-            h2.dat.data_ro_with_halos[idxs_to_include],
-            2*np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1),
-        )
+
+    h2 = assemble(interpolate(2 * TestFunction(W), g))
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(reshape(vm.input_ordering.coordinates.dat.data_ro_with_halos)[idxs_to_include], axis=1))
 
     g = assemble(interpolate(h, V))
     assert np.allclose(
@@ -207,7 +196,7 @@ def functionspace_tests(vm, petsc_raises):
     )
 
 
-def vectorfunctionspace_tests(vm, petsc_raises):
+def vectorfunctionspace_tests(vm):
     # Prep
     num_cells = vm.cells.owned.size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
@@ -289,18 +278,16 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(interpolate(TestFunction(V), h_star))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolate with expressions yet
-        g2 = assemble(interpolate(2 * TestFunction(V), h_star))
-        assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+
+    g2 = assemble(interpolate(2 * TestFunction(V), h_star))
+    assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
     h_star = assemble(interpolate(TestFunction(W), g))
     assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolate with expressions yet
-        h2 = assemble(interpolate(2 * TestFunction(W), g))
-        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+
+    h2 = assemble(interpolate(2 * TestFunction(W), g))
+    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
 
     h = h_star.riesz_representation(riesz_map="l2")
     g = assemble(interpolate(h, V))
@@ -310,23 +297,23 @@ def vectorfunctionspace_tests(vm, petsc_raises):
 
 
 @pytest.mark.parallel([1, 3])
-def test_functionspace(vm, petsc_raises):
-    functionspace_tests(vm, petsc_raises)
+def test_functionspace(vm):
+    functionspace_tests(vm)
 
 
 @pytest.mark.parallel([1, 3])
-def test_functionspace_input_ordering(vm, petsc_raises):
-    functionspace_tests(vm.input_ordering, petsc_raises)
+def test_functionspace_input_ordering(vm):
+    functionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel([1, 3])
-def test_vectorfunctionspace(vm, petsc_raises):
-    vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
+def test_vectorfunctionspace(vm):
+    vectorfunctionspace_tests(vm)
 
 
 @pytest.mark.parallel([1, 3])
-def test_vectorfunctionspace_input_ordering(vm, petsc_raises):
-    vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
+def test_vectorfunctionspace_input_ordering(vm):
+    vectorfunctionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel(2)
