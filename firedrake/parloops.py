@@ -4,6 +4,7 @@ non-finite element operations such as slope limiters."""
 import collections
 import functools
 import warnings
+import os
 from cachetools import LRUCache
 from immutabledict import immutabledict as idict
 from typing import Any
@@ -483,7 +484,10 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     orientation_perm = _orientations(space, perms, loop_index)
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
+    
     transform_in_kernel, transform_out_kernel = fuse_orientations(space)
+    if transform_in_kernel and transform_out_kernel and not bool(os.environ.get("FIREDRAKE_USE_FUSE",0)):
+        raise NotImplementedError("To use a fuse element you must set the FIREDRAKE_USE_FUSE env var")
 
     if packed_dat.dtype == IntType:
         warnings.warn("Int Type dats cannot be transformed using fuse transforms")
@@ -540,6 +544,8 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
 
 
 def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0):
+    if bool(os.environ.get("FIREDRAKE_USE_FUSE",0)):
+        raise NotImplementedError("Currently FUSE only supports 1-forms")
     mat_sequence = [packed_mat]
 
     row_element = row_space.finat_element
@@ -685,7 +691,7 @@ def _needs_static_permutation(element) -> bool:
     return any(perm != np.arange(perm.size, dtype=perm.dtype))
 
 
-def construct_switch_statement(self, mats, n, args, var_list):
+def construct_switch_statement(self, mats, n: int, args: list[loopy.TemporaryVariable], var_list):
     string = []
     string += "a = iden; \n "
     string += "\nswitch (dim) { \n"
@@ -742,7 +748,6 @@ def construct_switch_statement(self, mats, n, args, var_list):
 
 def fuse_orientations(space: WithGeometry):
     fuse_defined_space = hasattr(space.ufl_element(), "triple")
-
     if fuse_defined_space and hasattr(space.ufl_element().triple, "matrices"):
         print("NEW FUSE")
         fs = space
@@ -833,10 +838,10 @@ def fuse_orientations(space: WithGeometry):
             if direction == "out" or direction=="in":
                 return loopy.make_kernel(
                 "{:}",
-                [print_insn, f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{dep=print, id=loop}}",
+                [f"b[:], res[:] = {direction}_loop_over_dims(0,0,0,o[:], a[:,:], b[:], res[:]) {{id=loop}}",
                  "res[:] = set(res[:], b[:]) {id=replace, dep=loop}",
                  "b[:] = zero(b[:]) {dep=replace, id=zerob}",
-                 print_insn1],
+                 ],
                 name=f"{direction}_transform",
                 kernel_data=args[3:7],
                 target=loopy.CWithGNULibcTarget())
@@ -859,6 +864,7 @@ def fuse_orientations(space: WithGeometry):
         transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform_in, transform_out
     else:
+        return None, None
         if space.ufl_element().family() != "Lagrange":
             n = 3
             args = [loopy.ValueArg("d", dtype=utils.IntType),
