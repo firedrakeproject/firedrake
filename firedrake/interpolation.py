@@ -226,7 +226,9 @@ class Interpolator(abc.ABC):
     def _get_callable(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
-        bcs: Iterable[DirichletBC] | None = None
+        bcs: Iterable[DirichletBC] | None = None,
+        mat_type: Literal["aij", "nest"] | None = None,
+        sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
         """Return a callable to perform interpolation.
 
@@ -250,7 +252,9 @@ class Interpolator(abc.ABC):
     def assemble(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
-        bcs: Iterable[DirichletBC] | None = None
+        bcs: Iterable[DirichletBC] | None = None,
+        mat_type: Literal["aij", "nest"] | None = None,
+        sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
@@ -278,7 +282,7 @@ class Interpolator(abc.ABC):
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
-        result = self._get_callable(tensor=tensor, bcs=bcs)()
+        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
@@ -474,10 +478,11 @@ class CrossMeshInterpolator(Interpolator):
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering, matfree=matfree)
         return point_eval, point_eval_input_ordering
 
-    def _get_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
+        
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -589,7 +594,7 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
-    def _get_tensor(self) -> op2.Mat | Function | Cofunction:
+    def _get_tensor(self, mat_type=None, sub_mat_type=None) -> op2.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
         Returns
@@ -610,23 +615,36 @@ class SameMeshInterpolator(Interpolator):
                     val = Constant(finfo.min)
                 f.assign(val)
         elif self.rank == 2:
-            Vrow = self.interpolate_args[0].function_space()
-            Vcol = self.interpolate_args[1].function_space()
-            if len(Vrow) > 1 or len(Vcol) > 1:
-                raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-            Vrow_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vrow)
-            Vcol_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vcol)
-            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                    name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                    nest=False,
-                                    block_sparse=True)
+            sparsity = self._get_sparsity(mat_type=mat_type, sub_mat_type=sub_mat_type)
             f = op2.Mat(sparsity)
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
+    
+    def _get_sparsity(self, mat_type=None, sub_mat_type=None) -> op2.Sparsity:
+        if not mat_type:
+            mat_type = "aij"
+        assert mat_type in {"aij", "baij", "nest"}
+        if nest := mat_type == "nest":
+            baij = sub_mat_type == "baij"
+        else:
+            baij = mat_type == "baij"
+        Vrow = self.interpolate_args[0].function_space()
+        Vcol = self.interpolate_args[1].function_space()
+        if len(Vrow) > 1 or len(Vcol) > 1:
+            raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
+        Vrow_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vrow)
+        Vcol_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vcol)
+        sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                                [(Vrow_map, Vcol_map, None)],  # non-mixed
+                                name=f"{Vrow.name}_{Vcol.name}_sparsity",
+                                nest=nest,
+                                block_sparse=baij)
+        return sparsity
 
-    def _get_callable(self, tensor=None, bcs=None):
+
+
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None):
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
