@@ -153,13 +153,14 @@ requires = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
+  # TODO RELEASE
+  # "petsc4py==3.24.0",
   "petsctools",
   "pkgconfig",
   "pybind11",
-  "setuptools>=77.0.3",
-  # TODO RELEASE
-  # "petsc4py==3.24.0",
   "rtree>=1.2",
+  "setuptools>=77.0.3",
+  "setuptools-scm>=8.1",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -170,20 +171,4 @@ script-files = [
   "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
   "pyop2/scripts/spydump",
-]
-
-[tool.setuptools.package-data]
-# Unless specified these files will not be installed along with the
-# rest of the package
-firedrake = [
-  "evaluate.h",
-  "locate.c",
-  "icons/*.png",
-  "_check/**",
-]
-pyop2 = [
-  "*.h",
-  "*.pxd",
-  "*.pyx",
-  "codegen/c/*.c",
 ]
