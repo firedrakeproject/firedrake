@@ -483,7 +483,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     #     orientation_perm = _orientations(space, perms, loop_index)
     #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
-    transform_in_kernel, transform_out_kernel = fuse_orientations(space)
+    transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
     if packed_dat.dtype == IntType:
         warnings.warn("Int Type dats cannot be transformed using fuse transforms")
@@ -544,6 +544,8 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
     row_element = row_space.finat_element
     column_element = column_space.finat_element
+    
+    transform_in_kernel, transform_out_kernel = fuse_orientations([row_space, column_space])
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: Can be more fussy I think, only higher degree?
@@ -739,19 +741,50 @@ def construct_switch_statement(self, mats, n, args, var_list):
     string += "default: break; }\n"
     return string, args, var_list
 
+def get_utility_kernels(output_shape: int, n: int) -> tuple:
+    if output_shape == 1:
+        res_idx = "j"
+        iter_idx = "i"
+        combined = iter_idx + "," + res_idx
+        res_shape = (n,)
+    elif output_shape == 2:
+        res_idx = "i,j"
+        res_shape = (n, n)
+    else:
+        raise NotImplementedError("Fuse orientations cannot handle tensors")
+    matmul = loopy.make_function(
+        f"{{[{combined}]:0<={combined} < {n}}}",
+        f"""
+            res[{res_idx}] =  res[{res_idx}] + a[{combined}]*b[{iter_idx}]
+        """, name="matmul", target=loopy.CWithGNULibcTarget())
 
-def fuse_orientations(space: WithGeometry):
-    fuse_defined_space = hasattr(space.ufl_element(), "triple")
+    set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=res_shape, is_input=True, is_output=True),
+                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=res_shape, is_input=True)]
+    set_knl = loopy.make_function(
+        f"{{[{res_idx}]:0<= {res_idx} < {n}}}",
+        [f"b[{res_idx}] = res[{res_idx}]"],
+        kernel_data=set_args,
+        name="set", target=loopy.CWithGNULibcTarget()
+    )
+    return matmul, set_knl
 
-    if fuse_defined_space and hasattr(space.ufl_element().triple, "matrices"):
-        print("NEW FUSE")
-        fs = space
+
+def fuse_orientations(spaces: list[WithGeometry]):
+    fuse_defined_spaces = all([hasattr(space.ufl_element(), "triple") for space in spaces])
+    if not fuse_defined_spaces:
+        return None, None
+
+    # TODO case where only one has matrices? or do all fuse elements have them, check
+    if fuse_defined_spaces and all([hasattr(space.ufl_element().triple, "matrices") for space in spaces]):
+        output_shape = len(spaces)
+        print("NEW FUSE", output_shape)
+        fs = spaces[0]
         mats = fs.ufl_element().triple.matrices
         reversed_mats = fs.ufl_element().triple.reversed_matrices
         t_dim = fs.ufl_element().cell._tdim
         os = mats[t_dim][0]
         n = os[next(iter(os.keys()))].shape[0]
-        closures_dict = space._mesh._closure_sizes[space._mesh.dimension]
+        closures_dict = fs._mesh._closure_sizes[fs._mesh.dimension]
         closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
 
         args = [loopy.ValueArg("d", dtype=utils.IntType),
@@ -761,21 +794,21 @@ def fuse_orientations(space: WithGeometry):
                 loopy.GlobalArg("a", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False),
                 loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
                 loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True, is_output=True)]
+        matmul, set_knl = get_utility_kernels(output_shape, n) 
+        # matmul = loopy.make_function(
+        #     f"{{[i, j]:0<=i, j < {n}}}",
+        #     """
+        #         res[j] =  res[j] + a[i, j]*b[i]
+        #     """, name="matmul", target=loopy.CWithGNULibcTarget())
 
-        matmul = loopy.make_function(
-            f"{{[i, j]:0<=i, j < {n}}}",
-            """
-                res[j] =  res[j] + a[i, j]*b[i]
-            """, name="matmul", target=loopy.CWithGNULibcTarget())
-
-        set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
-                    loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True)]
-        set_knl = loopy.make_function(
-            f"{{[j]:0<=j < {n}}}",
-            ["b[j] = res[j]"],
-            kernel_data=set_args,
-            name="set", target=loopy.CWithGNULibcTarget()
-        )
+        # set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=(n, ), is_input=True, is_output=True),
+        #             loopy.GlobalArg("res", dtype=utils.ScalarType, shape=(n,), is_input=True)]
+        # set_knl = loopy.make_function(
+        #     f"{{[j]:0<=j < {n}}}",
+        #     ["b[j] = res[j]"],
+        #     kernel_data=set_args,
+        #     name="set", target=loopy.CWithGNULibcTarget()
+        # )
 
         zero_knl = loopy.make_function(
             f"{{ [i]: 0 <= i < {n}}}",
@@ -786,7 +819,7 @@ def fuse_orientations(space: WithGeometry):
         )
 
         var_list = ["o", "d", "i", "o_val", "dim"]
-        in_string, args, var_list = construct_switch_statement(space, mats, n, args, var_list)
+        in_string, args, var_list = construct_switch_statement(fs, mats, n, args, var_list)
         transform_in_insn = loopy.CInstruction(tuple(), "".join(in_string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
 
         dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
@@ -799,7 +832,7 @@ def fuse_orientations(space: WithGeometry):
             kernel_data=dim_arg + args,
             target=loopy.CWithGNULibcTarget())
 
-        out_string, args, var_list = construct_switch_statement(space, reversed_mats, n, args, var_list)
+        out_string, args, var_list = construct_switch_statement(fs, reversed_mats, n, args, var_list)
         transform_out_insn = loopy.CInstruction(tuple(), "".join(out_string), assignees=("a", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
         # print_insn = loopy.CInstruction(tuple(), "printf(\"res: %f, %f, %f\\n\", res[0], res[1], res[2]);", assignees=(), read_variables=frozenset([]), within_inames=frozenset(["i"]), id="print", depends_on="matmul")
         out_switch = loopy.make_function(
@@ -817,7 +850,7 @@ def fuse_orientations(space: WithGeometry):
 
         def loop_dims(direction):
             return loopy.make_function(
-                f"{{[dim]:{0} <= dim <= {space._mesh.dimension - 1}}}",
+                f"{{[dim]:{0} <= dim <= {fs._mesh.dimension - 1}}}",
                 ["d = closure_sizes[dim] {id=closure}",
                  f"b[:], res[:] = {direction}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], a[:, :], b[:], res[:]) {{id=switch, dep=*}}",
                  "closure_size_acc = closure_size_acc + d {id=replace, dep=switch}"
@@ -858,7 +891,8 @@ def fuse_orientations(space: WithGeometry):
         transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         return transform_in, transform_out
-    else:
+    elif fuse_defined_spaces and any([hasattr(space.ufl_element(), "triple") for space in spaces]):
+        raise ValueError("If a fuse space is used, all spaces must be fuse spaces")
         if space.ufl_element().family() != "Lagrange":
             n = 3
             args = [loopy.ValueArg("d", dtype=utils.IntType),
@@ -924,7 +958,6 @@ def fuse_orientations(space: WithGeometry):
         # transform_in = op3.Function(overall("in"), [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         # transform_out = op3.Function(overall("out"), [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
         # return transform_in, transform_out, (n,)
-        return None, None
         # elif len(Vs) == 2 and any(fuse_defined_spaces):
         #     raise NotImplementedError
         #     if not all(fuse_defined_spaces):
