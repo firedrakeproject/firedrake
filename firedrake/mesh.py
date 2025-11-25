@@ -439,7 +439,11 @@ class AbstractMeshTopology(abc.ABC):
                         new_to_old_point_numbering = \
                             PETSc.IS().createGeneral(new_to_old_point_indices, comm=MPI.COMM_SELF)
                     else:
-                        raise NotImplementedError
+                        new_to_old_point_numbering = dmcommon.compute_dm_renumbering(self, None)
+                        # NOTE: probably shouldn't do this for a VoM
+                        new_to_old_point_numbering = dmcommon.partition_renumbering(
+                            self.topology_dm, new_to_old_point_numbering
+                        )
 
             # TODO: replace "renumbering" with "numbering"
             self._new_to_old_point_renumbering = new_to_old_point_numbering
@@ -1613,7 +1617,7 @@ class AbstractMeshTopology(abc.ABC):
 
     # trans mesh
 
-    def trans_mesh_entity_map(self, base_mesh, base_integral_type, base_subdomain_id, base_all_integer_subdomain_ids):
+    def trans_mesh_entity_map(self, iteration_spec):
         """Create entity-entity (composed) map from base_mesh to `self`.
 
         Parameters

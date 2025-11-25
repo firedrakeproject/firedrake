@@ -1330,10 +1330,16 @@ class FunctionSpace:
 
         """
         mesh = self.mesh()
-        if iteration_spec.mesh is mesh:
+        if iteration_spec.mesh.topology is mesh.topology:
+            composed_map = None
             target_integral_type = iteration_spec.integral_type
-        else:
+        elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
             composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
+        else:
+            # No shared topology, must be using a vertex-only mesh
+            composed_map = mesh.cell_parent_cell_map(iteration_spec.loop_index)
+            target_integral_type = "cell"
+
         if target_integral_type == "cell":
             def self_map(index):
                 return self.mesh().closure(index)
@@ -1361,8 +1367,7 @@ class FunctionSpace:
         else:
             raise ValueError(f"Unknown integral_type: {target_integral_type}")
 
-        # this check is somewhat unnecessary if composed_map is somehow nulled
-        if iteration_spec.mesh is self.mesh():
+        if not composed_map:
             return self_map(iteration_spec.loop_index)
         else:
             return self_map(composed_map)

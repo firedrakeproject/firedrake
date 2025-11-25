@@ -64,28 +64,6 @@ of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
 
-def indirect_measure(mesh, measure):
-    return get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
-
-
-_maps = {
-    'cell': {
-        'itspace': indirect_measure
-    },
-    'interior_facet': {
-        'itspace': indirect_measure
-    },
-    'exterior_facet': {
-        'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': indirect_measure
-    },
-    'direct': {
-        'itspace': lambda mesh, measure: mesh
-    }
-}
-r"""Map a measure to the correct maps."""
-
-
 def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) -> op3.Function:
     intents = []
     kargs = []
@@ -290,7 +268,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
-    _map = _maps[measure.integral_type()]
     # Ensure that the dict args passed in are consistently ordered
     # (sorted by the string key).
     sorted_args = collections.OrderedDict()
@@ -329,20 +306,23 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     kernel_domains, instructions = kernel
     function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 
-    iterset = _map['itspace'](mesh, measure)
-    index = iterset.index()
+    if measure is direct:
+        raise NotImplementedError("Need to loop over nodes...")
+    else:
+        iter_spec = get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
 
-    def mkarg(f):
-        if isinstance(f, Indexed):
-            raise NotImplementedError("Think about this")
-            c, i = f.ufl_operands
-            idx = i._indices[0]._value
-            m = _map['nodes'](c)
-            return pack_pyop3_tensor(c.dat, index, measure.integral_type())
-        return pack_tensor(f, index, measure.integral_type())
-    args = tuple(mkarg(arg) for arg, _ in args.values())
+    packed_args = []
+    for arg, _ in args.values():
+        if isinstance(arg, Indexed):
+            raise NotImplementedError("TODO")
 
-    op3.do_loop(index, function(*args))
+        if measure is direct:
+            packed_arg = arg[iter_spec.loop_index]
+        else:
+            packed_arg = pack_tensor(arg, iter_spec)
+        packed_args.append(packed_arg)
+
+    op3.loop(iter_spec.loop_index, function(*packed_args), eager=True)
 
 
 @functools.singledispatch

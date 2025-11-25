@@ -22,6 +22,7 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 
 import pyop3 as op3
 from pyop2.caching import memory_and_disk_cache
+from pyop3.dtypes import get_mpi_dtype
 
 from FIAT.reference_element import Point
 
@@ -52,7 +53,6 @@ from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
-from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import MatrixBase, AssembledMatrix
 from firedrake.bcs import DirichletBC
@@ -710,19 +710,19 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         self.mat = VomOntoVomMat(self)
         if self.rank == 1:
             f = tensor or self._get_tensor()
-            # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+            # NOTE: get_mpi_type ensures we get the correct MPI type for the
             # data, including the correct data size and dimensional information
             # (so for vector function spaces in 2 dimensions we might need a
             # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-            self.mat.mpi_type = _get_mtype(f.dat)[0]
+            self.mat.mpi_type, _ = get_mpi_dtype(f.dat.dtype, f.function_space().block_size)
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
 
                 def callable() -> Cofunction:
-                    with self.dual_arg.dat.vec_ro as source_vec:
+                    with self.dual_arg.vec_ro as source_vec:
                         coeff = self.mat.expr_as_coeff(source_vec)
-                        with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                        with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
                             self.mat.handle.multHermitian(coeff_vec, target_vec)
                     return f
             else:
@@ -730,13 +730,13 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
                 def callable() -> Function:
                     coeff = self.mat.expr_as_coeff()
-                    with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                    with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
                         self.mat.handle.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
             # Create a temporary function to get the correct MPI type
             temp_source_func = Function(self.interpolate_args[1].function_space())
-            self.mat.mpi_type = _get_mtype(temp_source_func.dat)[0]
+            self.mat.mpi_type, _ = get_mpi_dtype(temp_source_func.dat.dtype, temp_source_func.function_space().block_size)
 
             def callable() -> PETSc.Mat:
                 return self.mat.handle
