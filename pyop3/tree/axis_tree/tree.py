@@ -1915,7 +1915,8 @@ def find_matching_target(self):
             # gone wrong. This is needed because of .get() calls which are needed
             # because sometimes targets are incomplete.
             # these both work for some cases but not others...
-            if not target_path or not target_path in self.unindexed.leaf_paths:
+            # if not target_path or not target_path in self.unindexed.leaf_paths:
+            if not target_path or not target_path in self.unindexed.node_map:
                 all_leaves_match = False
                 break
 

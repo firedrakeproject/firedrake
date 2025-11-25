@@ -253,10 +253,6 @@ class ImplicitPackUnpackExpander(Transformer):
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    # This is currently necessary because some local kernels
-                    # (interpolation) actually increment values instead of setting
-                    # them directly. This should ideally be addressed.
-                    gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
                 elif intent == RW:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
