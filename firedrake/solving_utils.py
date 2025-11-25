@@ -356,8 +356,8 @@ class _SNESContext(object):
 
         Fbig = problem.F
         # Reuse the submatrices if we are splitting a MatNest
-        Jbig = self._jac if self._jac.petscmat.type == "nest" else problem.J
-        Jpbig = self._pjac if self._pjac.petscmat.type == "nest" else problem.Jp
+        Jbig = self._jac if self.mat_type == "nest" else problem.J
+        Jpbig = self._pjac if self.pmat_type == "nest" else problem.Jp
         if Jpbig is Jbig:
             Jpbig = None
 
