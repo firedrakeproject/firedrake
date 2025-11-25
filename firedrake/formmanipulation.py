@@ -2,7 +2,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -183,6 +183,8 @@ class ExtractSubBlock(MultiFunction):
 
         bcs = []
         spaces = [a.function_space() for a in o.arguments()]
+        row_field = self.blocks[0]
+        col_field = self.blocks[1]
         for bc in o.bcs:
             W = bc.function_space()
             while W.parent is not None:
@@ -194,13 +196,16 @@ class ExtractSubBlock(MultiFunction):
             if isinstance(bc, DirichletBC):
                 bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
             elif isinstance(bc, EquationBCSplit):
-                row_field = self.blocks[0]
-                col_field = self.blocks[1]
                 bc_temp = bc.reconstruct(field=field, V=V, row_field=row_field, col_field=col_field, use_split=True)
+                bc_temp = None
             if bc_temp is not None:
                 bcs.append(bc_temp)
 
-        return AssembledMatrix(tuple(args), tuple(bcs), submat)
+        if isinstance(o.a, Form):
+            a = self.split(o.a, argument_indices=(row_field, col_field))
+        else:
+            a = args
+        return AssembledMatrix(a, tuple(bcs), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
