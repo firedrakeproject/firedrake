@@ -622,7 +622,7 @@ class SameMeshInterpolator(Interpolator):
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
-    
+
     def _get_sparsity(self, mat_type=None) -> op2.Sparsity:
         if not mat_type:
             mat_type = "aij"
@@ -640,7 +640,6 @@ class SameMeshInterpolator(Interpolator):
                                 nest=False,
                                 block_sparse=baij)
         return sparsity
-
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if mat_type == "nest":
@@ -1479,7 +1478,7 @@ class VomOntoVomMat:
         else:
             create = PETSc.Mat().createAIJ
         mat = create(
-            size=(self.target_size, self.source_size), 
+            size=(self.target_size, self.source_size),
             bsize=self.target_space.block_size,
             nnz=1,
             comm=self.target_space.comm

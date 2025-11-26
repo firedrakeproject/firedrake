@@ -5,6 +5,7 @@ from firedrake.interpolation import (
 )
 import pytest
 
+
 def params():
     params = []
     for mat_type in [None, "aij"]:
