@@ -72,3 +72,50 @@ jobs:
       tag: ${{ inputs.version }}
       branch: ${{ inputs.branch }}
     secrets: inherit
+
+  colab:
+    name: Update Colab notebooks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install nbformat
+
+      - name: Checkout Firedrake
+        uses: actions/checkout@v5
+        with:
+          path: firedrake
+          ref: ${{ inputs.branch }}
+
+      - name: Checkout Colab notebooks
+        uses: actions/checkout@v5
+        with:
+          repository: firedrakeproject/notebooks
+          path: notebooks
+          token: ${{ secrets.NOTEBOOKS_REPO_TOKEN }}
+
+      - name: Copy notebooks
+        run: cp -r firedrake/docs/notebooks/* notebooks/
+
+      - name: Prepare notebooks for Colab
+        working-directory: notebooks
+        run: ./utils/firedrake-colab-notebooks ./*.ipynb
+
+      - name: Push changes if needed
+        working-directory: notebooks
+        run: |
+          if [ ! -z "$( git status --porcelain )" ]; then
+            echo "Changes detected"
+            git status
+            # Use the GitHub bot user account information
+            git config user.name "GitHub Actions"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add --all .
+            git commit -m "Upstream updates"
+            git push
+          fi

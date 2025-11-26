@@ -319,7 +319,12 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            GUSTO_BRANCH='main'
+          else
+            GUSTO_BRANCH='future'
+          fi
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
           pip install --verbose ./gusto-repo
           python -m pytest -n 8 --verbose \
             gusto-repo/integration-tests/balance/test_saturated_balance.py \
