@@ -402,7 +402,6 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
-        self.allowed_mat_types = ("aij", "baij")
         self.target_mesh = self.target_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
