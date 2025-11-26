@@ -227,7 +227,7 @@ class Interpolator(abc.ABC):
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
-        mat_type: Literal["aij", "nest"] | None = None,
+        mat_type: Literal["aij", "baij", "nest"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
         """Return a callable to perform interpolation.
@@ -253,7 +253,7 @@ class Interpolator(abc.ABC):
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
-        mat_type: Literal["aij", "nest"] | None = None,
+        mat_type: Literal["aij", "baij", "nest"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
@@ -391,6 +391,7 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
+        self.allowed_mat_types = ("aij", "baij")
         self.target_mesh = self.target_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
@@ -468,21 +469,22 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom = fs_type(vom, "DG", 0)
         point_eval = interpolate(self.operand, P0DG_vom)
 
-        # If assembling the operator, we need the concrete permutation matrix
-        matfree = False if self.rank == 2 else self.matfree
-
         # Interpolate into the input-ordering VOM
         P0DG_vom_input_ordering = fs_type(vom.input_ordering, "DG", 0)
 
         arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
-        point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering, matfree=matfree)
+        point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
         return point_eval, point_eval_input_ordering
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
-        
+        if mat_type == "nest":
+            raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
+        if mat_type == "baij":
+            # Can't multiply two baij matrices together in PETSc
+            raise NotImplementedError("PETSc MatBAIJ not implemented for cross-mesh interpolation.")
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -500,7 +502,7 @@ class CrossMeshInterpolator(Interpolator):
                 symbolic = action(point_eval_input_ordering, point_eval)
 
             def callable() -> PETSc.Mat:
-                return assemble(symbolic).petscmat
+                return assemble(symbolic, mat_type="aij").petscmat
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
             # f_src is a cofunction on V_dest.dual
@@ -594,7 +596,7 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
-    def _get_tensor(self, mat_type=None, sub_mat_type=None) -> op2.Mat | Function | Cofunction:
+    def _get_tensor(self, mat_type=None) -> op2.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
         Returns
@@ -615,20 +617,17 @@ class SameMeshInterpolator(Interpolator):
                     val = Constant(finfo.min)
                 f.assign(val)
         elif self.rank == 2:
-            sparsity = self._get_sparsity(mat_type=mat_type, sub_mat_type=sub_mat_type)
+            sparsity = self._get_sparsity(mat_type=mat_type)
             f = op2.Mat(sparsity)
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
     
-    def _get_sparsity(self, mat_type=None, sub_mat_type=None) -> op2.Sparsity:
+    def _get_sparsity(self, mat_type=None) -> op2.Sparsity:
         if not mat_type:
             mat_type = "aij"
-        assert mat_type in {"aij", "baij", "nest"}
-        if nest := mat_type == "nest":
-            baij = sub_mat_type == "baij"
-        else:
-            baij = mat_type == "baij"
+        assert mat_type in {"aij", "baij"}
+        baij = mat_type == "baij"
         Vrow = self.interpolate_args[0].function_space()
         Vcol = self.interpolate_args[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
@@ -638,20 +637,21 @@ class SameMeshInterpolator(Interpolator):
         sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
                                 [(Vrow_map, Vcol_map, None)],  # non-mixed
                                 name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                nest=nest,
+                                nest=False,
                                 block_sparse=baij)
         return sparsity
 
 
-
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        if mat_type == "nest":
+            raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
-            f = self._get_tensor()
+            f = self._get_tensor(mat_type=mat_type)
             copyout = (partial(f.dat.copy, tensor.dat),)
         else:
-            f = tensor or self._get_tensor()
+            f = tensor or self._get_tensor(mat_type=mat_type)
             copyout = ()
 
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
@@ -706,10 +706,12 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
 
-    def _get_callable(self, tensor=None, bcs=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
-        self.mat = VomOntoVomMat(self)
+        if mat_type == "nest":
+            raise NotImplementedError("PETSc MatNest not implemented for vom-to-vom interpolation.")
+        self.mat = VomOntoVomMat(self, mat_type=mat_type)
         if self.rank == 1:
             f = tensor or self._get_tensor()
             # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
@@ -1217,7 +1219,11 @@ class VomOntoVomMat:
     as a PETSc Mat, or a concrete PETSc seqaij Mat, depending on whether
     matfree interpolation is requested.
     """
-    def __init__(self, interpolator: VomOntoVomInterpolator):
+    def __init__(
+            self,
+            interpolator: VomOntoVomInterpolator,
+            mat_type: Literal["aij", "baij", "matfree"] | None = None,
+    ):
         """Initialise the VomOntoVomMat.
 
         Parameters
@@ -1271,7 +1277,7 @@ class VomOntoVomMat:
         )
         """Tuple containing the local and global size of the target space."""
 
-        if interpolator.matfree:
+        if not mat_type or mat_type == "matfree":
             # If matfree, we use the SF wrapped as a PETSc Mat
             # to perform the permutation. This is the default.
             self.handle = self._wrap_python_mat()
@@ -1279,7 +1285,7 @@ class VomOntoVomMat:
             # If matfree=False, then we build the concrete permutation
             # matrix as a PETSc seqaij Mat. This is used to build the
             # cross-mesh interpolation matrix.
-            self.handle = self._create_permutation_mat()
+            self.handle = self._create_permutation_mat(mat_type)
 
     @property
     def mpi_type(self):
@@ -1459,7 +1465,7 @@ class VomOntoVomMat:
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_permutation_mat(self) -> PETSc.Mat:
+    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"] | None) -> PETSc.Mat:
         """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh.
 
@@ -1468,10 +1474,19 @@ class VomOntoVomMat:
         PETSc.Mat
             PETSc seqaij matrix
         """
+        if mat_type == "baij" and self.target_space.block_size > 1:
+            create = PETSc.Mat().createBAIJ
+        else:
+            create = PETSc.Mat().createAIJ
+        mat = create(
+            size=(self.target_size, self.source_size), 
+            bsize=self.target_space.block_size,
+            nnz=1,
+            comm=self.target_space.comm
+        )
+        mat.setUp()
         # To create the permutation matrix we broadcast an array of indices which are contiguous
         # across all ranks and then use these indices to set the values of the matrix directly.
-        mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.target_space.comm)
-        mat.setUp()
         start = sum(self._local_sizes[:self.target_space.comm.rank])
         end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
@@ -1585,17 +1600,37 @@ class MixedInterpolator(Interpolator):
 
         return Isub
 
-    def _get_callable(self, tensor=None, bcs=None):
+    def _build_matnest(
+            self,
+            Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
+            sub_mat_type: Literal["aij", "baij"] | None = None,
+    ) -> PETSc.Mat:
+        sub_mat_type = "baij" if not sub_mat_type else sub_mat_type
+        shape = tuple(len(a.function_space()) for a in self.interpolate_args)
+        blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
+        for indices, (interp, sub_bcs) in Isub.items():
+            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
+        return PETSc.Mat().createNest(blocks)
+
+    def _build_aij(
+            self,
+            Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
+            mat_type: Literal["aij"] | None = None,
+    ) -> PETSc.Mat:
+        if mat_type == "baij":
+            raise ValueError("PETSc BAIJ not allowed for interpolation between MixedFunctionSpaces, use 'aij' or 'nest'.")
+        matnest = self._build_matnest(Isub, sub_mat_type=mat_type)
+        return matnest.convert(mat_type or "aij")
+
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
         if self.rank == 2:
-            def callable() -> PETSc.Mat:
-                shape = tuple(len(a.function_space()) for a in self.interpolate_args)
-                blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-                for indices, (interp, sub_bcs) in Isub.items():
-                    blocks[indices] = interp._get_callable(bcs=sub_bcs)()
-                return PETSc.Mat().createNest(blocks)
+            if mat_type == "nest":
+                callable = partial(self._build_matnest, Isub, sub_mat_type)
+            else:
+                callable = partial(self._build_aij, Isub, mat_type)
         elif self.rank == 1:
             def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):

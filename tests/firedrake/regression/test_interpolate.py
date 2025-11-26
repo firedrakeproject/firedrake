@@ -523,7 +523,8 @@ def test_interpolate_logical_not():
 
 
 @pytest.mark.parametrize("mode", ("forward", "adjoint"))
-def test_mixed_matrix(mode):
+@pytest.mark.parametrize("mat_type", (None, "nest"))
+def test_mixed_matrix(mode, mat_type):
     nx = 3
     mesh = UnitSquareMesh(nx, nx)
 
@@ -537,11 +538,11 @@ def test_mixed_matrix(mode):
 
     if mode == "forward":
         I = Interpolate(TrialFunction(Z), TestFunction(W.dual()))
-        a = assemble(I)
+        a = assemble(I, mat_type=mat_type)
         assert a.arguments()[0].function_space() == W.dual()
         assert a.arguments()[1].function_space() == Z
         assert a.petscmat.getSize() == (W.dim(), Z.dim())
-        assert a.petscmat.getType() == "nest"
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
 
         u = Function(Z)
         u.subfunctions[0].sub(0).assign(1)
@@ -550,11 +551,11 @@ def test_mixed_matrix(mode):
         result_matfree = assemble(Interpolate(u, TestFunction(W.dual())))
     elif mode == "adjoint":
         I = Interpolate(TestFunction(Z), TrialFunction(W.dual()))
-        a = assemble(I)
+        a = assemble(I, mat_type=mat_type)
         assert a.arguments()[1].function_space() == W.dual()
         assert a.arguments()[0].function_space() == Z
         assert a.petscmat.getSize() == (Z.dim(), W.dim())
-        assert a.petscmat.getType() == "nest"
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
 
         u = Function(W.dual())
         u.subfunctions[0].assign(1)
