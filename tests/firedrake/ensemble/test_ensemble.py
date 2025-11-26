@@ -79,13 +79,8 @@ def urank_sum(ensemble, mesh, W):
     return u
 
 
+@pytest.mark.parallel([1, 3])
 def test_comm_manager():
-    with pytest.raises(ValueError):
-        Ensemble(COMM_WORLD, 2)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_comm_manager_parallel():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)
 

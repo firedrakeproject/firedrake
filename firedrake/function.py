@@ -31,7 +31,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import parse_component_indices
+from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
@@ -116,7 +116,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if isinstance(self.function_space(), MixedFunctionSpace):
             # NOTE: This is quite tricky for fieldsplit. Previously the fields would
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
@@ -300,10 +300,9 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if isinstance(self.function_space().topological, MixedFunctionSpace):
             return tuple(
-                # type(self)(self.function_space().sub(i, weak=False), val)
-                type(self)(self.function_space().sub(i, weak=True), val)  # a guess, might not work
+                type(self)(self.function_space().sub(i, weak=True), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)

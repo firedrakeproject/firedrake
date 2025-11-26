@@ -401,7 +401,11 @@ def _(
         packed_dat = dat[map_]
         # bit of a hack, find the depth of the axis labelled 'closure', this relies
         # on the fact that the tree is always linear at the top
-        depth = [axis.label for axis in packed_dat.axes.axes].index("closure")
+        if isinstance(packed_dat.axes, op3.AxisForest):  # bit of a hack
+            axes = packed_dat.axes.trees[0]
+        else:
+            axes = packed_dat.axes
+        depth = [axis.label for axis in axes.axes].index("closure")
     else:
         raise NotImplementedError
     #     if iter_spec.integral_type == "cell":
