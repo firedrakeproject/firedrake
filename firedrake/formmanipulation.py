@@ -161,32 +161,34 @@ class ExtractSubBlock(MultiFunction):
 
     def matrix(self, o):
         from firedrake.bcs import DirichletBC, EquationBCSplit
-        row_field = self.blocks[0]
-        col_field = self.blocks[1]
-        if isinstance(o.a, Form):
-            form = self.split(o.a, argument_indices=(row_field, col_field))
-            if isinstance(form, ZeroBaseForm):
-                return form
-        else:
-            form = None
-
         ises = []
         args = []
+        argument_indices = []
         for a in o.arguments():
             V = a.function_space()
             iset = PETSc.IS()
             if a.number() in self.blocks:
+                fields = self.blocks[a.number()]
                 asplit = self._subspace_argument(a)
-                for f in self.blocks[a.number()]:
+                for f in fields:
                     fset = V.dof_dset.field_ises[f]
                     iset = iset.expand(fset)
             else:
+                fields = tuple(range(len(V)))
                 asplit = a
                 for fset in V.dof_dset.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
             args.append(asplit)
+            argument_indices.append(fields)
+
+        if isinstance(o.a, Form):
+            form = self.split(o.a, argument_indices=argument_indices)
+            if isinstance(form, ZeroBaseForm):
+                return form
+        else:
+            form = None
 
         submat = o.petscmat.createSubMatrix(*ises)
 
@@ -203,6 +205,7 @@ class ExtractSubBlock(MultiFunction):
             if isinstance(bc, DirichletBC):
                 bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
             elif isinstance(bc, EquationBCSplit):
+                row_field, col_field = argument_indices
                 bc_temp = bc.reconstruct(field=field, V=V, row_field=row_field, col_field=col_field, use_split=True)
                 bc_temp = None
             if bc_temp is not None:
