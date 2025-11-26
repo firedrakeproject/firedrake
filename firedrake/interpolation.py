@@ -239,6 +239,15 @@ class Interpolator(abc.ABC):
             output function space. Interpolator rows or columns which are
             associated with boundary condition nodes are zeroed out when this is
             specified. By default None.
+        mat_type
+            The PETSc matrix type to use when assembling a rank 2 interpolation.
+            For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
+            interpolation, ``"aij"`` and ``"baij"`` are supported. For interpolation between
+            :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+        sub_mat_type
+            The PETSc sub-matrix type to use when assembling a rank 2 interpolation between
+            :func:`.MixedFunctionSpace`s with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
+            are supported.
         """
         pass
 
@@ -269,6 +278,15 @@ class Interpolator(abc.ABC):
             output function space. Interpolator rows or columns which are
             associated with boundary condition nodes are zeroed out when this is
             specified. By default None.
+        mat_type
+            The PETSc matrix type to use when assembling a rank 2 interpolation.
+            For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
+            interpolation, ``"aij"`` and ``"baij"`` are supported. For interpolation between
+            :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
+        sub_mat_type
+            The PETSc sub-matrix type to use when assembling a rank 2 interpolation between
+            :func:`.MixedFunctionSpace` with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
+            are supported.
         Returns
         -------
         Function | Cofunction | MatrixBase | numbers.Number
@@ -1222,6 +1240,10 @@ class VomOntoVomMat:
         ----------
         interpolator : VomOntoVomInterpolator
             A :class:`VomOntoVomInterpolator` object.
+        mat_type : Literal["aij", "baij", "matfree"] | None, optional
+            The type of PETSc Mat to create. If 'matfree' or None, a
+            matfree PETSc Mat wrapping the SF is created. If 'aij' or 'baij',
+            a concrete PETSc Mat is created. By default None.
 
         Raises
         ------
@@ -1597,6 +1619,7 @@ class MixedInterpolator(Interpolator):
             Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
             sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> PETSc.Mat:
+        """Return a PETSc nested matrix built from sub-interpolator matrices."""
         sub_mat_type = "baij" if not sub_mat_type else sub_mat_type
         shape = tuple(len(a.function_space()) for a in self.interpolate_args)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
@@ -1609,6 +1632,8 @@ class MixedInterpolator(Interpolator):
             Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
             mat_type: Literal["aij"] | None = None,
     ) -> PETSc.Mat:
+        """Return a PETSc AIJ matrix built from sub-interpolator matrices by converting a
+        nested matrix."""
         if mat_type == "baij":
             raise ValueError("PETSc BAIJ not allowed for interpolation between MixedFunctionSpaces, use 'aij' or 'nest'.")
         matnest = self._build_matnest(Isub, sub_mat_type=mat_type)
