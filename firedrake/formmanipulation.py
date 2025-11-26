@@ -161,6 +161,15 @@ class ExtractSubBlock(MultiFunction):
 
     def matrix(self, o):
         from firedrake.bcs import DirichletBC, EquationBCSplit
+        row_field = self.blocks[0]
+        col_field = self.blocks[1]
+        if isinstance(o.a, Form):
+            form = self.split(o.a, argument_indices=(row_field, col_field))
+            if isinstance(form, ZeroBaseForm):
+                return form
+        else:
+            form = None
+
         ises = []
         args = []
         for a in o.arguments():
@@ -183,8 +192,6 @@ class ExtractSubBlock(MultiFunction):
 
         bcs = []
         spaces = [a.function_space() for a in o.arguments()]
-        row_field = self.blocks[0]
-        col_field = self.blocks[1]
         for bc in o.bcs:
             W = bc.function_space()
             while W.parent is not None:
@@ -201,11 +208,7 @@ class ExtractSubBlock(MultiFunction):
             if bc_temp is not None:
                 bcs.append(bc_temp)
 
-        if isinstance(o.a, Form):
-            a = self.split(o.a, argument_indices=(row_field, col_field))
-        else:
-            a = args
-        return AssembledMatrix(a, tuple(bcs), submat)
+        return AssembledMatrix(form or tuple(args), tuple(bcs), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
