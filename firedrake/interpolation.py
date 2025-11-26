@@ -97,17 +97,11 @@ class InterpolateOptions:
         then the values are either (a) unchanged if some ``output`` is given to
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
-    matfree : bool
-        If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations. Only applies when interpolating between a :func:`.VertexOnlyMesh`
-        and its associated input ordering; is ignored in all other cases.
     """
     subset: op2.Subset | None = None
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
-    matfree: bool = True
 
 
 class Interpolate(UFLInterpolate):
@@ -219,7 +213,6 @@ class Interpolator(abc.ABC):
         self.subset = expr.options.subset
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
-        self.matfree = expr.options.matfree
         self.access = expr.options.access
 
     @abc.abstractmethod
@@ -1215,8 +1208,8 @@ class VomOntoVomMat:
     """
     Object that facilitates interpolation between a VertexOnlyMesh and its
     input_ordering VertexOnlyMesh. This is either a PETSc Star Forest wrapped
-    as a PETSc Mat, or a concrete PETSc seqaij Mat, depending on whether
-    matfree interpolation is requested.
+    as a PETSc Mat, or a concrete PETSc Mat, depending on whether
+    `mat_type='matfree` is passed to assemble.
     """
     def __init__(
             self,
@@ -1281,8 +1274,8 @@ class VomOntoVomMat:
             # to perform the permutation. This is the default.
             self.handle = self._wrap_python_mat()
         else:
-            # If matfree=False, then we build the concrete permutation
-            # matrix as a PETSc seqaij Mat. This is used to build the
+            # Otherwise we build the concrete permutation
+            # matrix as a PETSc Mat. This is used to build the
             # cross-mesh interpolation matrix.
             self.handle = self._create_permutation_mat(mat_type)
 
