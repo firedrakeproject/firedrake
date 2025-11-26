@@ -376,11 +376,14 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                                     sub_mat_type=self._sub_mat_type,
-                                     options_prefix=self._options_prefix)
+                mat = op3.Mat.from_sparsity(sparsity)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, mat, options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
+
+    @property
+    def _mat_spec(self):
+        return make_mat_spec(self._mat_type, self._sub_mat_type, self._form.arguments())
 
     @cached_property
     def maps_and_regions(self):
@@ -1772,6 +1775,7 @@ class MatrixFreeAssembler(FormAssembler):
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None,
+                 pyop3_compiler_parameters=None,
                  options_prefix=None, appctx=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._options_prefix = options_prefix

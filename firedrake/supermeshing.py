@@ -129,35 +129,42 @@ each supermesh cell.
     preallocator = PETSc.Mat().create(comm=mesh_A._comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
-    rset = V_B.dof_dset
-    cset = V_A.dof_dset
+    # rset = V_B.dof_dset
+    # cset = V_A.dof_dset
 
-    nrows = rset.layout_vec.getSizes()
-    ncols = cset.layout_vec.getSizes()
+    nrows = V_B.template_vec.getSizes()
+    ncols = V_A.template_vec.getSizes()
 
-    preallocator.setLGMap(rmap=rset.scalar_lgmap, cmap=cset.scalar_lgmap)
+    scalar_lgmaps = tuple(
+        PETSc.LGMap().create(
+            V.plex_axes.blocked(V.block_shape).global_numbering.data_ro,
+            comm=V.comm,
+        )
+        for V in [V_B, V_A]
+    )
+    preallocator.setLGMap(*scalar_lgmaps)
     preallocator.setSizes(size=(nrows, ncols), bsize=1)
     preallocator.setUp()
 
-    zeros = numpy.zeros((V_B.cell_node_map().arity, V_A.cell_node_map().arity), dtype=ScalarType)
-    for cell_A, dofs_A in enumerate(V_A.cell_node_map().values):
+    zeros = numpy.zeros((V_B.cell_node_list.shape[1], V_A.cell_node_list.shape[1]), dtype=ScalarType)
+    for cell_A, dofs_A in enumerate(V_A.cell_node_list):
         for cell_B in likely(cell_A):
-            dofs_B = V_B.cell_node_map().values_with_halo[cell_B, :]
+            dofs_B = V_B.cell_node_list[cell_B, :]
             preallocator.setValuesLocal(dofs_B, dofs_A, zeros)
     preallocator.assemble()
 
     dnnz, onnz = get_preallocation(preallocator, nrows[0])
 
     # Unroll from block to AIJ
-    dnnz = dnnz * cset.cdim
-    dnnz = numpy.repeat(dnnz, rset.cdim)
-    onnz = onnz * cset.cdim
-    onnz = numpy.repeat(onnz, cset.cdim)
+    dnnz = dnnz * V_A.block_size
+    dnnz = numpy.repeat(dnnz, V_B.block_size)
+    onnz = onnz * V_A.block_size
+    onnz = numpy.repeat(onnz, V_A.block_size)
     preallocator.destroy()
 
     assert V_A.value_size == V_B.value_size
-    rdim = V_B.dof_dset.cdim
-    cdim = V_A.dof_dset.cdim
+    rdim = V_B.block_size
+    cdim = V_A.block_size
 
     #
     # Preallocate M_AB.
@@ -169,7 +176,15 @@ each supermesh cell.
     mat.setSizes(size=(rsizes, csizes),
                  bsize=(rdim, cdim))
     mat.setPreallocationNNZ((dnnz, onnz))
-    mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
+    lgmaps = tuple(
+        PETSc.LGMap().create(
+            V.plex_axes.global_numbering.data_ro,
+            bsize=V.block_size,
+            comm=V.comm,
+        )
+        for V in [V_B, V_A]
+    )
+    mat.setLGMap(*lgmaps)
     # TODO: Boundary conditions not handled.
     mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
     mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
@@ -194,8 +209,8 @@ each supermesh cell.
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
-    node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
-    node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
+    node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos.reshape((-1, dim))
+    node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos.reshape((-1, dim))
     num_nodes_A = node_locations_A.shape[0]
     num_nodes_B = node_locations_B.shape[0]
 
@@ -338,7 +353,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop3_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -351,7 +366,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop3_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -385,7 +400,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop3_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -396,7 +411,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop3_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");

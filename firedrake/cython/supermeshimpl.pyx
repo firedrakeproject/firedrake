@@ -58,8 +58,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
-    num_cell_A = V_A.mesh().cell_set.size
-    num_cell_B = V_B.mesh().cell_set.size
+    num_cell_A = V_A.mesh().cells.owned.local_size
+    num_cell_B = V_B.mesh().cells.owned.local_size
 
     outmat = numpy.empty((V_B.cell_node_list.shape[1],
                           V_A.cell_node_list.shape[1]), dtype=ScalarType)
@@ -74,8 +74,8 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     simplex_B = numpy.empty_like(simplex_A, dtype=ScalarType)
     simplices_C = numpy.empty(MAGIC[gdim], dtype=ScalarType)
 
-    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
-    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
+    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
+    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
     V_A_cell_node_map = V_A.cell_node_list
     V_B_cell_node_map = V_B.cell_node_list
     num_dof_A = V_A.cell_node_list.shape[1]
@@ -140,8 +140,8 @@ def intersection_finder(mesh_A, mesh_B):
 
     vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
-    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list
-    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list
+    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list.astype(int)
+    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list.astype(int)
     nnodes_A = mesh_A.coordinates.function_space().axes.size
     nnodes_B = mesh_B.coordinates.function_space().axes.size
     dim_A = mesh_A.geometric_dimension
@@ -150,15 +150,6 @@ def intersection_finder(mesh_A, mesh_B):
     ncells_B = mesh_B.num_cells
     loc_A = vertex_map_A.shape[1]
     loc_B = vertex_map_B.shape[1]
-
-    print(nnodes_A)
-    print(dim_A)
-    print(ncells_A)
-    print(loc_A)
-    print(nnodes_B)
-    print(dim_B)
-    print(ncells_B)
-    print(loc_B)
 
     libsupermesh_tree_intersection_finder_set_input(&nnodes_A, &dim_A, &ncells_A, &loc_A,
                                                     &nnodes_B, &dim_B, &ncells_B, &loc_B,

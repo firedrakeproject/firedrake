@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import math
 import numbers
 from functools import cached_property
 from types import GeneratorType
@@ -12,6 +13,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
+from pyop2.mpi import collective
 
 from pyop3 import utils
 from ..base import LoopIndexVar
@@ -451,6 +453,15 @@ class Dat(Tensor):
         block_size = np.prod(block_shape, dtype=IntType)
         return PETSc.LGMap().create(self.data_ro_with_halos, bsize=block_size, comm=self.comm)
 
+    @property
+    def norm(self) -> numbers.Real:
+        """Compute the l2 norm of this `Dat`.
+
+        .. note::
+
+           This acts on the flattened data (see also :meth:`inner`)."""
+        return math.sqrt(self.inner(self).real)
+
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.
 
@@ -498,6 +509,16 @@ class Dat(Tensor):
 
         local_result = np.vdot(other.data_ro, self.data_ro)
         return self.comm.reduce(local_result, op=MPI.SUM)
+
+    @property
+    @collective
+    def global_data(self) -> np.ndarray:
+        """Return all the data for the Dat gathered onto individual ranks."""
+        with self.vec_ro() as gvec:
+            scatter, lvec = PETSc.Scatter().toAll(gvec)
+            scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
+        return lvec.array
+
 
     # TODO: deprecate this and just look at axes
     @property

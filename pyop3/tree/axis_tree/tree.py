@@ -1284,6 +1284,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     # TODO: cached method
     def lgmap(self, block_shape: tuple[int, ...] = ()) -> PETSc.LGMap:
+        assert False, "old code I think"
         blocked_axes = self.blocked(block_shape)
         indices = blocked_axes.global_numbering
         bsize = np.prod(block_shape, dtype=int)

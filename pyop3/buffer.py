@@ -637,12 +637,10 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @property
     def state(self) -> int:
-        raise NotImplementedError("TODO")
+        return self.mat.stateGet()
 
     def inc_state(self) -> None:
-        import pyop3.extras.debug
-
-        pyop3.extras.debug.warn_todo("inc_state for PETSc matrices")
+        self.mat.stateIncrease()
 
     def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")

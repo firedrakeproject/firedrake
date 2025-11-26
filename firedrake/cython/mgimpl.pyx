@@ -140,7 +140,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((Vf.axes.local_size,
+    fine_to_coarse_map = np.full((Vf.axes.local_size // Vf.block_size,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)

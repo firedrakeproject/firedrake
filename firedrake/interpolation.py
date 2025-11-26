@@ -624,19 +624,20 @@ class SameMeshInterpolator(Interpolator):
                     val = Constant(finfo.min)
                 f.assign(val)
         elif self.rank == 2:
-            raise NotImplementedError
             Vrow = self.interpolate_args[0].function_space()
             Vcol = self.interpolate_args[1].function_space()
             if len(Vrow) > 1 or len(Vcol) > 1:
                 raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-            Vrow_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vrow)
-            Vcol_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vcol)
-            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                    name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                    nest=False,
-                                    block_sparse=True)
-            f = op2.Mat(sparsity)
+
+            # Pretend that we are assembling the operator to populate the sparsity.
+            sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes)
+            iter_spec = get_iteration_spec(self.target_mesh, "cell")
+            op3.loop(
+                c := iter_spec.loop_index,
+                sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
+                eager=True,
+            )
+            f = op3.Mat.from_sparsity(sparsity)
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
@@ -654,7 +655,7 @@ class SameMeshInterpolator(Interpolator):
         op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
         if self.access is op3.INC:
-            loops.append(tensor.zero)
+            loops.append(op2_tensor.zero)
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
@@ -841,7 +842,7 @@ def _build_interpolation_callables(
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
         copyin += (lambda: v.dat.assign(dual_arg.dat, eager=True),)
 
-        weight = firedrake.Function(W)
+        weight = Function(W)
         op3.loop(
             c := iter_spec.loop_index,
             weight.dat[target_mesh.closure(c)].iassign(1),
