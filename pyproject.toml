@@ -181,13 +181,7 @@ firedrake = [
   "icons/*.png",
   "_check/**",
 ]
-pyop2 = [
-  "*.h",
-  "*.pxd",
-  "*.pyx",
-  "codegen/c/*.c",
-]
 pyop3 = [
   "*.pyx",
-  "*.c",
+  "ir/*.c",
 ]
