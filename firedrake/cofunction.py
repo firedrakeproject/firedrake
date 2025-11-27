@@ -54,9 +54,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                (defaults to ``ScalarType``).
         """
 
-        # debugging
-        self._dat = None
-
         V = function_space
         if isinstance(V, Cofunction):
             V = V.function_space()
@@ -81,14 +78,12 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if isinstance(val, Cofunction):
             val = val.dat
         if isinstance(val, op3.Dat):
-            # FIXME
-            # assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
         if isinstance(function_space, Cofunction):
-            self.dat.copy(function_space.dat)
+            self.assign(function_space)
 
     # debug
     @property

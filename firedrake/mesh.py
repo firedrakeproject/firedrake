@@ -2083,9 +2083,8 @@ class MeshTopology(AbstractMeshTopology):
         return self.points[self.vertex_label]
 
     @property
-    @op3.utils.deprecated("cells.owned")
+    @utils.deprecated("cells.owned")
     def cell_set(self):
-        assert False, "dead code"
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
@@ -3585,10 +3584,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label)])
         return self.points[cell_slice]
 
-    # old, use cells instead
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
+    @utils.deprecated("cells.owned")
     def cell_set(self):
-        return self.cells
+        return self.cells.owned
 
     @property
     def cell_label(self) -> int:

@@ -647,7 +647,7 @@ class SameMeshInterpolator(Interpolator):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
             f = self._get_tensor()
-            copyout = (partial(f.dat.copy, tensor.dat),)
+            copyout = (lambda: tensor.dat.assign(f.dat, eager=True),)
         else:
             f = tensor or self._get_tensor()
             copyout = ()
@@ -655,7 +655,7 @@ class SameMeshInterpolator(Interpolator):
         op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
         if self.access is op3.INC:
-            loops.append(op2_tensor.zero)
+            loops.append(lambda: op2_tensor.zero(eager=True))
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
@@ -874,8 +874,8 @@ def _build_interpolation_callables(
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
         if access is not op3.WRITE:
-            copyin += (partial(output.copy, tensor), )
-        copyout += (partial(tensor.copy, output), )
+            copyin += (lambda: tensor.assign(output, eager=True),)
+        copyout += (lambda: output.assign(tensor, eager=True),)
 
     arguments = expr.arguments()
     if not arguments:
