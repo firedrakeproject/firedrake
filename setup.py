@@ -201,13 +201,6 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
         **(petsc_ + numpy_ + libsupermesh_)
     ))
-    # pyop2/sparsity.pyx: petsc, numpy,
-    cython_list.append(Extension(
-        name="pyop2.sparsity",
-        language="c",
-        sources=[os.path.join("pyop2", "sparsity.pyx")],
-        **(petsc_ + numpy_)
-    ))
     cython_list.append(Extension(
         name="pyop3._buffer_cy",
         language="c",

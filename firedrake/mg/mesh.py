@@ -2,7 +2,7 @@ import numpy as np
 from fractions import Fraction
 from collections import defaultdict
 
-from pyop2.datatypes import IntType
+from pyop3.dtypes import IntType
 
 import petsctools
 import firedrake

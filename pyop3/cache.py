@@ -48,10 +48,9 @@ from functools import wraps
 from tempfile import mkstemp
 from typing import Any, Callable, Hashable
 
-from pyop2.configuration import configuration
-from pyop2.exceptions import CachingError, HashError  # noqa: F401
-from pyop2.logger import debug
-from pyop2.mpi import (
+from pyop3.config import CONFIG
+from pyop3.log import debug
+from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
 import pytools
@@ -232,7 +231,7 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
     if (
-        configuration["spmd_strict"]
+        CONFIG.spmd_strict
         and not pytools.is_single_valued(comm.allgather(key))
     ):
         raise ValueError(
@@ -241,7 +240,7 @@ def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
 
     value = cache.get(key, CACHE_MISS)
 
-    if configuration["debug"]:
+    if CONFIG.debug:
         message = [f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "]
         message.append(f"key={key} in cache: '{cache}' ")
         if value is CACHE_MISS:
@@ -360,7 +359,7 @@ def as_hexdigest(*args) -> str:
     hash_ = hashlib.md5()
     for a in args:
         if isinstance(a, MPI.Comm):
-            raise HashError("Communicators cannot be hashed, caching will be broken!")
+            raise TypeError("Communicators cannot be hashed, caching will be broken!")
         hash_.update(str(a).encode())
     return hash_.hexdigest()
 
@@ -512,9 +511,10 @@ class DEFAULT_CACHE(dict):
 # EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
 
 # Turn on cache measurements if printing cache info is enabled
-if configuration["print_cache_info"]:
-    DEFAULT_CACHE = instrument(DEFAULT_CACHE)
-    DictLikeDiskAccess = instrument(DictLikeDiskAccess)
+# FIXME: make a function, not global config
+# if configuration["print_cache_info"]:
+#     DEFAULT_CACHE = instrument(DEFAULT_CACHE)
+#     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
 # TODO: One day should use the compilation comm to do the bcast
@@ -601,7 +601,7 @@ def parallel_cache(
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
                     if (
-                        configuration["spmd_strict"]
+                        CONFIG.spmd_strict
                         and not pytools.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
@@ -636,11 +636,11 @@ def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 
-def disk_only_cache(*args, cachedir=configuration["cache_dir"], **kwargs):
+def disk_only_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
     return parallel_cache(*args, **kwargs, make_cache=lambda: DictLikeDiskAccess(cachedir))
 
 
-def memory_and_disk_cache(*args, cachedir=configuration["cache_dir"], **kwargs):
+def memory_and_disk_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
     def decorator(func):
         return memory_cache(*args, **kwargs)(disk_only_cache(*args, cachedir=cachedir, **kwargs)(func))
     return decorator

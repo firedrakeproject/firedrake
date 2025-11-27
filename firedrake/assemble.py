@@ -37,7 +37,7 @@ from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
-from pyop2.caching import active_scoped_cache
+from pyop3.cache import active_scoped_cache
 
 
 __all__ = "assemble",

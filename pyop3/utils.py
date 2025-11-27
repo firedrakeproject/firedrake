@@ -14,13 +14,13 @@ from typing import Any
 import numpy as np
 import pytools
 from immutabledict import immutabledict
-from pyop2 import mpi
-
-from pyop3.config import config
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
-from pyop3.dtypes import DTypeT, IntType
-
 from mpi4py import MPI
+
+
+from pyop3.config import CONFIG
+from pyop3.dtypes import DTypeT, IntType
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
+from pyop3.mpi import collective
 
 import pyop3.extras.debug
 
@@ -477,7 +477,7 @@ def readonly(array):
 
 
 def debug_assert(predicate, msg=None):
-    if config.debug:
+    if CONFIG.debug:
         if msg:
             assert predicate(), msg
         else:
@@ -699,7 +699,7 @@ def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) ->
     return comm
 
 
-@mpi.collective
+@collective
 def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
     """Return a communicator valid for all objects.
 

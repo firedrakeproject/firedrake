@@ -6,7 +6,6 @@ from sympy.printing.c import ccode
 import loopy as lp
 
 import pyop3 as op3
-from pyop2 import op2
 
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc

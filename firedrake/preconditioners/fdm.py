@@ -19,11 +19,11 @@ from firedrake.utils import cached_property
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
-from pyop2.compilation import load
-from pyop2.mpi import COMM_SELF
-from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2 import op2
+from pyop3.compile import load
+from pyop3.mpi import COMM_SELF
+# from pyop2.sparsity import get_preallocation  # FIXME
+from pyop3.pyop2_utils import get_petsc_dir, as_tuple
+# from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 

@@ -19,9 +19,8 @@ from tsfc.ufl_utils import extract_firedrake_constants
 from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
 import pyop3 as op3
-from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
-from pyop2.mpi import COMM_WORLD
+from pyop3.cache import memory_and_disk_cache, default_parallel_hashkey
+from pyop3.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters

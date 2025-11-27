@@ -50,14 +50,14 @@ from tempfile import gettempdir, mkstemp
 from typing import Hashable
 from random import randint
 
-
-from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
-from pyop2.configuration import configuration
-from pyop2.logger import warning, debug, progress, INFO
-from pyop2.exceptions import CompilationError
-from pyop2.utils import get_petsc_variables
 from petsc4py import PETSc
+
+from pyop3 import mpi
+from pyop3.cache import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
+from pyop3.config import CONFIG
+from pyop3.exceptions import CompilationException
+from pyop3.log import warning, debug, progress, INFO
+from pyop3.pyop2_utils import get_petsc_variables
 
 
 def _check_hashes(x, y, datatype):
@@ -73,8 +73,7 @@ _compiler = None
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
-_scratch_dir = configuration["scratch_dir"] or gettempdir()
-MEM_TMP_DIR = Path(_scratch_dir).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
 # PETSc Configuration
 petsc_variables = get_petsc_variables()
@@ -289,7 +288,8 @@ class Compiler(ABC):
             cflags += self._debugflags
         else:
             cflags += self._optflags
-        cflags += tuple(shlex.split(configuration["cflags"]))
+        if CONFIG.cflags:
+            cflags += CONFIG.cflags
         return cflags
 
     @property
@@ -299,13 +299,15 @@ class Compiler(ABC):
             cxxflags += self._debugflags
         else:
             cxxflags += self._optflags
-        cxxflags += tuple(shlex.split(configuration["cxxflags"]))
+        if CONFIG.cxxflags:
+            cxxflags += CONFIG.cxxflags
         return cxxflags
 
     @property
     def ldflags(self):
         ldflags = self._ldflags + self._extra_linker_flags
-        ldflags += tuple(shlex.split(configuration["ldflags"]))
+        if CONFIG.ldflags:
+            ldflags += CONFIG.ldflags
         return ldflags
 
     @property
@@ -461,9 +463,9 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
             exe = petsc_variables["CC"]
         compiler = sniff_compiler(exe, comm)
 
-    debug = configuration["debug"]
+    debug = CONFIG.debug
     compiler_instance = compiler(cppargs, ldargs, debug=debug)
-    if configuration['check_src_hashes'] or configuration['debug']:
+    if CONFIG.check_src_hashes or CONFIG.debug:
         check_source_hashes(compiler_instance, code, extension, comm)
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)
@@ -529,7 +531,7 @@ def check_source_hashes(compiler, code, extension, comm):
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
             # Dump all src code to disk for debugging
-            output = Path(configuration["cache_dir"]).joinpath("mismatching-kernels")
+            output = Path(CONFIG.cache_dir).joinpath("mismatching-kernels")
             srcfile = output.joinpath(f"src-rank{icomm.rank}.{extension}")
             if icomm.rank == 0:
                 output.mkdir(parents=True, exist_ok=True)
@@ -537,13 +539,13 @@ def check_source_hashes(compiler, code, extension, comm):
             with open(srcfile, "w") as fh:
                 fh.write(code)
             icomm.barrier()
-            raise CompilationError(f"Generated code differs across ranks (see output in {output})")
+            raise CompilationException(f"Generated code differs across ranks (see output in {output})")
 
 
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
+    make_cache=lambda: CompilerDiskAccess(CONFIG.cache_dir, extension=".so")
 )
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm, filename=None):
@@ -613,21 +615,13 @@ def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
     """
     debug(f"{step} command: {' '.join(cc)}")
     try:
-        if configuration['no_fork_available']:
-            redirect = ">" if filemode == "w" else ">>"
-            cc += (f"2{redirect}", str(errfile), redirect, str(logfile))
-            cmd = " ".join(cc)
-            status = os.system(cmd)
-            if status != 0:
-                raise subprocess.CalledProcessError(status, cmd)
-        else:
-            with open(logfile, filemode) as log, open(errfile, filemode) as err:
-                log.write(f"{step} command:\n")
-                log.write(" ".join(cc))
-                log.write("\n\n")
-                subprocess.check_call(cc, stderr=err, stdout=log)
+        with open(logfile, filemode) as log, open(errfile, filemode) as err:
+            log.write(f"{step} command:\n")
+            log.write(" ".join(cc))
+            log.write("\n\n")
+            subprocess.check_call(cc, stderr=err, stdout=log)
     except subprocess.CalledProcessError as e:
-        raise CompilationError(dedent(f"""
+        raise CompilationException(dedent(f"""
             Command "{e.cmd}" return error status {e.returncode}.
             Unable to compile code
             Compile log in {logfile!s}
@@ -658,7 +652,7 @@ def clear_compiler_disk_cache(prompt=False):
 
     :arg prompt: if ``True`` prompt before removing any files
     """
-    cachedirs = [configuration['cache_dir'], MEM_TMP_DIR]
+    cachedirs = [CONFIG.cache_dir, MEM_TMP_DIR]
 
     for directory in cachedirs:
         if not os.path.exists(directory):

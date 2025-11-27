@@ -11,9 +11,7 @@ from finat.ufl import VectorElement
 import finat
 
 import pyop3 as op3
-import pyop2 as op2
-from pyop2 import exceptions
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix

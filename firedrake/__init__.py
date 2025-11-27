@@ -48,8 +48,7 @@ del petsc
 from ufl import *
 from finat.ufl import *
 
-from pyop2 import op2                        # noqa: F401
-from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+from pyop3.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
 from pyop3 import READ, WRITE, RW, INC  # noqa: F401
 

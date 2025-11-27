@@ -13,11 +13,11 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop2.mpi import collective
 
 from pyop3 import utils
 from ..base import LoopIndexVar
 from .base import Tensor
+from pyop3.mpi import collective
 from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,

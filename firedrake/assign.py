@@ -1,6 +1,7 @@
 import functools
 import numbers
 import operator
+from functools import cached_property
 from types import EllipsisType
 from typing import Any
 
@@ -9,8 +10,6 @@ import numpy as np
 import pyop3 as op3
 import pytools
 from pyadjoint.tape import annotate_tape
-from pyop2 import op2
-from pyop2.utils import cached_property
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag

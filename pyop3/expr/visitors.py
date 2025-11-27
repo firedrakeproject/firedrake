@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import numpy as np
 from immutabledict import immutabledict as idict
-from pyop2.caching import scoped_cache
+from pyop3.cache import scoped_cache
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT

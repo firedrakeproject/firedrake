@@ -43,9 +43,6 @@ import petsc4py
 
 from functools import cached_property  # noqa: F401
 
-from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.configuration import configuration
-
 
 def as_tuple(item, type=None, length=None, allow_none=False):
     # Empty list if we get passed None
@@ -58,16 +55,6 @@ def as_tuple(item, type=None, length=None, allow_none=False):
         # ... or create a list of a single item
         except (TypeError, NotImplementedError):
             t = (item,) * (length or 1)
-    if configuration["type_check"]:
-        if length and not len(t) == length:
-            raise ValueError("Tuple needs to be of length %d" % length)
-        if type is not None:
-            if allow_none:
-                valid = all((isinstance(i, type) or i is None) for i in t)
-            else:
-                valid = all(isinstance(i, type) for i in t)
-            if not valid:
-                raise TypeError("Items need to be of type %s" % type)
     return t
 
 
@@ -92,145 +79,6 @@ def tuplify(xs):
         return tuple(tuplify(x) for x in xs)
     except TypeError:
         return xs
-
-
-class validate_base:
-
-    """Decorator to validate arguments
-
-    Formal parameters that don't exist in the definition of the function
-    being decorated as well as actual arguments not being present when
-    the validation is called are silently ignored."""
-
-    def __init__(self, *checks):
-        self._checks = checks
-
-    def __call__(self, f):
-        def wrapper(f, *args, **kwargs):
-            if configuration["type_check"]:
-                self.nargs = f.__code__.co_argcount
-                self.defaults = f.__defaults__ or ()
-                self.varnames = f.__code__.co_varnames
-                self.file = f.__code__.co_filename
-                self.line = f.__code__.co_firstlineno + 1
-                self.check_args(args, kwargs)
-            return f(*args, **kwargs)
-        return decorator(wrapper, f)
-
-    def check_args(self, args, kwargs):
-        for argname, argcond, exception in self._checks:
-            # If the argument argname is not present in the decorated function
-            # silently ignore it
-            try:
-                i = self.varnames.index(argname)
-            except ValueError:
-                # No formal parameter argname
-                continue
-            # Try the argument by keyword first, and by position second.
-            # If the argument isn't given, silently ignore it.
-            try:
-                arg = kwargs.get(argname)
-                arg = arg or args[i]
-            except IndexError:
-                # No actual parameter argname
-                continue
-            # If the argument has a default value, also accept that (since the
-            # constructor will be able to deal with that)
-            default_index = i - self.nargs + len(self.defaults)
-            if default_index >= 0 and arg == self.defaults[default_index]:
-                continue
-            self.check_arg(arg, argcond, exception)
-
-
-class validate_type(validate_base):
-
-    """Decorator to validate argument types
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, type, exception), where name is the argument name in the
-    function being decorated, type is the argument type to be validated
-    and exception is the exception type to be raised if validation fails."""
-
-    def check_arg(self, arg, argtype, exception):
-        if not isinstance(arg, argtype):
-            raise exception("%s:%d Parameter %s must be of type %r"
-                            % (self.file, self.line, arg, argtype))
-
-
-class validate_in(validate_base):
-
-    """Decorator to validate argument is in a set of valid argument values
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, list, exception), where name is the argument name in the
-    function being decorated, list is the list of valid argument values
-    and exception is the exception type to be raised if validation fails."""
-
-    def check_arg(self, arg, values, exception):
-        if arg not in values:
-            raise exception("%s:%d %s must be one of %s"
-                            % (self.file, self.line, arg, values))
-
-
-class validate_range(validate_base):
-
-    """Decorator to validate argument value is in a given numeric range
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, range, exception), where name is the argument name in the
-    function being decorated, range is a 2-tuple defining the valid argument
-    range and exception is the exception type to be raised if validation
-    fails."""
-
-    def check_arg(self, arg, range, exception):
-        if not range[0] <= arg <= range[1]:
-            raise exception("%s:%d %s must be within range %s"
-                            % (self.file, self.line, arg, range))
-
-
-class validate_dtype(validate_base):
-
-    """Decorator to validate argument value is in a valid Numpy dtype
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, _, exception), where name is the argument name in the
-    function being decorated, second argument is ignored and exception
-    is the exception type to be raised if validation fails."""
-
-    def check_arg(self, arg, ignored, exception):
-        try:
-            np.dtype(arg)
-        except TypeError:
-            raise exception("%s:%d %s must be a valid dtype"
-                            % (self.file, self.line, arg))
-
-
-def verify_reshape(data, dtype, shape, allow_none=False):
-    """Verify data is of type dtype and try to reshaped to shape."""
-
-    try:
-        t = np.dtype(dtype) if dtype is not None else None
-    except TypeError:
-        raise DataTypeError("Invalid data type: %s" % dtype)
-    if data is None and allow_none:
-        return np.asarray([], dtype=t)
-    elif data is None:
-        raise DataValueError("Invalid data: None is not allowed!")
-    else:
-        try:
-            a = np.asarray(data, dtype=t)
-        except ValueError:
-            raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
-        except TypeError:
-            raise DataTypeError("Invalid data type: %s" % dtype)
-        try:
-            # Destructively modify shape.  Fails if data are not
-            # contiguous, but that's what we want anyway.
-            a.shape = shape
-            return a
-        except ValueError:
-            raise DataValueError("Invalid data: expected %d values, got %d!" %
-                                 (np.prod(shape), np.asarray(data).size))
 
 
 def align(bytes, alignment=16):

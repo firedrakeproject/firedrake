@@ -4,10 +4,16 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
-# TODO: INT_TYPE? op3.INT_TYPE? op3.INT?
-ScalarType = np.dtype(PETSc.ScalarType)
-IntType = np.dtype(PETSc.IntType)
-PointerType = np.uintp
+import ctypes
+
+import loopy as lp
+import numpy
+
+IntType = numpy.dtype(PETSc.IntType)
+RealType = numpy.dtype(PETSc.RealType)
+ScalarType = numpy.dtype(PETSc.ScalarType)
+
+
 
 
 # dtypes can either be a numpy dtype object or just a class deriving from np.number
@@ -80,6 +86,49 @@ def as_numpy_dtype(mpi_dtype):
         return _numpy_types.setdefault(mpi_dtype.py2f(), base)
 
 
+def as_cstr(dtype):
+    """Convert a numpy dtype like object to a C type as a string."""
+    return {"bool": "unsigned char",
+            "int": "int",
+            "int8": "int8_t",
+            "int16": "int16_t",
+            "int32": "int32_t",
+            "int64": "int64_t",
+            "uint8": "uint8_t",
+            "uint16": "uint16_t",
+            "uint32": "uint32_t",
+            "uint64": "uint64_t",
+            "float32": "float",
+            "float64": "double",
+            "complex128": "double complex"}[numpy.dtype(dtype).name]
+
+
+def as_ctypes(dtype):
+    """Convert a numpy dtype like object to a ctypes type."""
+    return {"bool": ctypes.c_bool,
+            "int": ctypes.c_int,
+            "int8": ctypes.c_char,
+            "int16": ctypes.c_int16,
+            "int32": ctypes.c_int32,
+            "int64": ctypes.c_int64,
+            "uint8": ctypes.c_ubyte,
+            "uint16": ctypes.c_uint16,
+            "uint32": ctypes.c_uint32,
+            "uint64": ctypes.c_uint64,
+            "float32": ctypes.c_float,
+            "float64": ctypes.c_double}[numpy.dtype(dtype).name]
+
+
+def as_numpy_dtype(dtype):
+    """Convert a dtype-like object into a numpy dtype."""
+    if isinstance(dtype, numpy.dtype):
+        return dtype
+    elif isinstance(dtype, lp.types.NumpyType):
+        return dtype.numpy_dtype
+    else:
+        raise ValueError
+
+
 def dtype_limits(dtype):
     """Attempt to determine the min and max values of a datatype.
 
@@ -94,7 +143,13 @@ def dtype_limits(dtype):
         try:
             info = numpy.iinfo(dtype)
         except ValueError as e:
-            raise ValueError(
-                "Unable to determine numeric limits from %s" % dtype
-            ) from e
+            raise ValueError("Unable to determine numeric limits from %s" % dtype) from e
     return DTypeLimit(info.min, info.max)
+
+
+class OpaqueType(lp.types.OpaqueType):
+    def __init__(self, name):
+        super().__init__(name=name)
+
+    def __repr__(self):
+        return self.name

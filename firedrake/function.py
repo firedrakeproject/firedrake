@@ -18,10 +18,10 @@ from pathlib import Path
 from immutabledict import immutabledict as idict
 from functools import partial
 from typing import Tuple
+from mpi4py import MPI
 
-from pyop2 import mpi, MPI
-from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
+from pyop3.mpi import internal_comm
 
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
@@ -78,7 +78,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm, self)
+        self._comm = internal_comm(function_space.comm, self)
         self._function_space = function_space
         self.uid = utils._new_uid(self._comm)
         self._name = name or 'function_%d' % self.uid
@@ -454,10 +454,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         subset = parse_subset(subset)
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-            try:
-                self.dat.data_wo[...] = expr
-            except (DataTypeError, DataValueError) as e:
-                raise ValueError(e)
+            self.dat.data_wo[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:

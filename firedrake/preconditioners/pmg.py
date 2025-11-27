@@ -11,9 +11,8 @@ from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import IntType_c, cached_property
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
-from pyop2 import op2
-from pyop2.caching import serial_cache
-from pyop2.utils import as_tuple
+from pyop3.cache import serial_cache
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import finat

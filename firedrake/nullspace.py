@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop3.mpi import COMM_WORLD, internal_comm
 
 from firedrake import function
 from firedrake.logging import warning

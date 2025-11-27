@@ -2,7 +2,7 @@ import abc
 import numpy
 
 import petsctools
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -13,7 +13,7 @@ from firedrake.parameters import parameters
 from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
-import firedrake.utils as utils
+from firedrake import utils
 import ufl
 import finat.ufl
 

@@ -23,12 +23,12 @@ import finat.ufl
 import numpy
 import pyop3 as op3
 import ufl
-from pyop2 import op2, mpi
+from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon

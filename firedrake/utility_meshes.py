@@ -2,7 +2,7 @@ import numpy as np
 
 import ufl
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
 
 from firedrake import (

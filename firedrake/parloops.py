@@ -16,7 +16,7 @@ import loopy
 import numpy as np
 import pyop3 as op3
 import ufl
-from pyop2.caching import serial_cache
+from pyop3.cache import serial_cache
 from pyop3 import READ, WRITE, RW, INC
 from pyop3.expr.visitors import evaluate as eval_expr
 from pyop3.utils import readonly

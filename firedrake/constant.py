@@ -6,7 +6,7 @@ from mpi4py import MPI
 
 from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
-from pyop2.mpi import collective
+from pyop3.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -80,9 +80,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         name: str | None = None,
         count: int | None = None,
     ) -> None:
-        # Init also called in mesh constructor, but constant can be built without mesh
-        utils._init()
-
         self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
 
         super().__init__()

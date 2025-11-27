@@ -26,11 +26,11 @@ from mpi4py import MPI
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
-from pyop2.caching import active_scoped_cache, cached_on, CacheMixin
+from pyop3.cache import active_scoped_cache, cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
-from pyop2.mpi import collective
+from pyop3.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
     as_node_map,

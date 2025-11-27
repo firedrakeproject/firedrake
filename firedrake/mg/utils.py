@@ -1,7 +1,6 @@
 import numpy
 from immutabledict import immutabledict as idict
 from fractions import Fraction
-from pyop2 import op2
 import pyop3 as op3
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key

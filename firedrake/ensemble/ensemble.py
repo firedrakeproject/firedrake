@@ -5,7 +5,7 @@ from itertools import zip_longest
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from pyop2.mpi import MPI, internal_comm
+from pyop3.mpi import MPI, internal_comm
 
 __all__ = ("Ensemble", )
 

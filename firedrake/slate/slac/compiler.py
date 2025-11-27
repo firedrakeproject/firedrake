@@ -23,11 +23,10 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
-from pyop2.mpi import COMM_WORLD
-# TODO: Move to pyop3
-from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
-from pyop2.caching import memory_and_disk_cache
+from pyop3.pyop2_utils import get_petsc_dir
+from pyop3.mpi import COMM_WORLD
+from pyop3.ir.lower import SolveCallable, INVCallable
+from pyop3.cache import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
 import numpy as np

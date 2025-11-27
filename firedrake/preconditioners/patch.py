@@ -23,15 +23,9 @@ import weakref
 
 import ctypes
 import pyop3 as op3
-from pyop2 import op2
-import pyop2.types
-from pyop2.compilation import load
-from pyop2.codegen.builder import Pack, MatPack, DatPack
-from pyop2.codegen.representation import Comparison, Literal
-from pyop2.codegen.rep2loopy import register_petsc_function
-from pyop2.global_kernel import compile_global_kernel
-from pyop2.mpi import COMM_SELF
-from pyop2.utils import get_petsc_dir
+from pyop3.compile import load
+from pyop3.mpi import COMM_SELF
+from pyop3.pyop2_utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 

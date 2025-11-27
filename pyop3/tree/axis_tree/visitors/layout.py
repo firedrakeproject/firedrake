@@ -10,7 +10,7 @@ from immutabledict import immutabledict as idict
 import numpy as np
 from petsc4py import PETSc
 
-from pyop2.caching import scoped_cache
+from pyop3.cache import scoped_cache
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT

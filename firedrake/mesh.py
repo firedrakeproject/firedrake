@@ -7,7 +7,7 @@ import ctypes
 import functools
 import os
 import sys
-from pyop2.caching import serial_cache
+from pyop3.cache import serial_cache
 import ufl
 import finat.ufl
 import FIAT
@@ -29,11 +29,10 @@ from pathlib import Path
 from typing import Iterable, Optional, Union
 
 from cachetools import cachedmethod
-from pyop2 import op2
-from pyop2.mpi import (
+from pyop3.mpi import (
     MPI, COMM_WORLD, internal_comm, temp_internal_comm, collective
 )
-from pyop2.utils import as_tuple, tuplify
+from pyop3.pyop2_utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
 from finat.element_factory import as_fiat_cell
@@ -344,7 +343,6 @@ class AbstractMeshTopology(abc.ABC):
             Submesh parent.
 
         """
-        utils._init()
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
@@ -3801,7 +3799,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
     def __new__(cls, element, comm):
         """Create mesh geometry object."""
-        utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
         uid = utils._new_uid(internal_comm(comm, mesh))
         mesh.uid = uid
@@ -4677,8 +4674,6 @@ def Mesh(meshfile, **kwargs):
         return make_mesh_from_coordinates(coordinates, name)
 
     tolerance = kwargs.get("tolerance", 0.5)
-
-    utils._init()
 
     # We don't need to worry about using a user comm in these cases as
     # they all immediately call a petsc4py which in turn uses a PETSc

@@ -2,8 +2,7 @@ import functools
 import pickle
 from petsc4py.PETSc import ViewerHDF5
 import finat.ufl
-from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, internal_comm, MPI
+from pyop3.mpi import COMM_WORLD, internal_comm, MPI
 from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
@@ -1097,7 +1096,6 @@ class CheckpointFile(object):
             base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
-            utils._init()
             # -- Load mesh topology --
             if topology is None:
                 tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)

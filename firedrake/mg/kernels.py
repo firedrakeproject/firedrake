@@ -2,7 +2,6 @@ import textwrap
 import numpy
 import string
 from fractions import Fraction
-from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace

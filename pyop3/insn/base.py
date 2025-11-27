@@ -27,7 +27,6 @@ from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
 from pyop3.sf import DistributedObject
-from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (

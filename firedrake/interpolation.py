@@ -21,7 +21,7 @@ from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
 import pyop3 as op3
-from pyop2.caching import memory_and_disk_cache
+from pyop3.cache import memory_and_disk_cache
 from pyop3.dtypes import get_mpi_dtype
 
 from FIAT.reference_element import Point
@@ -48,7 +48,7 @@ from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adj
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.cofunction import Cofunction
-from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
+from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
@@ -907,10 +907,10 @@ def _build_interpolation_callables(
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
-        local_kernel_args.append(pack_tensor(target_mesh.cell_orientations()))
+        local_kernel_args.append(pack_tensor(target_mesh.cell_orientations(), iter_spec))
 
     if kernel.needs_cell_sizes:
-        local_kernel_args.append(pack_tensor(source_mesh.cell_sizes))
+        local_kernel_args.append(pack_tensor(source_mesh.cell_sizes, iter_spec))
 
     for coefficient in coefficients:
         local_kernel_args.append(pack_tensor(coefficient, iter_spec))

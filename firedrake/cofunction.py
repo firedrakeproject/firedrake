@@ -5,7 +5,7 @@ import ufl
 
 import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
-from pyop2 import mpi
+from pyop3 import mpi
 from ufl.form import BaseForm
 from finat.ufl import MixedElement
 
@@ -193,7 +193,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @utils.known_pyop2_safe
     def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 
@@ -319,7 +318,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return riesz_map(self)
 
     @CofunctionMixin._ad_annotate_iadd
-    @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
@@ -333,7 +331,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return NotImplemented
 
     @CofunctionMixin._ad_annotate_isub
-    @utils.known_pyop2_safe
     def __isub__(self, expr):
 
         if np.isscalar(expr):

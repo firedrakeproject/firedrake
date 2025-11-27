@@ -8,7 +8,7 @@ import itertools
 import ufl
 import finat.ufl
 
-from pyop2.utils import flatten
+from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
