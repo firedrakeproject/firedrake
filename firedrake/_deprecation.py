@@ -2,8 +2,6 @@
 """
 import importlib
 
-from warnings import warn
-
 
 class _fake_module:
     """ Object which behaves like a module
