@@ -118,13 +118,13 @@ The interpolation operator between :math:`U` and :math:`V` is defined
 
 .. math::
 
-   \begin{align} \mathcal{I}_{V} : U &\to V \\ \mathcal{I}_{V}(u)(x) &= \phi^{*}_{i}(u)\phi_{i}(x). \end{align}
+   \begin{align*} \mathcal{I}_{V} : U &\to V \\ \mathcal{I}_{V}(u)(x) &= \phi^{*}_{i}(u)\phi_{i}(x). \end{align*}
 
 We define the following bilinear form
 
 .. math::
 
-   \begin{align} I : U \times V^{*} &\to \mathbb{R} \\ I(u, v^*) &= v^{*}(u) \end{align}
+   \begin{align*} I : U \times V^{*} &\to \mathbb{R} \\ I(u, v^*) &= v^{*}(u) \end{align*}
 
 where :math:`v^{*}\in V^{*}` is a linear functional in the dual space to :math:`V`, extended so that
 it can act on functions in :math:`U`. If we choose :math:`v^{*} = \phi^{*}_{i}` then 
@@ -224,7 +224,7 @@ If :math:`g^*` is a :py:class:`~.Cofunction` in :math:`V^{*}` then we can interp
 
    I^{*}(g^*, u) = g^*_i \phi_i^*(\psi_j) = g^*_i A_{ij}.
 
-This is the product of the adjoint interpolation matrix :math:`A^{*}` the coefficients of :math:`g^*`. 
+This is the product of the adjoint interpolation matrix :math:`A^{*}` and the coefficients of :math:`g^*`. 
 In Firedrake, we can do this by
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -251,7 +251,7 @@ The interpolation API supports interpolation between meshes where the target
 function space has finite elements (as given in the list of
 :ref:`supported elements <supported_elements>`)
 
-* **Lagrange/CG** (also known a Continuous Galerkin or P elements),
+* **Lagrange/CG** (also known as Continuous Galerkin or P elements),
 * **Q** (i.e. Lagrange/CG on lines, quadrilaterals and hexahedra),
 * **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements) and
 * **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra).
@@ -281,7 +281,7 @@ of the source mesh. Volume, surface and line integrals can therefore be
 calculated by interpolating onto the mesh or
 :ref:`immersed manifold <immersed_manifolds>` which defines the volume,
 surface or line of interest in the domain. The integral itself is calculated
-by calling :py:func:`~.assemble` on an approriate form over the target mesh
+by calling :py:func:`~.assemble` on an appropriate form over the target mesh
 function space:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -317,7 +317,7 @@ interpolation will raise a :py:class:`~.DofNotDefinedError`.
    :start-after: [test_cross_mesh 3]
    :end-before: [test_cross_mesh 4]
 
-This can be overriden with the optional ``allow_missing_dofs`` keyword
+This can be overridden with the optional ``allow_missing_dofs`` keyword
 argument:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -387,7 +387,7 @@ Interpolation from external data
 
 Unfortunately, UFL interpolation is not applicable if some of the
 source data is not yet available as a Firedrake :py:class:`~.Function`
-or UFL expression.  Here we describe a recipe for moving external to
+or UFL expression.  Here we describe a recipe for moving external data to
 Firedrake fields.
 
 Let us assume that there is some function ``mydata(X)`` which takes as
