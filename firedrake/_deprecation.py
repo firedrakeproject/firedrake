@@ -47,28 +47,6 @@ class _fake_module:
         return __call__
 
 
-# Deprecate output.File in the global namespace
-output = _fake_module(
-    "firedrake.output",
-    ["File", ],
-    ["VTKFile", ]
-)
-
-
-# I hate it
-def File(*args, **kwargs):
-    """Deprecated File constructor.
-
-    Use `VTKFile` from `firedrake.output` instead
-    """
-    from .output import VTKFile
-    warn(
-        "The use of `File` for output is deprecated, please update your "
-        "code to use `VTKFile` from `firedrake.output`."
-    )
-    return VTKFile(*args, **kwargs)
-
-
 # Deprecate plotting in the global namespace
 plot = _fake_module(
     "firedrake.pyplot",
