@@ -15,9 +15,8 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.config import config
+from pyop3.config import CONFIG
 from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop2.mpi import COMM_SELF
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
@@ -291,7 +290,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if config.debug:
+        if CONFIG.debug:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)

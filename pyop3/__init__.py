@@ -1,5 +1,5 @@
 import os as _os
-from pyop3.config import config
+from pyop3.config import CONFIG
 
 def _fixup_pytools():
     # Many pyop3 objects inherit from pytools.RecordWithoutPickling.

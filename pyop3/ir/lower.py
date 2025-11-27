@@ -25,8 +25,6 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
-import pyop2
-
 from pyop3 import exceptions as exc, utils, expr as op3_expr
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace

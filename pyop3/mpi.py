@@ -1,3 +1,5 @@
+# TODO: what to do about copyright notice?
+
 # This file is part of PyOP2
 #
 # PyOP2 is Copyright (c) 2012, Imperial College London and
@@ -45,8 +47,8 @@ import os
 import tempfile
 import weakref
 
-from pyop2.configuration import configuration
-from pyop2.exceptions import CompilationError
+from pyop3.config import config
+from pyop3.exceptions import CompilationException
 from pyop2.logger import debug, logger, DEBUG
 from pyop2.utils import trim
 
@@ -159,7 +161,7 @@ class PyOP2CommError(ValueError):
 # PYOP2_FINALISED flag.
 
 
-if configuration["spmd_strict"]:
+if config.spmd_strict:
     def collective(fn):
         extra = trim("""
         This function is logically collective over MPI ranks, it is an
@@ -444,15 +446,15 @@ def create_split_comm(comm):
     else:
         debug("Creating compilation communicator using MPI_Split + filesystem")
         if comm.rank == 0:
-            if not os.path.exists(configuration["cache_dir"]):
-                os.makedirs(configuration["cache_dir"], exist_ok=True)
+            if not os.path.exists(config.cache_dir):
+                os.makedirs(config.cache_dir, exist_ok=True)
             tmpname = tempfile.mkdtemp(prefix="rank-determination-",
-                                       dir=configuration["cache_dir"])
+                                       dir=config.cache_dir)
         else:
             tmpname = None
         tmpname = comm.bcast(tmpname, root=0)
         if tmpname is None:
-            raise CompilationError("Cannot determine sharedness of filesystem")
+            raise CompilationException("Cannot determine sharedness of filesystem")
         # Touch file
         debug("Made tmpdir %s" % tmpname)
         with open(os.path.join(tmpname, str(comm.rank)), "wb"):
@@ -520,7 +522,7 @@ def compilation_comm(comm, obj):
     if not is_pyop2_comm(comm):
         raise PyOP2CommError("Communicator is not a PyOP2 comm")
     # Should we try and do node-local compilation?
-    if configuration["node_local_compilation"]:
+    if config.node_local_compilation:
         comp_comm = get_compilation_comm(comm)
         if comp_comm is not None:
             debug("Found existing compilation communicator")

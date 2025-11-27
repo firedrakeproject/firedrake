@@ -10,7 +10,7 @@ import warnings
 
 def paramclass(cls: type) -> type:
     """Decorator that turns a class into a dataclass for storing parameters."""
-    return dataclasses.dataclass(kw_only=True)(cls)
+    return dataclasses.dataclass(frozen=True, kw_only=True)(cls)
 
 
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
@@ -162,4 +162,4 @@ def _prepare_configuration() -> Pyop3Configuration:
     return Pyop3Configuration._from_env(env_options)
 
 
-config = _prepare_configuration()
+CONFIG = _prepare_configuration()
