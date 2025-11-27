@@ -172,3 +172,9 @@ script-files = [
   "scripts/firedrake-run-split-tests",
   "pyop2/scripts/spydump",
 ]
+
+[tool.setuptools.package-data]
+firedrake = [
+  # Make sure that the test files for firedrake-check are also installed
+  "_check/**",
+]
