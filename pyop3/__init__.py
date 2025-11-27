@@ -1,5 +1,5 @@
 import os as _os
-from pyop3.config import config as _config
+from pyop3.config import config
 
 def _fixup_pytools():
     # Many pyop3 objects inherit from pytools.RecordWithoutPickling.
@@ -99,4 +99,3 @@ from pyop3.tree import accumulate_path
 from pyop3.ir import LOOPY_TARGET, LOOPY_LANG_VERSION
 
 del _os
-del _config

@@ -82,9 +82,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-        if isinstance(function_space, Cofunction):
-            self.assign(function_space)
-
     # debug
     @property
     def dat(self):

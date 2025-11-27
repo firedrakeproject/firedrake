@@ -62,8 +62,6 @@ READ = Intent.READ
 WRITE = Intent.WRITE
 RW = Intent.RW
 INC = Intent.INC
-
-# NOTE: I dont think that these are needed any more. Just RW access?
 MIN_RW = Intent.MIN_RW
 MIN_WRITE = Intent.MIN_WRITE
 MAX_RW = Intent.MAX_RW
@@ -72,6 +70,7 @@ MAX_WRITE = Intent.MAX_WRITE
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
+
     # {{{ optimisation options
 
     compress_indirection_maps: bool = False
@@ -86,13 +85,11 @@ class CompilerParameters:
 
     # }}}
 
-    # Debugging options
+    # {{{ debugging options
 
     attach_debugger: bool = False
 
-    def __post_init__(self):
-        if self.attach_debugger and not config["debug"]:
-            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
+    # }}}
 
 
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()

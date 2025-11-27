@@ -224,7 +224,7 @@ class LoopyCodegenContext(CodegenContext):
                 if (
                     buffer.constant
                     and isinstance(buffer.size, numbers.Integral)
-                    and buffer.size < config["max_static_array_size"]
+                    and buffer.size < config.max_static_array_size
                 ):
                     return self.add_temporary(
                         "t",
