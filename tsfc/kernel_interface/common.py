@@ -83,9 +83,9 @@ class KernelBuilderBase(KernelInterface):
         if not hasattr(self, "_cell_sizes"):
             raise RuntimeError("Haven't called set_cell_sizes")
         if self._domain_integral_type_map[domain].startswith("interior_facet"):
-            return self._cell_sizes[domain][{'+': 0, '-': 1}[restriction]]
+            return self._cell_sizes[domain][0][{'+': 0, '-': 1}[restriction]]
         else:
-            return self._cell_sizes[domain]
+            return self._cell_sizes[domain][0]
 
     def entity_ids(self, domain):
         """Target indices of entity_number."""
