@@ -491,7 +491,9 @@ def is_ordered_mapping(obj: Mapping):
     return isinstance(obj, _ordered_mapping_types)
 
 
-def expand_collection_of_iterables(compressed) -> tuple:
+# TODO: case for using typing generics
+# TODO: signature is slightly wrong, can pass anything that can be cast to a dict
+def expand_collection_of_iterables(compressed: Mapping[Hashable, Sequence[Any]]) -> tuple[idict[Hashable, Any], ...]:
     """
     Expand target paths written in 'compressed' form like:
 

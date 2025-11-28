@@ -725,6 +725,18 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
             return (as_axis_component(components),)
 
 
+@utils.frozenrecord()
+class AxisTarget:
+    """TODO.
+
+    (this is hard to explain)
+
+    """
+    axis: AxisLabelT
+    component: AxisComponentLabelT
+    expr: ExpressionT
+
+
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
 
     # {{{ abstract methods
@@ -1466,35 +1478,39 @@ class IndexedAxisTree(AbstractAxisTree):
 
     # {{{ instance attrs
 
-    _node_map: idict
-    _unindexed: AxisTree | None
-    targets: idict
-
+    _node_map: idict[ConcretePathT, Axis]
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
+    _unindexed: AxisTree | None
+    targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
+
+    # TODO: where to put *, and order?
     def __init__(
         self,
         node_map,
-        unindexed,  # allowed to be None
+        unindexed,
         *,
         targets,
     ):
         if isinstance(node_map, AxisTree):
             node_map = node_map.node_map
+        else:
+            node_map = as_node_map(node_map)
 
         # drop duplicate entries as they are necessarily equivalent
+        # TODO: remove this ideally...
         targets = utils.unique(targets)
         targets = utils.freeze(targets)
+        assert len(targets) > 0
 
-        object.__setattr__(self, "_node_map", as_node_map(node_map))
-        object.__setattr__(self, "targets", targets)
+        # debugging
+        assert isinstance(targets, tuple)
+        for t in targets:
+            assert isinstance(t, idict)
+            assert all(isinstance(v_, AxisTarget) for v in t.values() for v_ in v)
+
+        object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
-        if len(self.nodes) == 2 and self.nodes[0].label == "support" and self.nodes[1].label == "closure" and self.nodes[1].component_labels == (None,):
-            breakpoint()
-
-    # FIXME
-    @property
-    def unindexed(self):
-        return self._unindexed
+        object.__setattr__(self, "targets", targets)
 
     # }}}
 
@@ -1907,8 +1923,8 @@ def find_matching_target(self):
             target_path = {}
             for leaf_path_acc in accumulate_path(leaf_path):
                 if leaf_path_acc in target:
-                    target_path_, _ = target[leaf_path_acc]
-                    target_path.update(target_path_)
+                    for target_ in target[leaf_path_acc]:
+                        target_path[target_.axis] = target_.component
             target_path = idict(target_path)
 
             # NOTE: We assume that if we get an empty target path then something has
