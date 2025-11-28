@@ -240,12 +240,18 @@ jobs:
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
+      # TODO: parallel tests as well
+      - name: Run pyop3 tests
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop3
+        timeout-minutes: 10
+
       - name: Run Firedrake tests (nprocs = 1)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         # UNDO ME
         timeout-minutes: 180
