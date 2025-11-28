@@ -181,7 +181,6 @@ firedrake = [
   "evaluate.h",
   "locate.c",
   "icons/*.png",
-  # Make sure that the test files for firedrake-check are also installed
   "_check/**",
 ]
 pyop2 = [
