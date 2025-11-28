@@ -9,7 +9,6 @@ petsctools
 pybind11
 rtree>=1.2
 setuptools>=77.0.3
-setuptools-scm>=8.1
 
 # Transitive build dependencies
 hatchling
