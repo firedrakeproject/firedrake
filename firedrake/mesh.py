@@ -989,7 +989,7 @@ class AbstractMeshTopology(abc.ABC):
                 # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
                 # fix automatically internally via additional replace() arguments.
                 closure_axes = op3.AxisTree.from_iterable([
-                    iterset.as_axis(), op3.Axis(self._closure_sizes[from_dim][to_dim], "closure")
+                    iterset.as_axis(), op3.Axis({to_dim: self._closure_sizes[from_dim][to_dim]}, "closure")
                 ])
                 closure_dat = op3.Dat(closure_axes, data=closure_array.flatten())
                 owned_closure_dat = op3.Dat(closure_axes.owned.materialize(), data=closure_dat.data_ro)
@@ -1009,42 +1009,6 @@ class AbstractMeshTopology(abc.ABC):
 
             closures[full_from_path] = [full_map_components]
             closures[owned_from_path] = [owned_map_components]
-
-        # closures = {}
-        # for dim, closure_dats in closure_arrays.items():
-        #     for owned in [False, True]:
-        #         iterset = self.points.as_axis().linearize(dim)
-        #         if owned:
-        #             iterset = iterset.owned
-        #
-        #         axis = iterset.owned.as_axis()
-        #         from_path = idict({axis.label: axis.component.label})
-        #
-        #         map_components = []
-        #         for map_dim, map_data in closure_data.items():
-        #             _, size = map_data.shape
-        #             if size == 0:
-        #                 continue
-        #
-        #             target_axis = self.name
-        #             target_dim = map_dim
-        #
-        #             # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
-        #             # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
-        #             # fix automatically internally via additional replace() arguments.
-        #             map_axes = op3.AxisTree.from_nest(
-        #                 {axis: op3.Axis({target_dim: size}, "closure")}
-        #             )
-        #             map_dat = op3.Dat(
-        #                 map_axes, data=map_data.flatten(), prefix="closure"
-        #             )
-        #             map_components.append(
-        #                 op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=target_dim)
-        #             )
-        #
-        #         # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-        #         closures[from_path] =  [map_components]
-
         return op3.Map(closures, name="closure")
 
     # NOTE: Probably better to cache the 'everything' case and then drop as necessary when k is given

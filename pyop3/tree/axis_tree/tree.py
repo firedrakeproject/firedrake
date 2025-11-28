@@ -526,9 +526,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         super().__init__(label=label)
         CacheMixin.__init__(self)
 
-        # if self.label == "closure" and len(components) == 1 and self.component.label is None:
-        #     breakpoint()
-
     def __eq__(self, other):
         return (
             type(self) is type(other)
@@ -1491,6 +1488,8 @@ class IndexedAxisTree(AbstractAxisTree):
         object.__setattr__(self, "_node_map", as_node_map(node_map))
         object.__setattr__(self, "targets", targets)
         object.__setattr__(self, "_unindexed", unindexed)
+        if len(self.nodes) == 2 and self.nodes[0].label == "support" and self.nodes[1].label == "closure" and self.nodes[1].component_labels == (None,):
+            breakpoint()
 
     # FIXME
     @property

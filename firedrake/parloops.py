@@ -408,28 +408,6 @@ def _(
         depth = [axis.label for axis in axes.axes].index("closure")
     else:
         raise NotImplementedError
-    #     if iter_spec.integral_type == "cell":
-    #         cell = iter_spec.loop_index
-    #         packed_dat = dat[mesh.closure(cell)]
-    #         depth = 0
-    #     else:
-    #         assert "facet" in integral_type
-    #         facet = loop_index
-    #         cell = mesh.support(facet)
-    #         packed_dat = dat[mesh.closure(cell)]
-    #         depth = 1
-    # else:
-    #     if integral_type == "cell":
-    #         cell = loop_index
-    #         packed_dat = dat[V.cell_node_map(cell)]
-    #         depth = 0
-    #     else:
-    #         assert "facet" in integral_type
-    #         raise NotImplementedError
-    #         facet = loop_index
-    #         cell = mesh.support(facet)
-    #         packed_dat = dat[mesh.closure(cell)]
-    #         depth = 1
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, nodes=nodes)
 
@@ -452,9 +430,6 @@ def _(
             space = column_space
         dat = mat_context.dat
         return pack_pyop3_tensor(dat, space, iter_spec, nodes=nodes)
-
-    if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {row_space, column_space}):
-        raise NotImplementedError
 
     # vom case
     # if row_space.mesh().topology != iter_spec.mesh.topology:
@@ -507,12 +482,11 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
         # NOTE: This is only valid for cases where runtime transformations are not required.
         return packed_dat
 
-
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # if not space.extruded:
-    if space.mesh().ufl_cell().cellname == "hexahedron":
+    if space.mesh().ufl_cell() == ufl.hexahedron:
         dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
 
     if _needs_static_permutation(space.finat_element):
@@ -538,9 +512,18 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     column_element = column_space.finat_element
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    if any(space.mesh().ufl_cell().cellname == "hexahedron" for space in [row_space, column_space]):
-        raise NotImplementedError("This doesn't work for the general case... does it work for hexahedra?")
-        mat_sequence[-1] = _orient_dofs(mat_sequence[-1], row_space, column_space, row_cell_index, column_cell_index, row_depth=row_depth, column_depth=column_depth)
+    if utils.strictly_all(
+        space.mesh().ufl_cell() == ufl.hexahedron for space in [row_space, column_space]
+    ):
+        mat_sequence[-1] = _orient_dofs(
+            mat_sequence[-1],
+            row_space,
+            column_space,
+            row_cell_index,
+            column_cell_index,
+            row_depth=row_depth,
+            column_depth=column_depth,
+        )
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
@@ -557,10 +540,10 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     return mat_sequence[len(mat_sequence) // 2]
 
 
-# NOTE: This function will need a major do-over when FUSE lands
 @functools.singledispatch
 def _orient_dofs(packed_tensor: op3.Tensor, *args, **kwargs) -> op3.Tensor:
     raise TypeError(f"No handler defined for {type(packed_tensor.__name__)}")
+
 
 @_orient_dofs.register(op3.Dat)
 def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.Dat:
@@ -598,9 +581,6 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # if not _requires_orientation(space):
-    #     return axes
-
     # discard nodal information
     if isinstance(axes, op3.AxisForest):
         axes = axes.trees[0]
