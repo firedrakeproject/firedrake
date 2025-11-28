@@ -220,7 +220,7 @@ class Interpolator(abc.ABC):
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
-        mat_type: Literal["aij", "baij", "nest"] | None = None,
+        mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
         """Return a callable to perform interpolation.
@@ -242,8 +242,10 @@ class Interpolator(abc.ABC):
         mat_type
             The PETSc matrix type to use when assembling a rank 2 interpolation.
             For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
-            interpolation, ``"aij"`` and ``"baij"`` are supported. For interpolation between
-            :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+            interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
+            between :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+            For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
+            ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
         sub_mat_type
             The PETSc sub-matrix type to use when assembling a rank 2 interpolation between
             :func:`.MixedFunctionSpace`s with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
@@ -255,7 +257,7 @@ class Interpolator(abc.ABC):
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
-        mat_type: Literal["aij", "baij", "nest"] | None = None,
+        mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
@@ -281,8 +283,10 @@ class Interpolator(abc.ABC):
         mat_type
             The PETSc matrix type to use when assembling a rank 2 interpolation.
             For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
-            interpolation, ``"aij"`` and ``"baij"`` are supported. For interpolation between
-            :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
+            interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
+            between :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+            For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
+            ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
         sub_mat_type
             The PETSc sub-matrix type to use when assembling a rank 2 interpolation between
             :func:`.MixedFunctionSpace` with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
@@ -443,13 +447,19 @@ class CrossMeshInterpolator(Interpolator):
             self.dest_element = dest_element
 
     def _get_symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
-        """Return the symbolic ``Interpolate`` expressions for cross-mesh interpolation.
+        """Return the symbolic ``Interpolate`` expressions for point evaluation and
+        re-ordering into the input-ordering VertexOnlyMesh.
+
+        Returns
+        -------
+        tuple[Interpolate, Interpolate]
+            A tuple containing the point evaluation interpolation and the
+            input-ordering interpolation.
 
         Raises
         ------
         DofNotDefinedError
-            If some DoFs in the target function space cannot be defined
-            in the source function space.
+            If any DoFs in the target mesh cannot be defined in the source mesh.
         """
         from firedrake.assemble import assemble
         # Immerse coordinates of target space point evaluation dofs in src_mesh
@@ -490,11 +500,13 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
-        if mat_type == "nest":
+        if mat_type == "nest" or sub_mat_type is not None:
             raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
-        if mat_type == "baij":
+        if mat_type == "baij" or mat_type == "matfree":
             # Can't multiply two baij matrices together in PETSc
-            raise NotImplementedError("PETSc MatBAIJ not implemented for cross-mesh interpolation.")
+            raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented for cross-mesh interpolation.")
+        mat_type = mat_type or "aij"
+
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -512,7 +524,7 @@ class CrossMeshInterpolator(Interpolator):
                 symbolic = action(point_eval_input_ordering, point_eval)
 
             def callable() -> PETSc.Mat:
-                return assemble(symbolic, mat_type="aij").petscmat
+                return assemble(symbolic, mat_type=mat_type).petscmat
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
             # f_src is a cofunction on V_dest.dual
@@ -606,8 +618,14 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
-    def _get_tensor(self, mat_type=None) -> op2.Mat | Function | Cofunction:
+    def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op2.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
+
+        Parameters
+        ----------
+        mat_type
+            The PETSc matrix type to use when assembling a rank 2 interpolation.
+            Only ``"aij"`` and ``"baij"`` are currently allowed.
 
         Returns
         -------
@@ -627,17 +645,27 @@ class SameMeshInterpolator(Interpolator):
                     val = Constant(finfo.min)
                 f.assign(val)
         elif self.rank == 2:
-            sparsity = self._get_sparsity(mat_type=mat_type)
+            sparsity = self._get_monolithic_sparsity(mat_type)
             f = op2.Mat(sparsity)
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
 
-    def _get_sparsity(self, mat_type=None) -> op2.Sparsity:
-        if not mat_type:
-            mat_type = "aij"
-        assert mat_type in {"aij", "baij"}
-        baij = mat_type == "baij"
+    def _get_monolithic_sparsity(self, mat_type: Literal["aij", "baij"]) -> op2.Sparsity:
+        """Returns op2.Sparsity for the interpolation matrix. Only mat_type 'aij' and 'baij'
+        are currently supported.
+
+        Parameters
+        ----------
+        mat_type
+            The PETSc matrix type to use when assembling a rank 2 interpolation.
+            Only ``"aij"`` and ``"baij"`` are currently allowed.
+
+        Returns
+        -------
+        op2.Sparsity
+            The sparsity pattern for the interpolation matrix.
+        """
         Vrow = self.interpolate_args[0].function_space()
         Vcol = self.interpolate_args[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
@@ -648,12 +676,16 @@ class SameMeshInterpolator(Interpolator):
                                 [(Vrow_map, Vcol_map, None)],  # non-mixed
                                 name=f"{Vrow.name}_{Vcol.name}_sparsity",
                                 nest=False,
-                                block_sparse=baij)
+                                block_sparse=(mat_type == "baij"))
         return sparsity
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        if mat_type == "nest":
+        if mat_type == "nest" or sub_mat_type is not None:
             raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
+        if mat_type == "matfree":
+            raise NotImplementedError("Assembly of matfree interpolation operator not implemented for same-mesh interpolation.")
+        mat_type = mat_type or "aij"
+
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
@@ -718,7 +750,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
-        if mat_type == "nest":
+        if mat_type == "nest" or sub_mat_type is not None:
             raise NotImplementedError("PETSc MatNest not implemented for vom-to-vom interpolation.")
         self.mat = VomOntoVomMat(self, mat_type=mat_type)
         if self.rank == 1:
@@ -1478,7 +1510,7 @@ class VomOntoVomMat:
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"] | None) -> PETSc.Mat:
+    def _create_permutation_mat(self, mat_type: Literal["aij", "baij"]) -> PETSc.Mat:
         """Create the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh.
 
@@ -1616,10 +1648,9 @@ class MixedInterpolator(Interpolator):
     def _build_matnest(
             self,
             Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
-            sub_mat_type: Literal["aij", "baij"] | None = None,
+            sub_mat_type: Literal["aij", "baij"],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
-        sub_mat_type = "baij" if not sub_mat_type else sub_mat_type
         shape = tuple(len(a.function_space()) for a in self.interpolate_args)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
@@ -1629,16 +1660,18 @@ class MixedInterpolator(Interpolator):
     def _build_aij(
             self,
             Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
-            mat_type: Literal["aij"] | None = None,
     ) -> PETSc.Mat:
         """Return a PETSc AIJ matrix built from sub-interpolator matrices by converting a
         nested matrix."""
-        if mat_type == "baij":
-            raise ValueError("PETSc BAIJ not allowed for interpolation between MixedFunctionSpaces, use 'aij' or 'nest'.")
-        matnest = self._build_matnest(Isub, sub_mat_type=mat_type)
-        return matnest.convert(mat_type or "aij")
+        matnest = self._build_matnest(Isub, sub_mat_type="aij")
+        return matnest.convert("aij")
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        if mat_type == "baij" or mat_type == "matfree":
+            raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented for interpolation between mixed function spaces.")
+        mat_type = mat_type or "aij"
+        sub_mat_type = sub_mat_type or "baij"
+
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -1646,7 +1679,8 @@ class MixedInterpolator(Interpolator):
             if mat_type == "nest":
                 callable = partial(self._build_matnest, Isub, sub_mat_type)
             else:
-                callable = partial(self._build_aij, Isub, mat_type)
+                assert mat_type == "aij"
+                callable = partial(self._build_aij, Isub)
         elif self.rank == 1:
             def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):

@@ -1543,7 +1543,7 @@ def prolongation_matrix_aij(Vc, Vf, Vc_bcs=(), Vf_bcs=()):
         Vc = Vc.function_space()
     bcs = Vc_bcs + Vf_bcs
     interp = firedrake.interpolate(firedrake.TrialFunction(Vc), Vf)
-    mat_type = "nest" if len(Vc) > 1 and len(Vf) > 1 else None
+    mat_type = "nest" if len(Vc) > 1 or len(Vf) > 1 else None
     mat = firedrake.assemble(interp, bcs=bcs, mat_type=mat_type)
     return mat.petscmat
 

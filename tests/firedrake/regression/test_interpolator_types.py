@@ -167,6 +167,8 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
                 # matnest sub_mat_type defaults to baij
                 assert sub_mat.type == "seq" + (sub_mat_type if sub_mat_type else "baij")
 
-    with pytest.raises(ValueError):
-        # MixedInterpolator matrix makes no sense with mat_type="baij"
+    with pytest.raises(NotImplementedError):
         assemble(interp, mat_type="baij")
+
+    with pytest.raises(NotImplementedError):
+        assemble(interp, mat_type="matfree")
