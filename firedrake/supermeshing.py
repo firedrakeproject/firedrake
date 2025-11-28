@@ -16,16 +16,16 @@ from firedrake.utils import complex_mode, ScalarType
 import ufl
 from ufl import inner, dx
 import numpy
-from pyop2.sparsity import get_preallocation
-from pyop2.compilation import load
-from pyop2.mpi import COMM_SELF
-from pyop2.utils import get_petsc_dir
+import pyop3 as op3
+from pyop3.compile import load
+from pyop3.mpi import COMM_SELF
+from pyop3.pyop2_utils import get_petsc_dir
 
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
-class BlockMatrix(object):
+class BlockMatrix:
     def __init__(self, mat, dimension):
         self.mat = mat
         self.dimension = dimension
@@ -135,63 +135,26 @@ each supermesh cell.
     nrows = V_B.template_vec.getSizes()
     ncols = V_A.template_vec.getSizes()
 
-    scalar_lgmaps = tuple(
-        PETSc.LGMap().create(
-            V.plex_axes.blocked(V.block_shape).global_numbering.data_ro,
-            comm=V.comm,
-        )
-        for V in [V_B, V_A]
+    sparsity = op3.Mat.sparsity(V_B.axes, V_A.axes)
+    zeros = numpy.zeros(
+        (
+            V_B.cell_node_list.shape[1]*V_B.block_size,
+            V_A.cell_node_list.shape[1]*V_A.block_size,
+        ),
+        dtype=ScalarType,
     )
-    preallocator.setLGMap(*scalar_lgmaps)
-    preallocator.setSizes(size=(nrows, ncols), bsize=1)
-    preallocator.setUp()
-
-    zeros = numpy.zeros((V_B.cell_node_list.shape[1], V_A.cell_node_list.shape[1]), dtype=ScalarType)
     for cell_A, dofs_A in enumerate(V_A.cell_node_list):
         for cell_B in likely(cell_A):
             dofs_B = V_B.cell_node_list[cell_B, :]
-            preallocator.setValuesLocal(dofs_B, dofs_A, zeros)
-    preallocator.assemble()
+            sparsity.buffer.petscmat.setValuesLocal(dofs_B, dofs_A, zeros)
+    sparsity.assemble()
 
-    dnnz, onnz = get_preallocation(preallocator, nrows[0])
-
-    # Unroll from block to AIJ
-    dnnz = dnnz * V_A.block_size
-    dnnz = numpy.repeat(dnnz, V_B.block_size)
-    onnz = onnz * V_A.block_size
-    onnz = numpy.repeat(onnz, V_A.block_size)
-    preallocator.destroy()
-
-    assert V_A.value_size == V_B.value_size
-    rdim = V_B.block_size
-    cdim = V_A.block_size
-
-    #
-    # Preallocate M_AB.
-    #
-    mat = PETSc.Mat().create(comm=mesh_A._comm)
-    mat.setType(PETSc.Mat.Type.AIJ)
-    rsizes = tuple(n * rdim for n in nrows)
-    csizes = tuple(c * cdim for c in ncols)
-    mat.setSizes(size=(rsizes, csizes),
-                 bsize=(rdim, cdim))
-    mat.setPreallocationNNZ((dnnz, onnz))
-    lgmaps = tuple(
-        PETSc.LGMap().create(
-            V.plex_axes.global_numbering.data_ro,
-            bsize=V.block_size,
-            comm=V.comm,
-        )
-        for V in [V_B, V_A]
-    )
-    mat.setLGMap(*lgmaps)
+    mat = op3.Mat.from_sparsity(sparsity)
+    petscmat = mat.buffer.petscmat
     # TODO: Boundary conditions not handled.
-    mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
-    mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-    mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
-    mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
-    mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
-    mat.setUp()
+    petscmat.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
+    petscmat.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
+    petscmat.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
 
     evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), name="evaluate_kernel_A")
     evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), name="evaluate_kernel_B")
@@ -459,9 +422,9 @@ each supermesh cell.
     lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
     lib.restype = ctypes.c_int
 
-    ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
+    ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat.buffer.petscmat)
     if orig_value_size == 1:
-        return mat
+        return mat.buffer.petscmat
     else:
         (lrows, grows), (lcols, gcols) = mat.getSizes()
         lrows *= orig_value_size

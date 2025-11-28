@@ -852,9 +852,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     given Firedrake :class:`Function`."""
     from os import path
     from firedrake.pointeval_utils import compile_element
-    from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
-    from pyop2.parloop import generate_single_cell_wrapper
+    from pyop3 import compile as compilation
+    from pyop3.pyop2_utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)

@@ -6,8 +6,8 @@ import ufl
 import finat.ufl
 from ufl.domain import extract_unique_domain
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, internal_comm
-from pyop2.utils import as_tuple
+from pyop3.mpi import COMM_WORLD, internal_comm
+from pyop3.pyop2_utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.mesh import ExtrudedMeshTopology
 from firedrake.petsc import PETSc

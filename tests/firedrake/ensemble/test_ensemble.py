@@ -1,5 +1,5 @@
 from firedrake import *
-from pyop2.mpi import MPI
+from pyop3.mpi import MPI
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 

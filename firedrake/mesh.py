@@ -4265,8 +4265,8 @@ values from f.)"""
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
-        from pyop2 import compilation
-        from pyop2.utils import get_petsc_dir
+        from pyop3 import compile as compilation
+        from pyop3.pyop2_utils import get_petsc_dir
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 

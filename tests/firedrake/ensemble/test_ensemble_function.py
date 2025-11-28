@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
-from pyop2 import Subset
 import firedrake as fd
 
 

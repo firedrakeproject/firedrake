@@ -1,7 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 ksp = {
