@@ -22,7 +22,7 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = len(f.dat.data_ro)
+    num_cells_local = m.cells.owned.local_size
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
     local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.geometric_dimension)
@@ -277,24 +277,16 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             assert len(localpointcoords) == len(inputlocalpointcoords)
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
-    if not parentmesh.extruded:
-        if exclude_halos:
-            # Check there are as many local points as there are local cells
-            # (excluding ghost cells in the halo). This won't be true for extruded
-            # meshes as the cell_set.size is the number of base mesh cells.
-            assert len(localpointcoords) == parentmesh.cell_set.size
-        elif parentmesh.comm.size > 1:
-            # parentmesh.cell_set.total_size is the sum of owned and halo
-            # points. We have a point in each cell, hence the below.
-            assert len(localpointcoords) == parentmesh.cell_set.total_size
-    else:
-        if parentmesh.variable_layers:
-            pytest.skip("Don't know how to calculate number of cells for variable layers")
-        elif exclude_halos:
-            ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
-        else:
-            ncells = parentmesh.cell_set.total_size * (parentmesh.layers - 1)
-        assert len(localpointcoords) == ncells
+    if exclude_halos:
+        # Check there are as many local points as there are local cells
+        # (excluding ghost cells in the halo). This won't be true for extruded
+        # meshes as the cell_set.size is the number of base mesh cells.
+        assert len(localpointcoords) == parentmesh.cells.owned.local_size
+    elif parentmesh.comm.size > 1:
+        # parentmesh.cell_set.total_size is the sum of owned and halo
+        # points. We have a point in each cell, hence the below.
+        assert len(localpointcoords) == parentmesh.cells.local_size
+
     if exclude_halos:
         # Check total number of points on all MPI ranks is correct
         # (excluding ghost cells in the halo)

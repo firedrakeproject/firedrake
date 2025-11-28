@@ -4766,32 +4766,14 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         raise ValueError("Extruded mesh and base mesh can not have the same name")
     name = name if name is not None else mesh.name + "_extruded"
     layers = np.asarray(layers, dtype=IntType)
-    if layers.shape:
-        if periodic:
-            raise ValueError("Must provide constant layer for periodic extrusion")
-        if layers.shape != (mesh.cells.size, 2):
-            raise ValueError("Must provide single layer number or array of shape (%d, 2), not %s",
-                             mesh.cells.size, layers.shape)
-        if layer_height is None:
-            raise ValueError("Must provide layer height for variable layers")
+    if layer_height is None:
+        # Default to unit
+        layer_height = 1 / layers
 
-        # variable-height layers need to be present for the maximum number
-        # of extruded layers
-        num_layers = layers.sum(axis=1).max() if mesh.cells.size else 0
-        num_layers = mesh._comm.allreduce(num_layers, op=MPI.MAX)
+    num_layers = layers
 
-        # Convert to internal representation
-        layers[:, 1] += 1 + layers[:, 0]
-
-    else:
-        if layer_height is None:
-            # Default to unit
-            layer_height = 1 / layers
-
-        num_layers = layers
-
-        # All internal logic works with layers of base mesh (not layers of cells)
-        layers = layers + 1
+    # All internal logic works with layers of base mesh (not layers of cells)
+    layers = layers + 1
 
     try:
         assert num_layers == len(layer_height)
