@@ -27,7 +27,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh, VertexOnlyMeshTopology
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
 
@@ -281,6 +281,9 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if isinstance(function_space, Function):
             self.assign(function_space)
+
+        if isinstance(V._mesh, VertexOnlyMeshTopology):
+            V._mesh.register_field(self)
 
     @property
     def topological(self):
