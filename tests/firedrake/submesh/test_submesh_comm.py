@@ -8,9 +8,8 @@ from firedrake.petsc import PETSc
 def test_submesh_comm_self():
     comm = PETSc.COMM_SELF
     nx = 4
-    mesh = UnitSquareMesh(nx, nx, quadrilateral=True)
-    tdim = mesh.topological_dimension
-    submesh = Submesh(mesh, tdim, None, ignore_halo=True, comm=comm)
+    mesh = UnitSquareMesh(nx, nx, quadrilateral=True, reorder=False)
+    submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, comm=comm, reorder=False)
 
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
