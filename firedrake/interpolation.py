@@ -689,10 +689,10 @@ class SameMeshInterpolator(Interpolator):
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
-            f = self._get_tensor(mat_type=mat_type)
+            f = self._get_tensor(mat_type)
             copyout = (partial(f.dat.copy, tensor.dat),)
         else:
-            f = tensor or self._get_tensor(mat_type=mat_type)
+            f = tensor or self._get_tensor(mat_type)
             copyout = ()
 
         op2_tensor = f if isinstance(f, op2.Mat) else f.dat
@@ -754,7 +754,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             raise NotImplementedError("PETSc MatNest not implemented for vom-to-vom interpolation.")
         self.mat = VomOntoVomMat(self, mat_type=mat_type)
         if self.rank == 1:
-            f = tensor or self._get_tensor()
+            f = tensor or self._get_tensor(mat_type)
             # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
             # data, including the correct data size and dimensional information
             # (so for vector function spaces in 2 dimensions we might need a
