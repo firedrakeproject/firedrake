@@ -913,8 +913,8 @@ def fuse_orientations(spaces: list[WithGeometry]):
         #breakpoint()
 
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
-        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
-        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE] + [op3.READ for n in ns] + [op3.WRITE])
+        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE] + [op3.READ for n in ns] + [op3.WRITE])
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
         return None, None
