@@ -180,11 +180,11 @@ def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
 
     tm.restrict(mhrf, mhrc)
 
-    assert (
+    assert abs(
         (assemble(action(mhrc, mhuc)) - assemble(action(mhrf, mhuf)))
         / assemble(action(mhrf, mhuf))
     ) <= 1e-12
-    assert (
+    assert abs(
         (assemble(action(rc, u_coarse)) - assemble(action(mhrc, mhuc)))
         / assemble(action(mhrc, mhuc))
     ) <= 1e-12
