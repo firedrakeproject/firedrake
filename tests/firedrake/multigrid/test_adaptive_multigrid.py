@@ -7,6 +7,7 @@ import random
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import complex_mode
 
 
 @pytest.fixture(params=[2, 3])
@@ -107,8 +108,12 @@ def test_DG0(amh, atm, operator):  # pylint: disable=W0621
     if operator == "inject":
         u_fine.interpolate(stepf)
         assert errornorm(stepf, u_fine) <= 1e-12
-
-        atm.inject(u_fine, u_coarse)
+        if complex_mode:
+            with pytest.raises(NotImplementedError):
+                atm.inject(u_fine, u_coarse)
+            return
+        else:
+            atm.inject(u_fine, u_coarse)
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
@@ -156,7 +161,7 @@ def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
     u_coarse.interpolate(xc)
     atm.prolong(u_coarse, u_fine)
 
-    rf = assemble(TestFunction(V_fine) * dx)
+    rf = assemble(conj(TestFunction(V_fine)) * dx)
     rc = Cofunction(V_coarse.dual())
     atm.restrict(rf, rc)
 
@@ -170,7 +175,7 @@ def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
     mhuf = Function(Vfine)
     tm.prolong(mhuc, mhuf)
 
-    mhrf = assemble(TestFunction(Vfine) * dx)
+    mhrf = assemble(conj(TestFunction(Vfine)) * dx)
     mhrc = Cofunction(Vcoarse.dual())
 
     tm.restrict(mhrf, mhrc)
@@ -199,7 +204,7 @@ def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
     u_coarse.interpolate(xc)
     atm.prolong(u_coarse, u_fine)
 
-    rf = assemble(TestFunction(V_fine) * dx)
+    rf = assemble(conj(TestFunction(V_fine)) * dx)
     rc = Cofunction(V_coarse.dual())
     atm.restrict(rf, rc)
 
@@ -224,7 +229,7 @@ def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
     u_coarse.interpolate(xc)
     atm.prolong(u_coarse, u_fine)
 
-    rf = assemble(TestFunction(V_fine) * dx)
+    rf = assemble(conj(TestFunction(V_fine)) * dx)
     rc = Cofunction(V_coarse.dual())
     atm.restrict(rf, rc)
 
