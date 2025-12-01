@@ -3819,7 +3819,8 @@ def submesh_create(PETSc.DM dm,
                    PetscInt subdim,
                    label_name,
                    PetscInt label_value,
-                   PetscBool ignore_label_halo):
+                   PetscBool ignore_label_halo,
+                   PETSc.Comm comm):
     """Create submesh.
 
     Parameters
@@ -3834,12 +3835,12 @@ def submesh_create(PETSc.DM dm,
         Value in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
+    comm: PETSc.Comm
+        An optional sub-communicator to define the submesh.
 
     """
     cdef:
-        PETSc.DM subdm = PETSc.DMPlex()
         PETSc.DMLabel label, temp_label
-        PETSc.SF ownership_transfer_sf = PETSc.SF()
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
         PetscInt pStart, pEnd, p, i, stratum_size
         PETSc.PetscIS stratum_is = NULL
@@ -3863,7 +3864,11 @@ def submesh_create(PETSc.DM dm,
         CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
         CHKERR(ISDestroy(&stratum_is))
     # Make submesh using temp_label.
-    CHKERR(DMPlexFilter(dm.dm, temp_label.dmlabel, label_value, ignore_label_halo, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
+    subdm, ownership_transfer_sf = dm.filter(label=temp_label,
+                                             value=label_value,
+                                             ignoreHalo=ignore_label_halo,
+                                             sanitizeSubMesh=PETSC_TRUE,
+                                             comm=comm)
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)

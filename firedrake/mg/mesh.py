@@ -136,7 +136,7 @@ def MeshHierarchy(mesh, refinement_levels,
     #    This is algorithmically guaranteed.
     dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
+    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True, None)
     cdm.removeLabel("pyop2_core")
     cdm.removeLabel("pyop2_owned")
     cdm.removeLabel("pyop2_ghost")

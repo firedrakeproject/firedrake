@@ -4731,7 +4731,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4746,6 +4746,10 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         Name of the label to search ``subdomain_id`` in.
     name : str
         Name of the submesh.
+    ignore_halo : bool
+        Excludes the halo from the submesh.
+    comm : PETSc.Comm
+        An optional sub-communicator to define the submesh.
 
     Returns
     -------
@@ -4815,7 +4819,15 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, False)
+    if comm is None or comm == mesh.comm:
+        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm)
+    else:
+        # FIXME
+        subplex, _ = plex.filter(label=plex.getLabel(label_name),
+                                 value=subdomain_id,
+                                 sanitizeSubMesh=True,
+                                 ignoreHalo=ignore_halo,
+                                 comm=comm)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
@@ -4823,6 +4835,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         subplex,
         submesh_parent=mesh,
         name=name,
+        comm=subplex.comm,
+        reorder=False,
         distribution_parameters={
             "partition": False,
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
