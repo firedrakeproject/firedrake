@@ -4819,7 +4819,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
-    if comm is None:
+    if comm is None or comm == mesh.comm:
         subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm)
     else:
         # FIXME
@@ -4836,6 +4836,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         submesh_parent=mesh,
         name=name,
         comm=subplex.comm,
+        reorder=False,
         distribution_parameters={
             "partition": False,
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
