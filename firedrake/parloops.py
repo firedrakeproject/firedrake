@@ -546,7 +546,29 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     column_element = column_space.finat_element
     
     transform_in_kernel, transform_out_kernel = fuse_orientations([row_space, column_space])
-    breakpoint()
+    if packed_mat.dtype == IntType:
+        warnings.warn("Int Type mats cannot be transformed using fuse transforms")
+    elif transform_in_kernel and transform_out_kernel:
+        orientations = row_space.mesh().entity_orientations_dat
+        orientations_c = column_space.mesh().entity_orientations_dat
+
+        mat_work_array_row = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.nrows, packed_mat.nrows]), dtype=utils.ScalarType, prefix="trans")
+        mat_work_array_col = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.ncols, packed_mat.ncols]), dtype=utils.ScalarType, prefix="trans")
+
+        def transform_in(untransformed, transformed):
+            return (
+                transform_in_kernel(orientations[loop_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
+            )
+
+        def transform_out(transformed, untransformed):
+            return (
+                transform_out_kernel(orientations[loop_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
+            )
+
+        transform = op3.OutOfPlaceTensorTransform(packed_mat, transform_in, transform_out)
+        temp = packed_mat.materialize()
+        packed_dat = temp.__record_init__(_parent=transform)
+
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: Can be more fussy I think, only higher degree?
@@ -688,9 +710,9 @@ def _needs_static_permutation(element) -> bool:
     return any(perm != np.arange(perm.size, dtype=perm.dtype))
 
 
-def construct_switch_statement(self, mats, n, args, var_list):
+def construct_switch_statement(self, mats, n, idx, args, var_list):
     string = []
-    string += f"a{n} = iden; \n "
+    string += f"a{idx} = iden; \n "
     string += "\nswitch (dim) { \n"
 
     var_list += ["iden"]
@@ -715,7 +737,7 @@ def construct_switch_statement(self, mats, n, args, var_list):
                 string += indent*"\t" + f"case {val}:\n "
                 indent += 1
                 matname = f"mat{dim}_{i}_{val}"
-                string += indent*"\t" + f"a{n} = {matname};\n"
+                string += indent*"\t" + f"a{idx} = {matname};\n"
                 string += indent*"\t" + "break;\n"
                 var_list += [matname]
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
@@ -768,20 +790,20 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
           f"{{[{all_idx}]:0 <= {all_idx} < {ns[0]}}}",
           f"""
               res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
-          """, name=f"matmul{ns[0]}", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul0", target=loopy.CWithGNULibcTarget())]
     else:
         # computes res = A^T B
         matmuls += [loopy.make_function(
           f"{{[i,j,k]:0 <= i,k < {ns[0]} and 0 <= j < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + a[k,i]*b[k,j]
-          """, name=f"matmul{ns[0]}", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul0", target=loopy.CWithGNULibcTarget())]
         # computes res = BA
         matmuls += [loopy.make_function(
           f"{{[i,j,k]:0 <= i < {ns[0]} and 0 <= j,k < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + b[i,k]*a[k,j]
-          """, name=f"matmul{ns[1]}", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul1", target=loopy.CWithGNULibcTarget())]
         #for n1, n2, idx1, idx2 in zip(ns, reversed(ns), [a_idx, b_idx], [col_idx, row_idx]):
        #  
        #     matmuls += [loopy.make_function(
@@ -846,18 +868,18 @@ def fuse_orientations(spaces: list[WithGeometry]):
         args = [loopy.ValueArg("d", dtype=utils.IntType),
                 loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
                 loopy.ValueArg("o_val", dtype=utils.IntType),
-                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True)] + [loopy.GlobalArg(f"a{n}", dtype=utils.ScalarType, shape=(n, n), is_input=True, is_output=False) for n in ns] + [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
+                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True)] + [loopy.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
                 loopy.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True)]
 
-        a_list = ",".join([f"a{n}[:,:]" for n in ns])
+        a_list = ",".join([f"a{i}[:,:]" for i in range(len(ns))])
         var_list = ["o", "d", "i", "o_val", "dim"]
 
-        def switch(space, mats, n, args, var_list, all_elems, name, reverse=False):
+        def switch(space, mats, n, i, args, var_list, all_elems, name, reverse=False):
             dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
-            switch_string, args, var_list = construct_switch_statement(fs, mats, n, args, var_list)
-            transform_insn = loopy.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{n}", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
-            #arg_order = f"a{n}, b" if not reverse else f"b, a"
-            matmul_insn = f"res[{all_elems}] = matmul{n}(a{n}, b, res) {{id=matmul, dep=*, dep=assign}}"
+            switch_string, args, var_list = construct_switch_statement(fs, mats, n, i, args, var_list)
+            transform_insn = loopy.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
+            #arg_order = f"a{i}, b" if not reverse else f"b, a"
+            matmul_insn = f"res[{all_elems}] = matmul{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign}}"
             print_insn = loopy.CInstruction(tuple(),
                          "printf(\"res: %f, %f, %f\\n\", res[0], res[1], res[2]);",
                           assignees=(), read_variables=frozenset([]), within_inames=frozenset(["i"]), id="print", depends_on="matmul")
@@ -870,8 +892,8 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 name=name + "_switch_on_o",
                 kernel_data=dim_arg + args,
                 target=loopy.CWithGNULibcTarget())
-        in_switches = [switch(spaces[i], mats[i], ns[i], args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
-        out_switches = [switch(spaces[i], reversed_mats[i], ns[i], args, var_list, all_elems, name="out"+str(i)) for i in range(len(spaces))]
+        in_switches = [switch(spaces[i], mats[i], ns[i],i, args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
+        out_switches = [switch(spaces[i], reversed_mats[i], ns[i], i, args, var_list, all_elems, name="out"+str(i)) for i in range(len(spaces))]
 
         closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
         printres_insn = loopy.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")

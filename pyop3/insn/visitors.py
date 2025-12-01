@@ -15,7 +15,7 @@ from immutabledict import immutabledict
 import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
-from pyop3.expr.tensor.base import InPlaceTensorTransform, OutOfPlaceTensorTransform
+from pyop3.expr.tensor.base import TensorTransform, InPlaceTensorTransform, OutOfPlaceTensorTransform
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import merge_axis_trees
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer
@@ -711,10 +711,12 @@ def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
     need to swap out 'parent'
 
     """
-    if tensor.parent:
+    if isinstance(tensor.parent, TensorTransform):
         new_parent_tensor, root_temp, root = _materialize_untransformed_tensor(tensor.parent.untransformed)
         new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
         return tensor.__record_init__(_parent=new_parent), root_temp, root
+    elif tensor.parent: 
+        raise NotImplementedError("TODO: MATs with parents that aren't transforms")
     else:
         U = tensor.materialize()
         return U, U, tensor

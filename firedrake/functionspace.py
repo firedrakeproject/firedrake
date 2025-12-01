@@ -184,7 +184,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     if dim is None:
-        dim = mesh.geometric_dimension()
+        dim = mesh.geometric_dimension
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = finat.ufl.VectorElement(sub_element, dim=dim)
@@ -236,7 +236,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
     if shape is None:
-        shape = (mesh.geometric_dimension(),) * 2
+        shape = (mesh.geometric_dimension,) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
 
