@@ -4731,7 +4731,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, comm=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=True, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4747,7 +4747,9 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     name : str
         Name of the submesh.
     ignore_halo : bool
-        Excludes the halo from the submesh.
+        Whether to exclude the halo from the submesh.
+    reorder : bool
+        Whether to reorder the mesh entities.
     comm : PETSc.Comm
         An optional sub-communicator to define the submesh.
 
@@ -4836,7 +4838,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         submesh_parent=mesh,
         name=name,
         comm=subplex.comm,
-        reorder=False,
+        reorder=reorder,
         distribution_parameters={
             "partition": False,
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
