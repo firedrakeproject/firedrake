@@ -2,6 +2,7 @@ import typing as _typing
 
 from .tree import (  # noqa: F401
     Axis,
+    AxisTarget,
     trim_axis_targets,
     ContextMismatchException,
     ContextSensitiveAxisTree,

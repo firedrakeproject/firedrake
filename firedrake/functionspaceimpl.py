@@ -882,20 +882,15 @@ class FunctionSpace:
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        node_axis = self.nodes
-        num_nodes = node_axis.local_size
-        axis_tree = op3.AxisTree(node_axis)
+        # Create the axis tree without index information
+        axis_tree = self.nodes.as_tree()
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
-
-
         assert axis_tree.sf == self.layout_axes.sf
-        # assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
-        # assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
-        # means we have to determine the mapping
+        # means we have to determine the mapping:
         #
         #   n0 -> (p0, d0)
         #   n1 -> (p0, d1)
@@ -911,15 +906,14 @@ class FunctionSpace:
         #   n0 -> d0, n1 -> d1, n2 -> d0, ...
         #
         # The excessive tabulations should not impose a performance penalty
-        # because they mappings will be compressed during compilation.
-        import pyop3
-        pyop3.extras.debug.warn_todo("Cythonize")
+        # because the mappings are compressed during compilation.
+        op3.extras.debug.warn_todo("Cythonize")
 
-        node_point_map_array = numpy.full(num_nodes, -1, dtype=IntType)
-        node_dof_map_array = numpy.full_like(node_point_map_array, -1)
+        node_point_map_array = numpy.full(self.nodes.local_size, -1, dtype=IntType)
+        node_dof_map_array = node_point_map_array.copy()
 
         dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
-        ndofs = dof_axis.component.size.buffer.buffer.data_ro
+        ndofs = dof_axis.component.size.buffer.buffer.data_ro  # this sucks
 
         node = 0
         for point, ndof in enumerate(ndofs):
@@ -927,40 +921,35 @@ class FunctionSpace:
                 node_point_map_array[node] = point
                 node_dof_map_array[node] = dof
                 node += 1
-
         assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
-        node_point_map_dat = op3.Dat(node_axis, data=node_point_map_array)
-        node_dof_map_dat = op3.Dat(node_axis, data=node_dof_map_array)
+        node_point_map_dat = op3.Dat(self.nodes, data=node_point_map_array)
+        node_dof_map_dat = op3.Dat(self.nodes, data=node_dof_map_array)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
 
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in axis_tree._source_path_and_exprs.items():
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == "nodes":
-                    new_target_path |= {"mesh": "mylabel", "dof": "XXX"}
+        # We have the two mappings as expressions, now we have to plug them
+        # into the indexed axis tree in the right way.
+        target = {}
+        orig_target: idict[ConcretePathT, tuple[AxisTarget, ...]] = utils.just_one(axis_tree.targets)
+        for source_path, axis_targets in orig_target.items():
+            target[source_path] = []
+            for axis_target in axis_targets:
+                if axis_target.axis == "nodes":
+                    mesh_target = op3.AxisTarget("mesh", "mylabel", node_point_map_expr)
+                    dof_target = op3.AxisTarget("dof", "XXX", node_dof_map_expr)
+                    target[source_path].extend([mesh_target, dof_target])
                 else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == "nodes":
-                    new_target_exprs |= {"mesh": node_point_map_expr, "dof": node_dof_map_expr}
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+                    # All other axes (e.g. 'dim0') map directly to the layout axes
+                    # and do not require modification
+                    target[source_path].append(axis_target)
+        target = utils.freeze(target)
 
         return op3.IndexedAxisTree(
             axis_tree,
             unindexed=self.layout_axes,
-            targets=targets,
+            targets=(target,),
         )
 
     # These properties are overridden in ProxyFunctionSpaces, but are

@@ -254,9 +254,9 @@ class _UnitAxisTree(CacheMixin):
     def leaf_subst_layouts(self):
         return idict({idict(): 0})
 
-    @property
-    def targets_acc(self):
-        return ()
+    # @property
+    # def targets_acc(self):
+    #     return ()
 
     @property
     def outer_loops(self):
@@ -268,7 +268,7 @@ class _UnitAxisTree(CacheMixin):
 
     @property
     def _source_path_and_exprs(self):
-        return idict()
+        assert False, "old code, use targets instead"
 
     def index(self) -> LoopIndex:
         from pyop3 import LoopIndex
@@ -624,18 +624,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     def iter(self, **kwargs) -> LoopIndex | GeneratorType[IteratorIndexT]:
         return self._tree.iter(**kwargs)
 
-    @property
-    def target_path_per_component(self):
-        return self._tree.target_path_per_component
-
-    @property
-    def index_exprs_per_component(self):
-        return self._tree.index_exprs_per_component
-
-    @property
-    def layout_exprs_per_component(self):
-        return self._tree.layout_exprs_per_component
-
     @deprecated("as_tree")
     @property
     def axes(self):
@@ -735,6 +723,14 @@ class AxisTarget:
     axis: AxisLabelT
     component: AxisComponentLabelT
     expr: ExpressionT
+
+    @property
+    def path(self) -> ConcretePathT:
+        return idict({self.axis: self.component})
+
+    @property
+    def replace_map(self) -> idict[AxisLabelT, ExpressionT]:
+        return idict({self.axis: self.expr})
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
@@ -906,11 +902,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @property
     @abc.abstractmethod
-    def layout_exprs(self):
-        pass
-
-    @property
-    @abc.abstractmethod
     def layouts(self):
         pass
 
@@ -965,16 +956,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @abc.abstractmethod
     def regionless(self) -> AbstractAxisTree:
         pass
-
-    @cached_property
-    def leaf_target_paths(self):
-        return tuple(
-            merge_dicts(
-                self.target_paths.get((ax.id, clabel), {})
-                for ax, clabel in self.path_with_nodes(*leaf, ordered=True)
-            )
-            for leaf in self.leaves
-        )
 
     @property
     def leaf_axis(self):
@@ -1117,31 +1098,31 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                 index_tree = index_tree.add_subtree({slice_.label: slice_component.label}, subtree)
         return index_tree
 
-    def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=idict(), target_path_acc=None, target_exprs_acc=None):
-        """Traverse the tree and accumulate per-node targets."""
-        axis = self.node_map[path]
-        targets = {}
-
-        if path == idict():
-            target_path_acc, target_exprs_acc = targets_per_axis.get(path, (idict(), idict()))
-            targets[path] = (target_path_acc, target_exprs_acc)
-
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            axis_target_path, axis_target_exprs = targets_per_axis.get(path_, (idict(), idict()))
-            target_path_acc_ = target_path_acc | axis_target_path
-            target_exprs_acc_ = target_exprs_acc | axis_target_exprs
-            targets[path_] = (target_path_acc_, target_exprs_acc_)
-
-            if self.node_map[path_]:
-                targets_ = self._accumulate_targets(
-                    targets_per_axis,
-                    path=path_,
-                    target_path_acc=target_path_acc_,
-                    target_exprs_acc=target_exprs_acc_,
-                )
-                targets.update(targets_)
-        return idict(targets)
+    # def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=idict(), target_path_acc=None, target_exprs_acc=None):
+    #     """Traverse the tree and accumulate per-node targets."""
+    #     axis = self.node_map[path]
+    #     targets = {}
+    #
+    #     if path == idict():
+    #         target_path_acc, target_exprs_acc = targets_per_axis.get(path, (idict(), idict()))
+    #         targets[path] = (target_path_acc, target_exprs_acc)
+    #
+    #     for component in axis.components:
+    #         path_ = path | {axis.label: component.label}
+    #         axis_target_path, axis_target_exprs = targets_per_axis.get(path_, (idict(), idict()))
+    #         target_path_acc_ = target_path_acc | axis_target_path
+    #         target_exprs_acc_ = target_exprs_acc | axis_target_exprs
+    #         targets[path_] = (target_path_acc_, target_exprs_acc_)
+    #
+    #         if self.node_map[path_]:
+    #             targets_ = self._accumulate_targets(
+    #                 targets_per_axis,
+    #                 path=path_,
+    #                 target_path_acc=target_path_acc_,
+    #                 target_exprs_acc=target_exprs_acc_,
+    #             )
+    #             targets.update(targets_)
+    #     return idict(targets)
 
     # TODO: refactor/move
     def _match_path_and_exprs(self, tree):
@@ -1180,67 +1161,78 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def _matching_target(self):
         pass
 
+    @property
+    @abc.abstractmethod
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        pass
+
     @cached_property
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
 
+    # @cached_property
+    # def _source_paths(self) -> tuple[PathT]:
+    #     if self.is_empty:
+    #         return idict({idict(): idict()})
+    #     else:
+    #         return self._collect_source_path(path=idict())
+    #
+    # def _collect_source_path(self, *, path: PathT):
+    #     assert not self.is_empty
+    #
+    #     source_path = {}
+    #     if path == idict():
+    #         source_path |= {idict(): idict()}
+    #
+    #     axis = self.node_map[path]
+    #     for component in axis.components:
+    #         path_ = path | {axis.label: component.label}
+    #         source_path |= {path_: idict({axis.label: component.label})}
+    #         if self.node_map[path_]:
+    #             source_path |= self._collect_source_path(path=path_)
+    #     return idict(source_path)
+
+    # NOTE: This is only really used in one place, probably don't need to make a property then
     @cached_property
-    def _source_paths(self) -> tuple[PathT]:
-        if self.is_empty:
-            return idict({idict(): idict()})
-        else:
-            return self._collect_source_path(path=idict())
+    def leaf_target_paths(self) -> ConcretePathT:
+        leaf_target_paths_ = []
+        for target in self.targets:
+            leaf_target_paths_per_target = utils.StrictlyUniqueDict()
+            for leaf_path in self.leaf_paths:
+                leaf_target_path = utils.StrictlyUniqueDict()
+                for partial_path in accumulate_path(leaf_path):
+                    for t in target[partial_path]:
+                        leaf_target_path[t.axis] = t.component
+                leaf_target_paths_per_target[leaf_path] = leaf_target_path
+            leaf_target_paths_.append(leaf_target_paths_per_target)
+        return utils.freeze(leaf_target_paths_)
 
-    def _collect_source_path(self, *, path: PathT):
-        assert not self.is_empty
 
-        source_path = {}
-        if path == idict():
-            source_path |= {idict(): idict()}
+    # @cached_property
+    # def _source_exprs(self):
+    #     if self.is_empty:  # debug
+    #         breakpoint()
+    #     assert not self.is_empty, "handle outside?"
+    #     if self.is_empty:
+    #         return idict({idict(): idict()})
+    #     else:
+    #         return self._collect_source_exprs(path=idict())
 
-        axis = self.node_map[path]
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            source_path |= {path_: idict({axis.label: component.label})}
-            if self.node_map[path_]:
-                source_path |= self._collect_source_path(path=path_)
-        return idict(source_path)
-
-    @cached_property
-    def _source_exprs(self):
-        if self.is_empty:  # debug
-            breakpoint()
-        assert not self.is_empty, "handle outside?"
-        if self.is_empty:
-            return idict({idict(): idict()})
-        else:
-            return self._collect_source_exprs(path=idict())
-
-    def _collect_source_exprs(self, *, path: ConcretePathT) -> idict:
-        from pyop3.expr import AxisVar
-
-        source_exprs = {}
-
-        if path == idict():
-            source_exprs |= {idict(): idict()}
-
-        axis = self.node_map[path].localize()
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label).regionless)})}
-            if self.node_map[path_]:
-                source_exprs |= self._collect_source_exprs(path=path_)
-        return idict(source_exprs)
-
-    def _check_labels(self):
-        def check(node, prev_labels):
-            if node == self.root:
-                return prev_labels
-            if node.label in prev_labels:
-                raise ValueError("shouldn't have the same label as above")
-            return prev_labels | {node.label}
-
-        previsit(self, check, self.root, frozenset())
+    # def _collect_source_exprs(self, *, path: ConcretePathT) -> idict:
+    #     from pyop3.expr import AxisVar
+    #
+    #     source_exprs = {}
+    #
+    #     if path == idict():
+    #         source_exprs |= {idict(): idict()}
+    #
+    #     axis = self.node_map[path].localize()
+    #     for component in axis.components:
+    #         path_ = path | {axis.label: component.label}
+    #         source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label).regionless)})}
+    #         if self.node_map[path_]:
+    #             source_exprs |= self._collect_source_exprs(path=path_)
+    #     return idict(source_exprs)
 
     @property
     @abc.abstractmethod
@@ -1322,6 +1314,22 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def unindexed(self) -> AxisTree:
         return self
 
+    @cached_property
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        from pyop3 import AxisVar
+
+        targets_ = {idict(): ()}
+        for path, axis in self.node_map.items():
+            if axis is None:
+                continue
+
+            for component in axis.components:
+                path_ = path | {axis.label: component.label}
+                expr = AxisVar(axis.linearize(component.label).regionless)
+                target = AxisTarget(axis.label, component.label, expr)
+                targets_[path_] = (target,)
+        return (utils.freeze(targets_),)
+
     @property
     def _materialized(self):
         return self
@@ -1365,18 +1373,13 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return type(self)(node_map)
 
     # bit of a hack, think about the design
-    @cached_property
-    def targets_acc(self):
-        return frozenset({self._accumulate_targets(self._source_path_and_exprs)})
+    # @cached_property
+    # def targets_acc(self):
+    #     return frozenset({self._accumulate_targets(self._source_path_and_exprs)})
 
     @cached_property
     def _source_path_and_exprs(self) -> idict:
-        return idict({
-            path: (self._source_paths[path], self._source_exprs[path])
-            for path in self.paths
-        })
-        # TODO: merge source path and source expr collection here
-        return idict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
+        assert False, "old code, use targets instead"
 
     @cached_property
     def paths_and_exprs(self):
@@ -1446,9 +1449,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         with active_scoped_cache(self):
             return compute_layouts(self)
 
+    # TODO: Don't need a special property here, can be generic to axistree and indexedaxistree
     @property
     def _matching_target(self):
-        return self._source_path_and_exprs
+        return utils.just_one(self.targets)
 
     @cached_property
     def _buffer_slice(self) -> slice:
@@ -1481,7 +1485,7 @@ class IndexedAxisTree(AbstractAxisTree):
     _node_map: idict[ConcretePathT, Axis]
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     _unindexed: AxisTree | None
-    targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
+    _targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
 
     # TODO: where to put *, and order?
     def __init__(
@@ -1496,9 +1500,15 @@ class IndexedAxisTree(AbstractAxisTree):
         else:
             node_map = as_node_map(node_map)
 
+        new_targets = []
+        for target in targets:
+            # for consistency we don't want missing bits, even if they are empty
+            if idict() not in target:
+                target = {idict(): ()} | target
+            new_targets.append(target)
         # drop duplicate entries as they are necessarily equivalent
         # TODO: remove this ideally...
-        targets = utils.unique(targets)
+        targets = utils.unique(new_targets)
         targets = utils.freeze(targets)
         assert len(targets) > 0
 
@@ -1510,7 +1520,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
         object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
-        object.__setattr__(self, "targets", targets)
+        object.__setattr__(self, "_targets", targets)
 
     # }}}
 
@@ -1518,6 +1528,10 @@ class IndexedAxisTree(AbstractAxisTree):
 
     node_map = utils.attr("_node_map")
     unindexed = utils.attr("_unindexed")
+
+    @cached_property
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        return self._targets + self.materialize().targets
 
     # TODO: Should this return LoopIndexVars?
     # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
@@ -1605,35 +1619,30 @@ class IndexedAxisTree(AbstractAxisTree):
     # }}}
 
 
-    # old alias
-    @property
-    def _targets(self):
-        return self.targets
-
     @property
     def user_comm(self):
         return self.unindexed.user_comm
 
     # ideally this is ordered
     # TODO: should include source I think to be consistent with AxisTree
-    @cached_property
-    def targets_acc(self):
-        return frozenset(self._accumulate_targets(t) for t in self.targets)
-
-    # compat for now while I tinker
-    @cached_property
-    def _target_paths(self):
-        return frozenset({
-            idict({key: path for key, (path, _) in target.items()})
-            for target in self._targets
-        })
-
-    @cached_property
-    def _target_exprs(self):
-        return frozenset({
-            idict({key: exprs for key, (_, exprs) in target.items()})
-            for target in self._targets
-        })
+    # @cached_property
+    # def targets_acc(self):
+    #     return frozenset(self._accumulate_targets(t) for t in self.targets)
+    #
+    # # compat for now while I tinker
+    # @cached_property
+    # def _target_paths(self):
+    #     return frozenset({
+    #         idict({key: path for key, (path, _) in target.items()})
+    #         for target in self._targets
+    #     })
+    #
+    # @cached_property
+    # def _target_exprs(self):
+    #     return frozenset({
+    #         idict({key: exprs for key, (_, exprs) in target.items()})
+    #         for target in self._targets
+    #     })
 
     @cached_property
     def paths(self):
@@ -1684,10 +1693,6 @@ class IndexedAxisTree(AbstractAxisTree):
     def index_exprs(self):
         # return self._target_exprs | {self._source_exprs}
         return self._target_exprs
-
-    @property
-    def layout_exprs(self):
-        return self._layout_exprs
 
     @property
     def layouts(self):
@@ -2259,10 +2264,10 @@ def subst_layouts(
         # arrays
         target_paths_and_exprs_acc = {idict(): targets.get(path, (idict(), idict()))}
 
-        accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
+        accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc.values() for t in ts)
 
         # layouts_subst[path] = replace(layouts[accumulated_path], linear_axes_acc, target_paths_and_exprs_acc)
-        replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc.values())
+        replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc.values() for t in ts)
 
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.
@@ -2280,8 +2285,8 @@ def subst_layouts(
             path_: targets.get(path_, (idict(), idict()))
         }
 
-        accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
-        replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc_.values())
+        accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc_.values() for t in ts)
+        replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc_.values() for t in ts)
 
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.

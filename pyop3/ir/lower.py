@@ -55,14 +55,6 @@ from pyop3.insn.base import (
     Loop,
     InstructionList,
 )
-from pyop3.utils import (
-    StrictlyUniqueDict,
-    UniqueNameGenerator,
-    as_tuple,
-    just_one,
-    merge_dicts,
-    strictly_all,
-)
 
 import pyop3.extras.debug
 
@@ -76,16 +68,6 @@ LOOPY_LANG_VERSION = (2018, 2)
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
-
-
-class CodeGenerationException(exc.Pyop3Exception):
-    pass
-
-
-@dataclasses.dataclass(frozen=True)
-class GlobalBufferArgSpec:
-    buffer: ConcreteBuffer
-    intent: Intent
 
 
 class CodegenContext(abc.ABC):
@@ -102,7 +84,7 @@ class LoopyCodegenContext(CodegenContext):
         self._within_inames = frozenset()
         self._last_insn_id = None
 
-        self._name_generator = UniqueNameGenerator()
+        self._name_generator = utils.UniqueNameGenerator()
 
         # buffer name -> name in kernel
         self._kernel_names = {}
@@ -751,7 +733,7 @@ def compile(expr, compiler_parameters=None):
         #     # FIXME currently assume that source and target exprs are the same, they are not!
         #     loop_indices[index] = (replace_map, replace_map)
 
-        for e in as_tuple(ex): # TODO: get rid of this loop
+        for e in utils.as_tuple(ex): # TODO: get rid of this loop
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
@@ -830,7 +812,7 @@ def _collect_temporary_shapes(expr):
 
 @_collect_temporary_shapes.register(InstructionList)
 def _(insn_list: InstructionList, /) -> idict:
-    return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
 @_collect_temporary_shapes.register(Loop)
@@ -918,7 +900,7 @@ def parse_loop_properly_this_time(
             )
         return
 
-    if strictly_all(x is None for x in {axis, path, iname_map}):
+    if utils.strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
         path = idict()
         iname_map = idict()
@@ -943,22 +925,25 @@ def parse_loop_properly_this_time(
             iname_replace_map_ = iname_map | {axis.label: 0}
             within_inames = set()
 
-        with codegen_context.within_inames(within_inames):
-            # NOTE: The following bit is done for each axis, not sure if that's right or if
-            # we should handle at the bottom
-            loop_exprs = StrictlyUniqueDict()
-            for index_exprs in axes.index_exprs:
-                for axis_label, index_expr in index_exprs.get(path_, {}).items():
-                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = idict(loop_exprs)
+        loop_indices_ = utils.StrictlyUniqueDict(loop_indices)
+        for target in axes.targets:
+            for t in target[path_]:
+                expr = lower_expr(
+                    t.expr,
+                    [iname_replace_map_],
+                    loop_indices,
+                    codegen_context,
+                    paths=[path_],
+                )
+                loop_indices_[loop.index.id, t.axis] = expr
+        loop_indices_ = utils.freeze(loop_indices_)
 
+        with codegen_context.within_inames(within_inames):
             if subaxis := axes.node_map[path_]:
                 parse_loop_properly_this_time(
                     loop,
                     axes,
-                    # I think we only want to do this at the end of the traversal
-                    loop_indices | dict(loop_exprs),
-                    # loop_indices,
+                    loop_indices_,
                     codegen_context,
                     axis=subaxis,
                     path=path_,
@@ -968,7 +953,7 @@ def parse_loop_properly_this_time(
                 for statement in loop.statements:
                     _compile(
                         statement,
-                        loop_indices | dict(loop_exprs),
+                        loop_indices_,
                         codegen_context,
                     )
 
@@ -1357,7 +1342,7 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 @_lower_expr.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     try:
-        return just_one(iname_maps)[axis_var.axis_label]
+        return utils.just_one(iname_maps)[axis_var.axis_label]
     except KeyError:
         breakpoint()  # debug
 
@@ -1387,7 +1372,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, con
 
 @_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
 def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
-    path = just_one(paths)
+    path = utils.just_one(paths)
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 

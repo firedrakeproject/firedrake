@@ -98,12 +98,14 @@ def _(insn_list: InstructionList, /, **kwargs) -> Instruction:
 @_expand_loop_contexts_rec.register(Loop)
 def _(loop: Loop, /, *, loop_context_acc) -> Loop | InstructionList:
     expanded_loops = []
-    for leaf_path in loop.index.iterset.leaf_paths:
-        paths = tuple(
-            target_acc[leaf_path][0]
-            for target_acc in loop.index.iterset.targets_acc
+    iterset = loop.index.iterset
+    for leaf_path in iterset.leaf_paths:
+        # collect the possible targets per leaf
+        leaf_target_paths = tuple(
+            leaf_target_paths_per_target[leaf_path]
+            for leaf_target_paths_per_target in iterset.leaf_target_paths
         )
-        loop_context = {loop.index.id: paths}
+        loop_context = {loop.index.id: leaf_target_paths}
 
         restricted_loop_index = just_one(_as_context_free_indices(loop.index, loop_context))
 

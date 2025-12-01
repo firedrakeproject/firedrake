@@ -1145,7 +1145,7 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
 def _(index: ScalarIndex, /, target_axes, **kwargs):
     targets = utils.freeze({
         idict(): [[
-            AxisTarget(TODO, just_one(just_one(index.leaf_target_paths)), idict({index.axis: index.value})),
+            AxisTarget(index.axis, index.component, index.value),
         ]]
     })
     return (UNIT_AXIS_TREE, targets, ())
@@ -1492,11 +1492,7 @@ def index_axes(
                 targets=indexed_target_paths_and_exprs,
             )
         else:
-            return IndexedAxisTree(
-                indexed_axes.node_map,
-                orig_axes,
-                targets=indexed_target_paths_and_exprs + (indexed_axes._source_path_and_exprs,),
-            )
+            return IndexedAxisTree(indexed_axes, orig_axes, targets=indexed_target_paths_and_exprs)
 
     if orig_axes is None:
         raise NotImplementedError("Need to think about this case")
@@ -1575,16 +1571,16 @@ def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
         index_tree,
         target_axes,
         index_path=idict(),
-        seen_target_exprs=idict(),
+        expr_replace_map=idict(),
     )
 
 
-def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, seen_target_exprs):
+def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
     index = index_tree.node_map[index_path]
 
     index_axis_tree, per_index_targets, index_outer_loops = _index_axes_per_index(
         index, target_axes,
-        seen_target_exprs=seen_target_exprs,
+        seen_target_exprs=expr_replace_map,
     )
 
     targets: dict[ConcretePathT, tuple[AxisTarget, ...]] \
@@ -1600,7 +1596,10 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
         if subindex is None:
             continue
 
-        seen_target_exprs_ = seen_target_exprs | merge_dicts(exprs for (_, exprs) in per_index_targets[leaf_path])
+        expr_replace_map_ = (
+            expr_replace_map
+            | merge_dicts(t.replace_map for ts in per_index_targets[leaf_path] for t in ts)
+        )
 
         # trim current path from 'target_axes' so subtrees can understand things
         target_axes_ = {
@@ -1612,7 +1611,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
             index_tree,
             target_axes_,
             index_path=index_path_,
-            seen_target_exprs=seen_target_exprs_,
+            expr_replace_map=expr_replace_map_,
         )
 
         # leaf_axis_key = (leaf[0], leaf[1]) if leaf is not None else None
