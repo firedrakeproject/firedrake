@@ -136,8 +136,8 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
             loop_index.id,
             tuple(
                 tuple(
-                    target_acc[leaf_path][0]
-                    for target_acc in loop_index.iterset.targets_acc
+                    leaf_target_paths_per_target[leaf_path]
+                    for leaf_target_paths_per_target in loop_index.iterset.leaf_target_paths
                 )
                 for leaf_path in loop_index.iterset.leaf_paths
             )

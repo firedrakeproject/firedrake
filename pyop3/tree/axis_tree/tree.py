@@ -225,6 +225,8 @@ class _UnitAxisTree(CacheMixin):
     nodes = ()
     _all_region_labels = ()
 
+    targets = (idict({idict(): ()}),)  # not sure
+
     unindexed = property(lambda self: self)
     regionless = property(lambda self: self)
 
@@ -1814,11 +1816,30 @@ class UnitIndexedAxisTree(DistributedObject):
         *,
         targets,
     ):
+        # same as indexed axis tree
+        new_targets = []
+        for target in targets:
+            # for consistency we don't want missing bits, even if they are empty
+            if idict() not in target:
+                target = {idict(): ()} | target
+            new_targets.append(target)
         # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
+        # TODO: remove this ideally...
+        targets = utils.unique(new_targets)
+        targets = utils.freeze(targets)
+        assert len(targets) > 0
+
+        # debugging
+        assert isinstance(targets, tuple)
+        for t in targets:
+            assert isinstance(t, idict)
+            assert all(isinstance(v_, AxisTarget) for v in t.values() for v_ in v)
 
         self.unindexed = unindexed
-        self.targets = targets
+        self._targets = targets
+    @cached_property
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        return self._targets + self.materialize().targets
 
     @property
     def user_comm(self) -> MPI.Comm:
@@ -2451,13 +2472,14 @@ def _(region: AxisComponentRegion, /, replace_map):
 
 
 def gather_loop_indices_from_targets(targets):
+    # NOTE: think this isn't really needed, remove with 'outer_loops'
     from pyop3.expr.visitors import collect_loop_index_vars
 
     loop_indices = utils.OrderedSet()
     for target in targets:
-        for _, exprs in target.values():
-            for expr in exprs.values():
-                for loop_var in collect_loop_index_vars(expr):
+        for axis_targets in target.values():
+            for axis_target in axis_targets:
+                for loop_var in collect_loop_index_vars(axis_target.expr):
                     loop_indices.add(loop_var.loop_index)
     return tuple(loop_indices)
 
