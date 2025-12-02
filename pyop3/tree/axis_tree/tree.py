@@ -627,10 +627,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     def axes(self):
         return self.as_tree()
 
-    @property
-    def index_exprs(self):
-        return self._tree.index_exprs
-
     def as_tree(self) -> AxisTree:
         """Convert the axis to a tree that contains it.
 
@@ -882,11 +878,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def target_path(self):
         # return self.paths[0]
         return self._match_path_and_exprs(self.unindexed)[0]
-
-    @property
-    @abc.abstractmethod
-    def index_exprs(self):
-        pass
 
     @property
     def source_exprs(self):
@@ -1328,14 +1319,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         """
         return frozenset({self._source_path_and_exprs})
 
-    @cached_property
-    def index_exprs(self):
-        return (self._source_exprs,)
-
-    @property
-    def layout_exprs(self):
-        return self.index_exprs
-
     @property
     def outer_loops(self):
         return ()
@@ -1560,27 +1543,6 @@ class IndexedAxisTree(AbstractAxisTree):
     @property
     def user_comm(self):
         return self.unindexed.user_comm
-
-    @cached_property
-    def paths(self):
-        """
-        Return a `tuple` of the possible paths represented by this tree.
-        """
-        assert False, "delete me"
-        return self._target_paths
-
-    @cached_property
-    def paths_and_exprs(self):
-        """
-        Return a `tuple` of the possible paths represented by this tree.
-        """
-        assert False, "delete me"
-        return self._targets
-
-    @property
-    def index_exprs(self):
-        assert False, "delete me"
-        return self._target_exprs
 
     @property
     def layouts(self):

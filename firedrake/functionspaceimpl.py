@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property, reduce
 from immutabledict import immutabledict as idict
-from typing import Optional
+from typing import Literal, Optional
 from mpi4py import MPI
 
 import finat.ufl
@@ -1575,8 +1575,6 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        # NOTE: This might be a good candidate for axis forests so we could have
-        # V.axes and index it with node things or mesh things
         scalar_axis_tree = self.axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
 
@@ -1660,56 +1658,22 @@ class MixedFunctionSpace:
     # TODO:
     # @cached_on(mesh)?
     @cached_property
-    def layout_axes(self) -> AxisTree:
+    def layout_axes(self) -> op3.AxisTree:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
-    def axes(self):
+    def axes(self) -> op3.AxisForest:
         return op3.AxisForest([self.plex_axes, self.nodal_axes])
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        # It isn't possible to use an index tree here because the axes of Real
-        # spaces aren't expressible using index trees. Hence we have to be clever
-        # how we combine things here to retain that information.
-        field_axis = utils.single_valued((
-            axis for axis in self.layout_axes.nodes if axis.label == "field"
-        ))
-        axis_tree = op3.AxisTree(field_axis)
-        targets = utils.StrictlyUniqueDefaultDict(list)
-        for field_component, subspace in zip(
-            field_axis.components, self._orig_spaces, strict=True
-        ):
-            leaf_path = idict({field_axis.label: field_component.label})
-            axis_tree = axis_tree.add_subtree(
-                leaf_path, subspace.plex_axes.materialize()
-            )
+        return self._make_axes("plex")
 
-            # Target a full slice of the 'field' component
-            # FIXME: should be list of lists
-            targets[leaf_path] = [
-                op3.AxisTarget(
-                    field_axis.label,
-                    field_component.label,
-                    op3.AxisVar(field_axis.linearize(field_component.label)),
-                ),
-            ]
-            for subtarget in subspace.plex_axes.targets:
-                for subpath, subaxis_targets in subtarget.items():
-                    # FIXME: should be list of lists
-                    targets[leaf_path | subpath].extend(subaxis_targets)
-                break  # stop here because we only care about the first target for the moment
-        targets = utils.freeze(targets)
-        # FIXME: This is intractably slow! Cannot allow this expansion to occur
-        # targets = op3.utils.expand_collection_of_iterables(targets)
-        targets = (targets,)
-        return op3.IndexedAxisTree(
-            axis_tree, unindexed=self.layout_axes, targets=targets,
-        )
-
-    # This is very very close to .axes
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
+        return self._make_axes("nodal")
+
+    def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         field_axis = utils.single_valued((
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
@@ -1718,9 +1682,15 @@ class MixedFunctionSpace:
         for field_component, subspace in zip(
             field_axis.components, self._orig_spaces, strict=True
         ):
+            if mode == "plex":
+                subaxes = subspace.plex_axes
+            else:
+                assert mode == "nodal"
+                subaxes = subspace.nodal_axes
+
             leaf_path = idict({field_axis.label: field_component.label})
             axis_tree = axis_tree.add_subtree(
-                leaf_path, subspace.nodal_axes.materialize()
+                leaf_path, subaxes.materialize()
             )
 
             # Target a full slice of the 'field' component
@@ -1732,7 +1702,7 @@ class MixedFunctionSpace:
                     op3.AxisVar(field_axis.linearize(field_component.label)),
                 ),
             ]
-            for subtarget in subspace.nodal_axes.targets:
+            for subtarget in subaxes.targets:
                 for subpath, subaxis_targets in subtarget.items():
                     # FIXME: should be list of lists
                     targets[leaf_path | subpath].extend(subaxis_targets)
