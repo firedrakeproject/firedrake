@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -106,7 +107,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
         a = (inner(u, v) + inner(d(u), d(v))) * dx
 
     u_exact = rg.uniform(V, -1, 1)
-    L = ufl.replace(a, {u: u_exact})
+    L = replace(a, {u: u_exact})
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
     nsp = None
     if formdegree == 0:
