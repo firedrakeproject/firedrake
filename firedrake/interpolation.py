@@ -253,6 +253,13 @@ class Interpolator(abc.ABC):
         """
         pass
 
+    @property
+    @abc.abstractmethod
+    def _allowed_mat_types(self) -> set[Literal["aij", "baij", "nest", "matfree"]]:
+        """Returns a set of valid matrix types for assembly of two-forms.
+        """
+        pass
+
     def assemble(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
@@ -297,6 +304,11 @@ class Interpolator(abc.ABC):
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
+        # Set default mat_types if not provided and check it's valid
+        mat_type = mat_type or "aij"
+        sub_mat_type = sub_mat_type or "baij"
+        self._check_mat_type(mat_type)
+
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
         if self.rank == 2:
             # Assembling the operator
@@ -309,6 +321,25 @@ class Interpolator(abc.ABC):
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
+
+    def _check_mat_type(
+            self,
+            mat_type: Literal["aij", "baij", "nest", "matfree"],
+    ) -> None:
+        """Check that the given mat_type is valid for this Interpolator.
+
+        Parameters
+        ----------
+        mat_type
+            The PETSc matrix type to check.
+
+        Raises
+        ------
+        NotImplementedError
+            If the given mat_type is not supported for this Interpolator.
+        """
+        if self.rank == 2 and mat_type not in self._allowed_mat_types:
+            raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented yet for {type(self).__name__}.")
 
 
 def get_interpolator(expr: Interpolate) -> Interpolator:
@@ -402,7 +433,6 @@ class CrossMeshInterpolator(Interpolator):
 
     For arguments, see :class:`.Interpolator`.
     """
-
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
@@ -500,12 +530,6 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
-        if mat_type == "nest" or sub_mat_type is not None:
-            raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
-        if mat_type == "baij" or mat_type == "matfree":
-            # Can't multiply two baij matrices together in PETSc
-            raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented for cross-mesh interpolation.")
-        mat_type = mat_type or "aij"
 
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
@@ -515,6 +539,7 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
 
         if self.rank == 2:
+            assert mat_type == "aij"
             # The cross-mesh interpolation matrix is the product of the
             # `self.point_eval_interpolate` and the permutation
             # given by `self.to_input_ordering_interpolate`.
@@ -575,6 +600,10 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     return f
         return callable
+
+    @property
+    def _allowed_mat_types(self):
+        return {"aij"}
 
 
 class SameMeshInterpolator(Interpolator):
@@ -680,12 +709,6 @@ class SameMeshInterpolator(Interpolator):
         return sparsity
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        if mat_type == "nest" or sub_mat_type is not None:
-            raise NotImplementedError("PETSc MatNest only implemented for interpolation between MixedFunctionSpaces.")
-        if mat_type == "matfree":
-            raise NotImplementedError("Assembly of matfree interpolation operator not implemented for same-mesh interpolation.")
-        mat_type = mat_type or "aij"
-
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
@@ -741,6 +764,10 @@ class SameMeshInterpolator(Interpolator):
 
         return callable
 
+    @property
+    def _allowed_mat_types(self):
+        return {"aij", "baij"}
+
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
 
@@ -750,8 +777,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
-        if mat_type == "nest" or sub_mat_type is not None:
-            raise NotImplementedError("PETSc MatNest not implemented for vom-to-vom interpolation.")
+
         self.mat = VomOntoVomMat(self, mat_type=mat_type)
         if self.rank == 1:
             f = tensor or self._get_tensor(mat_type)
@@ -787,6 +813,10 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 return self.mat.handle
 
         return callable
+
+    @property
+    def _allowed_mat_types(self):
+        return {"aij", "baij", "matfree"}
 
 
 @known_pyop2_safe
@@ -1263,7 +1293,7 @@ class VomOntoVomMat:
     def __init__(
             self,
             interpolator: VomOntoVomInterpolator,
-            mat_type: Literal["aij", "baij", "matfree"] | None = None,
+            mat_type: Literal["aij", "baij", "matfree"],
     ):
         """Initialise the VomOntoVomMat.
 
@@ -1322,7 +1352,7 @@ class VomOntoVomMat:
         )
         """Tuple containing the local and global size of the target space."""
 
-        if not mat_type or mat_type == "matfree":
+        if mat_type == "matfree":
             # If matfree, we use the SF wrapped as a PETSc Mat
             # to perform the permutation. This is the default.
             self.handle = self._wrap_python_mat()
@@ -1667,11 +1697,6 @@ class MixedInterpolator(Interpolator):
         return matnest.convert("aij")
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        if mat_type == "baij" or mat_type == "matfree":
-            raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented for interpolation between mixed function spaces.")
-        mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
-
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -1692,3 +1717,7 @@ class MixedInterpolator(Interpolator):
             def callable() -> Number:
                 return sum(interp.assemble(bcs=sub_bcs) for (interp, sub_bcs) in Isub.values())
         return callable
+
+    @property
+    def _allowed_mat_types(self):
+        return {"aij", "nest"}

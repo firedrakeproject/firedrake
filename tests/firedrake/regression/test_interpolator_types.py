@@ -88,8 +88,9 @@ def test_vomtovom_mattype(value_shape, mat_type):
     interp = interpolate(u, P0DG_io)
     assert isinstance(get_interpolator(interp), VomOntoVomInterpolator)
     res = assemble(interp, mat_type=mat_type)
-    if not mat_type or mat_type == "matfree":
-        # vomtovom defaults to matfree
+    if not mat_type or mat_type == "aij":
+        assert res.petscmat.type == "seqaij"
+    elif mat_type == "matfree":
         assert res.petscmat.type == "python"
     else:
         if value_shape == "scalar":
