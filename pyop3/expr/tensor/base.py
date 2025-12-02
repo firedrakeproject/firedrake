@@ -7,6 +7,7 @@ from typing import Any, ClassVar, Callable
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
+from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.sf import DistributedObject
@@ -93,6 +94,10 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     @abc.abstractmethod
     def axis_trees(self) -> tuple[AbstractAxisTree, ...]:
         pass
+
+    @PETSc.Log.EventDecorator()
+    def zero(self, *, eager=False):
+        return self.assign(0, eager=eager)
 
     # }}}
 

@@ -15,7 +15,7 @@ from pyop3 import buffer
 from pyrsistent import freeze, pmap
 
 from pyop3 import utils
-from .base import Tensor
+from .base import Tensor, IdentityTensorTransform
 from .dat import Dat
 from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
@@ -354,7 +354,7 @@ class Mat(Tensor):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]), _parent=self)
+        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]), _parent=IdentityTensorTransform(self))
 
     @cached_property
     def size(self) -> Any:
@@ -477,13 +477,6 @@ class Mat(Tensor):
         buffer = sparsity.buffer.materialize()
         return cls(sparsity.row_axis_forest, sparsity.column_axis_forest, buffer, **kwargs)
 
-    def zero(self, *, eager=False):
-        if not isinstance(self.buffer, PetscMatBuffer):
-            raise NotImplementedError("TODO")
-        if eager:
-            self.buffer.mat.zeroEntries()
-        else:
-            raise NotImplementedError
 
     # TODO: better to have .data? but global vs local?
     @property

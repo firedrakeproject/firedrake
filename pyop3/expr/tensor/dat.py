@@ -274,10 +274,6 @@ class Dat(Tensor):
         buffer = self._buffer.duplicate(copy=copy)
         return self.__record_init__(_name=name, _buffer=buffer)
 
-    @PETSc.Log.EventDecorator()
-    def zero(self, *, eager=False):
-        return self.assign(0, eager=eager)
-
     # TODO: dont do this here
     def with_context(self, context):
         return self.__record_init__(axis_forest=self.axis_forest.with_context(context))

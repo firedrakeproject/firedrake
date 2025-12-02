@@ -608,7 +608,12 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
         bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
 
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            if isinstance(bare_current_tensor, Dat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            elif isinstance(bare_current_tensor, Mat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.raxes.materialize(), bare_parent_tensor.caxes.materialize())
+            else:
+                raise NotImplementedError
             current_pack_insns = (
                 bare_current_tensor_reshaped.assign(bare_parent_tensor),
                 *current_tensor.parent.transform_in(bare_current_tensor),
@@ -670,7 +675,12 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         # TODO: This materialisation is not actually needed if we don't index
         # the tensor.
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            if isinstance(bare_current_tensor, Dat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            elif isinstance(bare_current_tensor, Mat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.raxes.materialize(), bare_parent_tensor.caxes.materialize())
+            else:
+                raise NotImplementedError
             current_unpack_insns = (
                 *current_tensor.parent.transform_out(bare_current_tensor),
                 bare_parent_tensor.assign(bare_current_tensor_reshaped),
@@ -711,12 +721,10 @@ def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
     need to swap out 'parent'
 
     """
-    if isinstance(tensor.parent, TensorTransform):
+    if tensor.parent:
         new_parent_tensor, root_temp, root = _materialize_untransformed_tensor(tensor.parent.untransformed)
         new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
-        return tensor.__record_init__(_parent=new_parent), root_temp, root
-    elif tensor.parent: 
-        raise NotImplementedError("TODO: MATs with parents that aren't transforms")
+        return tensor.materialize().__record_init__(_parent=new_parent), root_temp, root
     else:
         U = tensor.materialize()
         return U, U, tensor
