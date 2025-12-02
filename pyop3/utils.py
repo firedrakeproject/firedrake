@@ -131,22 +131,17 @@ class ValueMismatchException(Pyop3Exception):
 
 class StrictlyUniqueDict(dict):
     """A dictionary where overwriting entries will raise an error."""
-
-    def __init__(self, initial=None, *, default=None) -> None:
-        super().__init__(self, initial)
-        self._default = default
-
     def __setitem__(self, key, value, /) -> None:
         if key in self and value != self[key]:
             raise ValueMismatchException
         return super().__setitem__(key, value)
 
-    # def update(self, other) -> None:
-    #     shared_keys = self.keys() & other.keys()
-    #     if len(shared_keys) > 0:
-    #         raise ValueMismatchException
-    #     super().update(other)
 
+class StrictlyUniqueDefaultDict(collections.defaultdict):
+    def __setitem__(self, key, value, /) -> None:
+        if key in self and value != self[key]:
+            raise ValueMismatchException
+        return super().__setitem__(key, value)
 
 
 class OrderedSet(collections.abc.Sequence):

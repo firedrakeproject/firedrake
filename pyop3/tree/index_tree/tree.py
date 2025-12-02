@@ -1484,7 +1484,7 @@ def index_axes(
         raise NotImplementedError("Need to think about this case")
 
     all_target_paths_and_exprs = []
-    for orig_path in orig_axes.targets:
+    for orig_target in orig_axes.targets:
 
         match_found = False
         # TODO: would be more intuitive to find match first, instead of looping
@@ -1498,7 +1498,7 @@ def index_axes(
                 continue
 
             assert not match_found, "don't expect multiple hits"
-            target_path_and_exprs = compose_targets(orig_axes, orig_path, indexed_axes, indexed_path_and_exprs, fullmap)
+            target_path_and_exprs = compose_targets(orig_axes, orig_target, indexed_axes, indexed_path_and_exprs, fullmap)
             match_found = True
 
             all_target_paths_and_exprs.append(target_path_and_exprs)

@@ -27,6 +27,7 @@ from pyop3.utils import (  # noqa: F401
     freeze,
     strict_int,
     StrictlyUniqueDict,
+    StrictlyUniqueDefaultDict,
     invert,
     split_by,
     as_tuple,

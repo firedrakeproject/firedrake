@@ -1676,8 +1676,7 @@ class MixedFunctionSpace:
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
         axis_tree = op3.AxisTree(field_axis)
-        FIXME
-        targets = utils.StrictlyUniqueDict()
+        targets = utils.StrictlyUniqueDefaultDict(list)
         for field_component, subspace in zip(
             field_axis.components, self._orig_spaces, strict=True
         ):
@@ -1687,23 +1686,23 @@ class MixedFunctionSpace:
             )
 
             # Target a full slice of the 'field' component
-            targets[leaf_path] = [[
+            # FIXME: should be list of lists
+            targets[leaf_path] = [
                 op3.AxisTarget(
                     field_axis.label,
                     field_component.label,
                     op3.AxisVar(field_axis.linearize(field_component.label)),
                 ),
-            ]]
+            ]
             for subtarget in subspace.plex_axes.targets:
                 for subpath, subaxis_targets in subtarget.items():
-                    FIXME, need to create as well, unique+strict?
-                    targets[leaf_path | subpath].append(subaxis_targets)
-
-        TODO expand targets from per-leaf
-
-        # TODO: This looks quite hacky
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
-
+                    # FIXME: should be list of lists
+                    targets[leaf_path | subpath].extend(subaxis_targets)
+                break  # stop here because we only care about the first target for the moment
+        targets = utils.freeze(targets)
+        # FIXME: This is intactably slow! Cannot allow this expansion to occur
+        # targets = op3.utils.expand_collection_of_iterables(targets)
+        targets = (targets,)
         return op3.IndexedAxisTree(
             axis_tree, unindexed=self.layout_axes, targets=targets,
         )
@@ -1715,27 +1714,34 @@ class MixedFunctionSpace:
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
         axis_tree = op3.AxisTree(field_axis)
-        targets = utils.StrictlyUniqueDict()
-        for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
+        targets = utils.StrictlyUniqueDefaultDict(list)
+        for field_component, subspace in zip(
+            field_axis.components, self._orig_spaces, strict=True
+        ):
             leaf_path = idict({field_axis.label: field_component.label})
-            subaxes = subspace.nodal_axes
             axis_tree = axis_tree.add_subtree(
-                leaf_path, subaxes.materialize()
+                leaf_path, subspace.nodal_axes.materialize()
             )
-            # i.e. a full slice
-            targets[leaf_path] = (
-                idict({field_axis.label: field_component.label}),
-                idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
-            )
-            subtargets, _ = subaxes.targets
-            for sub_path, sub_target in subtargets.items():
-                if sub_target == (idict(), idict()):
-                    continue
-                targets[leaf_path | sub_path] = sub_target
 
-        # TODO: This looks quite hacky
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+            # Target a full slice of the 'field' component
+            # FIXME: should be list of lists
+            targets[leaf_path] = [
+                op3.AxisTarget(
+                    field_axis.label,
+                    field_component.label,
+                    op3.AxisVar(field_axis.linearize(field_component.label)),
+                ),
+            ]
+            for subtarget in subspace.nodal_axes.targets:
+                for subpath, subaxis_targets in subtarget.items():
+                    # FIXME: should be list of lists
+                    targets[leaf_path | subpath].extend(subaxis_targets)
+                break  # stop here because we only care about the first target for the moment
 
+        targets = utils.freeze(targets)
+        # FIXME: This is intactably slow! Cannot allow this expansion to occur
+        # targets = op3.utils.expand_collection_of_iterables(targets)
+        targets = (targets,)
         return op3.IndexedAxisTree(
             axis_tree, unindexed=self.layout_axes, targets=targets,
         )
