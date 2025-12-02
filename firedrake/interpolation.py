@@ -304,9 +304,6 @@ class Interpolator(abc.ABC):
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
-        # Set default mat_types if not provided and check it's valid
-        mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
         self._check_mat_type(mat_type)
 
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
@@ -324,7 +321,7 @@ class Interpolator(abc.ABC):
 
     def _check_mat_type(
             self,
-            mat_type: Literal["aij", "baij", "nest", "matfree"],
+            mat_type: Literal["aij", "baij", "nest", "matfree"] | None,
     ) -> None:
         """Check that the given mat_type is valid for this Interpolator.
 
@@ -530,6 +527,7 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
+        mat_type = mat_type or "aij"
 
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
@@ -603,7 +601,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij"}
+        return {"aij", None}
 
 
 class SameMeshInterpolator(Interpolator):
@@ -709,6 +707,7 @@ class SameMeshInterpolator(Interpolator):
         return sparsity
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        mat_type = mat_type or "aij"
         if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
@@ -766,7 +765,7 @@ class SameMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij"}
+        return {"aij", "baij", None}
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -777,7 +776,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
-
+        mat_type = mat_type or "matfree"
         self.mat = VomOntoVomMat(self, mat_type=mat_type)
         if self.rank == 1:
             f = tensor or self._get_tensor(mat_type)
@@ -816,7 +815,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij", "matfree"}
+        return {"aij", "baij", "matfree", None}
 
 
 @known_pyop2_safe
@@ -1697,6 +1696,8 @@ class MixedInterpolator(Interpolator):
         return matnest.convert("aij")
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+        mat_type = mat_type or "aij"
+        sub_mat_type = sub_mat_type or "baij"
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
@@ -1720,4 +1721,4 @@ class MixedInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "nest"}
+        return {"aij", "nest", None}
