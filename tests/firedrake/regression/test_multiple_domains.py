@@ -134,8 +134,8 @@ def test_multi_domain_assemble():
     v1, v2 = TestFunctions(V)
 
     a = (
-        inner(grad(u1), grad(v1))*dx(domain=mesh1) +
-        inner(grad(u2), grad(v2))*dx(domain=mesh2)
+        inner(grad(u1), grad(v1))*dx(domain=mesh1)
+        + inner(grad(u2), grad(v2))*dx(domain=mesh2)
     )
 
     u_exact_expr1 = sin(pi * x1) * sin(pi * y1)
@@ -144,8 +144,8 @@ def test_multi_domain_assemble():
     f2 = expand_derivatives(-div(grad(u_exact_expr2)))
 
     L = (
-        inner(f1, v1)*dx(domain=mesh1) +
-        inner(f2, v2)*dx(domain=mesh2)
+        inner(f1, v1)*dx(domain=mesh1)
+        + inner(f2, v2)*dx(domain=mesh2)
     )
 
     bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
@@ -163,6 +163,3 @@ def test_multi_domain_assemble():
     assert err1 < 1e-5
     err2 = errornorm(u2_exact, u2_sol)
     assert err2 < 1e-5
-
-if __name__ == "__main__":
-    pytest.main([__file__ + "::test_multi_domain_assemble"])
