@@ -1301,9 +1301,9 @@ class VomOntoVomMat:
         interpolator : VomOntoVomInterpolator
             A :class:`VomOntoVomInterpolator` object.
         mat_type : Literal["aij", "baij", "matfree"] | None, optional
-            The type of PETSc Mat to create. If 'matfree' or None, a
+            The type of PETSc Mat to create. If 'matfree', a
             matfree PETSc Mat wrapping the SF is created. If 'aij' or 'baij',
-            a concrete PETSc Mat is created. By default None.
+            a concrete PETSc Mat is created.
 
         Raises
         ------
@@ -1353,7 +1353,7 @@ class VomOntoVomMat:
 
         if mat_type == "matfree":
             # If matfree, we use the SF wrapped as a PETSc Mat
-            # to perform the permutation. This is the default.
+            # to perform the permutation.
             self.handle = self._wrap_python_mat()
         else:
             # Otherwise we build the concrete permutation
