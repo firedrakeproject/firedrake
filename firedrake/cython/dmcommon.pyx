@@ -3820,7 +3820,7 @@ def submesh_create(PETSc.DM dm,
                    label_name,
                    PetscInt label_value,
                    PetscBool ignore_label_halo,
-                   PETSc.Comm comm):
+                   comm=None):
     """Create submesh.
 
     Parameters
@@ -3835,7 +3835,7 @@ def submesh_create(PETSc.DM dm,
         Value in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
-    comm: PETSc.Comm
+    comm : PETSc.Comm | None
         An optional sub-communicator to define the submesh.
 
     """
