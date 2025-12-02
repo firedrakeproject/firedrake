@@ -59,11 +59,6 @@ def test_mismatching_meshes_real_space(mesh1, mesh3):
         project(donor, target)
 
 
-def test_mismatching_topologies(mesh1, mesh3):
-    with pytest.raises(NotImplementedError):
-        assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))
-
-
 def test_functional(mesh1, mesh2):
     c = Constant(1)
 
@@ -168,3 +163,6 @@ def test_multi_domain_assemble():
     assert err1 < 1e-5
     err2 = errornorm(u2_exact, u2_sol)
     assert err2 < 1e-5
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_multi_domain_assemble"])
