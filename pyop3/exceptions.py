@@ -23,3 +23,11 @@ class InvalidIndexTargetException(Pyop3Exception):
 
 class CommNotFoundException(Pyop3Exception):
     pass
+
+
+# {{{ code generation
+
+class CompilationException(Pyop3Exception):
+    """Error during compilation."""
+
+# }}}

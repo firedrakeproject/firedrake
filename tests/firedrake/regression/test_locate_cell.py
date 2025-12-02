@@ -1,6 +1,12 @@
 import pytest
 import numpy as np
 from firedrake import *
+from functools import reduce
+from operator import mul
+
+
+def warp(x, p):
+    return p * x * (2 * x - 1)
 
 
 @pytest.fixture(scope="module", params=[False, True])
@@ -19,13 +25,13 @@ def meshdata(request):
 
 @pytest.mark.parametrize(('point', 'value'),
                          [((0.2, 0.1), 1),
-                          ((0.5, 0.2), 2),
+                          ((0.4, 0.2), 2),
                           ((0.7, 0.1), 3),
                           ((0.2, 0.4), 4),
                           ((0.4, 0.4), 5),
-                          ((0.8, 0.5), 6),
+                          ((0.8, 0.6), 6),
                           ((0.1, 0.7), 7),
-                          ((0.5, 0.9), 8),
+                          ((0.6, 0.9), 8),
                           ((0.9, 0.8), 9)])
 def test_locate_cell(meshdata, point, value):
     m, f = meshdata
@@ -76,3 +82,126 @@ def test_locate_cells_ref_coords_and_dists(meshdata):
     fcells, ref_coords, l1_dists = m.locate_cells_ref_coords_and_dists(points[:2], cells_ignore=np.array([cells[:4], cells[1:5]]))
     assert fcells[0] == -1 or fcells[0] in cells[4:]
     assert fcells[1] == -1 or fcells[1] in cells[5:] or fcells[1] in cells[:1]
+
+
+def test_high_order_location():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+    mesh = Mesh(f)
+
+    # The point (0.25, -0.6) *is* in the mesh, but falls outside the Lagrange bounding box
+    # The below used to return (None, None), but projecting to Bernstein coordinates
+    # allows us to locate the cell.
+    assert mesh.locate_cell([0.25, -0.6], tolerance=0.001) is not None
+    # The point (0.25, -0.7) is outside the mesh, but inside the Bernstein bounding box.
+    # This should return (None, None).
+    assert mesh.locate_cell([0.25, -0.7], tolerance=0.001) is None
+
+    # Change mesh coordinates to check that the bounding box is recalculated
+    mesh.coordinates.dat.data_wo[warp_indices, 1] = warp(mesh.coordinates.dat.data_ro[warp_indices, 0], 8.0)
+    assert mesh.locate_cell([0.25, -0.6], tolerance=0.0001) is not None
+    assert mesh.locate_cell([0.25, -0.7], tolerance=0.0001) is not None
+    assert mesh.locate_cell([0.25, -0.95], tolerance=0.0001) is not None
+    assert mesh.locate_cell([0.25, -1.05], tolerance=0.0001) is None
+
+
+def test_high_order_location_warped_interior_facet():
+    # Here we bend an interior facet and check the right cell is located.
+    mesh = RectangleMesh(1, 2, 1.0, 1.0, 0.0, -1.0, quadrilateral=True)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    coords = f.dat.data_ro
+    warp_indices = np.where((coords[:, 0] > 0.0) & (coords[:, 0] < 1.0) & np.isclose(coords[:, 1], 0.0))[0]
+    f.dat.data[warp_indices, 1] += 0.1
+
+    mesh = Mesh(f)
+    mesh.tolerance = 1e-05
+
+    upper_point = [0.5, 0.15]
+    upper_point_cell = mesh.locate_cell(upper_point)
+    lower_point = [0.5, 0.05]
+    lower_point_cell = mesh.locate_cell(lower_point)
+
+    assert upper_point_cell != lower_point_cell
+
+    # Check no other cell is found when ignoring the correct cell
+    assert mesh.locate_cell(upper_point, cell_ignore=upper_point_cell) is None
+    assert mesh.locate_cell(lower_point, cell_ignore=lower_point_cell) is None
+
+    # Try point outside of Lagrange bounding box of lower cell
+    lower_point = [0.5, 0.105]
+    assert mesh.locate_cell(lower_point) == lower_point_cell
+
+    mesh.tolerance = 0.01
+    lower_point = [0.5, 0.11]
+    # Lower point is now inside the bounding box of the upper cell, but outside the cell itself
+    # It is within mesh.tolerance of the upper cell, however, so should be assigned
+    # to the upper cell if we ignore the lower cell, with a non-zero L^1 distance.
+    lower_point_closer_cell = mesh.locate_cell(lower_point)
+    assert lower_point_closer_cell == lower_point_cell
+    cells, ref_coords, dists = mesh.locate_cells_ref_coords_and_dists([lower_point], cells_ignore=[[lower_point_cell]])
+    assert cells[0] == upper_point_cell
+    assert not np.isclose(dists[0], 0.0)
+
+
+@pytest.mark.parallel([1, 3])
+def test_parallel_high_order_location():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+    V = FunctionSpace(mesh, "CG", 3)
+    f = Function(V).interpolate(reduce(mul, SpatialCoordinate(mesh)))
+
+    vom = VertexOnlyMesh(mesh, [[0.25, -0.6]], tolerance=0.0001, redundant=False)
+    P0DG = FunctionSpace(vom, "DG", 0)
+    P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
+    f_at = assemble(interpolate(f, P0DG))
+    f_at_correct_order = assemble(interpolate(f_at, P0DG_io))
+
+    assert np.allclose(f_at_correct_order.dat.data_ro, [-0.6 * 0.25], atol=0.002)
+
+
+@pytest.mark.parallel([1, 3])
+def test_high_order_location_quad():
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+    cells = mesh.comm.allgather(mesh.locate_cell([0.25, -0.6], tolerance=0.001))
+    assert any(c is not None for c in cells)
+
+
+@pytest.mark.parallel([1, 3])
+def test_high_order_location_extruded():
+    if COMM_WORLD.size > 1:
+        pytest.skip("Issue https://github.com/firedrakeproject/firedrake/issues/4621")
+    m = UnitSquareMesh(2, 2)
+    mesh = ExtrudedMesh(m, 3)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+    cells = mesh.comm.allgather(mesh.locate_cell([0.25, -0.6, 0.1], tolerance=0.001))
+    assert any(c is not None for c in cells)

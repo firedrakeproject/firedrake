@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import numbers
+import typing
 from typing import Any
 
 from immutabledict import immutabledict as idict
@@ -9,7 +10,7 @@ from immutabledict import immutabledict as idict
 import numpy as np
 from petsc4py import PETSc
 
-from pyop2.caching import scoped_cache
+from pyop3.cache import scoped_cache
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
@@ -18,13 +19,15 @@ from pyop3.expr.visitors import get_shape, replace
 from pyop3.insn import exscan, loop_
 from pyop3.tree import (
     Axis,
-    ConcretePathT,
     AxisTree,
     merge_axis_trees,
 )
 from pyop3.tree.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
 
 from .size import compute_axis_tree_component_size
+
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
 
 @scoped_cache()
@@ -135,25 +138,6 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
     """
     return _compute_layouts(axis_tree)
-    # This old approach doesn't quite work as it adds layouts for the non-existent
-    # axes. I think a more robust approach is to reconstruct as needed during
-    # tabulation.
-    #
-    # loopified_axis_tree, axis_var_replace_map = loopify_axis_tree(axis_tree)
-    # loopified_layouts = _compute_layouts(loopified_axis_tree)
-    #
-    # if loopified_axis_tree == axis_tree:
-    #     return loopified_layouts
-    #
-    # layouts = {}
-    # for loopified_path, loopified_layout in loopified_layouts.items():
-    #     path = idict({
-    #         axis_label: component_label
-    #         for axis_label, component_label in loopified_path.items()
-    #         if axis_label in axis_tree.node_labels
-    #     })
-    #     layouts[path] = replace(loopified_layout, axis_var_replace_map)
-    # return idict(layouts)
 
 
 def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
@@ -220,7 +204,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
             assert not regioned_axes._all_region_labels
 
             # Add the global offset to the values in this region
-            if starts[i] > 0:  # don't bother adding 0 to things
+            if starts[i] != 0:  # don't bother adding 0 to things
                 loop_(ix := regioned_axes.index(), offset_dat[ix].iassign(starts[i]), eager=True)
 
             # Figure out how large the looped-over part of the tree is (including subaxes)
@@ -230,7 +214,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
             # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
                 if i != j:
-                    starts[j] += step_size
+                    starts[j] = starts[j] + step_size
 
     return layouts
 
@@ -261,16 +245,20 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         subtree = axis_tree.subtree(path_acc_)
 
         if not subtree.is_empty:
-            subtree_has_non_trivial_regions = bool(subtree._all_region_labels)
+            subtree_has_non_trivial_regions = len(subtree._all_region_labels) > 0
         else:
             subtree_has_non_trivial_regions = False
 
-        linear_axis = axis.linearize(component.label).localize()
+        # changed 30/10/25, need to keep SF info here
+        # linear_axis = axis.linearize(component.label).localize()
+        linear_axis = axis.linearize(component.label)
         parent_axes_ = parent_axes + (linear_axis,)
 
         # The subtree contains regions so we cannot have a layout function here.
         if subtree_has_non_trivial_regions:
-            layout_expr_acc_ = layout_expr_acc + start
+            # layout_expr_acc_ = layout_expr_acc + start  # 30/10 think this is wrong, not sure why it was there
+            assert layout_expr_acc == 0
+            layout_expr_acc_ = 0
             layouts[path_acc_] = NAN
 
         # At the bottom region - now can compute layouts involving all regions
@@ -456,8 +444,6 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         )
 
     else:
-        # import pyop3
-        # pyop3.extras.debug.maybe_breakpoint("b")
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.user_comm, eager=True)
 
     offset_expr = offset_dat.concretize()
@@ -496,7 +482,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # offsets into a contiguous array. In this case this means writing
     # [0, 1, 3, 4] for region set 'xu', then [2, 5] for 'xv' into the next
     # available entries and so on.
-    locs = np.full(offset_axes.size, -1, dtype=IntType)
+    locs = np.full(offset_axes.local_size, -1, dtype=IntType)
     ptr = 0
     for regions in _collect_regions(offset_axes):
         regioned_offset_axes = offset_axes.with_region_labels(regions)
@@ -513,7 +499,7 @@ def _tabulate_regions(offset_axes, step, comm):
 
         region_offset_dat.assign(offset_expr, eager=True)
 
-        region_size = regioned_offset_axes.size
+        region_size = regioned_offset_axes.local_size
         locs[ptr:ptr+region_size] = region_offset_dat.data_ro
         ptr += region_size
 

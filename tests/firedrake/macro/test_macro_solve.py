@@ -24,7 +24,7 @@ def mixed_element(mh, variant):
         Vel = FiniteElement("CG", cell, degree=1, variant="iso")
         Pel = FiniteElement("CG", cell, degree=1)
     elif variant == "alfeld":
-        dim = mh[0].topological_dimension()
+        dim = mh[0].topological_dimension
         Vel = FiniteElement("CG", cell, degree=dim, variant="alfeld")
         Pel = FiniteElement("DG", cell, degree=dim-1, variant="alfeld")
     elif variant == "th":
@@ -38,7 +38,7 @@ def mesh_sizes(mh):
     for msh in mh:
         DG0 = FunctionSpace(msh, "DG", 0)
         h = Function(DG0).interpolate(CellDiameter(msh))
-        with h.dat.vec as hvec:
+        with h.vec as hvec:
             _, maxh = hvec.max()
         mesh_size.append(maxh)
     return mesh_size
@@ -63,7 +63,7 @@ def riesz_map(Z, gamma=None):
 
 
 def test_riesz(mh, variant, mixed_element):
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -121,7 +121,7 @@ def errornormL2_0(pexact, ph):
 
 
 def test_stokes(mh, variant, mixed_element):
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
     u_err = []
     p_err = []
     div_err = []
@@ -151,7 +151,7 @@ def test_stokes(mh, variant, mixed_element):
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "preonly", "pc_type": "cholesky", "pc_factor_mat_solver_type": "mumps"})
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace)
 
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(uexact), uh))

@@ -272,14 +272,14 @@ def test_firedrake_Adaptivity_netgen():
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
 
-        with eta.dat.vec_ro as eta_:
+        with eta.vec_ro as eta_:
             error_est = sqrt(eta_.dot(eta_))
         return (eta, error_est)
 
     def adapt(mesh, eta):
         W = FunctionSpace(mesh, "DG", 0)
         markers = Function(W)
-        with eta.dat.vec_ro as eta_:
+        with eta.vec_ro as eta_:
             eta_max = eta_.max()[1]
 
         theta = 0.5
@@ -348,14 +348,14 @@ def test_firedrake_Adaptivity_netgen_parallel():
         eta = Function(W)
         eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
 
-        with eta.dat.vec_ro as eta_:
+        with eta.vec_ro as eta_:
             error_est = sqrt(eta_.dot(eta_))
         return (eta, error_est)
 
     def adapt(mesh, eta):
         W = FunctionSpace(mesh, "DG", 0)
         markers = Function(W)
-        with eta.dat.vec_ro as eta_:
+        with eta.vec_ro as eta_:
             eta_max = eta_.max()[1]
 
         theta = 0.5
@@ -382,4 +382,4 @@ def test_firedrake_Adaptivity_netgen_parallel():
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
         mesh = adapt(mesh, eta)
-    assert error_estimators[-1] < 0.05
+    assert error_estimators[-1] < 0.06

@@ -1,6 +1,5 @@
 # unit tests?
 import pytest
-from pyrsistent import pmap
 
 import pyop3 as op3
 

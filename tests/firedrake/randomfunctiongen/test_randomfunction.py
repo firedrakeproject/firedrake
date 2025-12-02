@@ -66,7 +66,7 @@ def test_randomfunc(brng, meth_args):
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = getattr(rg_wrap, meth)(V, *args)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             if meth in ('rand', 'randn'):
                 assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
             else:
@@ -96,7 +96,7 @@ def test_randomfunc_parallel_pcg64():
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
 
 
@@ -116,7 +116,7 @@ def test_randomfunc_parallel_philox():
     rg_wrap = randomfunctiongen.Generator(randomfunctiongen.Philox(counter=12345678910))
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
 
 
@@ -159,7 +159,7 @@ def test_random_cofunction(brng, meth_args):
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = getattr(rg_wrap, meth)(V, *args)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             if meth in ('rand', 'randn'):
                 assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
             else:

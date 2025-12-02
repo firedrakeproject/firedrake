@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import math
 import numbers
 from functools import cached_property
 from types import GeneratorType
@@ -16,11 +17,13 @@ from petsc4py import PETSc
 from pyop3 import utils
 from ..base import LoopIndexVar
 from .base import IdentityTensorTransform, Tensor
+from pyop3.mpi import collective
 from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
-    as_axis_forest,
+    collect_unindexed_axis_trees,
+    as_axis_tree_type,
 )
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
@@ -59,14 +62,14 @@ class Dat(Tensor):
 
     # {{{ instance attrs
 
-    axis_forest: AxisForest
+    axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
     _parent: Dat | None
 
     def __init__(
         self,
-        axis_forest,
+        axes: AxisTreeT,
         buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
@@ -82,31 +85,42 @@ class Dat(Tensor):
 
         We could maybe do something similar with dtype...
         """
-        axis_forest = as_axis_forest(axis_forest)
-
-        unindexed = axis_forest.trees[0].unindexed
-
-        if buffer_kwargs is None:
-            buffer_kwargs = {}
+        axes = as_axis_tree_type(axes)
+        unindexed_axis_trees = collect_unindexed_axis_trees(axes)
+        sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
-            assert buffer.sf == unindexed.sf
+            assert buffer_kwargs is None
+            assert buffer.sf == sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
+            if buffer_kwargs is None:
+                buffer_kwargs = {}
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
-            buffer = ArrayBuffer(data, unindexed.sf, **buffer_kwargs)
+            buffer = ArrayBuffer(data, sf, **buffer_kwargs)
+
+        try:
+            assert buffer.size == axes.unindexed.local_size
+        except:
+            breakpoint()
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
+        self.axes = axes
+        self._buffer = buffer
         self._name = name
         self._parent = parent
-        self.axis_forest = axis_forest
-        self._buffer = buffer
 
         # self._cache = {}
+
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
+
 
     # }}}
 
@@ -145,9 +159,9 @@ class Dat(Tensor):
     # {{{ constructors
 
     @classmethod
-    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -155,9 +169,9 @@ class Dat(Tensor):
         return cls.empty(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -165,15 +179,15 @@ class Dat(Tensor):
         return cls.zeros(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
-    def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf)
+        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype)
+        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -192,10 +206,6 @@ class Dat(Tensor):
     # }}}
 
     @property
-    def axes(self) -> AbstractAxisTree:
-        return self.axis_forest.trees[0]
-
-    @property
     def _full_str(self) -> str:
         try:
             return "\n".join(
@@ -211,8 +221,8 @@ class Dat(Tensor):
         return self.getitem(indices, strict=False)
 
     def getitem(self, index, *, strict=False):
-        indexed_axes = self.axis_forest.getitem(index, strict=strict)
-        return self.__record_init__(axis_forest=indexed_axes)
+        indexed_axes = self.axes.getitem(index, strict=strict)
+        return self.__record_init__(axes=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -276,11 +286,11 @@ class Dat(Tensor):
 
     # TODO: dont do this here
     def with_context(self, context):
-        return self.__record_init__(axis_forest=self.axis_forest.with_context(context))
+        return self.__record_init__(axes=self.axes.with_context(context))
 
     @property
     def context_free(self):
-        return self.__record_init__(axis_forest=self.axis_forest.context_free)
+        return self.__record_init__(axes=self.axes.context_free)
 
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
@@ -341,14 +351,14 @@ class Dat(Tensor):
         self.buffer.data_wo[self.axes.owned._buffer_slice] = value
 
     @property
-    @deprecated(".data_rw_with_halos")
+    @deprecated(".data_rw")
     def data_with_halos(self):
-        return self.data_rw_with_halos
+        return self.data_rw
 
     @property
     def data_rw_with_halos(self):
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_rw_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_rw[self.axes._buffer_slice]
 
     @property
     def data_ro_with_halos(self):
@@ -357,7 +367,7 @@ class Dat(Tensor):
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
-        return self.buffer.data_ro_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_ro[self.axes._buffer_slice]
 
     @property
     def data_wo_with_halos(self):
@@ -369,11 +379,11 @@ class Dat(Tensor):
         can be dropped.
         """
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_wo_with_halos[self.axes._buffer_slice]
+        return self.buffer.data_wo[self.axes._buffer_slice]
 
     @data_wo.setter
     def data_wo_with_halos(self, value):
-        self.buffer.data_wo_with_halos[self.axes._buffer_slice] = value
+        self.buffer.data_wo[self.axes._buffer_slice] = value
 
 
     @property
@@ -407,7 +417,15 @@ class Dat(Tensor):
 
     @contextlib.contextmanager
     def vec_wo(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_wo, bsize=bsize)
+        # TODO: make this check nicer, and apply to other vec accesses
+        indices = self.axes.owned._buffer_slice
+        if isinstance(indices, slice):
+            yield self._make_vec(array=self.data_wo, bsize=bsize)
+        else:
+            # Cannot return a view, must copy in and out
+            vec = self._make_vec(array=self.data_ro, bsize=bsize)
+            yield vec
+            self.data_wo[...] = vec.buffer_r
 
     @deprecated(".vec_rw")
     def vec(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
@@ -425,6 +443,20 @@ class Dat(Tensor):
             bsize=bsize,
             comm=self.comm,
         )
+
+    def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
+        assert self.dtype == IntType
+        block_size = np.prod(block_shape, dtype=IntType)
+        return PETSc.LGMap().create(self.data_ro_with_halos, bsize=block_size, comm=self.comm)
+
+    @property
+    def norm(self) -> numbers.Real:
+        """Compute the l2 norm of this `Dat`.
+
+        .. note::
+
+           This acts on the flattened data (see also :meth:`inner`)."""
+        return math.sqrt(self.inner(self).real)
 
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.
@@ -449,10 +481,8 @@ class Dat(Tensor):
         In this case, ``self`` is ``y`` and ``other`` is ``x``.
 
         """
-        np.add(
-            alpha * other.data_ro_with_halos, self.data_ro_with_halos,
-            out=self.data_wo_with_halos
-        )
+        dest_array = self.data_rw_with_halos
+        np.add(alpha * other.data_ro_with_halos, dest_array, out=dest_array)
 
     def inner(self, other: Dat, /) -> np.number:
         """Compute the l2 inner product against another dat.
@@ -476,6 +506,16 @@ class Dat(Tensor):
         local_result = np.vdot(other.data_ro, self.data_ro)
         return self.comm.reduce(local_result, op=MPI.SUM)
 
+    @property
+    @collective
+    def global_data(self) -> np.ndarray:
+        """Return all the data for the Dat gathered onto individual ranks."""
+        with self.vec_ro() as gvec:
+            scatter, lvec = PETSc.Scatter().toAll(gvec)
+            scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
+        return lvec.array
+
+
     # TODO: deprecate this and just look at axes
     @property
     def outer_loops(self):
@@ -497,8 +537,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.materialize().__record_init__(axis_forest=AxisForest([axes]), _parent=IdentityTensorTransform(self))
-        # return self.__record_init__(axis_forest=AxisForest([axes]), _parent=IdentityTensorTransform(self))
+        return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -516,7 +555,7 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.__record_init__(axis_forest=AxisForest([axes]))
+        return self.__record_init__(axes=axes)
 
 
 # should inherit from _Dat
@@ -599,6 +638,7 @@ class LinearCompositeDat(CompositeDat):
     # {{{ instance attrs
 
     _axis_tree: AxisTree
+    # TODO: This should arguably only be the leaf expression
     _exprs: Any
     _loop_indices: tuple[Axis]
 
@@ -662,6 +702,9 @@ class NonlinearCompositeDat(CompositeDat):
         object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
+
+        if not loop_indices:
+            breakpoint()
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"

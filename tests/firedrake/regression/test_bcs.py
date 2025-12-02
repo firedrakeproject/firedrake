@@ -132,6 +132,7 @@ def test_restore_bc_value(a, u, V, f):
     bc.homogenize()
     solve(a == 0, u, bcs=[bc])
     assert abs(u.dat.data_ro).max() == 0.0
+
     bc.restore()
     solve(a == 0, u, bcs=[bc])
     assert np.allclose(u.dat.data_ro, 10.0)
@@ -142,6 +143,7 @@ def test_set_bc_value(a, u, V, f):
     bc.set_value(7)
 
     solve(a == 0, u, bcs=[bc])
+
     assert np.allclose(u.dat.data_ro, 7.0)
 
 

@@ -5,6 +5,7 @@ import numbers
 from typing import ClassVar
 
 import numpy as np
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 from pyop3 import dtypes, exceptions as exc, utils
@@ -59,8 +60,8 @@ class Scalar(Tensor):
         buffer = self._buffer.copy()
         return self.__record_init__(_name=name, _buffer=buffer)
 
-    shape = UNIT_AXIS_TREE
-    loop_axes = ()
+    shape = (UNIT_AXIS_TREE,)
+    loop_axes = idict()
     axis_trees = ()
 
     @property
@@ -70,6 +71,11 @@ class Scalar(Tensor):
     @property
     def user_comm(self) -> MPI.Comm:
         return self.buffer.user_comm
+
+    def concretize(self):
+        from pyop3.expr import as_linear_buffer_expression
+
+        return as_linear_buffer_expression(self)
 
     # }}}
 

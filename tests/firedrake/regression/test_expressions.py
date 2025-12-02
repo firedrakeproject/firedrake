@@ -247,15 +247,6 @@ def test_iadd_combination(sfs):
     assert np.allclose(f.dat.data_ro, 2 + 2)
 
 
-def test_iadd_vector(sfs):
-    f = Function(sfs)
-    g = Function(sfs)
-    g.assign(1)
-    f.assign(2)
-    f += g.vector()
-    assert np.allclose(f.dat.data_ro, 3)
-
-
 def test_different_fs_assign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""

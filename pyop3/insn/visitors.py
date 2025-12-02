@@ -16,7 +16,7 @@ import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
 from pyop3.expr.tensor.base import TensorTransform, InPlaceTensorTransform, OutOfPlaceTensorTransform
-from pyop3.tree.axis_tree import AxisTree
+from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -265,15 +265,11 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Dat.null(arg.axes.materialize().regionless, dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.raxes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    # This is currently necessary because some local kernels
-                    # (interpolation) actually increment values instead of setting
-                    # them directly. This should ideally be addressed.
-                    gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
                 elif intent == RW:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
@@ -342,11 +338,14 @@ def _(dat: Dat) -> bool:
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes) and not has_materialized_temporaries(mat))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.caxes) and not has_materialized_temporaries(mat))
 
 
-def _layouts_match(axis_tree) -> bool:
-    return axis_tree.leaf_subst_layouts == axis_tree.unindexed.leaf_subst_layouts
+def _layouts_match(axes: AxisTreeT) -> bool:
+    if isinstance(axes, AxisForest):
+        return utils.strictly_all(map(_layouts_match, axes.trees))
+    else:
+        return axes.leaf_subst_layouts == axes.unindexed.leaf_subst_layouts
 
 
 @functools.singledispatch
@@ -617,7 +616,7 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
             current_pack_insns = (
                 bare_current_tensor_reshaped.assign(bare_parent_tensor),
                 *current_tensor.parent.transform_in(bare_current_tensor),
-            )
+                )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
             current_pack_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
@@ -770,39 +769,10 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 @concretize_layouts.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
-    # Determine the overall shape of the assignment by merging the shapes of the
-    # arguments. This allows for assignments with mismatching indices like:
-    #
-    #     dat1[i, j] = dat2[j]
-    axis_trees = []
-    axis_trees_per_arg = tuple(
-        trees
-        for trees in map(get_shape, assignment.arguments)
-        if trees is not None
-    )
+    assignee = concretize_expression_layouts(assignment.assignee, assignment.shape)
+    expression = concretize_expression_layouts(assignment.expression, assignment.shape)
 
-    # We can get a mismatch here if we are assigning a scalar (single tree
-    # shape) to a matrix (double tree shape). We should probably be stricter
-    # here (e.g. by asserting it has to be a scalar).
-    # FIXME: I think actually the assignee should just prescribe this.
-    axis_trees_per_arg = (axis_trees_per_arg[0],)
-    for arg_axis_trees in zip_longest(*axis_trees_per_arg):
-        merged_axis_tree = merge_axis_trees(arg_axis_trees)
-
-        # drop zero-sized bits
-        pruned_axis_tree = merged_axis_tree.prune()
-
-        if not pruned_axis_tree:
-            # the assignment is zero-sized
-            return NullInstruction()
-
-        axis_trees.append(pruned_axis_tree)
-    axis_trees = tuple(axis_trees)
-
-    assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
-    expression = concretize_expression_layouts(assignment.expression, axis_trees)
-
-    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type, comm=assignment.internal_comm)
+    return NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.internal_comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 5

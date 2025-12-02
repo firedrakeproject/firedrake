@@ -93,7 +93,7 @@ def expr_at_vom(V, which, vom):
         P0 = VectorFunctionSpace(vom, "DG", 0)
 
     fvom = Function(P0)
-    point = Constant([0] * mesh.geometric_dimension())
+    point = Constant([0] * mesh.geometric_dimension)
     expr_at_pt = ufl.replace(expr, {SpatialCoordinate(mesh): point})
     for i, pt in enumerate(vom.coordinates.dat.data_ro):
         point.assign(pt)
@@ -118,7 +118,7 @@ def test_interpolate_zany_into_vom(V, mesh, which, expr_at_vom):
     P0 = expr_at_vom.function_space()
 
     # Interpolate a Function into P0(vom)
-    f_at_vom = assemble(Interpolate(fexpr, P0))
+    f_at_vom = assemble(interpolate(fexpr, P0))
     assert numpy.allclose(f_at_vom.dat.data_ro, expr_at_vom.dat.data_ro)
 
     # Construct a Cofunction on P0(vom)*
@@ -126,10 +126,10 @@ def test_interpolate_zany_into_vom(V, mesh, which, expr_at_vom):
     expected_action = assemble(action(Fvom, expr_at_vom))
 
     # Interpolate a Function into Fvom
-    f_at_vom = assemble(Interpolate(fexpr, Fvom))
+    f_at_vom = assemble(interpolate(fexpr, Fvom))
     assert numpy.allclose(f_at_vom, expected_action)
 
     # Interpolate a TestFunction into Fvom
-    expr_vom = assemble(Interpolate(vexpr, Fvom))
+    expr_vom = assemble(interpolate(vexpr, Fvom))
     f_at_vom = assemble(action(expr_vom, f))
     assert numpy.allclose(f_at_vom, expected_action)

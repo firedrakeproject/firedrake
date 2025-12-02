@@ -287,6 +287,27 @@ def test_solve_assembled_lhs(mesh, mat_type):
         solve(A == form, w, bcs=bcs)
 
 
+@pytest.mark.parametrize("sub_mat_type", ["baij", "aij"])
+def test_solve_sub_mat_type(mesh, sub_mat_type):
+    V = VectorFunctionSpace(mesh, "DG", 0, dim=2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+
+    z = Function(Z)
+    a = inner(TrialFunction(Z), TestFunction(Z))*dx
+    L = inner(as_vector(np.ones(z.ufl_shape)), TestFunction(Z))*dx
+
+    params = {"mat_type": "nest", "sub_mat_type": sub_mat_type}
+    problem = LinearVariationalProblem(a, L, z)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    A, P = solver.snes.ksp.pc.getOperators()
+    assert P.getType() == "nest"
+    for (i, j) in np.ndindex((len(Z), len(Z))):
+        P.getNestSubMatrix(i, j).getType() == sub_mat_type
+
+
 @pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
 @pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
 def test_solve_pre_apply_bcs(mesh, mixed):
@@ -316,7 +337,7 @@ def test_solve_pre_apply_bcs(mesh, mixed):
 
     # Hyperelastic energy functional
     lam = Constant(1E3)
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     F = grad(u) + Identity(dim)
     J = det(F)
     logJ = 0.5*ln(J**2)

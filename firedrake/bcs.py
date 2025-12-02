@@ -1,7 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import numpy as np
 
-import functools
+from functools import partial, reduce
 import itertools
 from functools import cached_property
 
@@ -11,9 +11,7 @@ from finat.ufl import VectorElement
 import finat
 
 import pyop3 as op3
-import pyop2 as op2
-from pyop2 import exceptions
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix
@@ -128,12 +126,12 @@ class BCBase:
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
-            tdim = self._function_space.mesh().topological_dimension()
+            tdim = self._function_space.mesh().topological_dimension
             if isinstance(fe, finat.Hermite) and tdim == 1:
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
             elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
@@ -174,14 +172,12 @@ class BCBase:
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
         return np.unique(np.concatenate(bcnodes))
 
@@ -295,8 +291,9 @@ class BCBase:
         for idx in self._indices:
             r = r.sub(idx)
 
-        if r.function_space().axes != self._function_space.axes:
-            raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
+        # TODO: This check no longer DTRT
+        # if r.function_space().axes != self._function_space.axes:
+        #     raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
         r.zero(subset=self.node_set)
 
@@ -432,6 +429,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
+            if isinstance(g, firedrake.Function) and g.function_space() != V:
+                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -472,11 +471,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(V)
-                # Use `Interpolator` instead of assembling an `Interpolate` form
-                # as the expression compilation needs to happen at this stage to
-                # determine if we should use interpolation or projection
-                #  -> e.g. interpolation may not be supported for the element.
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
+                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                # Call this here to check if the element supports interpolation
+                # TODO: It's probably better to have a more explicit way of checking this
+                interpolator._get_callable()
+                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
@@ -857,11 +856,11 @@ def restricted_function_space(V, ids):
         return V
 
     assert len(ids) == len(V)
-    spaces = [Vsub if len(boundary_set) == 0 else
-              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-              for Vsub, boundary_set in zip(V, ids)]
+    spaces = [V_ if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(V_, boundary_set=boundary_set, name=V_.name)
+              for V_, boundary_set in zip(V, ids)]
 
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name)

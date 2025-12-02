@@ -70,7 +70,7 @@ def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
 
-    c = Constant([1, -1], domain=m)
+    c = Constant([1, -1])
     # Mesh is:
     # ,---.
     # |\  |
@@ -78,20 +78,20 @@ def test_vector_constant_2d():
     # |  \|
     # `---'
     # Normal is in (1, 1) direction
-    assert abs(assemble(dot(c('+'), n('+'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m))) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m))) < 1e-10
 
     c.assign([1, 1])
-    assert abs(assemble(dot(c('+'), n('+'))*dS) - 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS) - 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m)) - 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m)) - 2) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m)) + 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m)) + 2) < 1e-10
 
 
 def test_tensor_constant():

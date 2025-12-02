@@ -35,8 +35,8 @@ def mesh(request):
                          "-2*mu_s*inner(grad(u), outer(conj(v), n)) * ds")],
                 ids=lambda x: x[0])
 def form_expect(request, mesh):
-    dim = mesh.geometric_dimension()
-    if mesh.ufl_cell().cellname() == "quadrilateral":
+    dim = mesh.geometric_dimension
+    if mesh.ufl_cell().cellname == "quadrilateral":
         V = FunctionSpace(mesh, "RTCF", 1)
     else:
         V = FunctionSpace(mesh, "RT", 1)

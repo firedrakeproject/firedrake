@@ -15,11 +15,12 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.config import config
+from pyop3.config import CONFIG
 from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop2.mpi import COMM_SELF
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
+
+from ._buffer_cy import set_petsc_mat_diagonal
 
 
 MatTypeT = str | np.ndarray["MatTypeT"]
@@ -219,7 +220,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         if sf is None:
-            sf = NullStarForest()
+            sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
@@ -289,7 +290,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if config["debug"]:
+        if CONFIG.debug:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)
@@ -318,6 +319,46 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def comm(self) -> MPI.Comm | None:
         return self.internal_comm
 
+    # @property
+    # @not_in_flight
+    # @deprecated(".data_rw")
+    # def data(self):
+    #     return self.data_rw
+
+    # @property
+    # @record_modified
+    # @not_in_flight
+    # def data_rw(self):
+    #     if not self._roots_valid:
+    #         self.reduce_leaves_to_roots()
+    #
+    #     # modifying owned values invalidates ghosts
+    #     self._leaves_valid = False
+    #     return self._owned_data
+
+    # @property
+    # @not_in_flight
+    # def data_ro(self):
+    #     if not self._roots_valid:
+    #         self.reduce_leaves_to_roots()
+    #     return readonly(self._owned_data)
+
+    # @property
+    # @record_modified
+    # @not_in_flight
+    # def data_wo(self):
+    #     """
+    #     Have to be careful. If not setting all values (i.e. subsets) should call
+    #     `reduce_leaves_to_roots` first.
+    #
+    #     When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
+    #     can be dropped.
+    #     """
+    #     # pending writes can be dropped
+    #     self._pending_reduction = None
+    #     self._leaves_valid = False
+    #     return self._owned_data
+
     @property
     @not_in_flight
     @deprecated(".data_rw")
@@ -330,46 +371,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def data_rw(self):
         if not self._roots_valid:
             self.reduce_leaves_to_roots()
-
-        # modifying owned values invalidates ghosts
-        self._leaves_valid = False
-        return self._owned_data
-
-    @property
-    @not_in_flight
-    def data_ro(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
-        return readonly(self._owned_data)
-
-    @property
-    @record_modified
-    @not_in_flight
-    def data_wo(self):
-        """
-        Have to be careful. If not setting all values (i.e. subsets) should call
-        `reduce_leaves_to_roots` first.
-
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
-        """
-        # pending writes can be dropped
-        self._pending_reduction = None
-        self._leaves_valid = False
-        return self._owned_data
-
-    @property
-    @not_in_flight
-    @deprecated(".data_rw_with_halos")
-    def data_with_halos(self):
-        return self.data_rw_with_halos
-
-    @property
-    @record_modified
-    @not_in_flight
-    def data_rw_with_halos(self):
-        if not self._roots_valid:
-            self.reduce_leaves_to_roots()
         if not self._leaves_valid:
             self.broadcast_roots_to_leaves()
 
@@ -377,9 +378,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._leaves_valid = False
         return self._data
 
+    # TODO: It would be good to be able to get data_ro but without updating the halos
+    # The issue with the previous approach is we would only return the owned data. This
+    # way we could maybe instead...
+    # IDEA: we can use the SF to get the indices to extract...
     @property
     @not_in_flight
-    def data_ro_with_halos(self):
+    def data_ro(self):
         if not self._roots_valid:
             self.reduce_leaves_to_roots()
         if not self._leaves_valid:
@@ -389,7 +394,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     @record_modified
     @not_in_flight
-    def data_wo_with_halos(self):
+    def data_wo(self):
         """
         Have to be careful. If not setting all values (i.e. subsets) should call
         `reduce_leaves_to_roots` first.
@@ -418,12 +423,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
-    @property
-    def _owned_data(self):
-        if self.sf and self.sf.nleaves > 0:
-            return self._data[: -self.sf.nleaves]
-        else:
-            return self._data
+    # @property
+    # def _owned_data(self):
+    #     if self.sf and self.sf.nleaves > 0:
+    #         return self._data[: -self.sf.nleaves]
+    #     else:
+    #         return self._data
 
     @property
     def _roots_valid(self) -> bool:
@@ -533,6 +538,41 @@ class MatBufferSpec(abc.ABC):
     pass
 
 
+@dataclasses.dataclass(frozen=True)
+class LGMap:
+    indices: np.ndarray[IntType]
+    axes: AxisTree  # this is unblocked
+    block_shape: tuple[numbers.Integral, ...]
+
+    def __post_init__(self) -> None:
+        # check that this is valid
+        assert self.indices.dtype == IntType
+        assert self.axes.blocked(self.block_shape).local_size == self.indices.size
+
+    @property
+    def comm(self):
+        return self.axes.comm
+
+    @property
+    def block_size(self) -> IntType:
+        return np.prod(self.block_shape, dtype=IntType)
+
+    def as_petsc_lgmap(self) -> PETSc.LGMap:
+        return PETSc.LGMap().create(self.indices, bsize=self.block_size, comm=self.comm)
+
+    @cached_property
+    def unblocked_indices(self) -> LGMap:
+        if not self.block_shape:
+            return self.indices
+        else:
+            # expand indices - e.g. [1, 3, 4] (2,) becomes [2, 3, 6, 7, 8, 9]
+            n = self.block_size
+            unblocked_indices = np.repeat(self.indices, n) * n
+            for i in range(n):
+                unblocked_indices[i::n] += i
+            return unblocked_indices
+
+
 class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
@@ -596,12 +636,10 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @property
     def state(self) -> int:
-        raise NotImplementedError("TODO")
+        return self.mat.stateGet()
 
     def inc_state(self) -> None:
-        import pyop3.extras.debug
-
-        pyop3.extras.debug.warn_todo("inc_state for PETSc matrices")
+        self.mat.stateIncrease()
 
     def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
@@ -692,10 +730,15 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             sizes = ((row_spec.size, None), (column_spec.size, None))
             mat.setSizes(sizes)
             mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
-            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
+            mat.setLGMap(row_spec.lgmap.as_petsc_lgmap(), column_spec.lgmap.as_petsc_lgmap())
 
         mat.setUp()
         return mat
+
+    # TODO: Could also accept a vector here
+    def set_diagonal(self, value: numbers.Number) -> None:
+        value = utils.strict_cast(value, PETSc.ScalarType)
+        set_petsc_mat_diagonal(self.petscmat, value)
 
 
 @utils.record()
@@ -708,6 +751,14 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
     _name: str
     _constant: bool
+
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self._mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
 
     # }}}
 
@@ -729,14 +780,6 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
 
 @utils.record()
 class PetscMatPreallocatorBuffer(PetscMatBuffer):
@@ -750,6 +793,14 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     _constant: bool
 
     _lazy_template: PETSc.Mat | None = None
+
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self._mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
 
     # }}}
 
@@ -770,14 +821,6 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
         return cls(mat, mat_spec, **kwargs)
 
     # }}}
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
 
     def materialize(self) -> AllocatedPetscMatBuffer:
         if not self._lazy_template:

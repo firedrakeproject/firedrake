@@ -3,10 +3,10 @@ import logging
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 # Ensure that the relevant loggers have been created.
 import tsfc.logging             # noqa: F401
-import pyop2.logger             # noqa: F401
+import pyop3.log             # noqa: F401
 
-from pyop2.configuration import configuration
-from pyop2.mpi import COMM_WORLD
+from pyop3.config import CONFIG as PYOP3_CONFIG
+from pyop3.mpi import COMM_WORLD
 
 
 __all__ = ('set_level', 'set_log_level', 'set_log_handlers',
@@ -16,7 +16,7 @@ __all__ = ('set_level', 'set_log_level', 'set_log_handlers',
            "RED", "GREEN", "BLUE")
 
 
-packages = ("pyop2", "pyop3", "tsfc", "firedrake", "UFL")
+packages = ("pyop3", "tsfc", "firedrake", "UFL")
 
 
 logger = logging.getLogger("firedrake")
@@ -80,7 +80,7 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
             handler = logging.StreamHandler()
             handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
 
-        if comm is not None and comm.rank != 0 and not configuration["spmd_strict"]:
+        if comm is not None and comm.rank != 0 and not PYOP3_CONFIG.spmd_strict:
             handler = logging.NullHandler()
 
         logger.addHandler(handler)

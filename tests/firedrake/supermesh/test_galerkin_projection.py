@@ -62,7 +62,7 @@ def test_galerkin_projection(mesh, shapify, A, B):
 
     f_A = Function(V_A)
 
-    with f_A.dat.vec_wo as x:
+    with f_A.vec_wo as x:
         x.setRandom()
 
     f_B_prolong = Function(V_B)

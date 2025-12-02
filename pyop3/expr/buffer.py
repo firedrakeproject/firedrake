@@ -7,11 +7,12 @@ from immutabledict import immutabledict as idict
 from typing import ClassVar
 
 from pyop3 import utils
+from pyop3.tree.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import BufferRef, AbstractBuffer
 from pyop3.sf import DistributedObject
 
 from .base import Expression, as_str
-from .tensor import Dat, NonlinearCompositeDat
+from .tensor import Scalar, Dat, NonlinearCompositeDat
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -69,21 +70,20 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
 #     pass
 
 
-# class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-
-
 @utils.frozenrecord()
 class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: Any  # array buffer type
+    _buffer: BufferRef
 
     # }}}
 
     # {{{ interface impls
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer = utils.attr("_buffer")
+    shape = (UNIT_AXIS_TREE,)
+    loop_axes = idict()
 
     # }}}
 
@@ -333,3 +333,7 @@ def _(dat: Dat) -> LinearDatBufferExpression:
     return LinearDatBufferExpression(BufferRef(dat.buffer), layout)
 
 
+@_as_linear_buffer_expression.register
+def _(scalar: Scalar) -> ScalarBufferExpression:
+    assert scalar.parent is None
+    return ScalarBufferExpression(BufferRef(scalar.buffer))

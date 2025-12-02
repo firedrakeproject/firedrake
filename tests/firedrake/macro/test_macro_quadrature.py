@@ -5,7 +5,7 @@ from firedrake.mesh import plex_from_cell_list
 
 
 def alfeld_split(msh):
-    dim = msh.geometric_dimension()
+    dim = msh.geometric_dimension
     coords = msh.coordinates.dat.data.reshape((-1, dim))
     coords = numpy.vstack((coords, numpy.average(coords, 0)))
     cells = [list(map(lambda i: dim+1 if i == j else i, range(dim+1))) for j in range(dim+1)]
@@ -39,7 +39,7 @@ def meshes(variant, base_mesh):
 @pytest.mark.parametrize("degree", (1, 4,))
 def test_macro_quadrature_monomial(degree, variant, meshes):
     msh = meshes[0]
-    gdim = msh.geometric_dimension()
+    gdim = msh.geometric_dimension
     x = SpatialCoordinate(msh)
     c = Constant(numpy.arange(1, gdim+1))
     expr = dot(c, x) ** degree
@@ -48,7 +48,7 @@ def test_macro_quadrature_monomial(degree, variant, meshes):
     Q = FunctionSpace(msh, "DG", 0, variant=variant)
     q = TestFunction(Q)
     f = assemble(inner(expr, q)*dx(degree=degree))
-    with f.dat.vec_ro as fv:
+    with f.vec_ro as fv:
         result = fv.sum()
 
     results.append(result)
@@ -59,7 +59,7 @@ def test_macro_quadrature_monomial(degree, variant, meshes):
 def test_macro_quadrature_piecewise(degree, variant, meshes):
     results = []
     for msh, v in zip(meshes, (variant, None)):
-        gdim = msh.geometric_dimension()
+        gdim = msh.geometric_dimension
         x = SpatialCoordinate(msh)
 
         if variant == "alfeld":
@@ -77,7 +77,7 @@ def test_macro_quadrature_piecewise(degree, variant, meshes):
         Q = FunctionSpace(msh, "DG", 0, variant=v)
         q = TestFunction(Q)
         f = assemble(inner(expr, q)*dx(degree=degree))
-        with f.dat.vec_ro as fv:
+        with f.vec_ro as fv:
             result = fv.sum()
 
         results.append(result)

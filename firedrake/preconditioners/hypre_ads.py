@@ -1,19 +1,21 @@
-import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.petsc import PETSc
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
-from firedrake.ufl_expr import TestFunction
+from firedrake.function import Function
+from firedrake.ufl_expr import TrialFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.interpolation import interpolate
+from finat.ufl import FiniteElement, TensorElement, VectorElement
 from ufl import grad, curl, SpatialCoordinate
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 __all__ = ("HypreADS",)
 
 
 class HypreADS(PCBase):
     def initialize(self, obj):
+        from firedrake.assemble import assemble
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
@@ -26,16 +28,34 @@ class HypreADS(PCBase):
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
-        P1 = FunctionSpace(mesh, "Lagrange", 1)
-        NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
+        # Get the auxiliary Nedelec and Lagrange spaces and the coordinate space
+        cell = V.ufl_element().cell
+        NC1_element = FiniteElement("N1curl" if cell.is_simplex else "NCE", cell=cell, degree=1)
+        P1_element = FiniteElement("Lagrange", cell=cell, degree=1)
+        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension)
+        if V.shape:
+            NC1_element = TensorElement(NC1_element, shape=V.shape)
+            P1_element = TensorElement(P1_element, shape=V.shape)
+
+        NC1 = V.reconstruct(element=NC1_element)
+        P1 = V.reconstruct(element=P1_element)
+        VectorP1 = V.reconstruct(element=coords_element)
+
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
+            try:
+                G = chop(assemble(interpolate(grad(TrialFunction(P1)), NC1)).petscmat)
+            except NotImplementedError:
+                # dual evaluation not yet implemented see https://github.com/firedrakeproject/fiat/issues/109
+                G = tabulate_exterior_derivative(P1, NC1)
         else:
             G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = chop(assemble.assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
+            try:
+                C = chop(assemble(interpolate(curl(TrialFunction(NC1)), V)).petscmat)
+            except NotImplementedError:
+                C = tabulate_exterior_derivative(NC1, V)
         else:
             C = C_callback(NC1, V)
 
@@ -49,9 +69,8 @@ class HypreADS(PCBase):
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
-        pc.setCoordinates(assemble.assemble(interp).dat.data_ro.copy())
+        coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
+        pc.setCoordinates(coords.dat.data_ro.copy())
 
         pc.setFromOptions()
         self.pc = pc

@@ -34,13 +34,12 @@ def test_sin_weak_spatial():
 
     J = sin(x[0]) * dx
     Jhat = ReducedFunctional(assemble(J), Control(s))
-    computed = Jhat.derivative().vector().get_local()
+    computed = Jhat.derivative().dat.data_ro
 
     V = TestFunction(S)
     # Derivative (Cofunction)
     dJV = assemble(div(V)*sin(x[0])*dx + V[0]*cos(x[0])*dx)
-    # Apply L2 riesz representation to obtain the gradient.
-    actual = dJV.riesz_representation().vector().get_local()
+    actual = dJV.dat.data_ro
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
@@ -95,8 +94,8 @@ def test_shape_hessian():
     h.interpolate(as_vector((cos(x[2]), A*cos(x[1]), A*x[1])))
 
     # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     print(r2)
     assert (r2 > 2.9)
@@ -150,8 +149,8 @@ def test_PDE_hessian_neumann():
     Jhat(s)
 
     # # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     assert (r2 > 2.95)
 
@@ -203,8 +202,8 @@ def test_PDE_hessian_dirichlet():
     Jhat(s)
 
     # # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     assert (r2 > 2.95)
 
@@ -261,8 +260,8 @@ def test_multiple_assignments():
     J = assemble(u * dx)
 
     Jhat = ReducedFunctional(J, Control(s))
-    assert np.allclose(Jhat.derivative().vector().get_local(),
-                       dJdm.vector().get_local())
+    assert np.allclose(Jhat.derivative().dat.data_ro,
+                       dJdm.dat.data_ro)
 
     pert = as_vector((x * y, sin(x)))
     pert = assemble(interpolate(pert, S))

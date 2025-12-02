@@ -33,17 +33,17 @@ def test_mark_entities_mark_points_with_function_array():
                          [f0, f1],
                          [my_cell_label, my_facet_label])
     # Check integrals.
-    v = assemble(Constant(1, domain=mesh) * dx)
+    v = assemble(Constant(1) * dx(domain=mesh))
     assert abs(v - 1.0) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * dx(my_cell_label))
+    v = assemble(Constant(1) * dx(my_cell_label, domain=mesh))
     assert abs(v - .25) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * dS)
+    v = assemble(Constant(1) * dS(domain=mesh))
     assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * dS(my_facet_label))
+    v = assemble(Constant(1) * dS(my_facet_label, domain=mesh))
     assert abs(v - (1 * .5 + 1 * .5 * sqrt(2))) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * dS(unmarked))
+    v = assemble(Constant(1) * dS(unmarked, domain=mesh))
     assert abs(v - (3 * .5 + 3 * .5 * sqrt(2))) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * dS((my_facet_label, unmarked)))
+    v = assemble(Constant(1) * dS((my_facet_label, unmarked), domain=mesh))
     assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
 
 
@@ -60,13 +60,13 @@ def test_mark_entities_overlapping_facet_subdomains():
                          [f1, Function(V1)],
                          [my_facet_label, removed_label])
     # Check integrals.
-    v = assemble(Constant(1, domain=mesh) * ds(my_facet_label))
+    v = assemble(Constant(1) * ds(my_facet_label, domain=mesh))
     assert abs(v - 0.5) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * ds((my_facet_label, 4)))
+    v = assemble(Constant(1) * ds((my_facet_label, 4), domain=mesh))
     assert abs(v - 1.5) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * ds(removed_label))
+    v = assemble(Constant(1) * ds(removed_label, domain=mesh))
     assert abs(v - 0.0) < 1.e-10
-    v = assemble(Constant(1, domain=mesh) * ds(unmarked))
+    v = assemble(Constant(1) * ds(unmarked, domain=mesh))
     assert abs(v - 1.0) < 1.e-10
 
 

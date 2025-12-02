@@ -14,13 +14,13 @@ from typing import Any
 import numpy as np
 import pytools
 from immutabledict import immutabledict
-from pyop2 import mpi
-
-from pyop3.config import config
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
-from pyop3.dtypes import DTypeT, IntType
-
 from mpi4py import MPI
+
+
+from pyop3.config import CONFIG
+from pyop3.dtypes import DTypeT, IntType
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
+from pyop3.mpi import collective
 
 import pyop3.extras.debug
 
@@ -330,6 +330,7 @@ def just_one(iterable):
     try:
         first = next(iterator)
     except StopIteration:
+        breakpoint()
         raise ValueError("Empty iterable found")
 
     try:
@@ -432,25 +433,11 @@ def invert_mapping(mapping, *, mapping_type=dict):
     return mapping_type((v, k) for k, v in mapping.items())
 
 
-@functools.singledispatch
 def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@strict_cast.register(numbers.Integral)
-def _(num: numbers.Integral, dtype: DTypeT) -> np.number:
-    if not isinstance(dtype, np.dtype):
-        dtype = np.dtype(dtype)
-
-    iinfo = np.iinfo(dtype)
-    if not (iinfo.min <= num <= iinfo.max):
-        raise TypeError(f"{num} exceeds the limits of {dtype}")
-    return dtype.type(num)
-
-
-@strict_cast.register(np.ndarray)
-def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
-    return array.astype(dtype, casting="safe")
+    if isinstance(obj, numbers.Number):
+        return np.array([obj]).astype(dtype, casting="same_kind").item()
+    else:
+        return obj.astype(dtype, casting="same_kind")
 
 
 def strict_int(num: numbers.Number) -> IntType:
@@ -490,7 +477,7 @@ def readonly(array):
 
 
 def debug_assert(predicate, msg=None):
-    if config["debug"]:
+    if CONFIG.debug:
         if msg:
             assert predicate(), msg
         else:
@@ -714,7 +701,7 @@ def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) ->
     return comm
 
 
-@mpi.collective
+@collective
 def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
     """Return a communicator valid for all objects.
 
@@ -783,3 +770,13 @@ def unsafe_cache(*args, **kwargs):
     import pyop3
     pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
     return functools.cache(*args, **kwargs)
+
+
+def is_ellipsis_type(obj: Any) -> bool:
+    return (
+        obj is Ellipsis
+        or (
+            isinstance(obj, collections.abc.Sequence)
+            and all(item is Ellipsis for item in obj)
+        )
+    )

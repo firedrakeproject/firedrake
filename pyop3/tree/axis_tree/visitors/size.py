@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numbers
+import typing
 
 from immutabledict import immutabledict as idict
 
@@ -10,7 +11,10 @@ from pyop3.expr import Dat, AxisVar, LoopIndexVar
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
 from pyop3.insn import Loop
 from pyop3.tree import AbstractAxisTree, AxisTree, UNIT_AXIS_TREE
-from pyop3.tree.labelled_tree import ComponentLabelT, PathT, as_path
+from pyop3.tree.labelled_tree import as_path
+
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
 
 # NOTE: This is a very generic operation and I probably do something very similar elsewhere

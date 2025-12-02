@@ -4,11 +4,12 @@ This module implements the user-visible API for constructing
 API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
+import itertools
 import ufl
 from ufl.cell import as_cell
 import finat.ufl
 
-from pyop2.utils import flatten
+from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
@@ -62,7 +63,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
-                                     cell=cell.sub_cells()[0],
+                                     cell=cell.sub_cells[0],
                                      degree=degree, variant=variant)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
@@ -257,6 +258,8 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
         :class:`finat.ufl.mixedelement.MixedElement`, ignored otherwise.
 
     """
+    from firedrake.mesh import MeshSequenceGeometry
+
     if isinstance(spaces, finat.ufl.FiniteElementBase):
         # Build the spaces if we got a mixed element
         assert type(spaces) is finat.ufl.MixedElement and mesh is not None
@@ -271,13 +274,8 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
                     sub_elements.append(ele)
         rec(spaces.sub_elements)
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
-
-    # Check that function spaces are on the same mesh
-    meshes = [space.mesh() for space in spaces]
-    for i in range(1, len(meshes)):
-        if meshes[i] is not meshes[0]:
-            raise ValueError("All function spaces must be defined on the same mesh!")
-
+    # Flatten MeshSequences.
+    meshes = list(itertools.chain(*[space.mesh() for space in spaces]))
     try:
         cls, = set(type(s) for s in spaces)
     except ValueError:
@@ -285,8 +283,6 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
         # We had not implemented something in between, so let's make it primal
         cls = impl.WithGeometry
 
-    # Select mesh
-    mesh = meshes[0]
     # Get topological spaces
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
@@ -300,10 +296,9 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    new = impl.MixedFunctionSpace(spaces, name=name, **kwargs)
-    if mesh is not mesh.topology:
-        new = cls.create(new, mesh)
-    return new
+    mixed_mesh_geometry = MeshSequenceGeometry(meshes)
+    new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
+    return cls.create(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")

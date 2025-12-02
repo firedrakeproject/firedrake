@@ -2,7 +2,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-from pyop2.mpi import internal_comm
+from pyop3.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
 __all__ = ["LinearSolver"]

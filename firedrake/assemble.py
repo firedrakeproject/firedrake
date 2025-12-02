@@ -12,7 +12,6 @@ from itertools import product
 from functools import cached_property
 
 import cachetools
-from pyrsistent import freeze, pmap
 import finat
 import loopy as lp
 import firedrake
@@ -25,18 +24,20 @@ import ufl
 import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
-from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_unique_domain
+from firedrake.functionspaceimpl import mask_lgmap
+from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.parloops import pack_pyop3_tensor, pack_tensor
+from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
+from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import get_interpolator
+from firedrake.parloops import pack_tensor, pack_pyop3_tensor
 from firedrake.petsc import PETSc
+from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
-from pyop2 import op2
-from pyop2.caching import active_scoped_cache
-from pyop2.exceptions import MapValueError, SparsityFormatError
+from pyop3.cache import active_scoped_cache
 
 
 __all__ = "assemble",
@@ -66,17 +67,23 @@ def assemble(expr, *args, **kwargs):
         `ufl.classes.Measure` in the form. For example, if a
         ``quadrature_degree`` of 4 is specified in this argument, but a degree of
         3 is requested in the measure, the latter will be used.
-    mat_type : str
+    mat_type : str | None
         String indicating how a 2-form (matrix) should be
         assembled -- either as a monolithic matrix (``"aij"`` or ``"baij"``),
-        a block matrix (``"nest"``), or left as a `matrix.ImplicitMatrix` giving
+        a block matrix (``"nest"``), or left as a :class:`firedrake.matrix.ImplicitMatrix` giving
         matrix-free actions (``'matfree'``). If not supplied, the default value in
-        ``parameters["default_matrix_type"]`` is used.  BAIJ differs
-        from AIJ in that only the block sparsity rather than the dof
+        ``parameters["default_matrix_type"]`` is used.  ``"baij"``` differs
+        from ``"aij"`` in that only the block sparsity rather than the DoF
         sparsity is constructed.  This can result in some memory
         savings, but does not work with all PETSc preconditioners.
-        BAIJ matrices only make sense for non-mixed matrices.
-    sub_mat_type : str
+        ``"baij"`` matrices only make sense for non-mixed matrices with arguments
+        on a :func:`firedrake.functionspace.VectorFunctionSpace`.
+
+        NOTE
+        ----
+        For the assembly of a 0-form or 1-form arising from the action of a 2-form,
+        the default matrix type is ``"matfree"``.
+    sub_mat_type : str | None
         String indicating the matrix type to
         use *inside* a nested block matrix.  Only makes sense if
         ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
@@ -162,7 +169,10 @@ def get_assembler(form, *args, **kwargs):
     fc_params = kwargs.get('form_compiler_parameters', None)
     pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
-        mat_type = kwargs.get('mat_type', None)
+        # If not assembling a matrix, internal BaseForm nodes are matfree by default
+        # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
+        default_mat_type = "matfree" if len(form.arguments()) < 2 else None
+        mat_type = kwargs.get('mat_type', default_mat_type)
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
@@ -364,30 +374,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                                            options_prefix=self._options_prefix,
                                            appctx=self._appctx).allocate()
             else:
-                raise NotImplementedError("Reuse ExplicitMatrixAssembler bits")
-                # TODO: I'm a bit confused why this allocation needs to exist here
-                topology = self._form.ufl_domain().topology
-
-                # TODO handle different mat types
-                if self._mat_type != "aij":
-                    raise NotImplementedError
-
-                def adjacency(pt):
-                    return topology.closure(topology.star(pt))
-
-                test_arg, trial_arg = self._form.arguments()
-                mymat = op3.PetscMat(
-                    topology.points,
-                    adjacency,
-                    test_arg.function_space().axes,
-                    trial_arg.function_space().axes,
-                )
-
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, mymat, options_prefix=self._options_prefix)
-                # sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                # return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+                test, trial = self._form.arguments()
+                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
+                mat = op3.Mat.from_sparsity(sparsity)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, mat, options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
+
+    @property
+    def _mat_spec(self):
+        return make_mat_spec(self._mat_type, self._sub_mat_type, self._form.arguments())
 
     @cached_property
     def maps_and_regions(self):
@@ -406,6 +402,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return ("interior_facet", )
         else:
             return self._allocation_integral_types
+
+    @staticmethod
+    def _as_pyop2_type(tensor, indices=None):
+        if isinstance(tensor, (firedrake.Cofunction, firedrake.Function)):
+            return OneFormAssembler._as_pyop3_type(tensor, indices=indices)
+        elif isinstance(tensor, ufl.Matrix):
+            return ExplicitMatrixAssembler._as_pyop3_type(tensor, indices=indices)
+        else:
+            assert indices is None
+            return tensor
 
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
@@ -431,21 +437,22 @@ class BaseFormAssembler(AbstractFormAssembler):
         """
         def visitor(e, *operands):
             t = tensor if e is self._form else None
-            return self.base_form_assembly_visitor(e, t, *operands)
+            # Deal with 2-form bcs inside the visitor
+            bcs = self._bcs if isinstance(e, ufl.BaseForm) and len(e.arguments()) == 2 else ()
+            return self.base_form_assembly_visitor(e, t, bcs, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
         visited = {}
         result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
-        # Apply BCs after assembly
+        # Deal with 1-form bcs outside the visitor
         rank = len(self._form.arguments())
         if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
-
         return result
 
-    def base_form_assembly_visitor(self, expr, tensor, *args):
+    def base_form_assembly_visitor(self, expr, tensor, bcs, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
 
             This functions contains the assembly handlers corresponding to the different nodes that
@@ -467,7 +474,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                                              pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                                              zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
-                assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters,
+                assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
                                              allocation_integral_types=self.allocation_integral_types)
@@ -478,13 +485,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
-            res = tensor.petscmat if tensor else PETSc.Mat()
-            petsc_mat = mat.petscmat
+            result = tensor.petscmat if tensor else PETSc.Mat()
             # Out-of-place Hermitian transpose
-            petsc_mat.hermitianTranspose(out=res)
-            (row, col) = mat.arguments()
-            return matrix.AssembledMatrix((col, row), self._bcs, res,
-                                          options_prefix=self._options_prefix)
+            mat.petscmat.hermitianTranspose(out=result)
+            if tensor is None:
+                tensor = self.assembled_matrix(expr, bcs, result)
+            return tensor
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")
@@ -502,14 +508,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     result = tensor.petscmat if tensor else PETSc.Mat()
                     lhs.petscmat.matMult(rhs.petscmat, result=result)
                     if tensor is None:
-                        tensor = self.assembled_matrix(expr, result)
+                        tensor = self.assembled_matrix(expr, bcs, result)
                     return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
                 if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                     # Return scalar value
-                    with lhs.dat.vec_ro() as x, rhs.dat.vec_ro() as y:
+                    with lhs.vec_ro as x, rhs.vec_ro as y:
                         res = x.dot(y)
                     return res
                 else:
@@ -521,29 +527,71 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
-            if tensor:
-                tensor.zero()
+            # Assemble weights
+            weights = []
+            for w in expr.weights():
+                if isinstance(w, ufl.constantvalue.Zero):
+                    w = 0.0
+                elif isinstance(w, ufl.constantvalue.ScalarValue):
+                    w = w.value()
+                elif isinstance(w, (firedrake.Constant, firedrake.Function)):
+                    w = w.dat.data_ro
+
+                if isinstance(w, numpy.ndarray):
+                    # Assert singleton ndarray
+                    w = w.item()
+                if not isinstance(w, numbers.Complex):
+                    raise ValueError("Expecting a scalar weight expression")
+                weights.append(w)
+
+            # Scalar FormSum
             if all(isinstance(op, numbers.Complex) for op in args):
-                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
-                return tensor.assign(result) if tensor else result
-            elif (all(isinstance(op, firedrake.Cofunction) for op in args)
+                result = numpy.dot(weights, args)
+                return tensor.assign(result) if tensor else result.item()
+
+            # Accumulate coefficients in a dictionary for each unique Dat/Mat
+            terms = defaultdict(PETSc.ScalarType)
+            for arg, weight in zip(args, weights):
+                t = self._as_pyop2_type(arg)
+                terms[t] += weight
+
+            # Zero the output tensor, or rescale it if it appears in the sum
+            tensor_scale = terms.pop(self._as_pyop2_type(tensor), 0)
+            if tensor is None or tensor_scale == 1:
+                pass
+            elif tensor_scale == 0:
+                tensor.zero()
+            elif isinstance(tensor, (firedrake.Cofunction, firedrake.Function)):
+                with tensor.dat.vec as v:
+                    v.scale(tensor_scale)
+            elif isinstance(tensor, ufl.Matrix):
+                tensor.petscmat.scale(tensor_scale)
+            else:
+                raise ValueError("Expecting tensor to be None, Function, Cofunction, or Matrix")
+
+            # Compute the linear combination
+            if (all(isinstance(op, firedrake.Cofunction) for op in args)
                     or all(isinstance(op, firedrake.Function) for op in args)):
+                # Vector FormSum
                 V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Function(V)
-                result.dat.maxpy(expr.weights(), [a.dat for a in args])
+                weights = terms.values()
+                dats = terms.keys()
+                result.dat.maxpy(weights, dats)
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
+                # Matrix FormSum
                 result = tensor.petscmat if tensor else PETSc.Mat()
-                for (op, w) in zip(args, expr.weights()):
+                for (op, w) in terms.items():
                     if result:
                         # If result is not void, then accumulate on it
-                        result.axpy(w, op.petscmat)
+                        result.axpy(w, op.handle)
                     else:
                         # If result is void, then allocate it with first term
-                        op.petscmat.copy(result=result)
+                        op.handle.copy(result=result)
                         result.scale(w)
                 if tensor is None:
-                    tensor = self.assembled_matrix(expr, result)
+                    tensor = self.assembled_matrix(expr, bcs, result)
                 return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
@@ -575,88 +623,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Occur in situations such as Interpolate composition
                 operand = assembled_operand[0]
 
-            reconstruct_interp = expr._ufl_expr_reconstruct_
             if (v, operand) != expr.argument_slots():
-                expr = reconstruct_interp(operand, v=v)
+                expr = expr._ufl_expr_reconstruct_(operand, v=v)
 
-            # Different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
-            # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-            # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-            # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
-            # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
-            # If argument numbers have been swapped => Adjoint.
-            arg_operand = ufl.algorithms.extract_arguments(operand)
-            is_adjoint = (arg_operand and arg_operand[0].number() == 0)
-
-            # Get the target space
-            V = v.function_space().dual()
-
-            # Dual interpolation from mixed source
-            if is_adjoint and len(V) > 1:
-                cur = 0
-                sub_operands = []
-                components = numpy.reshape(operand, (-1,))
-                for Vi in V:
-                    sub_operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
-                    cur += Vi.value_size
-
-                # Component-split of the primal operands interpolated into the dual argument-split
-                split_interp = sum(reconstruct_interp(sub_operands[i], v=vi) for (i,), vi in split_form(v))
-                return assemble(split_interp, tensor=tensor)
-
-            # Dual interpolation into mixed target
-            if is_adjoint and len(arg_operand[0].function_space()) > 1 and rank == 1:
-                V = arg_operand[0].function_space()
-                tensor = tensor or firedrake.Cofunction(V.dual())
-
-                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
-                for (i,), sub_interp in split_form(expr):
-                    assemble(sub_interp, tensor=tensor.subfunctions[i])
-                return tensor
-
-            # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-            if not is_adjoint and rank == 2:
-                _, v1 = expr.arguments()
-                operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
-            # Get the interpolator
-            interp_data = expr.interp_data
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(operand, V, **interp_data)
-            # Assembly
-            if rank == 0:
-                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(v, Iu), tensor=tensor)
-            elif rank == 1:
-                # Assembling the action of the Jacobian adjoint.
-                if is_adjoint:
-                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
-                # Assembling the Jacobian action.
-                elif interpolator.nargs:
-                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
-                # Assembling the operator
-                elif tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
-                else:
-                    return firedrake.Interpolator(operand, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
-            elif rank == 2:
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                # Get the interpolation matrix
-                op2_mat = interpolator.callable()
-                petsc_mat = op2_mat.handle
-                if is_adjoint:
-                    # Out-of-place Hermitian transpose
-                    petsc_mat.hermitianTranspose(out=res)
-                else:
-                    # Copy the interpolation matrix into the output tensor
-                    petsc_mat.copy(result=res)
-                if tensor is None:
-                    tensor = self.assembled_matrix(expr, res)
-                return tensor
-            else:
-                # The case rank == 0 is handled via the DAG restructuring
-                raise ValueError("Incompatible number of arguments.")
+            if rank > 2:
+                raise ValueError("Cannot assemble an Interpolate with more than two arguments")
+            interpolator = get_interpolator(expr)
+            return interpolator.assemble(tensor=tensor, bcs=bcs)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -666,23 +640,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
-    @staticmethod
-    def update_tensor(assembled_base_form, tensor):
-        if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.dat.zero(eager=True)
-            else:
-                assembled_base_form.dat.assign(tensor.dat, eager=True)
-        elif isinstance(tensor, matrix.MatrixBase):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.petscmat.zeroEntries()
-            else:
-                assembled_base_form.petscmat.assign(tensor.petscmat, eager=True)
-        else:
-            raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
-
-    def assembled_matrix(self, expr, petscmat):
-        return matrix.AssembledMatrix(expr.arguments(), self._bcs, petscmat,
+    def assembled_matrix(self, expr, bcs, petscmat):
+        return matrix.AssembledMatrix(expr.arguments(), bcs, petscmat,
                                       options_prefix=self._options_prefix)
 
     @staticmethod
@@ -1097,8 +1056,6 @@ class ParloopFormAssembler(FormAssembler):
                 # TODO: move this elsewhere, or avoid entirely?
                 if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                     subtensor = subtensor.buffer.mat.getPythonContext().dat
-                import pyop3.extras.debug
-                pyop3.extras.debug.enable_conditional_breakpoints()
 
                 if isinstance(self, ExplicitMatrixAssembler):
                     with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
@@ -1146,7 +1103,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices],
+                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
                     diagonal=self.diagonal,
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
@@ -1167,14 +1124,15 @@ class ParloopFormAssembler(FormAssembler):
 
         """
         try:
-            topology, = set(d.topology for d in self._form.ufl_domains())
+            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
         except ValueError:
             raise NotImplementedError("All integration domains must share a mesh topology")
 
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domain = extract_unique_domain(o)
-            if domain is not None and domain.topology != topology:
-                raise NotImplementedError("Assembly with multiple meshes is not supported")
+            domains = extract_domains(o)
+            for domain in domains:
+                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
+                    raise NotImplementedError("Assembly with multiple meshes is not supported")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
@@ -1332,7 +1290,7 @@ class OneFormAssembler(ParloopFormAssembler):
             else:
                 # The residual belongs to a mixed space that is dual on the boundary nodes
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
-                r = tensor.riesz_representation("l2")
+                r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
@@ -1435,7 +1393,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         submat_specs = numpy.empty((ntest, ntrial), dtype=object)
         for i, test_subspace in enumerate(test_space):
             for j, trial_subspace in enumerate(trial_space):
-                block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
+                # NOTE: It appears as though having block shapes for nested submatrices is not currently supported
+                # block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
+                block_shape = ((), ())
 
                 if _is_real_space(test_subspace):
                     sub_mat_type_ = "cvec"
@@ -1514,6 +1474,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             return self._mat_spec.mat_type
 
+    @property
+    def _sub_mat_type(self) -> str | None:
+        if isinstance(self._mat_spec, Mapping):
+            breakpoint()
+            # TODO
+        else:
+            return None
+
     @staticmethod
     def _make_sparsity(test, trial, mat_spec, maps_and_regions):
         # Is this overly restrictive?
@@ -1526,35 +1494,23 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             buffer_spec=mat_spec,
         )
 
-        if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
-            n = len(test.function_space())
-            if n == 1:
-                # if vector function space revert to standard case
-                diag_blocks = [(Ellipsis, Ellipsis)]
-            else:
-                # otherwise treat each block separately
-                diag_blocks = [(i, i) for i in range(n)]
-        else:
-            diag_blocks = [(Ellipsis, Ellipsis)]
-
-        for rindex, cindex in diag_blocks:
-            op3.do_loop(
-                p := extract_unique_domain(test).points.index(),
-                sparsity[rindex, cindex][p, p].assign(666)
-            )
+        # not really sure about this
+        if sparsity.row_axes == sparsity.column_axes:
+            sparsity.buffer.set_diagonal(666)
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for iter_index, rmap, cmap, indices in maps_and_regions:
+        for iter_index, row_map, column_map, indices in maps_and_regions:
             rindex, cindex = indices
             if rindex is None:
                 rindex = Ellipsis
             if cindex is None:
                 cindex = Ellipsis
 
-            op3.do_loop(
+            op3.loop(
                 iter_index,
-                sparsity[rindex, cindex][rmap, cmap].assign(666)
+                sparsity[rindex, cindex][row_map, column_map].assign(666),
+                eager=True,
             )
 
         sparsity.assemble()
@@ -1568,58 +1524,46 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 test, trial, self._allocation_integral_types
             )
 
-        elif utils.strictly_all(
-            local_kernel.indices == (None, None)
-            for assembler in self._all_assemblers
-            for local_kernel, _ in assembler.local_kernels
-        ):
-            # Handle special cases: slate or split=False
-            allocation_integral_types = {
-                local_kernel.kinfo.integral_type
-                for assembler in self._all_assemblers
-                for local_kernel, _ in assembler.local_kernels
-            }
-            return ExplicitMatrixAssembler._make_maps_and_regions_default(
-                test, trial, allocation_integral_types
-            )
+        # elif utils.strictly_all(
+        #     local_kernel.indices == (None, None)
+        #     for assembler in self._all_assemblers
+        #     for local_kernel, _ in assembler.local_kernels
+        # ):
+        #     # Handle special cases: slate or split=False
+        #     allocation_integral_types = utils.OrderedSet([
+        #         local_kernel.kinfo.integral_type
+        #         for assembler in self._all_assemblers
+        #         for local_kernel, _ in assembler.local_kernels
+        #     ])
+        #     return ExplicitMatrixAssembler._make_maps_and_regions_default(
+        #         test, trial, allocation_integral_types
+        #     )
 
         else:
             loops = []
             for assembler in self._all_assemblers:
-                all_meshes = assembler._form.ufl_domains()
-                for local_kernel, _ in assembler.local_kernels:
-                    integral_type = local_kernel.kinfo.integral_type
-
+                all_meshes = extract_domains(assembler._form)
+                for local_kernel, subdomain_id in assembler.local_kernels:
+                    i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
-                    plex = mesh.topology
                     integral_type = local_kernel.kinfo.integral_type
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
+                    # Make Sparsity independent of the subdomain of integration for better reusability;
+                    # subdomain_id is passed here only to determine the integration_type on the target domain
+                    # (see ``entity_node_map``).
+                    iter_spec = get_iteration_spec(mesh, integral_type, subdomain_id)
 
-                    Vrow = test.function_space()
-                    Vcol = trial.function_space()
+                    test_space = test.function_space()
+                    if i is not None:
+                        test_space = test_space[i]
+                    trial_space = trial.function_space()
+                    if j is not None:
+                        trial_space = trial_space[j]
 
-                    rindex, cindex = local_kernel.indices
-                    if rindex is not None:
-                        Vrow = Vrow[rindex]
-                    if cindex is not None:
-                        Vcol = Vcol[cindex]
+                    rmap = test_space.entity_node_map(iter_spec)
+                    cmap = trial_space.entity_node_map(iter_spec)
 
-                    if integral_type == "cell":
-                        iterset = mesh.cells.owned
-                        index = iterset.index()
-                        rmap = mesh.closure(index)
-                        cmap = rmap
-                    elif integral_type in {"exterior_facet", "interior_facet"}:
-                        if integral_type == "exterior_facet":
-                            iterset = plex.exterior_facets.set
-                        else:
-                            assert integral_type == "interior_facet"
-                            iterset = plex.interior_facets.set
-
-                        index = iterset.index()
-                        rmap = mesh.closure(mesh.support(index))
-                        cmap = rmap
-
-                    loop = (index, rmap, cmap, local_kernel.indices)
+                    loop = (iter_spec.loop_index, rmap, cmap, local_kernel.indices)
                     loops.append(loop)
             return tuple(loops)
 
@@ -1627,34 +1571,29 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
 
-        mesh = utils.single_valued(extract_unique_domain(a) for a in {test, trial})
-        plex = mesh.topology
-        Vrow = test.function_space()
-        Vcol = trial.function_space()
-
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
         # reusability.
         loops = []
         for integral_type in allocation_integral_types:
-            if integral_type == "cell":
-                iterset = plex.cells.owned
-                index = iterset.index()
-                rmap = mesh.closure(index)
-                cmap = rmap
-            elif integral_type in {"exterior_facet", "interior_facet"}:
-                if integral_type == "exterior_facet":
-                    iterset = plex.exterior_facets.set
-                else:
-                    assert integral_type == "interior_facet"
-                    iterset = plex.interior_facets.set
+            for i, Vrow in enumerate(test.function_space()):
+                if len(test.function_space()) == 1:
+                    i = None
 
-                index = iterset.index()
-                rmap = mesh.closure(mesh.support(index))
-                cmap = rmap
+                for j, Vcol in enumerate(trial.function_space()):
+                    if len(trial.function_space()) == 1:
+                        j = None
+                    mesh = Vrow.mesh()
+                    # NOTE: This means that we are always looping over the 'row mesh' - is this
+                    # always the right thing to do?
+                    iterset = get_iteration_spec(mesh, integral_type, "everywhere")
+                    index = iterset.loop_index
 
-            loop = (index, rmap, cmap, (None, None))
-            loops.append(loop)
+                    rmap = Vrow.topological.entity_node_map(iterset)
+                    cmap = Vcol.topological.entity_node_map(iterset)
+
+                    loop = (index, rmap, cmap, (i, j))
+                    loops.append(loop)
         return tuple(loops)
 
     @cached_property
@@ -1705,12 +1644,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             # If setting a block then use an identity matrix
             size = utils.single_valued((
-                axes.size for axes in {assignee.raxes, assignee.caxes}
+                axes.size for axes in {assignee.row_axes, assignee.caxes}
             ))
             expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
             expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
             expression = op3.Mat(
-                assignee.raxes.materialize(),
+                assignee.row_axes.materialize(),
                 assignee.caxes.materialize(),
                 buffer=expr_buffer,
             )
@@ -1776,11 +1715,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(op2tensor, raxes, caxes, i, j, component, node_set):
+    def _apply_bcs_mat_real_block(op2tensor, row_axes, caxes, i, j, component, node_set):
         dat = op2tensor.handle.getNestSubMatrix(i, j).getPythonContext().dat
         mat_type = op2tensor.buffer.mat_spec[i, j].mat_type
         if mat_type == "rvec":
-            nodal_axes = raxes 
+            nodal_axes = row_axes 
         else:
             nodal_axes = caxes 
 
@@ -1835,6 +1774,7 @@ class MatrixFreeAssembler(FormAssembler):
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None,
+                 pyop3_compiler_parameters=None,
                  options_prefix=None, appctx=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._options_prefix = options_prefix
@@ -1888,21 +1828,28 @@ class ParloopBuilder:
         self._diagonal = diagonal
         self._bcs = bcs
 
+        self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
+        self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
+        self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
+        self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
+        self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_cell = _FormHandler.iter_active_orientations_cell(form, local_knl.kinfo)
+        self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
+        self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        p = self._iterset.index()
+        p = self._iterset.loop_index
         packed_args = []
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
             packed_args.append(packed_arg)
-        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
-        kernel = op3.Function(
-            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in packed_args[1:]]
-        )
-        return op3.loop(p, kernel(*packed_args))
+        try:
+            return op3.loop(p, self._kinfo.kernel(*packed_args))
+        except:
+            breakpoint()
 
     @property
     def test_function_space(self):
@@ -1994,11 +1941,16 @@ class ParloopBuilder:
             if mat_spec.mat_type in {"rvec", "cvec"}:
                 return None
 
-            # breakpoint()
-            # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
-            # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
-            rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
-            clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            # rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(mat_spec.row_spec.lgmap, row_bcs)
+            # clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            # NOTE: 21/11/25 the following is necessary for
+            # tests/firedrake/submesh/test_submesh_assemble.py::test_submesh_assemble_cell_cell_equation_bc
+            # to pass. I think I need to figure out how this works for mat nests...
+            # rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, ())  # still failing though...
+            # clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, ())
+            # (old)
+            rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, (i,))
+            clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, (j,))
             return (rlgmap, clgmap)
         else:
             return None
@@ -2021,7 +1973,8 @@ class ParloopBuilder:
 
     @cached_property
     def _mesh(self):
-        return self._form.ufl_domains()[self._kinfo.domain_number]
+        all_meshes = extract_domains(self._form)
+        return all_meshes[self._kinfo.domain_number]
 
     @property
     def _topology(self):
@@ -2046,10 +1999,11 @@ class ParloopBuilder:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
             return subdomain_data
         else:
-            return self._topology.measure_set(
+            return get_iteration_spec(
+                self._topology,
                 self._integral_type,
                 self._subdomain_id,
-                self._all_integer_subdomain_ids
+                all_integer_subdomain_ids=self._all_integer_subdomain_ids,
             )
 
     @functools.singledispatchmethod
@@ -2070,22 +2024,22 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(dat, V, index, self._integral_type)
+            return pack_pyop3_tensor(dat, V, self._iterset)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type)
+            return pack_pyop3_tensor(mat, *Vs, self._iterset)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
+        coords = next(self._active_coordinates)
+        return pack_tensor(coords, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        # extra packing code!
-        return pack_tensor(coeff, index, self._integral_type)
+        return pack_tensor(coeff, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -2094,25 +2048,69 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
-        return pack_tensor(self._mesh.cell_orientations(), index, self._integral_type)
+        func = next(self._active_cell_orientations)
+        return pack_tensor(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
-        raise NotImplementedError
-        func = self._mesh.cell_sizes
-        m = self._get_map(func.function_space())
-        return func.dat[m(index)]
+        func = next(self._active_cell_sizes)
+        return pack_tensor(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        return self._topology.exterior_facets._local_facets[index]
+        mesh = next(self._active_exterior_facets)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "exterior_facet"
+        return mesh.exterior_facet_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        return self._topology.interior_facets._local_facets[index]
+        mesh = next(self._active_interior_facets)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "interior_facet"
+        return mesh.interior_facet_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
+    def _(self, _, index):
+        raise NotImplementedError
+        next()
+        return self._topology.exterior_facet_vert_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.InteriorFacetVertKernelArg)
+    def _(self, _, index):
+        raise NotImplementedError
+        next()
+        return self._topology.interior_facet_vert_local_facet_indices[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsCellKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_cell)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "cell"
+        return mesh.local_cell_orientation_dat[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_exterior_facet)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "exterior_facet"
+        return mesh._exterior_facet_local_orientation_dat[index]
+
+    @_as_parloop_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
+    def _(self, _, index):
+        mesh = next(self._active_orientations_interior_facet)
+        if mesh is not self._mesh:
+            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
+            assert integral_type == "interior_facet"
+        return mesh._interior_facet_local_orientation_dat[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
+        raise NotImplementedError
         return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)
@@ -2126,18 +2124,30 @@ class ParloopBuilder:
         )
         return op2.GlobalParloopArg(glob)
 
-    @_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_exterior_facet_orientation(self, _, p):
-        raise NotImplementedError
-        return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
-
-    @_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_interior_facet_orientation(self, _, facet_index: op3.LoopIndex):
-        return self._mesh.interior_facets.local_facet_orientation_dat[facet_index]
-
 
 class _FormHandler:
     """Utility class for inspecting forms and local kernels."""
+
+    @staticmethod
+    def iter_active_coordinates(form, kinfo):
+        """Yield the form coordinates referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.coordinates:
+            yield all_meshes[i].coordinates
+
+    @staticmethod
+    def iter_active_cell_orientations(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_orientations:
+            yield all_meshes[i].cell_orientations()
+
+    @staticmethod
+    def iter_active_cell_sizes(form, kinfo):
+        """Yield the form cell sizes referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.cell_sizes:
+            yield all_meshes[i].cell_sizes
 
     @staticmethod
     def iter_active_coefficients(form, kinfo):
@@ -2156,6 +2166,46 @@ class _FormHandler:
             all_constants = extract_firedrake_constants(form)
         for constant_index in kinfo.constant_numbers:
             yield all_constants[constant_index]
+
+    @staticmethod
+    def iter_active_exterior_facets(form, kinfo):
+        """Yield the form exterior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.exterior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_interior_facets(form, kinfo):
+        """Yield the form interior facets referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.interior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_cell(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_cell:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_exterior_facet(form, kinfo):
+        """Yield the form exterior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_exterior_facet:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_interior_facet(form, kinfo):
+        """Yield the form interior facet orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_interior_facet:
+            mesh = all_meshes[i]
+            yield mesh
 
     @staticmethod
     def index_function_spaces(form, indices):

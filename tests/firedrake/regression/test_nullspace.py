@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.petsc import PETSc
 import pytest
 import numpy as np
 
@@ -236,7 +235,6 @@ def test_nullspace_mixed_multiple_components():
     F_stokes += inner(g * rho * khat, N) * dx
     F_stokes += -inner(u, grad(M)) * dx
 
-    PETSc.Sys.popErrorHandler()
     solver_parameters = {
         'mat_type': 'matfree',
         'snes_type': 'ksponly',
@@ -288,14 +286,13 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 def test_near_nullspace_mixed(aux_pc, rhs):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
-    PETSc.Sys.popErrorHandler()
     n = 64
     mesh = UnitSquareMesh(n, n)
     V = VectorFunctionSpace(mesh, "CG", 2)

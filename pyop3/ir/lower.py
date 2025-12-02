@@ -25,14 +25,13 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
-import pyop2
-
-from pyop3 import exceptions as exc, utils, expr as op3_expr
+from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi
+from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
-from pyop3.config import config
+from pyop3.config import CONFIG
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
@@ -225,7 +224,7 @@ class LoopyCodegenContext(CodegenContext):
                 if (
                     buffer.constant
                     and isinstance(buffer.size, numbers.Integral)
-                    and buffer.size < config["max_static_array_size"]
+                    and buffer.size < CONFIG.max_static_array_size
                 ):
                     return self.add_temporary(
                         "t",
@@ -360,7 +359,7 @@ class CompiledCodeExecutor:
             exec_arguments = list(self._default_exec_arguments)
 
             # TODO:
-            # if config.debug:
+            # if CONFIG.debug:
             if False:
                 for buffer_name, replacement_buffer in kwargs.items():
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
@@ -378,11 +377,9 @@ class CompiledCodeExecutor:
 
         # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
         # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
-        #    breakpoint()
-        # if "MatSetValues" in str(self):
         #     breakpoint()
-        # if "integral" in str(self):
-        # pyop3.extras.debug.maybe_breakpoint()
+        #     pyop3.extras.debug.maybe_breakpoint("submesh")
+        # if len(self.loopy_code.callables_table) > 1:
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
@@ -557,6 +554,114 @@ class CompiledCodeExecutor:
                 buffer._pending_reduction = intent
 
         return tuple(initializers), tuple(reductions), tuple(broadcasts)
+
+
+class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
+    """
+    The LACallable (Linear algebra callable)
+    replaces loopy.CallInstructions to linear algebra functions
+    like solve or inverse by LAPACK calls.
+    """
+    def __init__(self, name=None, arg_id_to_dtype=None,
+                 arg_id_to_descr=None, name_in_target=None):
+        if name is not None:
+            assert name == self.name
+
+        name_in_target = name_in_target if name_in_target else self.name
+        super(LACallable, self).__init__(self.name,
+                                         arg_id_to_dtype=arg_id_to_dtype,
+                                         arg_id_to_descr=arg_id_to_descr,
+                                         name_in_target=name_in_target)
+
+    @abc.abstractproperty
+    def name(self):
+        pass
+
+    @abc.abstractmethod
+    def generate_preambles(self, target):
+        pass
+
+    def with_types(self, arg_id_to_dtype, callables_table):
+        dtypes = {}
+        for i in range(len(arg_id_to_dtype)):
+            if arg_id_to_dtype.get(i) is None:
+                # the types provided aren't mature enough to specialize the
+                # callable
+                return (self.copy(arg_id_to_dtype=arg_id_to_dtype),
+                        callables_table)
+            else:
+                mat_dtype = arg_id_to_dtype[i].numpy_dtype
+                dtypes[i] = lp.types.NumpyType(mat_dtype)
+        dtypes[-1] = lp.types.NumpyType(dtypes[0].dtype)
+
+        return (self.copy(name_in_target=self.name_in_target,
+                arg_id_to_dtype=idict(dtypes)),
+                callables_table)
+
+    def emit_call_insn(self, insn, target, expression_to_code_mapper):
+        assert self.is_ready_for_codegen()
+        assert isinstance(insn, lp.CallInstruction)
+
+        parameters = insn.expression.parameters
+
+        parameters = list(parameters)
+        par_dtypes = [self.arg_id_to_dtype[i] for i, _ in enumerate(parameters)]
+
+        parameters.append(insn.assignees[-1])
+        par_dtypes.append(self.arg_id_to_dtype[0])
+
+        mat_descr = self.arg_id_to_descr[0]
+        arg_c_parameters = [
+            expression_to_code_mapper(
+                par,
+                pym.mapper.stringifier.PREC_NONE,
+                lp.expression.dtype_to_type_context(target, par_dtype),
+                par_dtype
+            ).expr
+            for par, par_dtype in zip(parameters, par_dtypes)
+        ]
+        c_parameters = [arg_c_parameters[-1]]
+        c_parameters.extend([arg for arg in arg_c_parameters[:-1]])
+        c_parameters.append(np.int32(mat_descr.shape[1]))  # n
+        return pym.var(self.name_in_target)(*c_parameters), False
+
+
+# Read c files  for linear algebra callables in on import
+if mpi.COMM_WORLD.rank == 0:
+    with open(os.path.dirname(__file__)+"/inverse.c", "r") as myfile:
+        inverse_preamble = myfile.read()
+    with open(os.path.dirname(__file__)+"/solve.c", "r") as myfile:
+        solve_preamble = myfile.read()
+else:
+    solve_preamble = None
+    inverse_preamble = None
+
+inverse_preamble = mpi.COMM_WORLD.bcast(inverse_preamble, root=0)
+solve_preamble = mpi.COMM_WORLD.bcast(solve_preamble, root=0)
+
+
+class INVCallable(LACallable):
+    """
+    The InverseCallable replaces loopy.CallInstructions to "inverse"
+    functions by LAPACK getri.
+    """
+    name = "inverse"
+
+    def generate_preambles(self, target):
+        assert isinstance(target, type(target))
+        yield ("inverse", inverse_preamble)
+
+
+class SolveCallable(LACallable):
+    """
+    The SolveCallable replaces loopy.CallInstructions to "solve"
+    functions by LAPACK getrs.
+    """
+    name = "solve"
+
+    def generate_preambles(self, target):
+        assert isinstance(target, type(target))
+        yield ("solve", solve_preamble)
 
 
 class BinarySearchCallable(lp.ScalarCallable):
@@ -823,7 +928,9 @@ def parse_loop_properly_this_time(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component.size != 1:
+        if component.size == 0:
+            continue
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
                 component.size,
@@ -1097,7 +1204,9 @@ def compile_array_assignment(
     axis = axis_tree.node_map[paths[-1]]
 
     for component in axis.components:
-        if component.size != 1:
+        if component.size == 0:
+            continue
+        elif component.size != 1:
             iname = codegen_context.unique_name("i")
 
             extent_var = register_extent(
@@ -1268,6 +1377,11 @@ def _(scalar: op3_expr.Scalar, /, iname_maps, loop_indices, context, *, intent, 
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
 
+@_lower_expr.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [0], iname_maps, loop_indices, context, intent=intent)
+
+
 @_lower_expr.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
@@ -1368,9 +1482,6 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    from pyop2.utils import get_petsc_dir
-    from pyop2.compilation import load
-
     code = lp.generate_code_v2(translation_unit).device_code()
     argtypes = [
         cast_loopy_arg_to_ctypes_type(arg) for arg in translation_unit.default_entrypoint.args
@@ -1379,13 +1490,13 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
 
     # ideally move this logic somewhere else
     cppargs = (
-        tuple("-I%s/include" % d for d in get_petsc_dir())
+        tuple("-I%s/include" % d for d in pyop3.pyop2_utils.get_petsc_dir())
         # + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
         # + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
     )
     ldargs = (
-        tuple("-L%s/lib" % d for d in get_petsc_dir())
-        + tuple("-Wl,-rpath,%s/lib" % d for d in get_petsc_dir())
+        tuple("-L%s/lib" % d for d in pyop3.pyop2_utils.get_petsc_dir())
+        + tuple("-Wl,-rpath,%s/lib" % d for d in pyop3.pyop2_utils.get_petsc_dir())
         + ("-lpetsc", "-lm")
         # + tuple(self.local_kernel.ldargs)
     )
@@ -1396,8 +1507,8 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
         cppargs += ("-DLIKWID_PERFMON",)
         ldargs += ("-llikwid",)
 
-    # TODO: needs a comm
-    dll = load(code, "c", cppargs, ldargs, pyop2.mpi.COMM_SELF)
+    # TODO: needs the right comm
+    dll = load(code, "c", cppargs, ldargs, mpi.COMM_SELF)
 
     if pyop3_compiler_parameters.add_petsc_event:
         # Create the event in python and then set in the shared library to avoid

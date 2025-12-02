@@ -4,7 +4,7 @@ import pytest
 from os.path import abspath, dirname, join
 import os
 import functools
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
 from firedrake.utils import IntType
@@ -67,7 +67,7 @@ def _get_mesh(cell_type, comm):
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)

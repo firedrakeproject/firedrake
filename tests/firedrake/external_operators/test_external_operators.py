@@ -49,7 +49,7 @@ def f(mesh, V):
             fi.interpolate(as_vector([(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)] * V.value_size))
         elif fs_i.rank == 2:
             fi.interpolate(as_tensor([[(2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y)
-                                       for _ in range(fs_i.mesh().geometric_dimension())]
+                                       for _ in range(fs_i.mesh().geometric_dimension)]
                                       for _ in range(fs_i.rank)]))
         else:
             fi.interpolate((2 * pi ** 2 + 1) * sin(pi * x) * sin(pi * y))
@@ -104,7 +104,7 @@ def test_assemble(V, f):
     assert isinstance(jac, MatrixBase)
 
     # Assemble the exact Jacobian, i.e. the interpolation matrix: `Interpolate(dexpr(u,v,w)/du, V)`
-    jac_exact = assemble(Interpolate(derivative(expr(u, v, w), u), V))
+    jac_exact = assemble(interpolate(derivative(expr(u, v, w), u), V))
     np.allclose(jac.petscmat[:, :], jac_exact.petscmat[:, :], rtol=1e-14)
 
     # -- dNdu(u, v, w; δu, v*) (TLM) -- #
@@ -116,7 +116,7 @@ def test_assemble(V, f):
     assert isinstance(tlm_value, Function)
 
     tlm_exact = Function(V)
-    with delta_u.dat.vec_ro as x, tlm_exact.dat.vec_ro as y:
+    with delta_u.vec_ro as x, tlm_exact.vec_ro as y:
         jac_exact.petscmat.mult(x, y)
     assert np.allclose(tlm_value.dat.data, tlm_exact.dat.data)
 
@@ -131,8 +131,7 @@ def test_assemble(V, f):
 
     # -- dNdu(u, v, w; δN, uhat) (Adjoint model) -- #
     # Define a random cofunction on V* since the adjoint model maps from V* to V*
-    delta_N = Cofunction(V.dual())
-    delta_N.vector()[:] = rg.beta(V, 15, 30).dat.data_ro[:]
+    delta_N = rg.beta(V.dual(), 15, 30)
     # Assemble the adjoint model
     adj_value = assemble(action(adjoint(dNdu), delta_N))
     # Check type
@@ -140,8 +139,8 @@ def test_assemble(V, f):
 
     # Action of the adjoint of the Jacobian (Hermitian transpose)
     adj_exact = Cofunction(V.dual())
-    with delta_N.dat.vec_ro as v_vec:
-        with adj_exact.dat.vec as res_vec:
+    with delta_N.vec_ro as v_vec:
+        with adj_exact.vec_wo as res_vec:
             jac_exact.petscmat.multHermitian(v_vec, res_vec)
     assert np.allclose(adj_value.dat.data, adj_exact.dat.data)
 
@@ -189,6 +188,8 @@ def test_solve(mesh, solver_parameters):
     # calls the method of the external operator subclass associated with the assembly of the Jacobian action.
     solve(F == 0, u, bcs=bcs, solver_parameters=solver_parameters)
 
+    assert np.allclose(u.dat.data, w.dat.data)
+
     # Solve the Poisson problem:
     #  - Δu + u = N(f) in Ω
     #         u = 0 on ∂Ω
@@ -200,7 +201,7 @@ def test_solve(mesh, solver_parameters):
     F = inner(grad(u2), grad(v)) * dx + inner(u2, v) * dx - inner(N, v) * dx
     solve(F == 0, u2, bcs=bcs, solver_parameters=solver_parameters)
 
-    assert (np.allclose(u.dat.data, w.dat.data) and np.allclose(u2.dat.data, w.dat.data))
+    assert np.allclose(u2.dat.data, w.dat.data)
 
 
 def test_multiple_external_operators(mesh):
@@ -294,7 +295,7 @@ def test_translation_operator(mesh):
             integral_types = set(['cell'])
             assembly_opts = kwargs.get('assembly_opts')
             J = self._matrix_builder((), assembly_opts, integral_types)
-            with dNdu.dat.vec as vec:
+            with dNdu.vec_ro as vec:
                 J.petscmat.setDiagonal(vec)
             return J
 

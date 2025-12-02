@@ -1,5 +1,5 @@
 import os as _os
-from pyop3.config import config as _config
+from pyop3.config import CONFIG
 
 def _fixup_pytools():
     # Many pyop3 objects inherit from pytools.RecordWithoutPickling.
@@ -32,6 +32,10 @@ _init_likwid()
 del _init_likwid
 
 
+# UNDO ME
+import pyop3.extras
+
+
 from pyop3.insn import Intent
 import pyop3.dtypes, pyop3.tree
 import pyop3.ir
@@ -50,8 +54,9 @@ from pyop3.tree.axis_tree import (  # noqa: F401
     IndexedAxisTree,
 )
 from pyop3.expr.base import NAN  # noqa: F401
+from pyop3.expr.visitors import collect_axis_vars, replace  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
-    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec,
+    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, LGMap
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.expr.visitors import evaluate  # noqa: F401
@@ -67,6 +72,7 @@ from pyop3.tree.index_tree import (  # noqa: F401
     SubsetSliceComponent,
     TabulatedMapComponent,
     ScalarIndex,
+    as_slice,
 )
 from pyop3.insn import (  # noqa: F401
     INC,
@@ -94,4 +100,3 @@ from pyop3.tree import accumulate_path
 from pyop3.ir import LOOPY_TARGET, LOOPY_LANG_VERSION
 
 del _os
-del _config

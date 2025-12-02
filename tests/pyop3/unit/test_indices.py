@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from pyrsistent import freeze, pmap
 
 import pyop3 as op3
 
