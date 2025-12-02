@@ -1,14 +1,15 @@
 from enum import Enum
 from functools import cached_property
 from textwrap import dedent
-from petsctools import get_petscvariables
+from scipy.special import factorial
+from petsctools import get_petscvariables, PCBase
 from loopy import generate_code_v2
 from pyop2 import op2
 from firedrake.tsfc_interface import compile_form
 from firedrake import (
     grad, inner, avg, action, outer, replace,
     assemble, CellSize, FacetNormal,
-    dx, ds, dS, sqrt, pi, Constant,
+    dx, ds, dS, sqrt, Constant,
     Function, Cofunction, RieszMap,
     TrialFunction, TestFunction,
     FunctionSpace, VectorFunctionSpace,
@@ -17,6 +18,7 @@ from firedrake import (
     LinearVariationalProblem,
     LinearVariationalSolver,
     LinearSolver,
+    PETSc
 )
 
 
@@ -298,19 +300,78 @@ class WhiteNoiseGenerator:
             rng=rng, tensor=tensor, apply_riesz=apply_riesz)
 
 
+# Auto-regressive function parameters
+
+def lengthscale_m(Lar: float, M: int):
+    """Daley-equivalent lengthscale of M-th order autoregressive function.
+
+    Parameters
+    ----------
+        Lar :
+            Target Daley correlation lengthscale.
+        M :
+            Order of autoregressive function.
+
+    Returns
+    -------
+        L :
+            Lengthscale parameter for autoregressive function.
+    """
+    return Lar/sqrt(2*M - 3)
+
+
+def lambda_m(Lar: float, M: int):
+    """Normalisation factor for autoregressive function.
+
+    Parameters
+    ----------
+        Lar :
+            Target Daley correlation lengthscale.
+        M :
+            Order of autoregressive function.
+
+    Returns
+    -------
+        lambda :
+            Normalisation coefficient for autoregressive correlation operator.
+    """
+    L = lengthscale_m(Lar, M)
+    num = (2**(2*M - 1))*factorial(M - 1)**2
+    den = factorial(2*M - 2)
+    return L*num/den
+
+
+def kappa_m(Lar: float, M: int):
+    """Diffusion coefficient for autoregressive function.
+
+    Parameters
+    ----------
+        Lar :
+            Target Daley correlation lengthscale.
+        M :
+            Order of autoregressive function.
+
+    Returns
+    -------
+        kappa :
+            Diffusion coefficient for autoregressive covariance operator.
+    """
+    return lengthscale_m(Lar, M)**2
+
+
 class GaussianCovariance:
     class DiffusionForm(Enum):
         CG = 'CG'
         IP = 'IP'
 
     def __init__(self, V, L, sigma=1, m=2, rng=None,
-                 bcs=None, form=None,
+                 bcs=None, form=None, function_space=None,
                  solver_parameters=None, options_prefix=None):
 
         form = form or self.DiffusionForm.CG
 
         self.rng = rng or WhiteNoiseGenerator(V)
-        self.function_space = self.rng.function_space
+        self.function_space = function_space or self.rng.function_space
 
         if sigma <= 0:
             raise ValueError("Variance must be positive.")
@@ -327,9 +388,9 @@ class GaussianCovariance:
 
         if self.iterations > 0:
             # Calculate diffusion operator parameters
-            self.kappa = Constant(L*L/(2*m))
-            lambda_g = Constant(sqrt(2*pi)*L)
-            self.lamda = Constant(sigma*sqrt(lambda_g))
+            self.kappa = Constant(kappa_m(L, m))
+            self.lambda_m = Constant(lambda_m(L, m))
+            self._weight = Constant(sigma*sqrt(self.lambda_m))
 
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
@@ -350,8 +411,6 @@ class GaussianCovariance:
             # setup mass solver
             M = inner(u, v)*dx
             rhs = replace(a, {u: self._rhs})
-            # rhs = a(self._rhs, v)
-            # rhs = action(a, self._rhs)
 
             self.mass_solver = LinearVariationalSolver(
                 LinearVariationalProblem(M, rhs, self._u, bcs=bcs,
@@ -364,21 +423,21 @@ class GaussianCovariance:
         w = rng.sample(apply_riesz=True)
 
         if self.iterations == 0:
-            return tensor.assign(self.lamda*w)
+            return tensor.assign(self._weight*w)
 
         self._u.assign(w)
         for _ in range(self.iterations//2):
             self._rhs.assign(self._u)
             self.solver.solve()
 
-        return tensor.assign(self.lamda*self._u)
+        return tensor.assign(self._weight*self._u)
 
     def norm(self, x):
         if self.iterations == 0:
             sigma_x = self.stddev*x
             return assemble(inner(sigma_x, sigma_x)*dx)
 
-        lamda1 = 1/self.lamda
+        lamda1 = 1/self._weight
 
         self._u.assign(lamda1*x)
         for k in range(self.iterations//2):
@@ -394,7 +453,7 @@ class GaussianCovariance:
             variance1 = 1/(self.stddev*self.stddev)
             return tensor.assign(variance1*x)
 
-        lamda1 = 1/self.lamda
+        lamda1 = 1/self._weight
         self._u.assign(lamda1*x)
 
         for k in range(self.iterations):
@@ -410,13 +469,13 @@ class GaussianCovariance:
             variance = self.stddev*self.stddev
             return tensor.assign(variance*x)
 
-        self._u.assign(self.lamda*x)
+        self._u.assign(self._weight*x)
 
         for k in range(self.iterations):
             self._rhs.assign(self._u)
             self.solver.solve()
 
-        return tensor.assign(self.lamda*self._u)
+        return tensor.assign(self._weight*self._u)
 
 
 def diffusion_form(u, v, kappa, formulation):
@@ -444,3 +503,146 @@ def diffusion_form(u, v, kappa, formulation):
 
     else:
         raise ValueError("Unknown GaussianCovariance.DiffusionForm {formulation}")
+
+
+class CovarianceOperatorMat:
+    class Operation(Enum):
+        ACTION = 'action'
+        INVERSE = 'inverse'
+
+    def __init__(self, covariance, operation=None):
+        operation = operation or self.Operation.ACTION
+
+        V = covariance.function_space
+        self.function_space = V
+        self.comm = V.mesh().comm
+        self.covariance = covariance
+        self.operation = operation
+
+        primal = Function(V)
+        dual = Function(V.dual())
+
+        if operation == self.Operation.ACTION:
+            self.x = dual
+            self.y = primal
+            self._mult_op = covariance.apply_action
+        elif operation == self.Operation.INVERSE:
+            self.x = primal
+            self.y = dual
+            self._mult_op = covariance.apply_inverse
+        else:
+            raise ValueError(
+                f"Unrecognised CovarianceOperatorMat operation {operation}")
+
+    def mult(self, mat, x, y):
+        with self.x.dat.vec_wo as v:
+            x.copy(result=v)
+
+        self._mult_op(self.x, tensor=self.y)
+
+        with self.y.dat.vec_ro as v:
+            v.copy(result=y)
+
+    def view(self, mat, viewer=None):
+        if viewer is None:
+            return
+        if viewer.getType() != PETSc.Viewer.Type.ASCII:
+            return
+
+        viewer.printfASCII(f"  firedrake covariance operator matrix: {type(self).__name__}\n")
+        viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
+
+        if type(self.covariance) is GaussianCovariance:
+            viewer.printfASCII("  Autoregressive covariance operator with:\n")
+            viewer.printfASCII(f"    order: {self.covariance.iterations}\n")
+            viewer.printfASCII(f"    correlation lengthscale: {self.covariance.lengthscale}\n")
+            viewer.printfASCII(f"    standard deviation: {self.covariance.stddev}\n")
+
+            if self.operation == self.Operation.ACTION:
+                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
+                self.covariance.solver.snes.ksp.view(viewer)
+            elif self.operation == self.Operation.INVERSE:
+                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
+                self.covariance.mass_solver.snes.ksp.view(viewer)
+
+
+def CovarianceOperatorMatrix(covariance, operation=None):
+    ctx = CovarianceOperatorMat(covariance, operation=operation)
+
+    sizes = covariance.function_space.dof_dset.layout_vec.getSizes()
+
+    mat = PETSc.Mat().createPython(
+        (sizes, sizes), ctx, comm=ctx.comm)
+    mat.setUp()
+    mat.assemble()
+    return mat
+
+
+class CovarianceOperatorPC(PCBase):
+    """
+    Precondition the inverse covariance operator:
+    P = B : V* -> V
+    """
+    needs_python_pmat = True
+
+    def initialize(self, pc):
+        A, P = pc.getOperators()
+
+        use_amat_prefix = self.parent_prefix + "pc_use_amat"
+        self.use_amat = PETSc.Options().getBool(use_amat_prefix, False)
+        mat = (A if self.use_amat else P).getPythonContext()
+        if not isinstance(mat, CovarianceOperatorMat):
+            raise TypeError(
+                "CovarianceOperatorPC needs a CovarianceOperatorMat")
+        covariance = mat.covariance
+
+        self.covariance = covariance
+        self.mat = mat
+
+        V = covariance.function_space
+        primal = Function(V)
+        dual = Function(V.dual())
+
+        # PC does the opposite of the Mat
+        if mat.operation == CovarianceOperatorMat.Operation.ACTION:
+            self.operation = CovarianceOperatorMat.Operation.INVERSE
+            self.x = primal
+            self.y = dual
+            self._apply_op = covariance.apply_inverse
+        elif mat.operation == self.Operation.INVERSE:
+            self.operation = CovarianceOperatorMat.Operation.ACTION
+            self.x = dual
+            self.y = primal
+            self._apply_op = covariance.apply_action
+
+    def apply(self, pc, x, y):
+        with self.x.dat.vec_wo as xvec:
+            x.copy(result=xvec)
+
+        self._apply_op(self.x, tensor=self.y)
+
+        with self.y.dat.vec_ro as yvec:
+            yvec.copy(result=y)
+
+    def update(self, pc):
+        pass
+
+    def view(self, pc, viewer=None):
+        if viewer is None:
+            return
+        if viewer.getType() != PETSc.Viewer.Type.ASCII:
+            return
+
+        viewer.printfASCII(f"  firedrake covariance operator preconditioner: {type(self).__name__}\n")
+        viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
+
+        if self.use_amat:
+            viewer.printfASCII("  using Amat matrix\n")
+
+        if type(self.covariance) is GaussianCovariance:
+            if self.operation == self.Operation.ACTION:
+                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
+                self.covariance.solver.snes.ksp.view(viewer)
+            elif self.operation == self.Operation.INVERSE:
+                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
+                self.covariance.mass_solver.snes.ksp.view(viewer)
