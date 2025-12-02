@@ -2,6 +2,7 @@ from firedrake import *
 import pytest
 import numpy as np
 from functools import partial
+from ufl.algorithms.ad import expand_derivatives
 
 
 @pytest.fixture(params=["interval", "tri", "quad", "tet"])
@@ -123,3 +124,47 @@ def test_two_form(mesh1, mesh2, form, expect):
     val = assemble(form).M.values
 
     assert np.allclose(val, expect)
+
+
+def test_multi_domain_assemble():
+    mesh1 = UnitSquareMesh(7, 7, quadrilateral=True)
+    x1, y1 = SpatialCoordinate(mesh1)
+    mesh2 = UnitSquareMesh(8, 8)
+    x2, y2 = SpatialCoordinate(mesh2)
+    V1 = FunctionSpace(mesh1, "Q", 3)
+    V2 = FunctionSpace(mesh2, "CG", 2)
+    V = V1 * V2
+
+    u1, u2 = TrialFunctions(V)
+    v1, v2 = TestFunctions(V)
+
+    a = (
+        inner(grad(u1), grad(v1))*dx(domain=mesh1) +
+        inner(grad(u2), grad(v2))*dx(domain=mesh2)
+    )
+
+    u_exact_expr1 = sin(pi * x1) * sin(pi * y1)
+    u_exact_expr2 = x2 * y2 * (1 - x2) * (1 - y2)
+    f1 = expand_derivatives(-div(grad(u_exact_expr1)))
+    f2 = expand_derivatives(-div(grad(u_exact_expr2)))
+
+    L = (
+        inner(f1, v1)*dx(domain=mesh1) +
+        inner(f2, v2)*dx(domain=mesh2)
+    )
+
+    bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
+    bc2 = DirichletBC(V.sub(1), 0, "on_boundary")
+    u_sol = Function(V)
+    solve(a == L, u_sol, bcs=[bc1, bc2])
+    u1_sol, u2_sol = u_sol.subfunctions
+
+    u_exact = Function(V)
+    u1_exact, u2_exact = u_exact.subfunctions
+    u1_exact.interpolate(u_exact_expr1)
+    u2_exact.interpolate(u_exact_expr2)
+
+    err1 = errornorm(u1_exact, u1_sol)
+    assert err1 < 1e-5
+    err2 = errornorm(u2_exact, u2_sol)
+    assert err2 < 1e-5
