@@ -58,7 +58,6 @@ class ExternalDependency:
 mpi_args = petsctools.get_petscvariables()["MPICC_SHOW"].split()[1:]
 mpi_ = ExternalDependency(
     extra_compile_args=mpi_args,
-    extra_link_args=mpi_args,
 )
 
 
