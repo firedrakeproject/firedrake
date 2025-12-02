@@ -38,6 +38,8 @@ from pyop3.tree.axis_tree.tree import (
     UnitIndexedAxisTree,
     OWNED_REGION_LABEL,
     GHOST_REGION_LABEL,
+    find_matching_target,
+    match_target,
 )
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, filter_petsc_sf
@@ -1458,12 +1460,7 @@ def index_axes(
     # (where each 'component' is also a tuple of *equivalent targets*).
 
     # construct the new, indexed, axis tree
-    indexed_axes, target_paths_and_exprs_compressed, outer_loops = make_indexed_axis_tree(index_tree, target_axes)
-
-    indexed_target_paths_and_exprs = \
-        utils.unique(
-            expand_collection_of_iterables(
-                target_paths_and_exprs_compressed))
+    indexed_axes, indexed_target_paths_and_exprs, outer_loops = make_indexed_axis_tree(index_tree, target_axes)
 
     # If the original axis tree is unindexed then no composition is required.
     if orig_axes is None or isinstance(orig_axes, AxisTree):
@@ -1478,9 +1475,14 @@ def index_axes(
     if orig_axes is None:
         raise NotImplementedError("Need to think about this case")
 
+    matching_target = match_target(indexed_axes, orig_axes, indexed_target_paths_and_exprs)
+    breakpoint()
+
     all_target_paths_and_exprs = []
     for orig_target in orig_axes.targets:
+        breakpoint()
 
+        # find matching target!
         match_found = False
         # TODO: would be more intuitive to find match first, instead of looping
         for indexed_path_and_exprs in indexed_target_paths_and_exprs:
@@ -1498,18 +1500,6 @@ def index_axes(
 
             all_target_paths_and_exprs.append(target_path_and_exprs)
         assert match_found, "must hit once"
-
-    # think the below can go away now...
-    # ...
-    # If we have full slices we can get duplicate targets here. This is completely expected
-    # but we make assumptions that an indexed tree has unique targets so we filter them here
-    # NOTE: really bad code, could use ordered set or similar
-    # all_target_paths_and_exprs += [idict(indexed_axes._source_path_and_exprs)]
-    # filtered = []
-    # for x in all_target_paths_and_exprs:
-    #     if x not in filtered:
-    #         filtered.append(x)
-    # all_target_paths_and_exprs = filtered
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     if indexed_axes is UNIT_AXIS_TREE:
@@ -1613,6 +1603,8 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
             targets[leaf_path | subpath] = subtargets
 
         outer_loops += sub_outer_loops
+
+    targets = utils.freeze(targets)
     outer_loops = tuple(outer_loops)
 
     return (axis_tree, targets, outer_loops)

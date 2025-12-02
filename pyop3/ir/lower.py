@@ -926,8 +926,8 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         loop_indices_ = utils.StrictlyUniqueDict(loop_indices)
-        for target in axes.targets:
-            for t in target[path_]:
+        for axis_targets in axes.targets[path_]:
+            for t in axis_targets:
                 expr = lower_expr(
                     t.expr,
                     [iname_replace_map_],

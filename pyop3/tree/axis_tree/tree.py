@@ -727,6 +727,11 @@ class AxisTarget:
         return idict({self.axis: self.expr})
 
 
+# TODO: implement this so we don't have lists of lists everywhere
+class EquivalentAxisTargetSet(tuple):
+    pass
+
+
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
 
     # {{{ abstract methods
@@ -898,6 +903,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @abc.abstractmethod
     def outer_loops(self):
         pass
+
+    @cached_property
+    def _matching_target(self):
+        return match_target(self, self.unindexed, self.targets)
 
     def subst_layouts(self):
         return self._subst_layouts_default
@@ -1087,32 +1096,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                 index_tree = index_tree.add_subtree({slice_.label: slice_component.label}, subtree)
         return index_tree
 
-    # def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=idict(), target_path_acc=None, target_exprs_acc=None):
-    #     """Traverse the tree and accumulate per-node targets."""
-    #     axis = self.node_map[path]
-    #     targets = {}
-    #
-    #     if path == idict():
-    #         target_path_acc, target_exprs_acc = targets_per_axis.get(path, (idict(), idict()))
-    #         targets[path] = (target_path_acc, target_exprs_acc)
-    #
-    #     for component in axis.components:
-    #         path_ = path | {axis.label: component.label}
-    #         axis_target_path, axis_target_exprs = targets_per_axis.get(path_, (idict(), idict()))
-    #         target_path_acc_ = target_path_acc | axis_target_path
-    #         target_exprs_acc_ = target_exprs_acc | axis_target_exprs
-    #         targets[path_] = (target_path_acc_, target_exprs_acc_)
-    #
-    #         if self.node_map[path_]:
-    #             targets_ = self._accumulate_targets(
-    #                 targets_per_axis,
-    #                 path=path_,
-    #                 target_path_acc=target_path_acc_,
-    #                 target_exprs_acc=target_exprs_acc_,
-    #             )
-    #             targets.update(targets_)
-    #     return idict(targets)
-
     # TODO: refactor/move
     def _match_path_and_exprs(self, tree):
         """
@@ -1147,11 +1130,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @property
     @abc.abstractmethod
-    def _matching_target(self):
-        pass
-
-    @property
-    @abc.abstractmethod
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         pass
 
@@ -1162,17 +1140,24 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     # NOTE: This is only really used in one place, probably don't need to make a property then
     @cached_property
     def leaf_target_paths(self) -> ConcretePathT:
+        raise NotImplementedError("ick, ideally remove")
         leaf_target_paths_ = []
-        for target in self.targets:
-            leaf_target_paths_per_target = utils.StrictlyUniqueDict()
-            for leaf_path in self.leaf_paths:
-                leaf_target_path = utils.StrictlyUniqueDict()
-                for partial_path in accumulate_path(leaf_path):
-                    for t in target[partial_path]:
-                        leaf_target_path[t.axis] = t.component
-                leaf_target_paths_per_target[leaf_path] = leaf_target_path
-            leaf_target_paths_.append(leaf_target_paths_per_target)
-        return utils.freeze(leaf_target_paths_)
+        for leaf_path in self.leaf_paths:
+            leaf_target_path = utils.StrictlyUniqueDict()
+            for partial_path in accumulate_path(leaf_path):
+                # for axis_target in 
+                leaf_target_path[t.axis] = t.component
+
+        # for target in self.targets:
+        #     leaf_target_paths_per_target = utils.StrictlyUniqueDict()
+        #     for leaf_path in self.leaf_paths:
+        #         leaf_target_path = utils.StrictlyUniqueDict()
+        #         for partial_path in accumulate_path(leaf_path):
+        #             for t in target[partial_path]:
+        #                 leaf_target_path[t.axis] = t.component
+        #         leaf_target_paths_per_target[leaf_path] = leaf_target_path
+        #     leaf_target_paths_.append(leaf_target_paths_per_target)
+        # return utils.freeze(leaf_target_paths_)
 
     @property
     @abc.abstractmethod
@@ -1255,10 +1240,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return self
 
     @cached_property
-    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+    def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
         from pyop3 import AxisVar
 
-        targets_ = {idict(): ()}
+        targets_ = utils.StrictlyUniqueDict({idict(): ((),)})
         for path, axis in self.node_map.items():
             if axis is None:
                 continue
@@ -1267,8 +1252,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
                 path_ = path | {axis.label: component.label}
                 expr = AxisVar(axis.linearize(component.label).regionless)
                 target = AxisTarget(axis.label, component.label, expr)
-                targets_[path_] = (target,)
-        return (utils.freeze(targets_),)
+                targets_[path_] = [[target]]
+        return utils.freeze(targets_)
 
     @property
     def _materialized(self):
@@ -1372,11 +1357,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         with active_scoped_cache(self):
             return compute_layouts(self)
 
-    # TODO: Don't need a special property here, can be generic to axistree and indexedaxistree
-    @property
-    def _matching_target(self):
-        return utils.just_one(self.targets)
-
     @cached_property
     def _buffer_slice(self) -> slice:
         return slice(self.local_size)
@@ -1423,23 +1403,25 @@ class IndexedAxisTree(AbstractAxisTree):
         else:
             node_map = as_node_map(node_map)
 
-        new_targets = []
-        for target in targets:
-            # for consistency we don't want missing bits, even if they are empty
-            if idict() not in target:
-                target = {idict(): ()} | target
-            new_targets.append(target)
-        # drop duplicate entries as they are necessarily equivalent
-        # TODO: remove this ideally...
-        targets = utils.unique(new_targets)
-        targets = utils.freeze(targets)
-        assert len(targets) > 0
+        # for consistency we don't want missing bits, even if they are empty
+        if idict() not in targets:
+            targets = targets | {idict(): ((),)}
+        # new_targets = []
+        # for target in targets:
+        #     if idict() not in target:
+        #         target = {idict(): ()} | target
+        #     new_targets.append(target)
+        # # drop duplicate entries as they are necessarily equivalent
+        # # TODO: remove this ideally...
+        # targets = utils.unique(new_targets)
+        # targets = utils.freeze(targets)
+        # assert len(targets) > 0
 
         # debugging
-        assert isinstance(targets, tuple)
-        for t in targets:
-            assert isinstance(t, idict)
-            assert all(isinstance(v_, AxisTarget) for v in t.values() for v_ in v)
+        assert isinstance(targets, idict)
+        for vs in targets.values():
+            assert isinstance(vs, tuple)
+            assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
 
         object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
@@ -1454,7 +1436,10 @@ class IndexedAxisTree(AbstractAxisTree):
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
-        return self._targets + self.materialize().targets
+        targets_ = utils.StrictlyUniqueDict()
+        for path, axis in self.node_map.items():
+            targets_[path] = self._targets[path] + self._materialized.targets[path]
+        return utils.freeze(targets_)
 
     # TODO: Should this return LoopIndexVars?
     # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
@@ -1592,10 +1577,6 @@ class IndexedAxisTree(AbstractAxisTree):
         return AxisTree(self.node_map)
 
 
-    @cached_property
-    def _matching_target(self) -> idict:
-        return find_matching_target(self)
-
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!
     @cached_property
@@ -1664,29 +1645,33 @@ class UnitIndexedAxisTree(DistributedObject):
         *,
         targets,
     ):
+        if idict() not in targets:
+            targets = targets | {idict(): ((),)}
         # same as indexed axis tree
-        new_targets = []
-        for target in targets:
-            # for consistency we don't want missing bits, even if they are empty
-            if idict() not in target:
-                target = {idict(): ()} | target
-            new_targets.append(target)
+        # new_targets = []
+        # for target in targets:
+        #     # for consistency we don't want missing bits, even if they are empty
+        #     if idict() not in target:
+        #         target = {idict(): ()} | target
+        #     new_targets.append(target)
         # drop duplicate entries as they are necessarily equivalent
         # TODO: remove this ideally...
-        targets = utils.unique(new_targets)
-        targets = utils.freeze(targets)
-        assert len(targets) > 0
+        # targets = utils.unique(new_targets)
+        # targets = utils.freeze(targets)
+        # assert len(targets) > 0
 
         # debugging
-        assert isinstance(targets, tuple)
-        for t in targets:
-            assert isinstance(t, idict)
-            assert all(isinstance(v_, AxisTarget) for v in t.values() for v_ in v)
+        assert isinstance(targets, idict)
+        for vs in targets.values():
+            assert isinstance(vs, tuple)
+            assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
 
         self.unindexed = unindexed
         self._targets = targets
+
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        raise NotImplementedError("TODO")
         return self._targets + self.materialize().targets
 
     @property
@@ -1724,13 +1709,14 @@ class UnitIndexedAxisTree(DistributedObject):
 
     subst_layouts = lambda self: self.leaf_subst_layouts
 
-    @cached_property
-    def _matching_target(self):
-        return find_matching_target(self)
-
     @property
     def leaf_paths(self):
         return (idict(),)
+
+    # same  as abstract tree case
+    @cached_property
+    def _matching_target(self):
+        return match_target(self, self.unindexed, self.targets)
 
     @property
     def leaves(self):
@@ -1785,13 +1771,14 @@ class UnitIndexedAxisTree(DistributedObject):
     # TODO: shared with other index tree
     @cached_property
     def _matching_target(self):
-        return find_matching_target(self)
+        return match_target(self, self.unindexed, self.targets)
 
 
-def find_matching_target(self):
+def find_matching_target(self, target_set):
+    assert False, "old code"
     # NOTE: I don't currently know why we still need this, but we apparently do as things otherwise fail
     matching_targets = []
-    for target in self.targets:
+    for target in target_set:
         all_leaves_match = True
         for leaf_path in self.leaf_paths:
             target_path = {}
@@ -1820,6 +1807,52 @@ def find_matching_target(self):
             matching_targets.append(target)
 
     return utils.single_valued(matching_targets)
+
+
+class IncompatibleAxisTargetException(Pyop3Exception):
+    pass
+
+
+def match_target(source_axes, target_axes, target_set):
+    return _match_target_rec(source_axes, target_axes, target_set, source_path=None, target_path=idict())
+
+
+def _match_target_rec(source_axes, target_axes, target_set, *, source_path, target_path):
+    if source_path is None:
+        source_paths = (idict(),)
+    else:
+        source_axis = source_axes.node_map[source_path]
+        source_paths = tuple(
+            source_path | {source_axis.label: source_component.label}
+            for source_component in source_axis.components
+        )
+
+    matching_target = utils.StrictlyUniqueDict()
+    for source_path_ in source_paths:
+        match_found = False
+        for candidate_targets in target_set[source_path_]:
+            target_path_ = target_path | merge_dicts(t.path for t in candidate_targets)
+            if source_axes.node_map.get(source_path_):
+                if not any(target_path_.items() <= leaf_path.items() for leaf_path in target_axes.leaf_paths):
+                    continue  # incompatible paths, skip
+                try:
+                    submatching_target = _match_target_rec(source_axes, target_axes, target_set, source_path=source_path_, target_path=target_path_)
+                except IncompatibleAxisTargetException:
+                    pass
+                else:
+                    assert not match_found
+                    match_found = True
+                    matching_target[source_path_] = candidate_targets
+                    matching_target |= submatching_target
+            else:  # at a leaf
+                if target_path_ in target_axes.leaf_paths:
+                    assert not match_found
+                    match_found = True
+                    matching_target[source_path_] = candidate_targets
+
+        if not match_found:
+            raise IncompatibleAxisTargetException
+    return utils.freeze(matching_target)
 
 
 class AxisForest(DistributedObject):
@@ -2128,10 +2161,7 @@ def subst_layouts(
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
     if path == idict():
-
-        # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
-        # arrays
-        target_paths_and_exprs_acc = {idict(): targets.get(path, (idict(), idict()))}
+        target_paths_and_exprs_acc = {idict(): targets[idict()]}
 
         accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc.values() for t in ts)
 
