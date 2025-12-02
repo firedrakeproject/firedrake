@@ -16,6 +16,8 @@ def set_petsc_mat_diagonal(mat: petsc_c.Mat_py, value: petsc_c.PetscScalar) -> N
         for i in range(min(num_rows, num_columns)):
             submat = mat.getNestSubMatrix(i, i)
             set_petsc_mat_diagonal(submat, value)
+    elif mat.type == "python":
+        mat.getPythonContext().set_diagonal(value)
     else:
         _set_non_nested_petsc_mat_diagonal(mat, value)
 

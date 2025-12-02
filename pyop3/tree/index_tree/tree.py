@@ -872,11 +872,6 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                     restricted_maps.append(restricted_map)
         return tuple(restricted_maps)
 
-
-    @cached_property
-    def _source_paths(self):
-        return tuple(p for p, _ in self.connectivity)
-
     @property
     def _connectivity_dict(self):
         return idict(self.connectivity)

@@ -1700,7 +1700,7 @@ class MixedFunctionSpace:
                     targets[leaf_path | subpath].extend(subaxis_targets)
                 break  # stop here because we only care about the first target for the moment
         targets = utils.freeze(targets)
-        # FIXME: This is intactably slow! Cannot allow this expansion to occur
+        # FIXME: This is intractably slow! Cannot allow this expansion to occur
         # targets = op3.utils.expand_collection_of_iterables(targets)
         targets = (targets,)
         return op3.IndexedAxisTree(
@@ -2185,58 +2185,34 @@ class RealFunctionSpace(FunctionSpace):
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
         fake_axes = dg_space.plex_axes.materialize()
 
-        # Now map the mesh-aware axis tree back to the actual one
-        # constitutes two steps:
-        #All
+        # Now map the mesh-aware axis tree back to the actual one. This involves
+        # two parts:
+        #
         #   1. All references to the mesh must be removed.
         #   2. Attempts to address cell DoFs should map to the "dof" axis
-        #      in the actual layout axis tree.
+        #      in the actual layout tree.
         #
-        # Other elements of the tree (i.e. tensor shape) are the same and
+        # Other elements of the tree (e.g. tensor shape) are the same and
         # can be left unchanged.
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
-
-            # this avoids a later failure
-            if not source_path:
-                assert not orig_target_path
-                assert not orig_target_exprs
+        targets = utils.StrictlyUniqueDefaultDict(list)
+        for path, axis_targets in utils.just_one(fake_axes.targets).items():
+            if path.keys() == {self._mesh.name}:
+                targets[path] = ()
                 continue
-
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == self._mesh.name:
-                    continue
-                elif target_axis_label.startswith("dof"):
-                    new_target_path["dof"] = "XXX"
-                else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == self._mesh.name:
-                    continue
-                elif target_axis_label.startswith("dof"):
-                    if target_axis_label == f"dof{self._mesh.cell_label}":
-                        dof_axis = utils.single_valued(
-                            axis
-                            for axis in dg_space.plex_axes.nodes
-                            if axis.label == f"dof{self._mesh.cell_label}"
-                        )
-                        new_target_exprs["dof"] = op3.AxisVar(dof_axis)
+            for axis_target in axis_targets:
+                assert axis_target.axis != self._mesh.name
+                if axis_target.axis.startswith("dof"):
+                    if axis_target.axis == f"dof{self._mesh.cell_label}":
+                        dof_expr = 0
                     else:
-                        new_target_exprs["dof"] = op3.NAN
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
+                        dof_expr = op3.NAN
+                    axis_target = op3.AxisTarget("dof", "XXX", dof_expr)
+                targets[path].append(axis_target)
         targets = utils.freeze(targets)
 
-        # TODO: This looks hacky
-        targets = (targets,) + (fake_axes._source_path_and_exprs,)
-
+        # FIXME: This is intractably slow! Cannot allow this expansion to occur
+        # targets = op3.utils.expand_collection_of_iterables(targets)
+        targets = (targets,)
         return op3.IndexedAxisTree(
             fake_axes, unindexed=self.layout_axes, targets=targets,
         )
@@ -2264,34 +2240,17 @@ class RealFunctionSpace(FunctionSpace):
         #
         # Other elements of the tree (i.e. tensor shape) are the same and
         # can be left unchanged.
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == "nodes":
-                    new_target_path["dof"] = "XXX"
-                else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            dof_axis = utils.single_valued(
-                axis
-                for axis in dg_space.nodal_axes.nodes
-                if axis.label == "nodes"
-            )
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == "nodes":
-                    new_target_exprs["dof"] = 0
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
+        targets = utils.StrictlyUniqueDefaultDict(list)
+        for path, axis_targets in utils.just_one(fake_axes.targets).items():
+            for axis_target in axis_targets:
+                if axis_target.axis == "nodes":
+                    axis_target = op3.AxisTarget("dof", "XXX", 0)
+                targets[path].append(axis_target)
         targets = utils.freeze(targets)
 
-        # TODO: This looks hacky
-        targets = (targets,) + (fake_axes._source_path_and_exprs,)
+        # FIXME: This is intractably slow! Cannot allow this expansion to occur
+        # targets = op3.utils.expand_collection_of_iterables(targets)
+        targets = (targets,)
 
         return op3.IndexedAxisTree(
             fake_axes, unindexed=self.layout_axes, targets=targets,

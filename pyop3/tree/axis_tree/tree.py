@@ -268,10 +268,6 @@ class _UnitAxisTree(CacheMixin):
         assert node is None
         return idict()
 
-    @property
-    def _source_path_and_exprs(self):
-        assert False, "old code, use targets instead"
-
     def index(self) -> LoopIndex:
         from pyop3 import LoopIndex
 
@@ -1172,28 +1168,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
 
-    # @cached_property
-    # def _source_paths(self) -> tuple[PathT]:
-    #     if self.is_empty:
-    #         return idict({idict(): idict()})
-    #     else:
-    #         return self._collect_source_path(path=idict())
-    #
-    # def _collect_source_path(self, *, path: PathT):
-    #     assert not self.is_empty
-    #
-    #     source_path = {}
-    #     if path == idict():
-    #         source_path |= {idict(): idict()}
-    #
-    #     axis = self.node_map[path]
-    #     for component in axis.components:
-    #         path_ = path | {axis.label: component.label}
-    #         source_path |= {path_: idict({axis.label: component.label})}
-    #         if self.node_map[path_]:
-    #             source_path |= self._collect_source_path(path=path_)
-    #     return idict(source_path)
-
     # NOTE: This is only really used in one place, probably don't need to make a property then
     @cached_property
     def leaf_target_paths(self) -> ConcretePathT:
@@ -1208,33 +1182,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                 leaf_target_paths_per_target[leaf_path] = leaf_target_path
             leaf_target_paths_.append(leaf_target_paths_per_target)
         return utils.freeze(leaf_target_paths_)
-
-
-    # @cached_property
-    # def _source_exprs(self):
-    #     if self.is_empty:  # debug
-    #         breakpoint()
-    #     assert not self.is_empty, "handle outside?"
-    #     if self.is_empty:
-    #         return idict({idict(): idict()})
-    #     else:
-    #         return self._collect_source_exprs(path=idict())
-
-    # def _collect_source_exprs(self, *, path: ConcretePathT) -> idict:
-    #     from pyop3.expr import AxisVar
-    #
-    #     source_exprs = {}
-    #
-    #     if path == idict():
-    #         source_exprs |= {idict(): idict()}
-    #
-    #     axis = self.node_map[path].localize()
-    #     for component in axis.components:
-    #         path_ = path | {axis.label: component.label}
-    #         source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label).regionless)})}
-    #         if self.node_map[path_]:
-    #             source_exprs |= self._collect_source_exprs(path=path_)
-    #     return idict(source_exprs)
 
     @property
     @abc.abstractmethod
@@ -1373,15 +1320,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             for path, axis in self.node_map.items()
         }
         return type(self)(node_map)
-
-    # bit of a hack, think about the design
-    # @cached_property
-    # def targets_acc(self):
-    #     return frozenset({self._accumulate_targets(self._source_path_and_exprs)})
-
-    @cached_property
-    def _source_path_and_exprs(self) -> idict:
-        assert False, "old code, use targets instead"
 
     @cached_property
     def paths_and_exprs(self):
@@ -1562,9 +1500,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def nest_indices(self) -> tuple[int, ...]:
         # Compare the 'fully indexed' bits of the matching target and try to
         # match to the unindexed tree.
-        if idict() not in self._matching_target:
-            return ()
-        consumed_axes = dict(self._matching_target[idict()][0])
+        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
 
         nest_indices_ = []
         path = idict()
@@ -1625,75 +1561,25 @@ class IndexedAxisTree(AbstractAxisTree):
     def user_comm(self):
         return self.unindexed.user_comm
 
-    # ideally this is ordered
-    # TODO: should include source I think to be consistent with AxisTree
-    # @cached_property
-    # def targets_acc(self):
-    #     return frozenset(self._accumulate_targets(t) for t in self.targets)
-    #
-    # # compat for now while I tinker
-    # @cached_property
-    # def _target_paths(self):
-    #     return frozenset({
-    #         idict({key: path for key, (path, _) in target.items()})
-    #         for target in self._targets
-    #     })
-    #
-    # @cached_property
-    # def _target_exprs(self):
-    #     return frozenset({
-    #         idict({key: exprs for key, (_, exprs) in target.items()})
-    #         for target in self._targets
-    #     })
-
     @cached_property
     def paths(self):
         """
         Return a `tuple` of the possible paths represented by this tree.
         """
-        # return self._target_paths | {self._source_path}
+        assert False, "delete me"
         return self._target_paths
-
-    # @cached_property
-    # def _source_path_and_exprs(self):
-    #     # TODO: merge source path and source expr collection here
-    #     return freeze({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
 
     @cached_property
     def paths_and_exprs(self):
         """
         Return a `tuple` of the possible paths represented by this tree.
         """
-        # return self._targets | {self._source_path_and_exprs}
+        assert False, "delete me"
         return self._targets
-
-    # def _collect_paths(self, *, axis=None):
-    #     """
-    #     Traverse the tree and add the trivial path to the possible paths
-    #     represented by each node.
-    #     """
-    #     paths = {}
-    #
-    #     if axis is None:
-    #         axis = self.root
-    #         paths[None] = self._target_paths.get(None, {})
-    #
-    #     for component in axis.components:
-    #         axis_key = (axis.id, component.label)
-    #         source_path = pmap({axis.label: component.label})
-    #         target_paths = self._target_paths.get(axis_key, ())
-    #         paths[axis_key] = target_paths + (source_path,)
-    #
-    #         if subaxis := self.child(axis, component):
-    #             paths_ = self._collect_paths(axis=subaxis)
-    #             paths.update(paths_)
-    #
-    #     return freeze(paths)
-
 
     @property
     def index_exprs(self):
-        # return self._target_exprs | {self._source_exprs}
+        assert False, "delete me"
         return self._target_exprs
 
     @property
@@ -2487,19 +2373,12 @@ def gather_loop_indices_from_targets(targets):
 def trim_axis_targets(targets, to_trim):
     return tuple(
         {
-            axis_path: (
-                {
-                    axis_label: path
-                    for axis_label, path in target_spec[0].items()
-                    if axis_label not in to_trim
-                },
-                {
-                    axis_label: expr
-                    for axis_label, expr in target_spec[1].items()
-                    if axis_label not in to_trim
-                },
+            path: tuple(
+                axis_target
+                for axis_target in axis_targets
+                if axis_target.axis not in to_trim
             )
-            for axis_path, target_spec in target.items()
+            for path, axis_targets in target.items()
         }
         for target in targets
     )

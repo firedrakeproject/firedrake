@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import collections
 import itertools
+import numbers
 from functools import cached_property
 from itertools import product
 from typing import Any, ClassVar
@@ -553,6 +554,9 @@ class DatPythonMatContext:
     @abc.abstractmethod
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         pass
+
+    def set_diagonal(self, value: numbers.Number) -> None:
+        self.dat.data_wo[0] = value
 
     @property
     def comm(self) -> MPI.Comm:
