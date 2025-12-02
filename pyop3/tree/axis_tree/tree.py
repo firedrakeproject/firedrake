@@ -1138,15 +1138,31 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return subst_layouts(self, self._matching_target, self.layouts)
 
     # NOTE: This is only really used in one place, probably don't need to make a property then
+    # TODO: This is really ick, are the targets or leaves outermost?
     @cached_property
     def leaf_target_paths(self) -> ConcretePathT:
-        raise NotImplementedError("ick, ideally remove")
         leaf_target_paths_ = []
         for leaf_path in self.leaf_paths:
-            leaf_target_path = utils.StrictlyUniqueDict()
+            AAA = [idict()]
+            # as we go down we want to make this bigger and bigger
             for partial_path in accumulate_path(leaf_path):
-                # for axis_target in 
-                leaf_target_path[t.axis] = t.component
+                newAAA = []
+                for ts in self.targets[partial_path]:
+                    partial_path = utils.merge_dicts(t.path for t in ts)
+                    for a in AAA:
+                        newAAA.append(a | partial_path)
+                AAA = newAAA
+
+            leaf_target_paths_.append(AAA)
+
+            # also used in compose_targets
+            # merged = []
+            # for debug in itertools.product(AAA):
+            #     for debug2 in itertools.product(*debug):
+            #         merged.append(list(chain(*debug2)))
+            # breakpoint()
+            # leaf_target_paths_.append(merged)
+        return utils.freeze(leaf_target_paths_)
 
         # for target in self.targets:
         #     leaf_target_paths_per_target = utils.StrictlyUniqueDict()
@@ -1438,8 +1454,8 @@ class IndexedAxisTree(AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = utils.StrictlyUniqueDict()
         for path, axis in self.node_map.items():
-            targets_[path] = self._targets[path] + self._materialized.targets[path]
-        return utils.freeze(targets_)
+            targets_[path] = utils.unique(self._targets[path] + self._materialized.targets[path])
+        return complete_axis_targets(targets_)
 
     # TODO: Should this return LoopIndexVars?
     # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
@@ -2406,3 +2422,13 @@ def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: Con
                 target_leaf_paths.remove(target_leaf_path)
                 break
     return not target_leaf_paths
+
+
+def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:
+    new_targets = dict(targets)
+    if idict() not in targets:
+        new_targets[idict()] = ((),)
+    # drop duplicates
+    for path, candidate_axis_targets in targets.items():
+        new_targets[path] = utils.unique(candidate_axis_targets)
+    return utils.freeze(new_targets)

@@ -31,6 +31,7 @@ from pyop3.tree.axis_tree import (
 )
 from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
+    complete_axis_targets,
     AbstractAxisTree,
     AxisTarget,
     ContextSensitiveLoopIterable,
@@ -389,15 +390,10 @@ class LoopIndex(Index):
         but that component can target differently labelled axes (so the tuple entry is an n-tuple).
 
         """
-        equiv_leaf_target_paths = []
-        for equiv_leaf_target_paths_per_target in self.iterset.leaf_target_paths:
-            assert len(equiv_leaf_target_paths_per_target) == 1, \
+        leaf_target_paths = self.iterset.leaf_target_paths
+        assert len(leaf_target_paths) == 1, \
                 "Context-free loops should have linear axis trees"
-            equiv_leaf_target_paths.append(
-                equiv_leaf_target_paths_per_target[self.iterset.leaf_path]
-            )
-        equiv_leaf_target_paths = tuple(equiv_leaf_target_paths)
-        return (equiv_leaf_target_paths,)
+        return leaf_target_paths
 
 
     # @cached_property
@@ -1460,58 +1456,60 @@ def index_axes(
     # (where each 'component' is also a tuple of *equivalent targets*).
 
     # construct the new, indexed, axis tree
-    indexed_axes, indexed_target_paths_and_exprs, outer_loops = make_indexed_axis_tree(index_tree, target_axes)
+    indexed_axes, indexed_targets, outer_loops = make_indexed_axis_tree(index_tree, target_axes)
+
+    indexed_targets = complete_axis_targets(indexed_targets)
 
     # If the original axis tree is unindexed then no composition is required.
     if orig_axes is None or isinstance(orig_axes, AxisTree):
         if indexed_axes is UNIT_AXIS_TREE:
             return UnitIndexedAxisTree(
                 orig_axes,
-                targets=indexed_target_paths_and_exprs,
+                targets=indexed_targets,
             )
         else:
-            return IndexedAxisTree(indexed_axes, orig_axes, targets=indexed_target_paths_and_exprs)
+            return IndexedAxisTree(indexed_axes, orig_axes, targets=indexed_targets)
 
     if orig_axes is None:
         raise NotImplementedError("Need to think about this case")
 
-    matching_target = match_target(indexed_axes, orig_axes, indexed_target_paths_and_exprs)
-    breakpoint()
+    matching_target = match_target(indexed_axes, orig_axes, indexed_targets)
+    fullmap = _index_info_targets_axes(indexed_axes, matching_target, orig_axes)
+    composed_targets = compose_targets(orig_axes, orig_axes.targets, indexed_axes, matching_target, fullmap)
 
-    all_target_paths_and_exprs = []
-    for orig_target in orig_axes.targets:
-        breakpoint()
-
-        # find matching target!
-        match_found = False
-        # TODO: would be more intuitive to find match first, instead of looping
-        for indexed_path_and_exprs in indexed_target_paths_and_exprs:
-            # add empty root entry to avoid special-casing
-            indexed_path_and_exprs = idict({idict(): ()}) | indexed_path_and_exprs
-            try:
-                fullmap = _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, orig_axes)
-            except MyBadError:
-                # does not match, continue
-                continue
-
-            assert not match_found, "don't expect multiple hits"
-            target_path_and_exprs = compose_targets(orig_axes, orig_target, indexed_axes, indexed_path_and_exprs, fullmap)
-            match_found = True
-
-            all_target_paths_and_exprs.append(target_path_and_exprs)
-        assert match_found, "must hit once"
+    # all_target_paths_and_exprs = []
+    # for orig_target in orig_axes.targets:
+    #     breakpoint()
+    #
+    #     # find matching target!
+    #     match_found = False
+    #     # TODO: would be more intuitive to find match first, instead of looping
+    #     for indexed_path_and_exprs in indexed_targets:
+    #         # add empty root entry to avoid special-casing
+    #         indexed_path_and_exprs = idict({idict(): ()}) | indexed_path_and_exprs
+    #         try:
+    #         except MyBadError:
+    #             # does not match, continue
+    #             continue
+    #
+    #         assert not match_found, "don't expect multiple hits"
+    #         target_path_and_exprs = compose_targets(orig_axes, orig_target, indexed_axes, indexed_path_and_exprs, fullmap)
+    #         match_found = True
+    #
+    #         all_target_paths_and_exprs.append(target_path_and_exprs)
+    #     assert match_found, "must hit once"
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     if indexed_axes is UNIT_AXIS_TREE:
         retval = UnitIndexedAxisTree(
             orig_axes.unindexed,
-            targets=all_target_paths_and_exprs,
+            targets=composed_targets,
         )
     else:
         retval = IndexedAxisTree(
             indexed_axes.node_map,
             orig_axes.unindexed,
-            targets=all_target_paths_and_exprs,
+            targets=composed_targets,
         )
 
     # debugging
@@ -1610,7 +1608,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
     return (axis_tree, targets, outer_loops)
 
 
-def compose_targets(orig_axes, orig_target, indexed_axes, indexed_target, fullmap, *, axis_path=idict()):
+def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullmap, *, axis_path=idict()):
     """
 
     Traverse ``indexed_axes``, picking up bits from indexed_target_paths and keep
@@ -1636,25 +1634,36 @@ def compose_targets(orig_axes, orig_target, indexed_axes, indexed_target, fullma
 
     if not axis_path:
         # special handling for entries that are not tied to a specific axis
-        none_axis_targets = []
-
-        orig_none_axis_targets = orig_target[idict()]
+        initially_empty_axis_targets = []
         expr_replace_map = merge_dicts(t.replace_map for t in indexed_target[idict()])
-        for axis_target in orig_none_axis_targets:
-            composed_expr = replace_terminals(axis_target.expr, expr_replace_map)
-            composed_axis_target = AxisTarget(axis_target.axis, axis_target.component, composed_expr)
-            none_axis_targets.append(composed_axis_target)
+
+        for axis_targets in orig_targets[idict()]:
+            XXX = []
+            for axis_target in axis_targets:
+                composed_expr = replace_terminals(axis_target.expr, expr_replace_map)
+                composed_axis_target = AxisTarget(axis_target.axis, axis_target.component, composed_expr)
+                XXX.append(composed_axis_target)
+            initially_empty_axis_targets.append(XXX)
 
         # then from the indexed axes
+        YYY = [initially_empty_axis_targets]
         for target_path in fullmap[idict()]:
-            orig_axis_targets = orig_target[target_path]
-            for orig_axis_target in orig_axis_targets:
-                composed_expr = replace_terminals(orig_axis_target.expr, expr_replace_map)
-                composed_axis_target = AxisTarget(
-                    orig_axis_target.axis, orig_axis_target.component, composed_expr
-                )
-                none_axis_targets.append(composed_axis_target)
-        composed_target[idict()] = tuple(none_axis_targets)
+            ZZZ = []
+            for orig_axis_targets in orig_targets[target_path]:
+                AAA = []
+                for orig_axis_target in orig_axis_targets:
+                    composed_expr = replace_terminals(orig_axis_target.expr, expr_replace_map)
+                    composed_axis_target = AxisTarget(
+                        orig_axis_target.axis, orig_axis_target.component, composed_expr
+                    )
+                    AAA.append(composed_axis_target)
+                ZZZ.append(AAA)
+            YYY.append(ZZZ)
+
+        if YYY != [[[]]]:
+            breakpoint()
+        else:
+            composed_target[idict()] = ((),)
 
         if indexed_axes.is_empty or indexed_axes is UNIT_AXIS_TREE:
             return idict(composed_target)
@@ -1663,23 +1672,35 @@ def compose_targets(orig_axes, orig_target, indexed_axes, indexed_target, fullma
     for component in axis.components:
         path_ = axis_path | {axis.label: component.label}
 
-        composed_axis_targets = []
+        # some of these cannot be combined, and others can!
+        AAA = []
         indexed_axis_targets = indexed_target[path_]
         expr_replace_map = merge_dicts(t.replace_map for t in indexed_axis_targets)
         for target_path in fullmap[path_]:
-            orig_axis_targets = orig_target[target_path]
-            for orig_axis_target in orig_axis_targets:
-                composed_expr = replace_terminals(orig_axis_target.expr, expr_replace_map)
-                composed_axis_target = AxisTarget(
-                    orig_axis_target.axis, orig_axis_target.component, composed_expr
-                )
-                composed_axis_targets.append(composed_axis_target)
-        composed_target[path_] = tuple(composed_axis_targets)
+            BBB = []  # cannot be mixed
+            for orig_axis_targets in orig_targets[target_path]:
+                composed_axis_targets = []
+                for orig_axis_target in orig_axis_targets:
+                    composed_expr = replace_terminals(orig_axis_target.expr, expr_replace_map)
+                    composed_axis_target = AxisTarget(
+                        orig_axis_target.axis, orig_axis_target.component, composed_expr
+                    )
+                    composed_axis_targets.append(composed_axis_target)
+                BBB.append(composed_axis_targets)
+            AAA.append(BBB)
+
+        # also used in leaf_target_paths, generalise
+        merged = []
+        for debug in itertools.product(AAA):
+            for debug2 in itertools.product(*debug):
+                merged.append(list(chain(*debug2)))
+
+        composed_target[path_] = utils.freeze(merged)
 
         if indexed_axes.node_map[path_]:
             composed_target_paths_ = compose_targets(
                 orig_axes,
-                orig_target,
+                orig_targets,
                 indexed_axes,
                 indexed_target,
                 fullmap,
@@ -1738,19 +1759,6 @@ def _index_info_targets_axes(indexed_axes, target, orig_axes) -> bool:
         for ax, c in ordered_target_path.items():
             acc = acc | {ax: c}
             partial_to_full_path_map[ax, c] = acc
-
-        # if idict() in target:
-        #     # The current index information is currently done per index, rather
-        #     # than with the tree as a whole. To convert these partial results
-        #     # into ones with full path information
-        #
-        #     partial_target_path, target_exprs = target[idict()]
-        #
-        #     full_target_paths = []
-        #     for target_axis, target_component in partial_target_path.items():
-        #         full_target_path = partial_to_full_path_map[target_axis, target_component]
-        #         full_target_paths.append(full_target_path)
-        #     result[idict()] = (tuple(full_target_paths), target_exprs)
 
         for indexed_leaf_path_acc in accumulate_path(indexed_leaf_path):
             indexed_axis_targets = target[indexed_leaf_path_acc]

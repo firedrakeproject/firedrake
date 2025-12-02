@@ -931,25 +931,26 @@ class FunctionSpace:
 
         # We have the two mappings as expressions, now we have to plug them
         # into the indexed axis tree in the right way.
-        target = {}
-        orig_target: idict[ConcretePathT, tuple[AxisTarget, ...]] = utils.just_one(axis_tree.targets)
-        for source_path, axis_targets in orig_target.items():
-            target[source_path] = []
+        targets = utils.StrictlyUniqueDict()
+        for source_path, candidate_axis_targets in axis_tree.targets.items():
+            new_axis_targets = []
+            axis_targets = utils.just_one(candidate_axis_targets)
             for axis_target in axis_targets:
                 if axis_target.axis == "nodes":
                     mesh_target = op3.AxisTarget("mesh", "mylabel", node_point_map_expr)
                     dof_target = op3.AxisTarget("dof", "XXX", node_dof_map_expr)
-                    target[source_path].extend([mesh_target, dof_target])
+                    new_axis_targets.extend([mesh_target, dof_target])
                 else:
                     # All other axes (e.g. 'dim0') map directly to the layout axes
                     # and do not require modification
-                    target[source_path].append(axis_target)
-        target = utils.freeze(target)
+                    new_axis_targets.append(axis_target)
+            targets[source_path] = [new_axis_targets]
+        targets = utils.freeze(targets)
 
         return op3.IndexedAxisTree(
             axis_tree,
             unindexed=self.layout_axes,
-            targets=(target,),
+            targets=targets,
         )
 
     # These properties are overridden in ProxyFunctionSpaces, but are
