@@ -9,8 +9,6 @@ from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
 from firedrake.norms import norm
 
-__all__ = ("EnsembleFunction", "EnsembleCofunction")
-
 
 class EnsembleFunctionBase(EnsembleFunctionMixin):
     """

@@ -1,7 +1,7 @@
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
-from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMatrix
+from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMat
 
 
 @pytest.mark.parallel([1, 2, 3, 4])
@@ -37,7 +37,7 @@ def test_ensemble_mat():
     mats = [A0mat, A1mat]
 
     # create ensemble mat
-    emat = EnsembleBlockDiagonalMatrix(mats, row_space, col_space)
+    emat = EnsembleBlockDiagonalMat(mats, row_space, col_space)
 
     # build ensemble function lhs and rhs for Ax=y
     x = EnsembleFunction(row_space)
@@ -64,7 +64,7 @@ def test_ensemble_mat():
     # check results
     parallel_assert(
         all(checks),
-        msg=("Action of EnsembleBlockDiagonalMatrix does not match"
+        msg=("Action of EnsembleBlockDiagonalMat does not match"
              f" actions of local matrices: {checks}")
     )
 
@@ -106,7 +106,7 @@ def test_ensemble_pc(default_options):
     mats = [A0mat, A1mat]
 
     # create ensemble mat
-    emat = EnsembleBlockDiagonalMatrix(mats, row_space, col_space)
+    emat = EnsembleBlockDiagonalMat(mats, row_space, col_space)
 
     # parameters: direct solve on blocks
     parameters = {
@@ -142,7 +142,7 @@ def test_ensemble_pc(default_options):
     parallel_assert(
         ksp.its == 1,
         msg=("EnsembleBJacobiPC took more than one iteration to"
-             f" solve an EnsembleBlockDiagonalMatrix: {ksp.its=}")
+             f" solve an EnsembleBlockDiagonalMat: {ksp.its=}")
     )
 
 

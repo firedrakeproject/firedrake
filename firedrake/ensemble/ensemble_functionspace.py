@@ -7,8 +7,6 @@ from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
 
-__all__ = ("EnsembleFunctionSpace", "EnsembleDualSpace")
-
 
 def _is_primal_or_dual(local_spaces, ensemble):
     """

@@ -1,11 +1,7 @@
 import petsctools
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_function import EnsembleFunction
-from firedrake.ensemble.ensemble_mat import EnsembleMatBase, EnsembleBlockDiagonalMat
-
-__all__ = (
-    "EnsembleBJacobiPC",
-)
+from firedrake.ensemble.ensemble_mat import EnsembleMatCtxBase, EnsembleBlockDiagonalMatCtx
 
 
 def obj_name(obj):
@@ -16,7 +12,7 @@ class EnsemblePCBase(petsctools.PCBase):
     """
     Base class for python type PCs defined over an :class:`~.ensemble.Ensemble`.
 
-    The pc operators must be python Mats with :class:`~.ensemble_mat.EnsembleMatBase`.
+    The pc operators must be python Mats with :class:`~.ensemble_mat.EnsembleMatCtxBase`.
 
     Notes
     -----
@@ -26,14 +22,14 @@ class EnsemblePCBase(petsctools.PCBase):
 
     See Also
     --------
-    ~.ensemble_mat.EnsembleMatBase
+    ~.ensemble_mat.EnsembleMatCtxBase
     """
     needs_python_pmat = True
 
     def initialize(self, pc):
         super().initialize(pc)
 
-        if not isinstance(self.pmat, EnsembleMatBase):
+        if not isinstance(self.pmat, EnsembleMatCtxBase):
             pcname = obj_name(self)
             pmatname = obj_name(self.pmat)
             raise TypeError(
@@ -74,11 +70,11 @@ class EnsembleBJacobiPC(EnsemblePCBase):
 
     Notes
     -----
-    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMat` matrices.
+    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMatCtx` matrices.
 
     See Also
     --------
-    ~.ensemble_mat.EnsembleBlockDiagonalMatrix
+    ~.ensemble_mat.EnsembleBlockDiagonalMatCtx
     ~.ensemble_mat.EnsembleBlockDiagonalMat
     """
     prefix = "ebjacobi_"
@@ -89,18 +85,18 @@ class EnsembleBJacobiPC(EnsemblePCBase):
         use_amat_prefix = self.parent_prefix + "pc_use_amat"
         self.use_amat = PETSc.Options().getBool(use_amat_prefix, False)
 
-        if not isinstance(self.pmat, EnsembleBlockDiagonalMat):
+        if not isinstance(self.pmat, EnsembleBlockDiagonalMatCtx):
             pcname = obj_name(self)
             matname = obj_name(self.pmat)
             raise TypeError(
-                f"PC {pcname} needs an EnsembleBlockDiagonalMat pmat, but it is a {matname}")
+                f"PC {pcname} needs an EnsembleBlockDiagonalMatCtx pmat, but it is a {matname}")
 
         if self.use_amat:
-            if not isinstance(self.amat, EnsembleBlockDiagonalMat):
+            if not isinstance(self.amat, EnsembleBlockDiagonalMatCtx):
                 pcname = obj_name(self)
                 matname = obj_name(self.amat)
                 raise TypeError(
-                    f"PC {pcname} needs an EnsembleBlockDiagonalMat amat, but it is a {matname}")
+                    f"PC {pcname} needs an EnsembleBlockDiagonalMatCtx amat, but it is a {matname}")
 
         default_sub_prefix = self.parent_prefix + "sub_"
 

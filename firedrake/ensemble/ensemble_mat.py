@@ -3,13 +3,8 @@ from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_function import EnsembleFunction, EnsembleFunctionBase
 from firedrake.ensemble.ensemble_functionspace import EnsembleFunctionSpaceBase
 
-__all__ = (
-    "EnsembleBlockDiagonalMat",
-    "EnsembleBlockDiagonalMatrix",
-)
 
-
-class EnsembleMatBase:
+class EnsembleMatCtxBase:
     """
     Base class for python type Mats defined over an :class:`~.ensemble.Ensemble`.
 
@@ -80,7 +75,7 @@ class EnsembleMatBase:
         raise NotImplementedError
 
 
-class EnsembleBlockDiagonalMat(EnsembleMatBase):
+class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
     """
     A python Mat context for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
     Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
@@ -105,7 +100,7 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
 
     See Also
     --------
-    EnsembleBlockDiagonalMatrix
+    EnsembleBlockDiagonalMat
     ~.ensemble_pc.EnsembleBJacobiPC
     """
     def __init__(self, block_mats: Iterable,
@@ -128,10 +123,14 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
         for i, (Vrow, Vcol, block) in enumerate(zip(self.row_space.local_spaces,
                                                     self.col_space.local_spaces,
                                                     self.block_mats)):
+            if not isinstance(block, PETSc.Mat):
+                raise TypeError(
+                    f"Block {i} must be a PETSc.Mat not a {type(block).__name__}.\n"
+                    "Did you mean to use assemble(block).petscmat instead?")
             # number of columns is row length, and vice-versa
-            vc_sizes = Vrow.dof_dset.layout_vec.sizes
-            vr_sizes = Vcol.dof_dset.layout_vec.sizes
-            mr_sizes, mc_sizes = block.sizes
+            vr_sizes = Vrow.dof_dset.layout_vec.sizes
+            vc_sizes = Vcol.dof_dset.layout_vec.sizes
+            mc_sizes, mr_sizes = block.sizes
             if (vr_sizes[0] != mr_sizes[0]) or (vr_sizes[1] != mr_sizes[1]):
                 raise ValueError(
                     f"Row sizes {mr_sizes} of block {i} and {vr_sizes} of row_space {i} of EnsembleBlockDiagonalMat must match.")
@@ -189,13 +188,13 @@ class EnsembleBlockDiagonalMat(EnsembleMatBase):
             viewer.popASCIISynchronized()
 
 
-def EnsembleBlockDiagonalMatrix(block_mats: Iterable,
-                                row_space: EnsembleFunctionSpaceBase,
-                                col_space: EnsembleFunctionSpaceBase):
+def EnsembleBlockDiagonalMat(block_mats: Iterable,
+                             row_space: EnsembleFunctionSpaceBase,
+                             col_space: EnsembleFunctionSpaceBase):
     """
     A Mat for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
     Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
-    This is a convenience function to create a PETSc.Mat with a :class:`.EnsembleBlockDiagonalMat` Python context.
+    This is a convenience function to create a PETSc.Mat with a :class:`.EnsembleBlockDiagonalMatCtx` Python context.
 
     Parameters
     ----------
@@ -213,14 +212,14 @@ def EnsembleBlockDiagonalMatrix(block_mats: Iterable,
     Returns
     -------
     PETSc.Mat :
-        The PETSc.Mat with an :class:`.EnsembleBlockDiagonalMat` Python context.
+        The PETSc.Mat with an :class:`.EnsembleBlockDiagonalMatCtx` Python context.
 
     See Also
     --------
-    EnsembleBlockDiagonalMat
+    EnsembleBlockDiagonalMatCtx
     ~.ensemble_pc.EnsembleBJacobiPC
     """
-    ctx = EnsembleBlockDiagonalMat(block_mats, row_space, col_space)
+    ctx = EnsembleBlockDiagonalMatCtx(block_mats, row_space, col_space)
 
     # number of columns is row length, and vice-versa
     ncols = ctx.col_space.layout_vec.getSizes()
