@@ -2144,52 +2144,13 @@ class RealFunctionSpace(FunctionSpace):
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        # For real function spaces the mesh is conceptually non-existent as all
-        # cells map to the same globally-defined DoFs. We can trick pyop3 into
-        # pretending that a mesh axis exists though by careful construction of
-        # an indexed axis tree. With this trick no special-casing of real spaces
-        # should be necessary anywhere else.
+        return self._make_axes("plex")
 
-        # Create the pretend axis tree that includes the mesh axis. This is
-        # just a DG0 function.
-        dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.plex_axes.materialize()
-
-        # Now map the mesh-aware axis tree back to the actual one. This involves
-        # two parts:
-        #
-        #   1. All references to the mesh must be removed.
-        #   2. Attempts to address cell DoFs should map to the "dof" axis
-        #      in the actual layout tree.
-        #
-        # Other elements of the tree (e.g. tensor shape) are the same and
-        # can be left unchanged.
-        targets = utils.StrictlyUniqueDefaultDict(list)
-        for path, axis_targets in utils.just_one(fake_axes.targets).items():
-            if path.keys() == {self._mesh.name}:
-                targets[path] = ()
-                continue
-            for axis_target in axis_targets:
-                assert axis_target.axis != self._mesh.name
-                if axis_target.axis.startswith("dof"):
-                    if axis_target.axis == f"dof{self._mesh.cell_label}":
-                        dof_expr = 0
-                    else:
-                        dof_expr = op3.NAN
-                    axis_target = op3.AxisTarget("dof", "XXX", dof_expr)
-                targets[path].append(axis_target)
-        targets = utils.freeze(targets)
-
-        # FIXME: This is intractably slow! Cannot allow this expansion to occur
-        # targets = op3.utils.expand_collection_of_iterables(targets)
-        targets = (targets,)
-        return op3.IndexedAxisTree(
-            fake_axes, unindexed=self.layout_axes, targets=targets,
-        )
-
-    # I think that this should be very very similar to the above case
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
+        return self._make_axes("nodal")
+
+    def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # For real function spaces the mesh is conceptually non-existent as all
         # cells map to the same globally-defined DoFs. We can trick pyop3 into
         # pretending that a mesh axis exists though by careful construction of
@@ -2199,23 +2160,37 @@ class RealFunctionSpace(FunctionSpace):
         # Create the pretend axis tree that includes the mesh axis. This is
         # just a DG0 function.
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.nodal_axes.materialize()
+        if mode == "plex":
+            fake_axes = dg_space.plex_axes.materialize()
+        else:
+            assert mode == "nodal"
+            fake_axes = dg_space.nodal_axes.materialize()
 
-        # Now map the mesh-aware axis tree back to the actual one
-        # constitutes two steps:
-        #
-        #   1. All references to the mesh must be removed.
-        #   2. Attempts to address cell DoFs should map to the "dof" axis
-        #      in the actual layout axis tree.
+        # Now map the mesh-aware axis tree back to the actual one. For the 'plex'
+        # case this means mapping all of the mesh points to nothing, and the
+        # (single) cell DoF to 0. For the 'nodal' case we have to map all the node
+        # points to 0.
         #
         # Other elements of the tree (i.e. tensor shape) are the same and
         # can be left unchanged.
         targets = utils.StrictlyUniqueDefaultDict(list)
         for path, axis_targets in utils.just_one(fake_axes.targets).items():
-            for axis_target in axis_targets:
-                if axis_target.axis == "nodes":
-                    axis_target = op3.AxisTarget("dof", "XXX", 0)
-                targets[path].append(axis_target)
+            if mode == "plex":
+                if path.keys() == {self._mesh.name}:
+                    targets[path] = ()
+                else:
+                    for axis_target in axis_targets:
+                        if axis_target.axis == f"dof{self._mesh.cell_label}":
+                            axis_target = op3.AxisTarget("dof", "XXX", 0)
+                        elif axis_target.axis.startswith("dof"):
+                            axis_target = op3.AxisTarget("dof", "XXX", op3.NAN)
+                        targets[path].append(axis_target)
+            else:
+                assert mode == "nodal"
+                for axis_target in axis_targets:
+                    if axis_target.axis == "nodes":
+                        axis_target = op3.AxisTarget("dof", "XXX", 0)
+                    targets[path].append(axis_target)
         targets = utils.freeze(targets)
 
         # FIXME: This is intractably slow! Cannot allow this expansion to occur
