@@ -584,7 +584,7 @@ def test_interpolator_reuse(family, degree, mode):
         u = Function(V.dual())
         expr = interpolate(TestFunction(V), u)
 
-    I = Interpolator(expr, V)
+    I = get_interpolator(expr)
 
     for k in range(3):
         u.assign(rg.uniform(u.function_space()))
