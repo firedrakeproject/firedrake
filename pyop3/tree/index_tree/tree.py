@@ -281,43 +281,6 @@ class AxisIndependentIndex(Index):
         return tuple(i for i, _ in enumerate(self.axes.leaf_paths))
 
 
-# class ContextFreeIndex(Index, ContextFree, abc.ABC):
-#     # The following is unimplemented but may prove useful
-#     # @property
-#     # def axes(self):
-#     #     return self._tree.axes
-#     #
-#     # @property
-#     # def target_paths(self):
-#     #     return self._tree.target_paths
-#     #
-#     # @cached_property
-#     # def _tree(self):
-#     #     """
-#     #
-#     #     Notes
-#     #     -----
-#     #     This method will deliberately not work for slices since slices
-#     #     require additional existing axis information in order to be valid.
-#     #
-#     #     """
-#     #     return as_index_tree(self)
-#     @abc.abstractmethod
-#     def restrict(self, paths):
-#         """Return a restricted index with only the paths provided.
-#
-#         The resulting index will have its components ordered as given by ``paths``.
-#
-#         """
-#
-#
-#
-# class ContextSensitiveIndex(Index, ContextSensitive, abc.ABC):
-#     def __init__(self, context_map, *, id=None):
-#         Index.__init__(self, id)
-#         ContextSensitive.__init__(self, context_map)
-
-
 LoopIndexIdT = Hashable
 
 
@@ -376,10 +339,10 @@ class LoopIndex(Index):
             raise ContextSensitiveException("Expected a context-free index")
 
         _, targets, _ = _index_axes_per_index(self)
-        # need to move the target bit to the outside
-        unpacked_targets = expand_compressed_target_paths(targets)
+        # # need to move the target bit to the outside
+        # unpacked_targets = expand_compressed_target_paths(targets)
 
-        return UnitIndexedAxisTree(unindexed=None, targets=unpacked_targets)
+        return UnitIndexedAxisTree(unindexed=None, targets=targets)
 
     # TODO: don't think this is useful any more, certainly a confusing name
     @property
@@ -390,24 +353,9 @@ class LoopIndex(Index):
         but that component can target differently labelled axes (so the tuple entry is an n-tuple).
 
         """
-        leaf_target_paths = self.iterset.leaf_target_paths
-        assert len(leaf_target_paths) == 1, \
-                "Context-free loops should have linear axis trees"
-        return leaf_target_paths
+        return collect_leaf_target_paths(self.iterset)
 
 
-    # @cached_property
-    # def local_index(self):
-    #     return LocalLoopIndex(self)
-
-    # @property
-    # def i(self):
-    #     return self.local_index
-
-    # @property
-    # def paths(self):
-    #     return tuple(self.iterset.path(*leaf) for leaf in self.iterset.leaves)
-    #
     # NOTE: This is confusing terminology. A loop index can be context-sensitive
     # in two senses:
     # 1. axes.index() is context-sensitive if axes is multi-component
@@ -417,11 +365,6 @@ class LoopIndex(Index):
     def with_context(self, context, *args) -> LoopIndex:
         from pyop3.tree.index_tree.parse import _as_context_free_indices
         return utils.just_one(_as_context_free_indices(self, context))
-
-    # unsure if this is required
-    @property
-    def datamap(self):
-        return self.iterset.datamap
 
 
 class InvalidIterationSetException(Pyop3Exception):
@@ -779,23 +722,19 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         input_axes = self.index.axes
         axes_ = input_axes.materialize()
         targets = {}
-        for input_leaf_path in input_axes.leaf_paths:
+        for input_leaf_path, input_leaf_targets_per_leaf in zip(input_axes.leaf_paths, collect_leaf_targets(input_axes), strict=True):
             found = False
-            for input_target in input_axes.targets:
-                input_target_path = {}
-                for input_path_acc in accumulate_path(input_leaf_path):
-                    input_axis_targets = input_target[input_path_acc]
-                    for input_axis_target in input_axis_targets:
-                        input_target_path |= input_axis_target.path
-                input_target_path = utils.freeze(input_target_path)
+            for input_target in input_leaf_targets_per_leaf:
+                # input_target_path = {}
+                # for input_path_acc in accumulate_path(input_leaf_path):
+                #     input_axis_targets = input_target[input_path_acc]
+                #     for input_axis_target in input_axis_targets:
+                #         input_target_path |= input_axis_target.path
+                # input_target_path = utils.freeze(input_target_path)
+                input_target_path = merge_dicts(t.path for t in input_target)
 
                 if input_target_path in self.connectivity:
-                    if found:
-                        raise UnspecialisedCalledMapException(
-                            "Multiple (equivalent) input paths have been found that "
-                            "are accepted by the map. This ambiguity makes it impossible "
-                            "to form an IndexTree."
-                        )
+                    found = True
 
                     if len(self.connectivity[input_target_path]) > 1:
                         raise UnspecialisedCalledMapException(
@@ -803,7 +742,6 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                             "This ambiguity makes it impossible to form an IndexTree."
                         )
 
-                    found = True
                     output_spec = just_one(self.connectivity[input_target_path])
 
                     # make a method
@@ -815,14 +753,11 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                     for subtarget_key, subtarget_value in subtargets.items():
                         targets[input_leaf_path | subtarget_key] = subtarget_value
 
-            if not found:
-                assert False
+                    break
+
+            assert found
 
         targets = idict(targets)
-
-        # Since maps are necessarily restricted to a single interpretation we only
-        # have one possible interpretation of the targets.
-        targets = (targets,)
         return IndexedAxisTree(axes_.node_map, None, targets=targets)
 
     @property
@@ -832,6 +767,8 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
     # NOTE: nothing about this is specific to an index
     @property
     def leaf_target_paths(self) -> tuple:
+        return collect_leaf_target_paths(self.axes)
+        raise NotImplementedError
         # NOTE: axes.leaf_target_paths has the target outermost, whereas
         # here we want the leaf to be outermost
         leaf_target_paths_ = []
@@ -930,6 +867,7 @@ def _(scalar_index: ScalarIndex, /, *args, **kwargs):
 
 @collect_index_target_paths.register(Slice)
 def _(slice_: Slice) -> tuple[tuple[idict[str, str]], ...]:
+    return slice_.leaf_target_paths
     return tuple(
         (idict({slice_.axis: slice_component.component}),)
         for slice_component in slice_.components
@@ -938,11 +876,12 @@ def _(slice_: Slice) -> tuple[tuple[idict[str, str]], ...]:
 
 @collect_index_target_paths.register(CalledMap)
 def _(called_map: CalledMap) -> tuple[tuple[idict[str, str]], ...]:
+    return called_map.leaf_target_paths
     # duplicate of elsewhere
     leaf_target_paths_ = []
     for leaf_path in called_map.axes.leaf_paths:
         leaf_target_paths_per_target = []
-        for leaf_targets_per_target in called_map.axes.leaf_target_paths:
+        for leaf_targets_per_target in called_map.leaf_target_paths:
             leaf_target_paths_per_target.append(leaf_targets_per_target[leaf_path])
         leaf_target_paths_per_target = tuple(leaf_target_paths_per_target)
         leaf_target_paths_.append(leaf_target_paths_per_target)
@@ -972,6 +911,7 @@ def match_target_paths_to_axis_tree_rec(
     leaf_target_axes = []
     index_target_paths = collect_index_target_paths(index)
     for equivalent_index_target_paths, index_component_label in zip(index_target_paths, index.component_labels, strict=True):
+        equivalent_index_target_paths = list(equivalent_index_target_paths)
 
         index_path_ = index_path | {index.label: index_component_label}
 
@@ -1023,42 +963,7 @@ def match_target_paths_to_axis_tree_rec(
 
     target_axes_by_index = idict(target_axes_by_index)
     leaf_target_axes = tuple(leaf_target_axes)
-
     return target_axes_by_index, leaf_target_axes
-
-
-# FIXME NEXT
-# Do this when we do this for subsets, pass a replace map down and keep applying it!
-#
-#
-# # TODO: I think that I already do this operation for things like subsets
-# def apply_partial_index_trees_to_individual_axes(index_tree, target_axes, *, path, visited_indices):
-#     """Apply the index tree to the individual axes that are accessed.
-#
-#     This is important for cases where the axes reference other 'parent' axes
-#     in the tree. Consider for example a ragged tree with shape `(3, [2, 1, 3])`.
-#     If we slice the root axis to take only the first two elements (i.e. `[:2]`)
-#     then we need to propagate this information to the size array too.
-#
-#     The traversal pattern here is we go down the index tree and apply all
-#     parent indices to the current axis.
-#
-#     """
-#     indexed_target_axes = {}
-#
-#     index = index_tree.node_map[path]
-#     for component_label in index.component_labels:
-#         path_ = path | {index.label: component_label}
-#
-#         initial_target_axis = target_axes[path_]
-#         indexed_target_axis = ???
-#
-#         indexed_target_axes[path_] = indexed_target_axis
-#
-#         if index_tree.node_map[path_]:
-#             recurse
-#
-#     return utils.freeze(indexed_target_axes)
 
 
 @functools.singledispatch
@@ -1096,30 +1001,60 @@ def _(loop_index: LoopIndex, /, *args, **kwargs):
     from pyop3.expr.visitors import replace_terminals
 
     iterset = loop_index.iterset
+    assert iterset.is_linear
 
     # Example:
     # If we assume that the loop index has target expressions
     #     AxisVar("a") * 2     and       AxisVar("b")
     # then this will return
     #     LoopIndexVar(p, "a") * 2      and LoopIndexVar(p, "b")
-    new_targets: dict[ConcretePathT, list[AxisTarget]] = {idict(): []}
+    # new_targets: dict[ConcretePathT, list[list[AxisTarget]]] = {idict(): []}
     replace_map = {
         axis.label: LoopIndexVar(loop_index, axis.localize())
         for axis, _ in iterset.visited_nodes(iterset.leaf_path)
     }
-    # this simply applies the loop index substitution. I wonder if this should be eager
-    for target in iterset.targets:
-        new_axis_targets = []
-        for axis_targets in target.values():
-            for axis_target in axis_targets:
-                new_axis_target = AxisTarget(
+    # new_axis_targetss = []
+    # for axis_targets in mytargets:
+    #     new_axis_targets = []
+    #     for axis_target in axis_targets:
+    #         new_axis_target = AxisTarget(
+    #             axis_target.axis,
+    #             axis_target.component,
+    #             replace_terminals(axis_target.expr, replace_map),
+    #         )
+    #         new_axis_targets.append(new_axis_target)
+    #     new_axis_targetss.append(new_axis_targets)
+
+    iterset_targets = utils.just_one(collect_leaf_targets(iterset))
+    new_targets = utils.freeze({
+        idict(): [
+            [
+                AxisTarget(
                     axis_target.axis,
                     axis_target.component,
                     replace_terminals(axis_target.expr, replace_map),
                 )
-                new_axis_targets.append(new_axis_target)
-        new_targets[idict()].append(new_axis_targets)
-    new_targets = utils.freeze(new_targets)
+                for axis_target in axis_targets
+            ]
+            for axis_targets in iterset_targets
+        ]
+    })
+
+
+    # for path, axis_targetss in iterset.targets.items():
+    #     new_axis_targetss = []
+    #     for axis_targets in axis_targetss:
+    #         new_axis_targets = []
+    #         for axis_target in axis_targets:
+    #             new_axis_target = AxisTarget(
+    #                 axis_target.axis,
+    #                 axis_target.component,
+    #                 replace_terminals(axis_target.expr, replace_map),
+    #             )
+    #             new_axis_targets.append(new_axis_target)
+    #         new_axis_targetss.append(new_axis_targets)
+    #     new_targets[path] = new_axis_targetss
+    # new_targets = utils.freeze(new_targets)
 
     outer_loops = iterset.outer_loops + (loop_index,)
 
@@ -1339,11 +1274,11 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
 @_index_axes_per_index.register(CalledMap)
 def _(called_map: CalledMap, *args, **kwargs):
     # compress the targets here
-    compressed_targets = {}
-    for leaf_path in called_map.axes.leaf_paths:
-        compressed_targets[leaf_path] = tuple(t[leaf_path] for t in called_map.axes.targets)
+    # compressed_targets = {}
+    # for leaf_path in called_map.axes.leaf_paths:
+    #     compressed_targets[leaf_path] = tuple(t[leaf_path] for t in called_map.axes.targets)
 
-    return called_map.axes.materialize(), compressed_targets, called_map.outer_loops
+    return called_map.axes.materialize(), called_map.axes.targets, called_map.outer_loops
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
@@ -1353,7 +1288,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
 
     components = []
     replace_map = merge_dicts(
-        t.replace_map for t in chain(*input_paths_and_exprs.values())
+        t.replace_map for t in input_paths_and_exprs
     )
     for map_output in output_spec:
         # NOTE: This should be done more eagerly.
@@ -1375,7 +1310,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
         target_component = map_output.target_component
         expr = replace_terminals(map_output.array, replace_map, assert_modified=True)
         axis_target = AxisTarget(target_axis, target_component, expr)
-        targets[idict({axis.label: component.label})] = (axis_target,)
+        targets[idict({axis.label: component.label})] = ((axis_target,),)
     targets = idict(targets)
 
     return (axis, targets)
@@ -1672,6 +1607,8 @@ def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullm
     for component in axis.components:
         path_ = axis_path | {axis.label: component.label}
 
+        # TODO: use merge_targets, but also need to do a subst
+        # merged = merge_targets()
         # some of these cannot be combined, and others can!
         AAA = []
         indexed_axis_targets = indexed_target[path_]
@@ -2118,3 +2055,76 @@ def convert_region_to_affine_slice(region_slice: RegionSliceComponent, axis_comp
 
 def as_slice(label: ComponentLabelT) -> UnparsedSlice:
     return UnparsedSlice(label)
+
+
+def collect_leaf_targets(axes):
+    """
+    Returns
+    -------
+    An iterable of generators, one per leaf.
+
+    Notes
+    -----
+    This function is a generator because often the result does not need to be
+    exhaustively searched.
+
+    """
+    return tuple(
+        _collect_leaf_targets_per_leaf(axes, leaf_path, None, utils.UniqueList())
+        for leaf_path in axes.leaf_paths
+    )
+
+
+def _collect_leaf_targets_per_leaf(axes, leaf_path, path, targets):
+    if path is None:
+        path_ = idict()
+    else:
+        axis = axes.node_map[path]
+        path_ = path | {axis.label: leaf_path[axis.label]}
+
+    for axis_targets in axes.targets[path_]:
+        with utils.stack(targets, axis_targets):
+            if axes.node_map[path_]:
+                yield from _collect_leaf_targets_per_leaf(axes, leaf_path, path_, targets)
+            else:
+                yield tuple(targets)
+
+
+def collect_leaf_target_paths(axes):
+    return tuple(
+        _collect_leaf_target_paths_per_leaf(axes, leaf_path)
+        for leaf_path in axes.leaf_paths
+    )
+
+
+def _collect_leaf_target_paths_per_leaf(axes, leaf_path):
+    leaf_targets = _collect_leaf_targets_per_leaf(axes, leaf_path, None, utils.UniqueList())
+    for leaf_target in leaf_targets:
+        yield merge_dicts(t.path for t in leaf_target)
+
+
+# TODO
+def merge_targets(targets):
+    raise NotImplementedError
+    # some of these cannot be combined, and others can!
+    # AAA = []
+    # indexed_axis_targets = indexed_target[path_]
+    # expr_replace_map = merge_dicts(t.replace_map for t in indexed_axis_targets)
+    # for target_path in fullmap[path_]:
+    #     BBB = []  # cannot be mixed
+    #     for orig_axis_targets in orig_targets[target_path]:
+    #         composed_axis_targets = []
+    #         for orig_axis_target in orig_axis_targets:
+    #             composed_expr = replace_terminals(orig_axis_target.expr, expr_replace_map)
+    #             composed_axis_target = AxisTarget(
+    #                 orig_axis_target.axis, orig_axis_target.component, composed_expr
+    #             )
+    #             composed_axis_targets.append(composed_axis_target)
+    #         BBB.append(composed_axis_targets)
+    #     AAA.append(BBB)
+    #
+    # # also used in leaf_target_paths, generalise
+    # merged = []
+    # for debug in itertools.product(AAA):
+    #     for debug2 in itertools.product(*debug):
+    #         merged.append(list(chain(*debug2)))

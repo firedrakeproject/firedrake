@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+import contextlib
 import dataclasses
 import functools
 import itertools
@@ -142,6 +143,14 @@ class StrictlyUniqueDefaultDict(collections.defaultdict):
         if key in self and value != self[key]:
             raise ValueMismatchException
         return super().__setitem__(key, value)
+
+
+# NOTE: This has a lot of scope for improvements
+class UniqueList(list):
+    def append(self, value, /) -> None:
+        if value in self:
+            raise ValueMismatchException
+        return super().append(value)
 
 
 class OrderedSet(collections.abc.Sequence):
@@ -779,3 +788,19 @@ def is_ellipsis_type(obj: Any) -> bool:
             and all(item is Ellipsis for item in obj)
         )
     )
+
+
+@contextlib.contextmanager
+def stack(list_, to_push):
+    list_.extend(to_push)
+    yield
+    for _ in to_push:
+        list_.pop(-1)
+
+
+@contextlib.contextmanager
+def dict_stack(dict_, to_push):
+    dict_ |= to_push
+    yield
+    for key in to_push:
+        dict_.pop(key)

@@ -224,8 +224,9 @@ class _UnitAxisTree(CacheMixin):
     leaf_path = idict()
     nodes = ()
     _all_region_labels = ()
+    node_map = idict({idict(): None})
 
-    targets = (idict({idict(): ()}),)  # not sure
+    targets = idict({idict(): ((),)})
 
     unindexed = property(lambda self: self)
     regionless = property(lambda self: self)
@@ -1137,44 +1138,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
 
-    # NOTE: This is only really used in one place, probably don't need to make a property then
-    # TODO: This is really ick, are the targets or leaves outermost?
-    @cached_property
-    def leaf_target_paths(self) -> ConcretePathT:
-        leaf_target_paths_ = []
-        for leaf_path in self.leaf_paths:
-            AAA = [idict()]
-            # as we go down we want to make this bigger and bigger
-            for partial_path in accumulate_path(leaf_path):
-                newAAA = []
-                for ts in self.targets[partial_path]:
-                    partial_path = utils.merge_dicts(t.path for t in ts)
-                    for a in AAA:
-                        newAAA.append(a | partial_path)
-                AAA = newAAA
-
-            leaf_target_paths_.append(AAA)
-
-            # also used in compose_targets
-            # merged = []
-            # for debug in itertools.product(AAA):
-            #     for debug2 in itertools.product(*debug):
-            #         merged.append(list(chain(*debug2)))
-            # breakpoint()
-            # leaf_target_paths_.append(merged)
-        return utils.freeze(leaf_target_paths_)
-
-        # for target in self.targets:
-        #     leaf_target_paths_per_target = utils.StrictlyUniqueDict()
-        #     for leaf_path in self.leaf_paths:
-        #         leaf_target_path = utils.StrictlyUniqueDict()
-        #         for partial_path in accumulate_path(leaf_path):
-        #             for t in target[partial_path]:
-        #                 leaf_target_path[t.axis] = t.component
-        #         leaf_target_paths_per_target[leaf_path] = leaf_target_path
-        #     leaf_target_paths_.append(leaf_target_paths_per_target)
-        # return utils.freeze(leaf_target_paths_)
-
     @property
     @abc.abstractmethod
     def _buffer_slice(self) -> slice | np.ndarray[IntType]:
@@ -1419,25 +1382,7 @@ class IndexedAxisTree(AbstractAxisTree):
         else:
             node_map = as_node_map(node_map)
 
-        # for consistency we don't want missing bits, even if they are empty
-        if idict() not in targets:
-            targets = targets | {idict(): ((),)}
-        # new_targets = []
-        # for target in targets:
-        #     if idict() not in target:
-        #         target = {idict(): ()} | target
-        #     new_targets.append(target)
-        # # drop duplicate entries as they are necessarily equivalent
-        # # TODO: remove this ideally...
-        # targets = utils.unique(new_targets)
-        # targets = utils.freeze(targets)
-        # assert len(targets) > 0
-
-        # debugging
-        assert isinstance(targets, idict)
-        for vs in targets.values():
-            assert isinstance(vs, tuple)
-            assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
+        targets = complete_axis_targets(targets)
 
         object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
@@ -1454,7 +1399,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = utils.StrictlyUniqueDict()
         for path, axis in self.node_map.items():
-            targets_[path] = utils.unique(self._targets[path] + self._materialized.targets[path])
+            targets_[path] = self._targets[path] + self._materialized.targets[path]
         return complete_axis_targets(targets_)
 
     # TODO: Should this return LoopIndexVars?
@@ -1554,17 +1499,18 @@ class IndexedAxisTree(AbstractAxisTree):
         path = as_path(path)
 
         linearized_axis_tree = self.materialize().linearize(path, partial=partial)
+        linearized_targets = {
+            partial_path: self.targets[partial_path]
+            for partial_path in accumulate_path(path)
+        }
 
-        # linearize the targets
-        linearized_targets = []
-
-        for orig_target in self.targets:
-            linearized_target = {}
-            for axis_path, target_spec in orig_target.items():
-                if axis_path in linearized_axis_tree.node_map:
-                    linearized_target[axis_path] = target_spec
-            linearized_target = idict(linearized_target)
-            linearized_targets.append(linearized_target)
+        # for orig_target in self.targets:
+        #     linearized_target = {}
+        #     for axis_path, target_spec in orig_target.items():
+        #         if axis_path in linearized_axis_tree.node_map:
+        #             linearized_target[axis_path] = target_spec
+        #     linearized_target = idict(linearized_target)
+        #     linearized_targets.append(linearized_target)
 
         return IndexedAxisTree(
             linearized_axis_tree, self.unindexed, targets=linearized_targets,
@@ -1663,6 +1609,8 @@ class UnitIndexedAxisTree(DistributedObject):
     ):
         if idict() not in targets:
             targets = targets | {idict(): ((),)}
+
+        assert targets.keys() == {idict()}
         # same as indexed axis tree
         # new_targets = []
         # for target in targets:
@@ -1687,8 +1635,9 @@ class UnitIndexedAxisTree(DistributedObject):
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
-        raise NotImplementedError("TODO")
-        return self._targets + self.materialize().targets
+        return complete_axis_targets({
+            idict(): self._targets[idict()] + self.materialize().targets[idict()]
+        })
 
     @property
     def user_comm(self) -> MPI.Comm:
@@ -1707,6 +1656,8 @@ class UnitIndexedAxisTree(DistributedObject):
     size = 1
     is_linear = True
     is_empty = False
+
+    node_map = idict({idict(): None})
 
     def as_axis(self) -> Axis:
         return Axis(0)
@@ -2370,8 +2321,8 @@ def gather_loop_indices_from_targets(targets):
     from pyop3.expr.visitors import collect_loop_index_vars
 
     loop_indices = utils.OrderedSet()
-    for target in targets:
-        for axis_targets in target.values():
+    for axis_targetss in targets.values():
+        for axis_targets in axis_targetss:
             for axis_target in axis_targets:
                 for loop_var in collect_loop_index_vars(axis_target.expr):
                     loop_indices.add(loop_var.loop_index)
