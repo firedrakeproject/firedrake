@@ -121,7 +121,7 @@ def test_two_form(mesh1, mesh2, form, expect):
     assert np.allclose(val, expect)
 
 
-def test_multi_domain_assemble():
+def test_multi_domain_solve():
     mesh1 = UnitSquareMesh(7, 7, quadrilateral=True)
     x1, y1 = SpatialCoordinate(mesh1)
     mesh2 = UnitSquareMesh(8, 8)
@@ -163,3 +163,41 @@ def test_multi_domain_assemble():
     assert err1 < 1e-5
     err2 = errornorm(u2_exact, u2_sol)
     assert err2 < 1e-5
+
+
+def test_multi_domain_assemble():
+    mesh1 = UnitSquareMesh(7, 7, quadrilateral=True)
+    mesh2 = UnitSquareMesh(8, 8)
+    V1 = FunctionSpace(mesh1, "Q", 3)
+    V2 = FunctionSpace(mesh2, "CG", 2)
+    V = V1 * V2
+
+    u1, u2 = TrialFunctions(V)
+    v1, v2 = TestFunctions(V)
+
+    a = inner(u1, v2)*dx(domain=mesh1)
+    with pytest.raises(NotImplementedError):
+        assemble(a)
+
+    a = inner(u1, v2)*dx(domain=mesh2)
+    with pytest.raises(NotImplementedError):
+        assemble(a)
+
+    a = inner(u1, v1)*dx(domain=mesh2)
+    with pytest.raises(NotImplementedError):
+        assemble(a)
+
+    a = inner(u2, v2)*dx(domain=mesh1)
+    with pytest.raises(NotImplementedError):
+        assemble(a)
+
+    a = inner(u1, v1)*dx(domain=mesh1) + inner(u1, v2)*dx(domain=mesh2)
+    with pytest.raises(NotImplementedError):
+        assemble(a)
+
+    a = inner(u1, v1)*dx(domain=mesh1) + inner(u2, v2)*dx(domain=mesh2)
+    A = assemble(a)
+    assert A.M.values.shape == (V.dim(), V.dim())
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_multi_domain_assemble"])
