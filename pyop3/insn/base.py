@@ -777,7 +777,7 @@ class ArrayAssignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        if "mat" in str(self.expression):
+        if "t_5" in str(self.assignee) and "mat_1" in str(self.expression):
             breakpoint()
 
     # }}}
@@ -834,8 +834,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
         self.__post_init__()
 
     def __post_init__(self):
-        if "petscmat" in str(self.expression):
-            breakpoint()
+        pass
 
     # }}}
 
@@ -872,8 +871,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self):
-        if "petscmat" in str(self.expression):
-            breakpoint()
+        pass
 
     # }}}
 

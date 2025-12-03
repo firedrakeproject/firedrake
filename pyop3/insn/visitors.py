@@ -6,6 +6,7 @@ import functools
 from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
+from os import access
 from re import I
 from typing import Any
 
@@ -331,8 +332,6 @@ def _(scalar: Scalar) -> bool:
 
 @_requires_pack_unpack.register(Dat)
 def _(dat: Dat) -> bool:
-    if isinstance(dat.buffer, NullBuffer):
-        return False
     # This is overly restrictive since we could pass something contiguous like
     # dat[i0, :] directly to a local kernel
     return not (isinstance(dat.buffer, ConcreteBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
@@ -400,9 +399,12 @@ def _(called_func: CalledFunction, /) -> InstructionList:
     ):
         access_type = _intent_as_access_type(intent)
 
-        bare_func_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(func_arg, access_type)
-        arg_pack_insns = list(arg_pack_insns)
-        arg_unpack_insns = list(arg_unpack_insns)
+        # bare_func_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(func_arg, access_type)
+        bare_func_arg = func_arg  # testing
+        # arg_pack_insns = list(arg_pack_insns)
+        # arg_unpack_insns = list(arg_unpack_insns)
+        arg_pack_insns = []
+        arg_unpack_insns = []
 
         # function calls need materialised arrays
         if _requires_pack_unpack(bare_func_arg):
@@ -455,15 +457,14 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
         assignment.expression, ArrayAccessType.READ
     )
 
-    # NOTE: This might have broken things, be careful (30/09/25)
-    # if assignment.assignment_type == AssignmentType.WRITE:
-    #     assignee_access_type = ArrayAccessType.WRITE
-    # else:
-    #     assert assignment.assignment_type == AssignmentType.INC
-    #     assignee_access_type = ArrayAccessType.INC
+    if assignment.assignment_type in {AssignmentType.WRITE, "write"}:
+        assignee_access_type = ArrayAccessType.WRITE
+    else:
+        assert assignment.assignment_type in {AssignmentType.INC, "inc"}
+        assignee_access_type = ArrayAccessType.INC
 
     bare_assignee, _, extra_output_insns = _expand_reshapes(
-        assignment.assignee, ArrayAccessType.WRITE
+        assignment.assignee, assignee_access_type
     )
 
     if bare_assignee == assignment.assignee:
@@ -562,27 +563,35 @@ def _(array: Tensor, /, access_type):
     #
     # N.B. I am fairly confident that this is right but I haven't quite got it
     # straight in my head exactly why.
-    if access_type == ArrayAccessType.INC:
-        local_tensor, local_root, global_tensor = _materialize_untransformed_tensor(array)
-
-        assert "PetscMatBuffer" not in str(local_tensor.buffer)
-
-        pack_insns.insert(0, local_root.zero())
-        unpack_insns.append(global_tensor.iassign(local_root))
-
-        array = local_tensor
+    if access_type in {ArrayAccessType.INC, "inc"}:
+        # FIXME: I think we may have to zero things first
         access_type = ArrayAccessType.WRITE
+        # local_tensor, local_root, global_tensor = _materialize_untransformed_tensor(array)
+        #
+        # breakpoint()
+        # # still think that this is wrong.
+        #
+        # assert "PetscMatBuffer" not in str(local_tensor.buffer)
+        #
+        # pack_insns.insert(0, local_root.zero())
+        # # unpack_insns.append(global_tensor.iassign(local_root))
+        # unpack_insns.append(global_tensor.iassign(local_tensor))
+        #
+        # # array = local_tensor
+        # array = local_root
+        # access_type = ArrayAccessType.WRITE
 
-    if access_type == ArrayAccessType.READ:
+    if access_type in {ArrayAccessType.READ, "read"}:
         insns = _expand_transforms_in(array)
         pack_insns.extend(insns)
     else:
-        assert access_type == ArrayAccessType.WRITE
+        assert access_type in {ArrayAccessType.WRITE, "write"}
         insns = _expand_transforms_out(array)
         unpack_insns = [*insns, *unpack_insns]
 
     bare_array = array.__record_init__(_parent=None)
     return bare_array, tuple(pack_insns), tuple(unpack_insns)
+    # return local_root, tuple(pack_insns), tuple(unpack_insns)
 
 
 def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
@@ -677,14 +686,18 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         # the tensor.
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
             if isinstance(bare_current_tensor, Dat):
-                bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.axes.materialize())
+                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.axes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
             elif isinstance(bare_current_tensor, Mat):
-                bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.raxes.materialize(), bare_current_tensor.caxes.materialize())
+                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.raxes.materialize(), bare_current_tensor.caxes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.row_axes.materialize(), bare_parent_tensor.column_axes.materialize())
             else:
                 raise NotImplementedError
             current_unpack_insns = (
                 *current_tensor.parent.transform_out(bare_current_tensor),
-                bare_parent_tensor_reshaped.assign(bare_current_tensor),
+                # bare_parent_tensor_reshaped.assign(bare_current_tensor),
+                bare_parent_tensor.assign(bare_current_tensor_reshaped),
+                # bare_current_tensor.assign(bare_parent_tensor_reshaped),
             )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
@@ -726,7 +739,6 @@ def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
         new_parent_tensor, U, global_tensor = _materialize_untransformed_tensor(tensor.parent.untransformed)
         new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
 
-        breakpoint()
         if tensor.buffer == global_tensor.buffer:
             buffer = new_parent_tensor.buffer
         else:
