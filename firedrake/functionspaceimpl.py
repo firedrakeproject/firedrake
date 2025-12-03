@@ -1679,7 +1679,7 @@ class MixedFunctionSpace:
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
         axis_tree = op3.AxisTree(field_axis)
-        targets = utils.StrictlyUniqueDefaultDict(list)
+        targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(
             field_axis.components, self._orig_spaces, strict=True
         ):
@@ -1695,24 +1695,20 @@ class MixedFunctionSpace:
             )
 
             # Target a full slice of the 'field' component
-            # FIXME: should be list of lists
-            targets[leaf_path] = [
+            targets[leaf_path] = [[
                 op3.AxisTarget(
                     field_axis.label,
                     field_component.label,
                     op3.AxisVar(field_axis.linearize(field_component.label)),
                 ),
-            ]
-            for subtarget in subaxes.targets:
-                for subpath, subaxis_targets in subtarget.items():
-                    # FIXME: should be list of lists
-                    targets[leaf_path | subpath].extend(subaxis_targets)
-                break  # stop here because we only care about the first target for the moment
+            ]]
+            for subpath, subaxis_targets in subaxes.targets.items():
+                if subpath:
+                    targets[leaf_path | subpath] = subaxis_targets
+                else:
+                    assert subaxis_targets == ((),)
 
         targets = utils.freeze(targets)
-        # FIXME: This is intactably slow! Cannot allow this expansion to occur
-        # targets = op3.utils.expand_collection_of_iterables(targets)
-        targets = (targets,)
         return op3.IndexedAxisTree(
             axis_tree, unindexed=self.layout_axes, targets=targets,
         )
@@ -2175,28 +2171,25 @@ class RealFunctionSpace(FunctionSpace):
         # Other elements of the tree (i.e. tensor shape) are the same and
         # can be left unchanged.
         targets = utils.StrictlyUniqueDefaultDict(list)
-        for path, axis_targets in utils.just_one(fake_axes.targets).items():
+        for path, axis_targetss in fake_axes.targets.items():
+            new_axis_targets = []
+            axis_targets = utils.just_one(axis_targetss)
             if mode == "plex":
-                if path.keys() == {self._mesh.name}:
-                    targets[path] = ()
-                else:
+                if path.keys() != {self._mesh.name}:
                     for axis_target in axis_targets:
                         if axis_target.axis == f"dof{self._mesh.cell_label}":
                             axis_target = op3.AxisTarget("dof", "XXX", 0)
                         elif axis_target.axis.startswith("dof"):
                             axis_target = op3.AxisTarget("dof", "XXX", op3.NAN)
-                        targets[path].append(axis_target)
+                        new_axis_targets.append(axis_target)
             else:
                 assert mode == "nodal"
                 for axis_target in axis_targets:
                     if axis_target.axis == "nodes":
                         axis_target = op3.AxisTarget("dof", "XXX", 0)
-                    targets[path].append(axis_target)
+                    new_axis_targets.append(axis_target)
+            targets[path] = [new_axis_targets]
         targets = utils.freeze(targets)
-
-        # FIXME: This is intractably slow! Cannot allow this expansion to occur
-        # targets = op3.utils.expand_collection_of_iterables(targets)
-        targets = (targets,)
 
         return op3.IndexedAxisTree(
             fake_axes, unindexed=self.layout_axes, targets=targets,

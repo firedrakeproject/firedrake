@@ -1595,10 +1595,13 @@ def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullm
                 ZZZ.append(AAA)
             YYY.append(ZZZ)
 
-        if YYY != [[[]]]:
-            breakpoint()
-        else:
-            composed_target[idict()] = ((),)
+        merged = []
+        for debug in itertools.product(*YYY):
+            merged.append(sum(debug, start=[]))
+
+        # else:
+        #     composed_target[idict()] = ((),)
+        composed_target[idict()] = utils.freeze(merged)
 
         if indexed_axes.is_empty or indexed_axes is UNIT_AXIS_TREE:
             return idict(composed_target)
@@ -1628,9 +1631,8 @@ def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullm
 
         # also used in leaf_target_paths, generalise
         merged = []
-        for debug in itertools.product(AAA):
-            for debug2 in itertools.product(*debug):
-                merged.append(list(chain(*debug2)))
+        for debug in itertools.product(*AAA):
+            merged.append(utils.reduce("+", debug))
 
         composed_target[path_] = utils.freeze(merged)
 

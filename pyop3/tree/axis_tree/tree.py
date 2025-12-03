@@ -2330,17 +2330,17 @@ def gather_loop_indices_from_targets(targets):
 
 
 def trim_axis_targets(targets, to_trim):
-    return tuple(
-        {
-            path: tuple(
+    return utils.freeze({
+        path: [
+            [
                 axis_target
                 for axis_target in axis_targets
                 if axis_target.axis not in to_trim
-            )
-            for path, axis_targets in target.items()
-        }
-        for target in targets
-    )
+            ]
+            for axis_targets in axis_targetss
+        ]
+        for path, axis_targetss in targets.items()
+    })
 
 
 # ContextFreeSingleAxisTreeT = ???
