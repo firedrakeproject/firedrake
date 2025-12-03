@@ -276,15 +276,9 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
-        m_a_local = src[offset + range_begin:offset + range_end]
-        if dst.function_space().ufl_element().family() == "Real":
-            # Real space keeps a redundant copy of the data on every rank
-            comm = dst.function_space().mesh()._comm
-            dst.dat.data_wo[...] = comm.bcast(m_a_local, root=0)
-        else:
-            dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
-        offset += dst.dat.dataset.layout_vec.size
+        range_begin, range_end = dst.function_space().template_vec.getOwnershipRange()
+        dst.dat.data_wo = src[offset + range_begin:offset + range_end]
+        offset += range_end - range_begin
         return dst, offset
 
     @staticmethod
@@ -327,11 +321,11 @@ class FunctionMixin(FloatingType):
             self.dat.data_wo[i] = f(self.dat.data_ro[i], y.dat.data_ro[i])
 
     def _ad_from_petsc(self, vec):
-        with self.dat.vec_wo as self_v:
+        with self.vec_wo as self_v:
             vec.copy(result=self_v)
 
     def _ad_to_petsc(self, vec=None):
-        with self.dat.vec_ro as self_v:
+        with self.vec_ro as self_v:
             if vec:
                 self_v.copy(result=vec)
             else:

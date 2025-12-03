@@ -1,10 +1,10 @@
 import pytest
 from firedrake import *
 from firedrake.mesh import plex_from_cell_list
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_facet_corner_case_1():
     #  mesh and ownership:
     #

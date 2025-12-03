@@ -1,6 +1,5 @@
 import abc
 
-from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
@@ -9,6 +8,7 @@ from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
 from mpi4py import MPI
 import numpy
+from firedrake import utils
 
 
 __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
@@ -39,7 +39,7 @@ class ASMPatchPC(PCBase):
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
-            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
+            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=utils.IntType), comm=PETSc.COMM_SELF)]
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
@@ -332,7 +332,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
+                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=utils.IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -371,14 +371,14 @@ def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
     section = W.dm.getDefaultSection()
     # location of first dof on an entity
-    basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshoff = numpy.empty(pend - pstart, dtype=utils.IntType)
     # number of dofs on this entity
-    basemeshdof = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshdof = numpy.empty(pend - pstart, dtype=utils.IntType)
     # number of dofs stacked on this entity in each cell
-    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=utils.IntType)
 
     # For every base mesh entity, what's the layer offset?
-    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
+    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=utils.IntType)
     layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
     nlayers = W.mesh().layers
 

@@ -248,7 +248,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         .. code-block:: python3
 
             def update_diffusivity(current_solution):
-                with cursol.dat.vec_wo as v:
+                with cursol.vec_wo as v:
                     current_solution.copy(v)
                 solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
 
@@ -300,7 +300,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -377,11 +377,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         if bounds is not None:
             lower, upper = bounds
-            with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
+            with lower.vec_ro as lb, upper.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.vec_rw as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors

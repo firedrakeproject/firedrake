@@ -11,9 +11,8 @@ from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import IntType_c, cached_property
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
-from pyop2 import op2
-from pyop2.caching import serial_cache
-from pyop2.utils import as_tuple
+from pyop3.cache import serial_cache
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import finat
@@ -277,7 +276,7 @@ class PMGBase(PCSNESBase):
             inject = cdm.createInjection(fdm)
 
             def inject_state():
-                with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
+                with cu.vec_wo as xc, fu.vec_ro as xf:
                     inject.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
@@ -347,7 +346,7 @@ class PMGBase(PCSNESBase):
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(cV)
-                    with wc.dat.vec_wo as xc:
+                    with wc.vec_wo as xc:
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
@@ -1067,7 +1066,7 @@ def get_piola_tensor(mapping, domain, inverse=False):
 
 
 def cache_generate_code(kernel, comm):
-    _cachedir = os.environ.get('PYOP2_CACHE_DIR',
+    _cachedir = os.environ.get('PYOP3_CACHE_DIR',
                                os.path.join(tempfile.gettempdir(),
                                             'pyop2-cache-uid%d' % os.getuid()))
 
@@ -1227,9 +1226,10 @@ class StandaloneInterpolationMatrix(object):
         void multiplicity(PetscScalar *restrict w) {{
             for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
         }}"""
+        raise NotImplementedError
         kernel = op2.Kernel(kernel_code, "multiplicity")
         op2.par_loop(kernel, cell_set, weight.dat(op2.INC, weight.cell_node_map()))
-        with weight.dat.vec as w:
+        with weight.vec_rw as w:
             w.reciprocal()
         return weight
 
@@ -1280,12 +1280,12 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        with self.uf.dat.vec_wo as uf:
+        with self.uf.vec_wo as uf:
             uf.set(0.0E0)
         self._kernels[0]()
 
     def _restrict(self):
-        with self.uc.dat.vec_wo as uc:
+        with self.uc.vec_wo as uc:
             uc.set(0.0E0)
         self._kernels[1]()
 
@@ -1461,7 +1461,7 @@ class StandaloneInterpolationMatrix(object):
         """
         Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
-        with self.uf.dat.vec_wo as uf:
+        with self.uf.vec_wo as uf:
             rf.copy(uf)
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1470,14 +1470,14 @@ class StandaloneInterpolationMatrix(object):
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
-        with self.uc.dat.vec_ro as uc:
+        with self.uc.vec_ro as uc:
             uc.copy(rc)
 
     def mult(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-        with self.uc.dat.vec_wo as uc:
+        with self.uc.vec_wo as uc:
             xc.copy(uc)
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1487,10 +1487,10 @@ class StandaloneInterpolationMatrix(object):
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
         if inc:
-            with self.uf.dat.vec_ro as uf:
+            with self.uf.vec_ro as uf:
                 xf.axpy(1.0, uf)
         else:
-            with self.uf.dat.vec_ro as uf:
+            with self.uf.vec_ro as uf:
                 uf.copy(xf)
 
     def multAdd(self, mat, x, y, w):
@@ -1554,7 +1554,7 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
-    sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
+    sizes = (Vf.template_vec.sizes, Vc.template_vec.sizes)
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
     M_shll.setUp()
     return M_shll

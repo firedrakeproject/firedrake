@@ -5,7 +5,7 @@ from itertools import zip_longest
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from pyop2.mpi import MPI, internal_comm
+from pyop3.mpi import MPI, internal_comm
 
 
 def _ensemble_mpi_dispatch(func):
@@ -113,7 +113,7 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
+        with f_reduced.vec_wo as vout, f.vec_ro as vin:
             self._ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 
@@ -151,10 +151,10 @@ class Ensemble(object):
         self._check_function(f, f_reduced)
 
         if self.ensemble_comm.rank == root:
-            with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
+            with f_reduced.vec_wo as vout, f.vec_ro as vin:
                 self._ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
         else:
-            with f.dat.vec_ro as vin:
+            with f.vec_ro as vin:
                 self._ensemble_comm.Reduce(vin.array_r, None, op=op, root=root)
 
         return f_reduced
@@ -189,7 +189,7 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with f.dat.vec as vec:
+        with f.vec as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
 
         return f
@@ -299,7 +299,7 @@ class Ensemble(object):
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
-        with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
+        with fsend.vec_ro as sendvec, frecv.vec_wo as recvvec:
             self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                          recvbuf=recvvec, source=source, recvtag=recvtag,
                                          status=status)

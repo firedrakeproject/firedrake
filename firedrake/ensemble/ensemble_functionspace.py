@@ -2,7 +2,7 @@ from functools import cached_property
 from typing import Collection
 
 from ufl.duals import is_primal, is_dual
-from pyop2.mpi import internal_comm, MPI
+from pyop3.mpi import internal_comm, MPI
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace

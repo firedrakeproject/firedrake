@@ -26,5 +26,5 @@ def test_cell_origin(mesh):
     f = assemble(interpolate(CellOrigin(mesh), V))
 
     coords = mesh.coordinates
-    expected = coords.dat.data_ro[coords.function_space().cell_node_list[:, 0]]
+    expected = coords.dat.data_ro.reshape((-1, mesh.dimension))[coords.function_space().cell_node_list[:, 0]].flatten()
     assert np.allclose(expected, f.dat.data_ro)

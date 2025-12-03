@@ -28,7 +28,7 @@ from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
 
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction

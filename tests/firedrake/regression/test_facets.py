@@ -1,6 +1,9 @@
 import pytest
 import numpy as np
+
 from firedrake import *
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType
 
 
 @pytest.fixture(params=[False, True])
@@ -19,6 +22,7 @@ def dg_trial_test():
     # Interior facet tests hard code order in which cells were
     # numbered, so don't reorder this mesh.
     m = UnitSquareMesh(1, 1, reorder=False)
+
     V = FunctionSpace(m, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -46,7 +50,7 @@ def test_right_external_integral(f):
 
 
 def test_internal_integral(f):
-    if f.function_space().mesh().num_cells() == 1:
+    if f.function_space().mesh().num_cells == 1:
         # Quadrilateral case, no internal facet
         assert abs(assemble(f('+') * dS)) < 1.0e-14
     else:
@@ -103,9 +107,10 @@ def test_vector_bilinear_exterior_facet_integral():
 
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
-                         [(('+', ), ('+', )),
-                          (('+', ), ('-', )),
-                          (('-', ), ('+', )),
+                         [(('+',), ('+',)),
+                          (('+',), ('-',)),
+                          (('-',), ('+',)),
+                          (('-',), ('-',)),
                           (('-', '+'), ('+', '+')),
                           (('-', '+'), ('-', '+')),
                           (('-', '+'), ('+', '-')),
@@ -189,3 +194,19 @@ def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
     with pytest.raises(LookupError):
         mesh.exterior_facets.subset((10,))
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_exterior_integral():
+    m = UnitSquareMesh(2, 1)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * ds(domain=m))
+    assert(abs(v - 4.0) < 1.e-16)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_facets_simple_interior_integral():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, "DG", 0)
+    v = assemble(Constant(1.0) * dS(domain=m))
+    assert(abs(v - (2. + sqrt(2) * 2)) < 1.e-16)
