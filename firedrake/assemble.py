@@ -1097,7 +1097,8 @@ class ParloopFormAssembler(FormAssembler):
         for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
             for domain in extract_domains(o):
                 if domain is not None and domain.topology.submesh_ancesters[-1] not in topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
+                    raise NotImplementedError("Assembly of forms over unrelated meshes is not supported yet. "
+                                              "Try cross-mesh interpolation.")
 
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
