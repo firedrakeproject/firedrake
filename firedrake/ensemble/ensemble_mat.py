@@ -51,13 +51,26 @@ class EnsembleMatCtxBase:
         self.x = EnsembleFunction(self.row_space)
         self.y = EnsembleFunction(self.col_space)
 
-    def mult(self, A: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec):
+    def mult(self, A, x, y):
         """Apply the action of the matrix to x, putting the result in y.
 
         This method will be called by PETSc with x and y as Vecs, and acts
         as a wrapper around the ``mult_impl`` method which has x and y as
         EnsembleFunction for convenience.
         y is not guaranteed to be zero on entry.
+
+        Parameters
+        ----------
+        A : PETSc.Mat
+            The PETSc matrix that self is the python context of.
+        x : PETSc.Vec
+            The vector acted on by the matrix.
+        y : PETSc.Vec
+            The result of the matrix action.
+
+        See Also
+        --------
+        EnsembleMatCtxBase.mult_impl
         """
         with self.x.vec_wo() as xvec:
             x.copy(result=xvec)
@@ -67,10 +80,26 @@ class EnsembleMatCtxBase:
         with self.y.vec_ro() as yvec:
             yvec.copy(result=y)
 
-    def mult_impl(self, A: PETSc.Mat, x: EnsembleFunctionBase, y: EnsembleFunctionBase):
+    def mult_impl(self, A, x: EnsembleFunctionBase, y: EnsembleFunctionBase):
         """Apply the action of the matrix to x, putting the result in y.
 
         y is not guaranteed to be zero on entry.
+        This is a convenience method allowing the matrix action to be
+        implemented in terms of EnsembleFunction input and outputs by
+        inheriting classes.
+
+        Parameters
+        ----------
+        A : PETSc.Mat
+            The PETSc matrix that self is the python context of.
+        x :
+            The vector acted on by the matrix.
+        y :
+            The result of the matrix action.
+
+        See Also
+        --------
+        EnsembleMatCtxBase.mult
         """
         raise NotImplementedError
 
@@ -96,7 +125,7 @@ class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
     Notes
     -----
     This is a python context, not an actual PETSc.Mat. To create the corresponding
-    PETSc.Mat users should call :func:`~.EnsembleBlockDiagonalMatrix`.
+    PETSc.Mat users should call :func:`~.EnsembleBlockDiagonalMat`.
 
     See Also
     --------
