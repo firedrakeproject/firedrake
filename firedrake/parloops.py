@@ -585,7 +585,7 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
         transform = op3.OutOfPlaceTensorTransform(packed_mat, transform_in, transform_out)
         temp = packed_mat.materialize()
-        packed_dat = temp.__record_init__(_parent=transform)
+        packed_mat = temp.__record_init__(_parent=transform)
 
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes

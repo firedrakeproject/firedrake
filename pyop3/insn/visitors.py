@@ -18,7 +18,7 @@ from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, Buff
 from pyop3.expr.tensor.base import TensorTransform, InPlaceTensorTransform, OutOfPlaceTensorTransform
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 from pyop3.expr.visitors import (
@@ -331,9 +331,11 @@ def _(scalar: Scalar) -> bool:
 
 @_requires_pack_unpack.register(Dat)
 def _(dat: Dat) -> bool:
+    if isinstance(dat.buffer, NullBuffer):
+        return False
     # This is overly restrictive since we could pass something contiguous like
     # dat[i0, :] directly to a local kernel
-    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
+    return not (isinstance(dat.buffer, ConcreteBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
 
 
 @_requires_pack_unpack.register(Mat)
@@ -561,14 +563,14 @@ def _(array: Tensor, /, access_type):
     # N.B. I am fairly confident that this is right but I haven't quite got it
     # straight in my head exactly why.
     if access_type == ArrayAccessType.INC:
-        transformed_temporary, local_output_tensor, global_tensor = _materialize_untransformed_tensor(array)
+        local_tensor, local_root, global_tensor = _materialize_untransformed_tensor(array)
 
-        bare_temporary = transformed_temporary.__record_init__(_parent=None)
-        pack_insns.insert(0, bare_temporary.zero())
+        assert "PetscMatBuffer" not in str(local_tensor.buffer)
 
-        unpack_insns.append(global_tensor.iassign(local_output_tensor))
+        pack_insns.insert(0, local_root.zero())
+        unpack_insns.append(global_tensor.iassign(local_root))
 
-        array = transformed_temporary
+        array = local_tensor
         access_type = ArrayAccessType.WRITE
 
     if access_type == ArrayAccessType.READ:
@@ -675,14 +677,14 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         # the tensor.
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
             if isinstance(bare_current_tensor, Dat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+                bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.axes.materialize())
             elif isinstance(bare_current_tensor, Mat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.raxes.materialize(), bare_parent_tensor.caxes.materialize())
+                bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.raxes.materialize(), bare_current_tensor.caxes.materialize())
             else:
                 raise NotImplementedError
             current_unpack_insns = (
                 *current_tensor.parent.transform_out(bare_current_tensor),
-                bare_parent_tensor.assign(bare_current_tensor_reshaped),
+                bare_parent_tensor_reshaped.assign(bare_current_tensor),
             )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
@@ -714,18 +716,27 @@ def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
         U <- g'(T)   # out-of-place transform
         dat += U
 
-    * want to materialise U and return U and dat
+    * want to materialise U and return T, U and dat
 
     This effectively means we have to look at all the parents and return the top-most, we also
     need to swap out 'parent'
 
     """
     if tensor.parent:
-        new_parent_tensor, root_temp, root = _materialize_untransformed_tensor(tensor.parent.untransformed)
+        new_parent_tensor, U, global_tensor = _materialize_untransformed_tensor(tensor.parent.untransformed)
         new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
-        return tensor.materialize().__record_init__(_parent=new_parent), root_temp, root
+
+        breakpoint()
+        if tensor.buffer == global_tensor.buffer:
+            buffer = new_parent_tensor.buffer
+        else:
+            buffer = tensor.buffer
+
+        return tensor.__record_init__(_buffer=buffer, _parent=new_parent), U, global_tensor
     else:
-        U = tensor.materialize()
+        # No more parents, 'tensor' is the global data structure. We now want
+        # to materialize an equivalent and cascade the change back down.
+        U = tensor.materialize().__record_init__(_parent=None)
         return U, U, tensor
 
 

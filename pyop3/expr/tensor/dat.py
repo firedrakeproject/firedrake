@@ -703,9 +703,6 @@ class NonlinearCompositeDat(CompositeDat):
         object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
 
-        if not loop_indices:
-            breakpoint()
-
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"
 
