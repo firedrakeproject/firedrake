@@ -243,12 +243,12 @@ class Interpolator(abc.ABC):
             The PETSc matrix type to use when assembling a rank 2 interpolation.
             For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
             interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
-            between :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+            between :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
             For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
             ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
         sub_mat_type
             The PETSc sub-matrix type to use when assembling a rank 2 interpolation between
-            :func:`.MixedFunctionSpace`s with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
+            :func:`.MixedFunctionSpace` with ``mat_type="nest"``. Only ``"aij"`` and ``"baij"``
             are supported.
         """
         pass
@@ -291,7 +291,7 @@ class Interpolator(abc.ABC):
             The PETSc matrix type to use when assembling a rank 2 interpolation.
             For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
             interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
-            between :func:`.MixedFunctionSpace`s, ``"aij"`` and ``"nest"`` are supported.
+            between :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
             For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
             ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
         sub_mat_type
