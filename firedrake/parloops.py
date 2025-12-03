@@ -491,7 +491,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
 
-    if nodes and transform_in_kernel and transform_out_kernel:
+    if nodes and transform_in_kernel is None and transform_out_kernel is None:
         # NOTE: This is only valid for cases where runtime transformations are not required.
         return packed_dat
 
