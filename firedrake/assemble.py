@@ -1093,13 +1093,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        topology = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            for domain in extract_domains(o):
-                if domain is not None and domain.topology.submesh_ancesters[-1] not in topology:
-                    raise NotImplementedError("Assembly of forms over unrelated meshes is not supported yet. "
-                                              "Try cross-mesh interpolation.")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
