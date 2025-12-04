@@ -504,12 +504,12 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
 
         def transform_in(untransformed, transformed):
             return (
-                transform_in_kernel(orientations[loop_index], mat_work_array, untransformed, transformed),
+                transform_in_kernel(orientations[cell_index], mat_work_array, untransformed, transformed),
             )
 
         def transform_out(transformed, untransformed):
             return (
-                transform_out_kernel(orientations[loop_index], mat_work_array, transformed, untransformed),
+                transform_out_kernel(orientations[cell_index], mat_work_array, transformed, untransformed),
             )
 
         transform = op3.OutOfPlaceTensorTransform(packed_dat, transform_in, transform_out)
@@ -549,12 +549,12 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
 
         def transform_in(untransformed, transformed):
             return (
-                transform_in_kernel(orientations[loop_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
+                transform_in_kernel(orientations[row_cell_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
             )
 
         def transform_out(transformed, untransformed):
             return (
-                transform_out_kernel(orientations[loop_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
+                transform_out_kernel(orientations[row_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
             )
 
         transform = op3.OutOfPlaceTensorTransform(packed_mat, transform_in, transform_out)
@@ -929,8 +929,9 @@ def fuse_orientations(spaces: list[WithGeometry]):
 
         def loop_dims(direction, all_elems):
             num_switch = len(all_elems.split(","))
+            labelling = [ f"{{id=switch{chr(i+65)} " + (",dep=*}" if i == 0 else f",dep=switch{chr(i+64)},dep=*}}") for i in range(num_switch)]
             switches = [f"""
-                         b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], {a_list}, b[{all_elems}], res[{all_elems}]) {{id=switch{chr(i+65)}, dep=*}}"""
+                         b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
                         for i in range(num_switch)]
             return loopy.make_function(
                 f"{{[dim]:{0} <= dim <= {mesh.dimension - 1}}}",
@@ -964,8 +965,8 @@ def fuse_orientations(spaces: list[WithGeometry]):
         #breakpoint()
 
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
-        transform_in = op3.Function(in_knl, [op3.READ, op3.WRITE] + [op3.READ for n in ns] + [op3.WRITE])
-        transform_out = op3.Function(out_knl, [op3.READ, op3.WRITE] + [op3.READ for n in ns] + [op3.WRITE])
+        transform_in = op3.Function(in_knl, [op3.READ] + [op3.WRITE for n in ns] + [op3.READ, op3.WRITE])
+        transform_out = op3.Function(out_knl, [op3.READ] + [op3.WRITE for n in ns] + [op3.READ, op3.WRITE])
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
         return None, None

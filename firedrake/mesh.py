@@ -2152,8 +2152,12 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def entity_orientations(self):
         entity_orientations = dmcommon.entity_orientations(self, self._fiat_cell_closures)
-        res = [[] for i in range(len(self._cell_numbering))]
-        for row,i in zip(entity_orientations, self._cell_numbering):
+        import os
+        if not bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
+            breakpoint()
+        cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
+        res = [[] for i in range(len(cell_numbering))]
+        for row,i in zip(entity_orientations, cell_numbering):
             res[i] = row
         return np.array(res)
         #return entity_orientations[self._cell_numbering]
