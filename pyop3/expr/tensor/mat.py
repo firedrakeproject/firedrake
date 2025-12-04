@@ -343,7 +343,7 @@ class Mat(Tensor):
     # }}}
 
     def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
-        """Return a reshaped view of the `Dat`.
+        """Return a reshaped view of the `Mat`.
 
         TODO
 
@@ -351,7 +351,7 @@ class Mat(Tensor):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.__record_init__(row_axes=row_axes, column_axes=col_axes, _parent=IdentityTensorTransform(self))
+        return self.materialize().__record_init__(row_axes=row_axes, column_axes=col_axes, _parent=IdentityTensorTransform(self))
 
     @cached_property
     def size(self) -> Any:

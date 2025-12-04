@@ -774,6 +774,10 @@ class ArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
 
     # }}}
 
@@ -826,6 +830,10 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 
@@ -859,6 +867,10 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 

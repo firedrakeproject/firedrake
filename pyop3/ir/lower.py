@@ -1042,15 +1042,16 @@ def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indice
 
 
 def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
-    mat = assignment.assignee
-    expr = assignment.expression
-
-    if not isinstance(mat.buffer.buffer, PetscMatBuffer):
-        raise NotImplementedError  # order must be different
-    else:
-        # We need to know whether the matrix is the assignee or not because we need
-        # to know whether to put MatGetValues or MatSetValues
+    # We need to know whether the matrix is the assignee or not because we need
+    # to know whether to put MatGetValues or MatSetValues
+    if isinstance(assignment.assignee.buffer.buffer, PetscMatBuffer):
+        mat = assignment.assignee
+        expr = assignment.expression
         setting_mat_values = True
+    else:
+        mat = assignment.expression
+        expr = assignment.assignee
+        setting_mat_values = False
 
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
@@ -1079,7 +1080,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
+    mat_name = context.add_buffer(mat.buffer, assignment_type_as_intent(assignment.assignment_type))
 
     # NOTE: Is this always correct? It is for now.
     array_name = context.add_buffer(array_buffer, READ)
@@ -1138,9 +1139,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
             case _:
                 raise AssertionError
     else:
-        raise NotImplementedError
-        # call_str = _petsc_mat_load(*myargs)
-        # but check cannot do INC here without extra step
+        call_str = _petsc_mat_load(*myargs)
 
     context.add_cinstruction(call_str)
 
