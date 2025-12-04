@@ -68,14 +68,6 @@ def assemble_mixed_mass_matrix(V_A, V_B):
     if len(V_A) > 1 or len(V_B) > 1:
         raise NotImplementedError("Sorry, only implemented for non-mixed spaces")
 
-    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
-        msg = """
-Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
-import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
-each supermesh cell.
-"""
-        raise NotImplementedError(msg)
-
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
 
@@ -116,15 +108,23 @@ each supermesh cell.
                 def likely(cell_A):
                     return cell_map[cell_A]
 
-    assert V_A.value_size == V_B.value_size
-    orig_value_size = V_A.value_size
-    if V_A.value_size > 1:
+    assert V_A.block_size == V_B.block_size
+    orig_block_size = V_A.block_size
+    if V_A.block_size > 1:
         V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
-    if V_B.value_size > 1:
+    if V_B.block_size > 1:
         V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements[0])
 
-    assert V_A.value_size == 1
-    assert V_B.value_size == 1
+    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
+        msg = """
+Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
+import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
+each supermesh cell.
+"""
+        raise NotImplementedError(msg)
+
+    assert V_A.block_size == 1
+    assert V_B.block_size == 1
 
     preallocator = PETSc.Mat().create(comm=mesh_A._comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -155,7 +155,7 @@ each supermesh cell.
     onnz = numpy.repeat(onnz, cset.cdim)
     preallocator.destroy()
 
-    assert V_A.value_size == V_B.value_size
+    assert V_A.block_size == V_B.block_size
     rdim = V_B.dof_dset.cdim
     cdim = V_A.dof_dset.cdim
 
@@ -445,16 +445,16 @@ each supermesh cell.
     lib.restype = ctypes.c_int
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-    if orig_value_size == 1:
+    if orig_block_size == 1:
         return mat
     else:
         (lrows, grows), (lcols, gcols) = mat.getSizes()
-        lrows *= orig_value_size
-        grows *= orig_value_size
-        lcols *= orig_value_size
-        gcols *= orig_value_size
+        lrows *= orig_block_size
+        grows *= orig_block_size
+        lcols *= orig_block_size
+        gcols *= orig_block_size
         size = ((lrows, grows), (lcols, gcols))
-        context = BlockMatrix(mat, orig_value_size)
+        context = BlockMatrix(mat, orig_block_size)
         blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
         blockmat.setUp()
         return blockmat
