@@ -227,7 +227,7 @@ def test_io_backward_compat_base_save(version, params):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize('version', ["2024_01_27"])
+@pytest.mark.parametrize('version', ["2024_01_27", "3b6c6a17ab73c3864b929c03581cad2a70b916ed"])
 @pytest.mark.parametrize('params', test_io_backward_compat_base_params, ids=_test_io_backward_compat_base_idfunc)
 def test_io_backward_compat_base_load(version, params):
     filename = join(filedir, "_".join([basename, version, _make_name(params) + ".h5"]))
@@ -272,7 +272,7 @@ def test_io_backward_compat_timestepping_save(version):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=4)
-@pytest.mark.parametrize('version', ["2024_01_27"])
+@pytest.mark.parametrize('version', ["2024_01_27", "3b6c6a17ab73c3864b929c03581cad2a70b916ed"])
 def test_io_backward_compat_timestepping_load(version):
     filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
     with CheckpointFile(filename, "r") as afile:
