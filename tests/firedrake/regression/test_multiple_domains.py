@@ -166,38 +166,43 @@ def test_multi_domain_solve():
 
 
 def test_multi_domain_assemble():
-    mesh1 = UnitSquareMesh(7, 7, quadrilateral=True)
-    mesh2 = UnitSquareMesh(8, 8)
-    V1 = FunctionSpace(mesh1, "Q", 3)
-    V2 = FunctionSpace(mesh2, "CG", 2)
+    mesh1 = UnitSquareMesh(1, 1, quadrilateral=True)
+    mesh2 = UnitSquareMesh(2, 2)
+    V1 = FunctionSpace(mesh1, "Q", 1)
+    V2 = FunctionSpace(mesh2, "CG", 1)
     V = V1 * V2
 
-    u1, u2 = TrialFunctions(V)
-    v1, v2 = TestFunctions(V)
+    u = TrialFunctions(V)
+    v = TestFunctions(V)
+    f = split(Function(V))
 
-    a = inner(u1, v2)*dx(domain=mesh1)
+    for i, j in [(0, 1), (1, 0)]:
+        a1 = inner(u[i], v[j])*dx(domain=mesh1)
+        with pytest.raises(NotImplementedError):
+            assemble(a1)
+        a2 = inner(u[i], v[j])*dx(domain=mesh2)
+        with pytest.raises(NotImplementedError):
+            assemble(a2)
+        l1 = inner(f[i], v[j])*dx(domain=mesh1)
+        with pytest.raises(NotImplementedError):
+            assemble(l1)
+        l2 = inner(f[i], v[j])*dx(domain=mesh2)
+        with pytest.raises(NotImplementedError):
+            assemble(l2)
+
+    for i, j in [(0, 0), (1, 1)]:
+        a = inner(u[i], v[j])*dx(domain=mesh1)
+        if i == 1:
+            with pytest.raises(NotImplementedError):
+                assemble(a)
+            continue
+        A = assemble(a)
+        assert A.M.values.shape == (V.dim(), V.dim())
+
+    a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[0], v[1])*dx(domain=mesh2)
     with pytest.raises(NotImplementedError):
         assemble(a)
 
-    a = inner(u1, v2)*dx(domain=mesh2)
-    with pytest.raises(NotImplementedError):
-        assemble(a)
-
-    a = inner(u1, v1)*dx(domain=mesh2)
-    with pytest.raises(NotImplementedError):
-        assemble(a)
-
-    a = inner(u2, v2)*dx(domain=mesh1)
-    with pytest.raises(NotImplementedError):
-        assemble(a)
-
-    a = inner(u1, v1)*dx(domain=mesh1) + inner(u1, v2)*dx(domain=mesh2)
-    with pytest.raises(NotImplementedError):
-        assemble(a)
-
-    a = inner(u1, v1)*dx(domain=mesh1) + inner(u2, v2)*dx(domain=mesh2)
+    a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[1], v[1])*dx(domain=mesh2)
     A = assemble(a)
     assert A.M.values.shape == (V.dim(), V.dim())
-
-if __name__ == "__main__":
-    pytest.main([__file__ + "::test_multi_domain_assemble"])
