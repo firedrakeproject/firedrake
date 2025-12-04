@@ -435,6 +435,47 @@ def _(called_func: CalledFunction, /) -> InstructionList:
 
 @expand_assignments.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> InstructionList:
+    # This function is complete magic and deserves some serious exposition:
+    #
+    # To begin with, consider the assignment:
+    #
+    #     x <- y
+    #
+    # where 'y' is a dat with a parent. Having a parent means that 'y' is
+    # the result of a transformation applied to another dat. When we generate
+    # code for this assignment we therefore need to traverse the hierarchy of
+    # transformations and emit something like:
+    #
+    #     t <- Y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     x <- u
+    #
+    # where 'Y' is the global data structure at the top of the parent hierarchy.
+    #
+    # To make this happen, in this function we 'expand' the expression 'y',
+    # giving us back 'u' and the sequence of transformation instructions.
+    #
+    # Now let's imagine what happens for 'x <- y' where the assignee ('x') is
+    # the transformed object. We thus want to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X <- u
+    #
+    # where 'X' is the global data at the top of the parent hierarchy for 'x'.
+    # Expanding the assignee will return 't' and the subsequent transformations.
+    #
+    # Lastly, if we consider incrementing, instead of assigning (i.e. 'x += y'),
+    # then some changes are needed. We need to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X += u
+    #
+    # Note that the final instruction is where the increment takes place.
     bare_expression, expression_transform_insns = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
     )

@@ -516,31 +516,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
         temp = packed_dat.materialize()
         packed_dat = temp.__record_init__(_parent=transform)
 
-        """Some old exposition:
-
-        Consider the general case:
-
-        t0 <- dat[f(p)]
-        t1 <- g(t0)
-        func(t1)
-        t2 <- ginv(t1)
-        dat[f(p)] <- t2
-
-        but with READ:
-
-            t0 <- dat[f(p)]
-            t1 <- g(t0)
-            func(t1)
-
-        and INC:
-
-            t1 <- 0
-            func(t1)
-            t2 <- ginv(t1)
-            dat[f(p)] += t2
-        """
-
-    # /THIS IS NEW
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
