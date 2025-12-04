@@ -777,8 +777,7 @@ class ArrayAssignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        if "t_5" in str(self.assignee) and "mat_1" in str(self.expression):
-            breakpoint()
+        pass
 
     # }}}
 

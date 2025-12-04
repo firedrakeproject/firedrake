@@ -558,7 +558,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
 def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth=0, column_depth=0, nodes: bool = False):
     if nodes:
         return packed_mat
-    mat_sequence = [packed_mat]
 
     row_element = row_space.finat_element
     column_element = column_space.finat_element
@@ -605,16 +604,9 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
         column_nodal_axis_tree, column_dof_perm_slice = _static_node_permutation_slice(packed_mat.column_axes, column_space, column_depth)
-        mat_sequence[-1] = mat_sequence[-1].reshape(row_nodal_axis_tree, column_nodal_axis_tree)[row_dof_perm_slice, column_dof_perm_slice]
+        packed_mat = packed_mat.reshape(row_nodal_axis_tree, column_nodal_axis_tree)[row_dof_perm_slice, column_dof_perm_slice]
 
-    assert len(mat_sequence) % 2 == 1, "Must have an odd number"
-    # I want to return a 'PackUnpackKernelArg' type that has information
-    # about how to transform something before and after passing to a function. We can then defer
-    # emitting these instructions until the intent information dicates that it is needed.
-    if len(mat_sequence) > 1:
-        # need to have sequential assignments I think
-        raise NotImplementedError
-    return mat_sequence[len(mat_sequence) // 2]
+    return packed_mat
 
 
 @functools.singledispatch
