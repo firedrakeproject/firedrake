@@ -320,12 +320,6 @@ class LoopIndex(Index):
 
         return (0,)
 
-    # TODO: Prefer this as a traversal
-    # TODO: Include iterset outer loops
-    @property
-    def outer_loops(self):
-        return (self,)
-
     @property
     def is_context_free(self):
         return len(self.iterset.leaf_paths) == 1
@@ -338,7 +332,7 @@ class LoopIndex(Index):
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
 
-        _, targets, _ = _index_axes_per_index(self)
+        _, targets = _index_axes_per_index(self)
         # # need to move the target bit to the outside
         # unpacked_targets = expand_compressed_target_paths(targets)
 
@@ -710,12 +704,10 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
     def connectivity(self):
         return self.map.connectivity
 
-    @property
-    def outer_loops(self):
-        return self.index.outer_loops
-
     @cached_property
     def axes(self) -> IndexedAxisTree:
+        from pyop3 import NAN
+
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
 
@@ -725,12 +717,6 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         for input_leaf_path, input_leaf_targets_per_leaf in zip(input_axes.leaf_paths, collect_leaf_targets(input_axes), strict=True):
             found = False
             for input_target in input_leaf_targets_per_leaf:
-                # input_target_path = {}
-                # for input_path_acc in accumulate_path(input_leaf_path):
-                #     input_axis_targets = input_target[input_path_acc]
-                #     for input_axis_target in input_axis_targets:
-                #         input_target_path |= input_axis_target.path
-                # input_target_path = utils.freeze(input_target_path)
                 input_target_path = merge_dicts(t.path for t in input_target)
 
                 if input_target_path in self.connectivity:
@@ -758,6 +744,8 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
             assert found
 
         targets = idict(targets)
+        # if "closure" in str(axes_):
+        #     breakpoint()
         return IndexedAxisTree(axes_.node_map, None, targets=targets)
 
     @property
@@ -1013,17 +1001,6 @@ def _(loop_index: LoopIndex, /, *args, **kwargs):
         axis.label: LoopIndexVar(loop_index, axis.localize())
         for axis, _ in iterset.visited_nodes(iterset.leaf_path)
     }
-    # new_axis_targetss = []
-    # for axis_targets in mytargets:
-    #     new_axis_targets = []
-    #     for axis_target in axis_targets:
-    #         new_axis_target = AxisTarget(
-    #             axis_target.axis,
-    #             axis_target.component,
-    #             replace_terminals(axis_target.expr, replace_map),
-    #         )
-    #         new_axis_targets.append(new_axis_target)
-    #     new_axis_targetss.append(new_axis_targets)
 
     iterset_targets = utils.just_one(collect_leaf_targets(iterset))
     new_targets = utils.freeze({
@@ -1040,25 +1017,7 @@ def _(loop_index: LoopIndex, /, *args, **kwargs):
         ]
     })
 
-
-    # for path, axis_targetss in iterset.targets.items():
-    #     new_axis_targetss = []
-    #     for axis_targets in axis_targetss:
-    #         new_axis_targets = []
-    #         for axis_target in axis_targets:
-    #             new_axis_target = AxisTarget(
-    #                 axis_target.axis,
-    #                 axis_target.component,
-    #                 replace_terminals(axis_target.expr, replace_map),
-    #             )
-    #             new_axis_targets.append(new_axis_target)
-    #         new_axis_targetss.append(new_axis_targets)
-    #     new_targets[path] = new_axis_targetss
-    # new_targets = utils.freeze(new_targets)
-
-    outer_loops = iterset.outer_loops + (loop_index,)
-
-    return (UNIT_AXIS_TREE, new_targets, outer_loops)
+    return (UNIT_AXIS_TREE, new_targets)
 
 
 @_index_axes_per_index.register(ScalarIndex)
@@ -1068,7 +1027,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
             AxisTarget(index.axis, index.component, index.value),
         ]]
     })
-    return (UNIT_AXIS_TREE, targets, ())
+    return (UNIT_AXIS_TREE, targets)
 
 
 @_index_axes_per_index.register(Slice)
@@ -1193,7 +1152,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     subset_loop_axes = get_loop_axes(slice_component.array)
                     if subset_loop_axes:
                         raise NotImplementedError
-                    subset_expr = LinearCompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array}, ())
+                    subset_expr = LinearCompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
                     indices = materialize_composite_dat(subset_expr).buffer.buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
@@ -1267,8 +1226,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
 
     axes = axis.as_tree()
     targets = utils.freeze(targets)
-    outer_loops = ()
-    return (axes, targets, outer_loops)
+    return (axes, targets)
 
 
 @_index_axes_per_index.register(CalledMap)
@@ -1278,7 +1236,7 @@ def _(called_map: CalledMap, *args, **kwargs):
     # for leaf_path in called_map.axes.leaf_paths:
     #     compressed_targets[leaf_path] = tuple(t[leaf_path] for t in called_map.axes.targets)
 
-    return called_map.axes.materialize(), called_map.axes.targets, called_map.outer_loops
+    return called_map.axes.materialize(), called_map.axes.targets
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
@@ -1391,7 +1349,7 @@ def index_axes(
     # (where each 'component' is also a tuple of *equivalent targets*).
 
     # construct the new, indexed, axis tree
-    indexed_axes, indexed_targets, outer_loops = make_indexed_axis_tree(index_tree, target_axes)
+    indexed_axes, indexed_targets = make_indexed_axis_tree(index_tree, target_axes)
 
     indexed_targets = complete_axis_targets(indexed_targets)
 
@@ -1412,28 +1370,6 @@ def index_axes(
     fullmap = _index_info_targets_axes(indexed_axes, matching_target, orig_axes)
     composed_targets = compose_targets(orig_axes, orig_axes.targets, indexed_axes, matching_target, fullmap)
 
-    # all_target_paths_and_exprs = []
-    # for orig_target in orig_axes.targets:
-    #     breakpoint()
-    #
-    #     # find matching target!
-    #     match_found = False
-    #     # TODO: would be more intuitive to find match first, instead of looping
-    #     for indexed_path_and_exprs in indexed_targets:
-    #         # add empty root entry to avoid special-casing
-    #         indexed_path_and_exprs = idict({idict(): ()}) | indexed_path_and_exprs
-    #         try:
-    #         except MyBadError:
-    #             # does not match, continue
-    #             continue
-    #
-    #         assert not match_found, "don't expect multiple hits"
-    #         target_path_and_exprs = compose_targets(orig_axes, orig_target, indexed_axes, indexed_path_and_exprs, fullmap)
-    #         match_found = True
-    #
-    #         all_target_paths_and_exprs.append(target_path_and_exprs)
-    #     assert match_found, "must hit once"
-
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     if indexed_axes is UNIT_AXIS_TREE:
         retval = UnitIndexedAxisTree(
@@ -1446,6 +1382,8 @@ def index_axes(
             orig_axes.unindexed,
             targets=composed_targets,
         )
+        # if "closure" in str(retval.subst_layouts()):
+        #     breakpoint()
 
     # debugging
     retval._matching_target
@@ -1486,7 +1424,7 @@ def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
 def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
     index = index_tree.node_map[index_path]
 
-    index_axis_tree, per_index_targets, index_outer_loops = _index_axes_per_index(
+    index_axis_tree, per_index_targets = _index_axes_per_index(
         index, target_axes,
         seen_target_exprs=expr_replace_map,
     )
@@ -1495,7 +1433,6 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
         = defaultdict(tuple, per_index_targets)
 
     axis_tree = index_axis_tree
-    outer_loops = list(index_outer_loops)
     for leaf_path, index_component_label in zip(
         index_axis_tree.leaf_paths, index.component_labels, strict=True
     ):
@@ -1515,7 +1452,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
             for orig_path, target in target_axes.items()
         }
 
-        subaxis_tree, subtargets, sub_outer_loops = _make_indexed_axis_tree_rec(
+        subaxis_tree, subtargets = _make_indexed_axis_tree_rec(
             index_tree,
             target_axes_,
             index_path=index_path_,
@@ -1534,13 +1471,9 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
 
         for subpath, subtargets in subtargets.items():
             targets[leaf_path | subpath] = subtargets
-
-        outer_loops += sub_outer_loops
-
     targets = utils.freeze(targets)
-    outer_loops = tuple(outer_loops)
 
-    return (axis_tree, targets, outer_loops)
+    return (axis_tree, targets)
 
 
 def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullmap, *, axis_path=idict()):

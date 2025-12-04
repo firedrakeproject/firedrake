@@ -186,10 +186,7 @@ def _(dat: op3_expr.LinearCompositeDat, /) -> OrderedSet:
 
 @collect_loop_index_vars.register(op3_expr.NonlinearCompositeDat)
 def _(dat: op3_expr.NonlinearCompositeDat, /) -> OrderedSet:
-    loop_indices = OrderedSet()
-    for expr in dat.leaf_exprs.values():
-        loop_indices |= collect_loop_index_vars(expr)
-    return loop_indices
+    return OrderedSet(dat.loop_indices)
 
 
 @collect_loop_index_vars.register(op3_expr.LinearDatBufferExpression)
@@ -662,7 +659,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, visited_axes, loop_indices, *
 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            candidates.append((op3_expr.LinearCompositeDat(dat_axes, {dat_axes.leaf_path: expr}, loop_indices), dat_cost))
+            candidates.append((op3_expr.LinearCompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost))
 
     return tuple(candidates)
 
@@ -841,16 +838,11 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
-        # for path_ in composite_dat.axis_tree.leaf_paths:
         for path_ in composite_dat.axis_tree.node_map:
-            # if path_ in to_skip:
-            if False:
-                continue
-            else:
-                fullpath = composite_dat.loop_tree.leaf_path | path_
-                layout = assignee.axes.subst_layouts()[fullpath]
-                newlayout = replace(layout, axis_to_loop_var_replace_map)
-                newlayouts[path_] = newlayout
+            fullpath = composite_dat.loop_tree.leaf_path | path_
+            layout = assignee.axes.subst_layouts()[fullpath]
+            newlayout = replace(layout, axis_to_loop_var_replace_map)
+            newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
     if isinstance(composite_dat, op3_expr.LinearCompositeDat):

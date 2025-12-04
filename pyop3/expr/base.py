@@ -594,21 +594,16 @@ def _(expr):
 
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
-    from pyop3.expr.visitors import get_loop_axes
+    from pyop3.expr.visitors import collect_loop_index_vars
 
     axes = []
     loop_var_replace_map = {}
-    for loop_index, loop_axes in get_loop_axes(expr).items():
-        for loop_axis in loop_axes:
-            axis_label = f"{loop_axis.label}_{loop_index.id}"
-
-            axis = loop_axis.copy(label=axis_label)
-            axes.append(axis)
-
-            loop_var = LoopIndexVar(loop_index, loop_axis)
-            axis_var = AxisVar(axis)
-            loop_var_replace_map[loop_var] = axis_var
-
+    for loop_var in collect_loop_index_vars(expr):
+        axis = loop_var.axis
+        new_axis_label = f"{axis.label}_{loop_var.loop_index.id}"
+        new_axis = axis.copy(label=new_axis_label)
+        axes.append(new_axis)
+        loop_var_replace_map[loop_var] = AxisVar(new_axis)
     return (AxisTree.from_iterable(axes), loop_var_replace_map)
 
 

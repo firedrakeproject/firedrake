@@ -215,6 +215,11 @@ class OrderedSet(collections.abc.Sequence):
             self._values.append(value)
 
 
+# TODO
+class FrozenOrderedSet:
+    pass
+
+
 def as_tuple(item):
     if isinstance(item, collections.abc.Sequence):
         return tuple(item)

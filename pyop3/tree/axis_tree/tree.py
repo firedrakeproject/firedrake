@@ -257,14 +257,6 @@ class _UnitAxisTree(CacheMixin):
     def leaf_subst_layouts(self):
         return idict({idict(): 0})
 
-    # @property
-    # def targets_acc(self):
-    #     return ()
-
-    @property
-    def outer_loops(self):
-        return ()
-
     def path_with_nodes(self, node) -> idict:
         assert node is None
         return idict()
@@ -900,11 +892,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def layouts(self):
         pass
 
-    @property
-    @abc.abstractmethod
-    def outer_loops(self):
-        pass
-
     @cached_property
     def _matching_target(self):
         return match_target(self, self.unindexed, self.targets)
@@ -1283,10 +1270,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         """
         return frozenset({self._source_path_and_exprs})
 
-    @property
-    def outer_loops(self):
-        return ()
-
     def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path.
 
@@ -1399,13 +1382,17 @@ class IndexedAxisTree(AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = utils.StrictlyUniqueDict()
         for path, axis in self.node_map.items():
-            targets_[path] = self._targets[path] + self._materialized.targets[path]
+            if path in self._targets:
+                targets_[path] = self._targets[path] + self._materialized.targets[path]
+            else:
+                targets_[path] = self._materialized.targets[path]
         return complete_axis_targets(targets_)
 
     # TODO: Should this return LoopIndexVars?
     # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
     @cached_property
     def outer_loops(self) -> tuple[LoopIndex, ...]:
+        breakpoint()
         return gather_loop_indices_from_targets(self.targets)
 
     @cached_property
@@ -1518,6 +1505,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
     @cached_property
     def layout_axes(self) -> AxisTree:
+        breakpoint()
         if not self.outer_loops:
             return self
         raise NotImplementedError
@@ -1648,6 +1636,7 @@ class UnitIndexedAxisTree(DistributedObject):
 
     @cached_property
     def outer_loops(self):
+        breakpoint()
         return gather_loop_indices_from_targets(self.targets)
 
     def materialize(self):
@@ -2147,9 +2136,7 @@ def subst_layouts(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-            path_: targets.get(path_, (idict(), idict()))
-        }
+        target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {path_: targets[path_]}
 
         accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc_.values() for t in ts)
         replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc_.values() for t in ts)
@@ -2377,8 +2364,8 @@ def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: Con
 
 def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:
     new_targets = dict(targets)
-    if idict() not in targets:
-        new_targets[idict()] = ((),)
+    # if idict() not in targets:
+    #     new_targets[idict()] = ((),)
     # drop duplicates
     for path, candidate_axis_targets in targets.items():
         new_targets[path] = utils.unique(candidate_axis_targets)

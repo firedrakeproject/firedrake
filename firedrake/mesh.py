@@ -744,24 +744,6 @@ class AbstractMeshTopology(abc.ABC):
         # NOTE: This will return negative entries for ghosts
         return self._old_to_new_vertex_numbering.createGlobalSection(self.topology_dm.getPointSF())
 
-    @utils.cached_property
-    def cell_closure(self):
-        assert False, "old code I think"
-        return self._fiat_cell_closures
-        from pyop3.expr import NonlinearCompositeDat
-        from pyop3.expr.visitors import materialize_composite_dat
-
-        cell = self.cells.owned.iter()
-        indexed_axes = self.points[self.closure(cell)]
-        cell_closure_expr = NonlinearCompositeDat(
-            indexed_axes.materialize(),
-            indexed_axes.leaf_subst_layouts,
-            indexed_axes.outer_loops,
-        )
-        cell_closure_buffer_expr = materialize_composite_dat(cell_closure_expr)
-        shape = (self.cells.owned.size, indexed_axes.size)
-        return utils.readonly(cell_closure_buffer_expr.buffer.buffer.data_ro.reshape(shape))
-
     @property
     def comm(self):
         return self.user_comm

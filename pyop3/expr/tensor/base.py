@@ -156,6 +156,7 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     # NOTE: This is quite nasty
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
+        breakpoint()
         if self.parent:
             raise NotImplementedError
         # we should be able to get this information from the subst layouts

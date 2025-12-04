@@ -37,9 +37,15 @@ from pyop3.utils import (
 )
 
 
-if typing.TYPE_CHECKING:
-    from pyop3.types import *
+# {{{ types
 
+LabelT = Hashable
+NodeLabelT = LabelT
+NodeComponentLabelT = LabelT
+PathT = Mapping[NodeLabelT, NodeComponentLabelT]
+ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
+
+# }}}
 
 class NodeNotFoundException(Exception):
     pass
