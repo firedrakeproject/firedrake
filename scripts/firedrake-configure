@@ -487,8 +487,6 @@ def prepare_environment_vars(
     arch: FiredrakeArch,
 ) -> tuple[str, ...]:
     vars = {
-        "CC": "mpicc",
-        "CXX": "mpicxx",
         "PETSC_DIR": f"{os.getcwd()}/petsc",
         "PETSC_ARCH": f"arch-firedrake-{arch.value}",
         "HDF5_MPI": "ON",
