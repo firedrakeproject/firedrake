@@ -591,7 +591,7 @@ class CompositeDat(abc.ABC):
         from pyop3.expr.visitors import collect_loop_index_vars
 
         # all expressions are assumed to have the same outer loops
-        return utils.single_valued(map(collect_loop_index_vars, self.exprs.values()))
+        return utils.OrderedSet.union(*(map(collect_loop_index_vars, self.exprs.values())))
 
     @property
     def shape(self) -> tuple[AxisTree]:
@@ -681,9 +681,6 @@ class NonlinearCompositeDat(CompositeDat):
     def __init__(self, axis_tree, exprs):
         assert len(axis_tree._all_region_labels) == 0
         exprs = idict(exprs)
-
-        if idict() in exprs:
-            breakpoint()
 
         object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_exprs", exprs)

@@ -1371,6 +1371,9 @@ class IndexedAxisTree(AbstractAxisTree):
         object.__setattr__(self, "_unindexed", unindexed)
         object.__setattr__(self, "_targets", targets)
 
+        # if "closure" in str(self) and targets[idict()] == ((),):
+        #     breakpoint()
+
     # }}}
 
     # {{{ interface impls
@@ -1382,10 +1385,10 @@ class IndexedAxisTree(AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = utils.StrictlyUniqueDict()
         for path, axis in self.node_map.items():
-            if path in self._targets:
-                targets_[path] = self._targets[path] + self._materialized.targets[path]
-            else:
-                targets_[path] = self._materialized.targets[path]
+            # if self._targets[path] == (None,):
+            #     targets_[path] = (None,)
+            # else:
+            targets_[path] = self._targets[path] + self._materialized.targets[path]
         return complete_axis_targets(targets_)
 
     # TODO: Should this return LoopIndexVars?
@@ -2111,8 +2114,10 @@ def subst_layouts(
     *,
     path=idict(),
     target_paths_and_exprs_acc=None,
+    loop_vars=frozenset(),
 ):
-    from pyop3.expr.visitors import replace_terminals
+    from pyop3 import NAN
+    from pyop3.expr.visitors import replace_terminals, collect_loop_index_vars
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
@@ -2124,10 +2129,16 @@ def subst_layouts(
         # layouts_subst[path] = replace(layouts[accumulated_path], linear_axes_acc, target_paths_and_exprs_acc)
         replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc.values() for t in ts)
 
+        loop_vars |= utils.reduce("|", (set(collect_loop_index_vars(t.expr)) for ts in target_paths_and_exprs_acc.values() for t in ts), set())
+
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.
-        if accumulated_path in layouts:
+        if accumulated_path in layouts and inner_loop_indices(axes, targets, path) <= loop_vars:
             layouts_subst[path] = replace_terminals(layouts[accumulated_path], replace_map)
+        else:
+            # if we haven't gone far enough down the tree to have found all of the loop
+            # indices then we can't really say that we know what the layout function is.
+            layouts_subst[path] = NAN
 
         if axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree):
             return layouts_subst
@@ -2140,11 +2151,15 @@ def subst_layouts(
 
         accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc_.values() for t in ts)
         replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc_.values() for t in ts)
+        loop_vars_ = loop_vars | utils.reduce("|", (set(collect_loop_index_vars(t.expr)) for ts in target_paths_and_exprs_acc_.values() for t in ts), set())
 
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.
-        if accumulated_path in layouts:
+        # if accumulated_path in layouts:
+        if accumulated_path in layouts and inner_loop_indices(axes, targets, path) <= loop_vars_:
             layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
+        else:
+            layouts_subst[path_] = NAN
 
         if axes.node_map[path_]:
             layouts_subst.update(
@@ -2154,9 +2169,26 @@ def subst_layouts(
                     layouts,
                     path=path_,
                     target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
+                    loop_vars=loop_vars_,
                 )
             )
     return idict(layouts_subst)
+
+
+# NOTE: likely very inefficient
+def inner_loop_indices(axes, targets, path):
+    from pyop3.expr.visitors import collect_loop_index_vars
+
+    if path in axes.leaf_paths:
+        return set()
+
+    loop_index_vars = set()
+    subtree = axes.linearize(path, partial=True)
+    for subpath in subtree.node_map:
+        for axis_target in targets[path | subpath]:
+            loop_index_vars |= set(collect_loop_index_vars(axis_target.expr))
+    return loop_index_vars
+
 
 
 def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, path=idict()) -> AxisTree:
@@ -2364,8 +2396,8 @@ def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: Con
 
 def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:
     new_targets = dict(targets)
-    # if idict() not in targets:
-    #     new_targets[idict()] = ((),)
+    if idict() not in targets:
+        new_targets[idict()] = ((),)
     # drop duplicates
     for path, candidate_axis_targets in targets.items():
         new_targets[path] = utils.unique(candidate_axis_targets)

@@ -134,19 +134,6 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
     return OrderedSet({
         (loop_index.id, loop_index.iterset.leaf_paths)})
 
-    # return OrderedSet({
-    #     (
-    #         loop_index.id,
-    #         tuple(
-    #             tuple(
-    #                 leaf_target_paths_per_target[leaf_path]
-    #                 for leaf_target_paths_per_target in loop_index.iterset.leaf_target_paths
-    #             )
-    #             for leaf_path in loop_index.iterset.leaf_paths
-    #         )
-    #     )
-    # })
-
 
 @collect_loop_contexts.register(CalledMap)
 def _(called_map: CalledMap, /) -> OrderedSet:

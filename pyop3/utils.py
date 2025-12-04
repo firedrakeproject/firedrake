@@ -214,6 +214,13 @@ class OrderedSet(collections.abc.Sequence):
         if value not in self._values:
             self._values.append(value)
 
+    def union(self, /, *others):
+        new = self.copy()
+        for other in others:
+            for value in other:
+                new.add(value)
+        return new
+
 
 # TODO
 class FrozenOrderedSet:
@@ -805,7 +812,8 @@ def stack(list_, to_push):
 
 @contextlib.contextmanager
 def dict_stack(dict_, to_push):
-    dict_ |= to_push
+    for key, value in to_push.items():
+        dict_[key] = value
     yield
     for key in to_push:
         dict_.pop(key)
