@@ -413,17 +413,13 @@ def _(called_func: CalledFunction, /) -> InstructionList:
                 # them directly. This should ideally be addressed.
                 arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
-            # elif intent == RW:
-            else:
-                # for now don't do clever things with INC because it makes things
-                # horrendous when we have transforms
-                assert intent in {RW, INC}
+            elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
-            # else:
-            #     assert intent == INC
-            #     arg_pack_insns.append(local_tensor.assign(0))
-            #     arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
+            else:
+                assert intent == INC
+                arg_pack_insns.append(local_tensor.assign(0))
+                arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
         else:
@@ -443,17 +439,23 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
         assignment.expression, ArrayAccessType.READ
     )
 
+    if assignment.assignment_type == AssignmentType.WRITE:
+        access_type = ArrayAccessType.WRITE
+    else:
+        assert assignment.assignment_type == AssignmentType.INC
+        access_type = ArrayAccessType.INC
+
     bare_assignee, assignee_transform_insns = _expand_reshapes(
-        assignment.assignee, ArrayAccessType.WRITE
+        assignment.assignee, access_type
     )
     bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
 
-    # if bare_assignee == assignment.assignee:
-    #     # no extra assignments
-    #     bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
-    # else:
-    #     bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type="write")
-    #
+    if bare_assignee == assignment.assignee:
+        # no extra assignments
+        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
+    else:
+        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type=AssignmentType.WRITE)
+
     return maybe_enlist((*expression_transform_insns, bare_assignment, *assignee_transform_insns))
 
 
@@ -501,72 +503,9 @@ def _(array: Tensor, /, access_type):
     if access_type == ArrayAccessType.READ:
         return _expand_transforms_in(array)
     else:
-        assert access_type == ArrayAccessType.WRITE
-        return _expand_transforms_out(array)
-    # """
-    # Example:
-    #
-    # Consider:
-    #
-    #     kernel(dat[?])  # INC
-    #
-    # into
-    #
-    #     t0 <- 0
-    #     kernel(t0)
-    #     f(t0)  # in-place
-    #     t1 <- g(t0)  # out-of-place
-    #     dat[?] += t1
-    # """
-    # if not array.parent:
-    #     return array, (), ()
-    #
-    # pack_insns = []
-    # unpack_insns = []
-    #
-    # # Mumble, INC accesses are inherently incompatible with transforms because
-    # # transforms imply R/W accesses.
-    # #
-    # # e.g. consider 'kernel' with INC access and a global. The following won't work
-    # # because the transformation won't only be over the single contribution.
-    # #
-    # #   kernel(glob)
-    # #   f(glob)  # in-place transform
-    # #
-    # # vs
-    # #
-    # #   kernel(t0)
-    # #   f(t0)
-    # #   glob += t0
-    # #
-    # # which is safe to do.
-    # #
-    # # As a consequence it means that INC accesses with transforms must always be
-    # # expanded to have temporaries.
-    # #
-    # # N.B. I am fairly confident that this is right but I haven't quite got it
-    # # straight in my head exactly why.
-    # if access_type in {ArrayAccessType.INC, "inc"}:
-    #     local_tensor, local_root, global_tensor = _materialize_untransformed_tensor(array)
-    #     pack_insns.insert(0, local_root.zero())
-    #     # unpack_insns.append(global_tensor.iassign(local_root))
-    #     unpack_insns.append(global_tensor.iassign(local_tensor))
-    #
-    #     # array = local_tensor
-    #     array = local_root
-    #     access_type = ArrayAccessType.WRITE
-    #
-    # if access_type in {ArrayAccessType.READ, "read"}:
-    #     insns = _expand_transforms_in(array)
-    #     pack_insns.extend(insns)
-    # else:
-    #     assert access_type in {ArrayAccessType.WRITE, "write"}
-    #     insns = _expand_transforms_out(array)
-    #     unpack_insns = [*insns, *unpack_insns]
-    #
-    # bare_array = array.__record_init__(_parent=None)
-    # return bare_array, tuple(pack_insns), tuple(unpack_insns)
-    # # return local_root, tuple(pack_insns), tuple(unpack_insns)
+        # assert access_type == ArrayAccessType.WRITE
+        # return _expand_transforms_out(array, access_type)
+        return _expand_transforms_out(array, access_type)
 
 
 def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
@@ -614,7 +553,7 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
     return tensor.__record_init__(_parent=None), pack_insns
 
 
-def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
+def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[Instruction, ...]]:
     """
     I.e.
 
@@ -671,10 +610,15 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
             else:
                 raise NotImplementedError
             # NOTE: It seems a bit weird to have an assignment given that this is 'inplace'
-            current_unpack_insns = (
+            current_unpack_insns = [
                 *current_tensor.parent.transform_out(bare_current_tensor),
-                bare_parent_tensor.assign(bare_current_tensor_reshaped),
-            )
+            ]
+
+            # at the end of the traversal, maybe emit an INC
+            if not parent_tensor.parent and access_type == ArrayAccessType.INC:
+                current_unpack_insns.append(bare_parent_tensor.iassign(bare_current_tensor_reshaped))
+            else:
+                current_unpack_insns.append(bare_parent_tensor.assign(bare_current_tensor_reshaped))
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
             current_unpack_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
@@ -695,42 +639,6 @@ def has_materialized_temporaries(tensor: Tensor) -> bool:
         else:
             tensor = tensor.parent.untransformed
     return False
-
-
-def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
-    """
-    I.e.
-
-    * given 'T' implying:
-
-        kernel(T, ...)
-        ...
-        f'(T)        # in-place transform
-        U <- g'(T)   # out-of-place transform
-        dat += U
-
-    * want to materialise U and return T, U and dat
-
-    This effectively means we have to look at all the parents and return the top-most, we also
-    need to swap out 'parent'
-
-    """
-    if tensor.parent:
-        new_parent_tensor, U, global_tensor = _materialize_untransformed_tensor(tensor.parent.untransformed)
-        new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
-
-        if tensor.buffer == global_tensor.buffer:
-            buffer = new_parent_tensor.buffer
-        else:
-            buffer = tensor.buffer
-
-        return tensor.__record_init__(_buffer=buffer, _parent=new_parent), U, global_tensor
-    else:
-        # No more parents, 'tensor' is the global data structure. We now want
-        # to materialize an equivalent and cascade the change back down.
-        U = tensor.materialize().__record_init__(_parent=None)
-        return U, U, tensor
-
 
 
 @functools.singledispatch

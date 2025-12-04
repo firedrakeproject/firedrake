@@ -376,8 +376,8 @@ class CompiledCodeExecutor:
             buffers[index].inc_state()
 
         # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
-        if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
-            breakpoint()
+        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
+        #     breakpoint()
         #     pyop3.extras.debug.maybe_breakpoint("submesh")
         # if len(self.loopy_code.callables_table) > 1:
 
@@ -1271,7 +1271,6 @@ def add_leaf_assignment(
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
-        # breakpoint()
 
     codegen_context.add_assignment(lexpr, rexpr)
 
