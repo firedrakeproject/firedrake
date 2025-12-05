@@ -131,16 +131,6 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     buffer: ClassVar = utils.attr("_buffer")
 
     @property
-    def shape(self) -> tuple[AxisTree]:
-        from pyop3.expr.visitors import get_shape
-        return get_shape(self.layout)
-
-    @cached_property
-    def loop_axes(self):
-        from pyop3.expr.visitors import get_loop_axes
-        return get_loop_axes(self.layout)
-
-    @property
     def _full_str(self) -> str:
         return f"{self.name}[{as_str(self.layout)}]"
 
@@ -185,20 +175,6 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-    # loop_axes: ClassVar[property] = utils.attr("_loop_axes")
-
-    @property
-    def shape(self) -> tuple[AxisTree, ...]:
-        shape_ = []
-        layout_shapes = (layout.shape for layout in self.layouts.values())
-        for layout_shapes_ in zip(*layout_shapes, strict=True):
-            shape_.append(merge_axis_trees(layout_shapes_))
-        return tuple(shape_)
-
-    @property
-    def loop_axes(self):
-        breakpoint()
-        return utils.unique(map(_extract_loop_axes, self.layouts.values()))
 
     @property
     def _full_str(self) -> str:
@@ -247,15 +223,6 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
-    def shape(self):
-        # NOTE: This doesn't make sense here, need multiple axis trees
-        raise NotImplementedError
-
-    @property
-    def loop_axes(self):
-        raise NotImplementedError
-
-    @property
     def _full_str(self) -> str:
         return f"{self.buffer.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
 
@@ -286,15 +253,6 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-
-    @property
-    def shape(self):
-        # NOTE: This doesn't make sense here, need multiple axis trees
-        raise NotImplementedError
-
-    @property
-    def loop_axes(self):
-        raise NotImplementedError
 
     @property
     def _full_str(self) -> str:

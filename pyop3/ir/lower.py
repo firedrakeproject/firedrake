@@ -1342,14 +1342,14 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 @_lower_expr.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     try:
-        return utils.just_one(iname_maps)[axis_var.axis_label]
+        return utils.just_one(iname_maps)[axis_var.axis.label]
     except KeyError:
         breakpoint()  # debug
 
 
 @_lower_expr.register(op3_expr.LoopIndexVar)
 def _(loop_var: op3_expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
-    return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
+    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 
 @_lower_expr.register(op3_expr.Scalar)

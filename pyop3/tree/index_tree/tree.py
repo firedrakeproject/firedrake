@@ -1193,8 +1193,8 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             except ValueError:
                 subset_axis_var = just_one(av for av in collect_axis_vars(slice_component.array.layout) if av.axis_label == slice_.label)
 
-            if subset_axis_var.axis_label != linear_axis.label:
-                replace_map = {subset_axis_var.axis_label: AxisVar(linear_axis)}
+            if subset_axis_var.axis.label != linear_axis.label:
+                replace_map = {subset_axis_var.axis.label: AxisVar(linear_axis)}
                 slice_expr = replace_terminals(slice_component.array, replace_map, assert_modified=True)
             else:
                 # FIXME: this isn't nice, should the labels ever match here?

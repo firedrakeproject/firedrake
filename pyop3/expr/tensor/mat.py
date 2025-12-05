@@ -94,10 +94,6 @@ class Mat(Tensor):
     parent: ClassVar[property] = utils.attr("_parent")
 
     @property
-    def shape(self):
-        return (self.row_axes.materialize(), self.caxes.materialize())
-
-    @property
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import functools
 import itertools
 import numbers
@@ -18,7 +19,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 # TODO: just namespace these
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -797,7 +798,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     loop_slices = []
     for loop_var in collect_loop_index_vars(composite_dat):
         orig_axis = loop_var.axis
-        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
+        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_index.id}")
 
         loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
         loop_slices.append(loop_slice)
@@ -879,14 +880,35 @@ def _(buffer_expr: op3_expr.BufferExpression) -> numbers.Number:
 
 
 # TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
+# NOTE: unit axis trees arent axis trees, need another type
 @functools.singledispatch
 def get_shape(obj: Any) -> tuple[AxisTree, ...]:
     raise TypeError
 
 
-@get_shape.register(op3_expr.Expression)  # TODO: dont attach as property of expression
-def _(expr: op3_expr.Expression) -> tuple[AxisTree, ...]:
-    return expr.shape
+@get_shape.register(op3_expr.Operator)
+def _(op: op3_expr.Operator, /) -> tuple[AxisTree, ...]:
+    return (
+        merge_axis_trees([
+            utils.just_one(get_shape(operand))
+            for operand in op.operands
+        ]),
+    )
+
+
+@get_shape.register(op3_expr.AxisVar)
+def _(axis_var: op3_expr.AxisVar, /) -> tuple[AxisTree, ...]:
+    return (axis_var.axis.as_tree(),)
+
+
+@get_shape.register(op3_expr.Dat)
+def _(dat: op3_expr.Dat, /) -> tuple[AxisTree, ...]:
+    return (dat.axes.materialize(),)
+
+
+@get_shape.register(op3_expr.Mat)
+def _(mat: op3_expr.Mat, /) -> tuple[AxisTree, ...]:
+    return (mat.row_axes.materialize(), mat.caxes.materialize())
 
 
 @get_shape.register(op3_expr.CompositeDat)
@@ -894,25 +916,50 @@ def _(cdat: op3_expr.CompositeDat, /) -> tuple[AxisTree, ...]:
     return (cdat.axis_tree,)
 
 
+@get_shape.register(op3_expr.LinearDatBufferExpression)
+def _(dat_expr: op3_expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
+    return get_shape(dat_expr.layout)
+
+
 @get_shape.register(numbers.Number)
-def _(num: numbers.Number) -> tuple[AxisTree, ...]:
+@get_shape.register(op3_expr.LoopIndexVar)
+@get_shape.register(op3_expr.NaN)
+def _(obj: Any, /) -> tuple[AxisTree, ...]:
     return (UNIT_AXIS_TREE,)
 
 
+# NOTE: Bit of a strange return type...
 @functools.singledispatch
-def get_loop_axes(obj: Any):
+def get_loop_axes(obj: Any) -> idict[LoopIndex: tuple[Axis, ...]]:
     raise TypeError
 
 
-@get_loop_axes.register(op3_expr.Expression)
-@get_loop_axes.register(op3_expr.CompositeDat)  # TODO: should be an expression type
-def _(expr: op3_expr.Expression):
-    return expr.loop_axes
+@get_loop_axes.register(op3_expr.Operator)
+def _(op: op3_expr.Operator, /) -> tuple[AxisTree, ...]:
+    # NOTE: could be cleaned up
+    a_loop_axes = get_loop_axes(op.a)
+    axes = collections.defaultdict(tuple, a_loop_axes)
+    for op in op.operands[1:]:
+        for loop_index, loop_axes in get_loop_axes(op).items():
+            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
+    return idict(axes)
+
+
+@get_loop_axes.register(op3_expr.LinearDatBufferExpression)
+def _(dat_expr: op3_expr.LinearDatBufferExpression, /):
+    return get_loop_axes(dat_expr.layout)
+
+
+@get_loop_axes.register(op3_expr.LoopIndexVar)
+def _(loop_var: op3_expr.LoopIndexVar, /):
+    return idict({loop_var.loop_index: (loop_var.axis,)})
 
 
 @get_loop_axes.register(numbers.Number)
-def _(num: numbers.Number):
-    return {}
+@get_loop_axes.register(op3_expr.AxisVar)
+@get_loop_axes.register(op3_expr.NaN)
+def _(obj: Any, /):
+    return idict()
 
 
 @functools.singledispatch

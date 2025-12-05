@@ -143,10 +143,6 @@ class Dat(Tensor):
     def comm(self) -> MPI.Comm:
         return self.internal_comm
 
-    @cached_property
-    def shape(self) -> tuple[AxisTree]:
-        return (self.axes.materialize(),)
-
     @property
     def axis_trees(self) -> tuple[AbstractAxisTree]:
         return (self.axes,)

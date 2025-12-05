@@ -20,16 +20,6 @@ class Expression(abc.ABC):
 
     # {{{ abstract methods
 
-    # @property
-    # @abc.abstractmethod
-    # def shape(self) -> AxisTree:
-    #     pass
-
-    # @property
-    # @abc.abstractmethod
-    # def loop_axes(self) -> tuple[Axis]:
-    #     pass
-
     @property
     @abc.abstractmethod
     def _full_str(self) -> str:
@@ -214,14 +204,6 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     def operand(self):
         return utils.just_one(self.operands)
 
-    @property
-    def shape(self):
-        return self.a.shape
-
-    @property
-    def loop_axes(self):
-        return self.a.loop_axes
-
 
 class Neg(UnaryOperator):
     @property
@@ -257,36 +239,10 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # }}}
 
-    @cached_property
-    def shape(self) -> tuple[AxisTree]:
-        from pyop3.expr.visitors import get_shape
-
-        return (
-            merge_axis_trees((
-                utils.just_one(get_shape(self.a)),
-                utils.just_one(get_shape(self.b)),
-            )),
-        )
-
-    @cached_property
-    def loop_axes(self):
-        from pyop3.expr.visitors import get_loop_axes
-
-        a_loop_axes = get_loop_axes(self.a)
-        b_loop_axes = get_loop_axes(self.b)
-        axes = collections.defaultdict(tuple, a_loop_axes)
-        for loop_index, loop_axes in b_loop_axes.items():
-            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
-        return idict(axes)
-
     @property
     def _full_str(self) -> str:
         # Always use brackets to avoid having to deal with operator precedence rules
         return f"({as_str(self.a)} {self._symbol} {as_str(self.b)})"
-
-    # def as_str(self, *, full=True) -> str:
-    #     # Always use brackets to avoid having to deal with operator precedence rules
-    #     return f"({self.as_str(a, full=full)} {self._symbol} {self.as_str(b, full=full)})"
 
 
 class Add(BinaryOperator):
@@ -397,37 +353,6 @@ class Conditional(TernaryOperator):
     def if_false(self) -> ExpressionT:
         return self.c
 
-    @property
-    def shape(self):
-        from pyop3.expr.visitors import get_shape
-
-        trees = (utils.just_one(get_shape(o)) for o in self.operands)
-        return (merge_axis_trees(trees),)
-
-        # if not isinstance(self.if_true, numbers.Number):
-        #     true_shape = get_shape(self.if_true)
-        #     if not isinstance(self.if_false, numbers.Number):
-        #         false_shape = self.if_false.shape
-        #         return utils.single_valued((true_shape, false_shape))
-        #     else:
-        #         return true_shape
-        # else:
-        #     return get_shape(self.if_false)
-
-    @cached_property
-    def loop_axes(self) -> tuple[Axis]:
-        from pyop3.expr.visitors import get_loop_axes
-
-        a_loop_axes = get_loop_axes(self.predicate)
-        b_loop_axes = get_loop_axes(self.if_true)
-        c_loop_axes = get_loop_axes(self.if_false)
-        axes = collections.defaultdict(tuple, a_loop_axes)
-        for loop_index, loop_axes in b_loop_axes.items():
-            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
-        for loop_index, loop_axes in c_loop_axes.items():
-            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
-        return idict(axes)
-
 
 def conditional(predicate, if_true, if_false):
     from pyop3 import evaluate
@@ -458,13 +383,6 @@ class AxisVar(Terminal):
 
     # {{{ interface impls
 
-    @cached_property
-    def shape(self) -> tuple[AxisTree]:
-        from pyop3.tree.axis_tree.tree import full_shape
-        return (merge_axis_trees((full_shape(self.axis.as_tree())[0], self.axis.as_tree())),)
-
-    loop_axes = idict()
-
     @property
     def _full_str(self) -> str:
         return f"i_{{{self.axis_label}}}"
@@ -477,21 +395,13 @@ class AxisVar(Terminal):
         assert tuple(r.label for r in axis.component.regions) == (None,)
         object.__setattr__(self, "axis", axis)
 
-    # TODO: deprecate?
-    @property
-    def axis_label(self):
-        return self.axis.label
-
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.axis_label!r})"
+        return f"{type(self).__name__}({self.axis.label!r})"
 
 
 @utils.frozenrecord()
 class NaN(Terminal):
     # {{{ interface impls
-
-    shape = (UNIT_AXIS_TREE,)
-    loop_axes = idict()
 
     _full_str = "NaN"
 
@@ -521,30 +431,13 @@ class LoopIndexVar(Terminal):
     # {{{ interface impls
 
     @property
-    def shape(self):
-        return (UNIT_AXIS_TREE,)
-
-    @property
-    def loop_axes(self):
-        return idict({self.loop_index: (self.axis,)})
-
-    @property
     def _full_str(self) -> str:
-        return f"L_{{{self.loop_index.id}, {self.axis_label}}}"
+        return f"L_{{{self.loop_index.id}, {self.axis.label}}}"
 
     # }}}
 
-    # TODO: deprecate me
-    @property
-    def axis_label(self):
-        return self.axis.label
-
-    @property
-    def loop_id(self):
-        return self.loop_index.id
-
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.loop_index!r}, {self.axis_label!r})"
+        return f"{type(self).__name__}({self.loop_index!r}, {self.axis.label!r})"
 
 
 ExpressionT = Expression | numbers.Number
