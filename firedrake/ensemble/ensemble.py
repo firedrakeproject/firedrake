@@ -7,8 +7,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from pyop2.mpi import MPI, internal_comm
 
-__all__ = ("Ensemble", )
-
 
 def _ensemble_mpi_dispatch(func):
     """
