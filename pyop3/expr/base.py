@@ -20,17 +20,15 @@ class Expression(abc.ABC):
 
     # {{{ abstract methods
 
-    # TODO: I reckon that this isn't strictly necessary - we can always detect the shape
-    # via a traversal. Similarly for loop axes and such.
-    @property
-    @abc.abstractmethod
-    def shape(self) -> AxisTree:
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def shape(self) -> AxisTree:
+    #     pass
 
-    @property
-    @abc.abstractmethod
-    def loop_axes(self) -> tuple[Axis]:
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def loop_axes(self) -> tuple[Axis]:
+    #     pass
 
     @property
     @abc.abstractmethod
@@ -450,20 +448,22 @@ def conditional(predicate, if_true, if_false):
 
 
 class Terminal(Expression, abc.ABC):
+    pass
 
     def __hash__(self) -> int:
         return hash((type(self), self.terminal_key))
 
     def __eq__(self, other, /) -> bool:
         return type(self) == type(other) and other.terminal_key == self.terminal_key
+    #
+    # @property
+    # @abc.abstractmethod
+    # def terminal_key(self):
+    #     # used in `replace_terminals()`
+    #     pass
 
-    @property
-    @abc.abstractmethod
-    def terminal_key(self):
-        # used in `replace_terminals()`
-        pass
 
-
+# @utils.frozenrecord()
 class AxisVar(Terminal):
 
     # {{{ interface impls
@@ -485,7 +485,8 @@ class AxisVar(Terminal):
         assert len(axis.components) == 1
         assert axis.component.sf is None
         assert tuple(r.label for r in axis.component.regions) == (None,)
-        self.axis = axis
+        # self.axis = axis
+        object.__setattr__(self, "axis", axis)
 
     # TODO: when we use frozenrecord
     # def __post_init__(self) -> None:
@@ -504,6 +505,7 @@ class AxisVar(Terminal):
         return self.axis_label
 
 
+# @utils.frozenrecord()
 class NaN(Terminal):
     # {{{ interface impls
 
@@ -526,6 +528,7 @@ NAN = NaN()
 
 
 # TODO: Refactor so loop ID passed in not the actual index
+# @utils.frozenrecord()
 class LoopIndexVar(Terminal):
 
     # {{{ interface impls
@@ -550,8 +553,11 @@ class LoopIndexVar(Terminal):
         assert not isinstance(axis, str), "changed"
         assert isinstance(loop_index, LoopIndex)
         assert axis.component.sf is None
-        self.loop_index = loop_index
-        self.axis = axis
+        # self.loop_index = loop_index
+        # self.axis = axis
+        object.__setattr__(self, "loop_index", loop_index)
+        object.__setattr__(self, "axis", axis)
+
 
         # we must be linear at this point
         assert len(self.axis.components) == 1

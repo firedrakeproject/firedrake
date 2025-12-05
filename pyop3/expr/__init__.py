@@ -5,5 +5,5 @@ from .base import (  # noqa: F401
 from .buffer import BufferExpression, as_linear_buffer_expression, LinearDatBufferExpression, LinearBufferExpression, NonlinearDatBufferExpression, MatBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, ScalarBufferExpression  # noqa: F401
 from .tensor import (  #noqa: F401
         Scalar, Tensor,
-        Dat, Mat, CompositeDat, LinearCompositeDat, NonlinearCompositeDat
+        Dat, Mat, CompositeDat
 )

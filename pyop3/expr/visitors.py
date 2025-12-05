@@ -244,20 +244,20 @@ def replace_terminals(obj: Any, /, replace_map, *, assert_modified: bool = False
     return new_obj
 
 
-# TODO: make this a nice generic traversal
 @functools.singledispatch
 def _replace_terminals(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@_replace_terminals.register(op3_expr.Terminal)
-def _(terminal: op3_expr.Terminal, /, replace_map) -> ExpressionT:
-    return replace_map.get(terminal.terminal_key, terminal)
+@_replace_terminals.register(op3_expr.AxisVar)
+def _(axis_var: op3_expr.AxisVar, /, replace_map) -> ExpressionT:
+    return replace_map.get(axis_var.axis.label, axis_var)
 
 
-@_replace_terminals.register(numbers.Number)
 @_replace_terminals.register(bool)
+@_replace_terminals.register(numbers.Number)
 @_replace_terminals.register(np.bool)
+@_replace_terminals.register(op3_expr.NaN)
 def _(var: ExpressionT, /, replace_map) -> ExpressionT:
     return var
 
@@ -613,7 +613,7 @@ def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -
             # op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
             op_axes = utils.just_one(op.shape)
             op_loop_axes = op.loop_axes
-            compressed_expr = op3_expr.LinearCompositeDat(op_axes, {op_axes.leaf_path: op}, loop_indices)
+            compressed_expr = op3_expr.CompositeDat(op_axes, {op_axes.leaf_path: op}, loop_indices)
 
             op_cost = op_axes.size
             for loop_axes in op_loop_axes.values():
@@ -654,7 +654,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, visited_axes, loop_indices, *
 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            candidates.append((op3_expr.LinearCompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost))
+            candidates.append((op3_expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost))
 
     return tuple(candidates)
 
@@ -807,9 +807,6 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         expr = composite_dat.exprs[leaf_path]
         expr = replace(expr, loop_var_replace_map)
 
-        # is this broken?
-        # assignee_ = assignee.with_axes(assignee.axes.linearize(composite_dat.loop_tree.leaf_path | path))
-
         myslices = []
         for axis, component in leaf_path.items():
             myslice = Slice(axis, [AffineSliceComponent(component)])
@@ -842,12 +839,11 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
             newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
-    if isinstance(composite_dat, op3_expr.LinearCompositeDat):
+    if composite_dat.axis_tree.is_linear:
         layout = newlayouts[axes.leaf_path]
         assert not isinstance(layout, op3_expr.NaN)
         materialized_expr = op3_expr.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
-        assert isinstance(composite_dat, op3_expr.NonlinearCompositeDat)
         materialized_expr = op3_expr.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
 
     return materialized_expr
@@ -884,18 +880,22 @@ def _(buffer_expr: op3_expr.BufferExpression) -> numbers.Number:
 
 # TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
 @functools.singledispatch
-def get_shape(obj: Any):
+def get_shape(obj: Any) -> tuple[AxisTree, ...]:
     raise TypeError
 
 
-@get_shape.register(op3_expr.Expression)
-@get_shape.register(op3_expr.CompositeDat)  # TODO: should be expression type
-def _(expr: op3_expr.Expression):
+@get_shape.register(op3_expr.Expression)  # TODO: dont attach as property of expression
+def _(expr: op3_expr.Expression) -> tuple[AxisTree, ...]:
     return expr.shape
 
 
+@get_shape.register(op3_expr.CompositeDat)
+def _(cdat: op3_expr.CompositeDat, /) -> tuple[AxisTree, ...]:
+    return (cdat.axis_tree,)
+
+
 @get_shape.register(numbers.Number)
-def _(num: numbers.Number):
+def _(num: numbers.Number) -> tuple[AxisTree, ...]:
     return (UNIT_AXIS_TREE,)
 
 

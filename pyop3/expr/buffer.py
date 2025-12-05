@@ -12,7 +12,7 @@ from pyop3.buffer import BufferRef, AbstractBuffer
 from pyop3.sf import DistributedObject
 
 from .base import Expression, as_str
-from .tensor import Scalar, Dat, NonlinearCompositeDat
+from .tensor import Scalar, Dat, CompositeDat
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -235,7 +235,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     @classmethod
     def from_axis_trees(cls, buffer_ref, row_axes, column_axes) -> MatPetscMatBufferExpression:
         row_layout, column_layout = (
-            NonlinearCompositeDat(axis_tree.materialize().regionless, axis_tree.subst_layouts())
+            CompositeDat(axis_tree.materialize().regionless, axis_tree.subst_layouts())
             for axis_tree in [row_axes, column_axes]
         )
         return cls(buffer_ref, row_layout, column_layout)

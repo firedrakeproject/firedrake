@@ -4,6 +4,5 @@ from .dat import (  # noqa: F401
     FancyIndexWriteException,
     Dat,
     CompositeDat,
-    LinearCompositeDat, NonlinearCompositeDat
 )
 from .mat import Mat, RowDatPythonMatContext, ColumnDatPythonMatContext  # noqa: F401

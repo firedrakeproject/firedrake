@@ -1016,7 +1016,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr import AxisVar
     from pyop3.expr.visitors import replace_terminals, collect_axis_vars
-    from pyop3.expr import LinearCompositeDat
+    from pyop3.expr import CompositeDat
     from pyop3.expr.visitors import get_shape, get_loop_axes, materialize_composite_dat
 
 
@@ -1134,7 +1134,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     subset_loop_axes = get_loop_axes(slice_component.array)
                     if subset_loop_axes:
                         raise NotImplementedError
-                    subset_expr = LinearCompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
+                    subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
                     indices = materialize_composite_dat(subset_expr).buffer.buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):

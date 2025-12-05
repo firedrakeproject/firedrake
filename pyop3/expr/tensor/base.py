@@ -16,6 +16,7 @@ from pyop3.expr import Expression
 from pyop3.exceptions import InvalidIndexCountException
 
 
+# class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"

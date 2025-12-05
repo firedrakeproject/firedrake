@@ -27,6 +27,7 @@ from pyop3.tree.axis_tree import (
 )
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
+from pyop3.expr.base import Terminal
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
 from pyop3.exceptions import Pyop3Exception
@@ -557,115 +558,20 @@ class Dat(Tensor):
         return self.__record_init__(axes=axes)
 
 
-# should inherit from _Dat
-# or at least be an Expression!
-# this is important because we need to have shape and loop_axes
-class CompositeDat(abc.ABC):
+@utils.frozenrecord()
+class CompositeDat(Terminal):
+
+    axis_tree: AxisTree
+    exprs: idict[ConcretePathT, ExpressionT]
 
     dtype = IntType
 
-    # {{{ abstract methods
+    def __init__(self, axis_tree, exprs) -> None:
+        assert len(axis_tree._all_region_labels) == 0
 
-    @property
-    @abc.abstractmethod
-    def axis_tree(self) -> AxisTree:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def exprs(self) -> idict[ConcretePathT, ExpressionT]:
-        pass
-
-    # @abc.abstractmethod
-    # def __str__(self) -> str:
-    #     pass
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "exprs", exprs)
 
     @property
     def _full_str(self):
         return str(self)
-
-    # }}}
-
-    @property
-    def shape(self) -> tuple[AxisTree]:
-        return (self.axis_tree,)
-
-
-@utils.frozenrecord()
-class LinearCompositeDat(CompositeDat):
-
-    # {{{ instance attrs
-
-    _axis_tree: AxisTree
-    _exprs: idict[ConcretePathT, ExpressionT]
-
-    # }}}
-
-    # {{{ interface impls
-
-    axis_tree = utils.attr("_axis_tree")
-    exprs = utils.attr("_exprs")
-
-    # }}}
-
-    def __init__(self, axis_tree, exprs):
-        assert axis_tree.is_linear
-        assert len(axis_tree._all_region_labels) == 0
-
-        object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "_exprs", exprs)
-
-    def __str__(self) -> str:
-        return f"<{self.leaf_expr}>"
-
-    # @property
-    # def leaf_expr(self):
-    #     return self._exprs[self.axis_tree.leaf_path]
-
-
-@utils.frozenrecord()
-class NonlinearCompositeDat(CompositeDat):
-
-    # {{{ instance attrs
-
-    _axis_tree: AxisTree
-    _exprs: idict
-
-    # }}}
-
-    # {{{ interface impls
-
-    axis_tree = utils.attr("_axis_tree")
-    exprs: ClassVar[idict] = utils.attr("_exprs")
-
-    # }}}
-
-    def __init__(self, axis_tree, exprs):
-        assert len(axis_tree._all_region_labels) == 0
-        exprs = idict(exprs)
-
-        object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "_exprs", exprs)
-
-    # @cached_property
-    # def loop_indices(self) -> tuple[LoopIndexVar, ...]:
-    #     from pyop3.expr.visitors import collect_loop_index_vars
-    #
-    #     # assuming a single leaf expression
-    #     # assert len(self.axis_tree.leaf_paths) == len(self._exprs)
-    #     # all expressions are assumed to have the same outer loops
-    #     # return utils.single_valued(map(collect_loop_index_vars, self.leaf_exprs))
-    #     return utils.single_valued(map(collect_loop_index_vars, self.exprs.values()))
-
-    # TODO: remove me
-    @property
-    def leaf_exprs(self):
-        return tuple(
-            self._exprs[leaf_path]
-            for leaf_path in self.axis_tree.leaf_paths
-        )
-
-    # def __str__(self) -> str:
-    #     return f"acc({self.expr})"
-
-
