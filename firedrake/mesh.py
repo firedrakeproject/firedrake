@@ -4215,56 +4215,57 @@ def _parent_mesh_embedding(
     import firedrake.interpolation as interpolation
     import firedrake.assemble as assemble
 
-    # In parallel, we need to make sure we know which point is which and save
-    # it.
-    if redundant:
-        # rank 0 broadcasts coords to all ranks
-        coords_local = parent_mesh._comm.bcast(coords, root=0)
-        ncoords_local = coords_local.shape[0]
-        coords_global = coords_local
-        ncoords_global = coords_global.shape[0]
-        global_idxs_global = np.arange(coords_global.shape[0])
-        input_coords_idxs_local = np.arange(ncoords_local)
-        input_coords_idxs_global = input_coords_idxs_local
-        input_ranks_local = np.zeros(ncoords_local, dtype=int)
-        input_ranks_global = input_ranks_local
-    else:
-        # Here, we have to assume that all points we can see are unique.
-        # We therefore gather all points on all ranks in rank order: if rank 0
-        # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
-        # rank 0's points have global numbering 0-9, rank 1's points have
-        # global numbering 10-29, and rank 3's points have global numbering
-        # 30-34.
-        coords_local = coords
-        ncoords_local = coords.shape[0]
-        ncoords_local_allranks = parent_mesh._comm.allgather(ncoords_local)
-        ncoords_global = sum(ncoords_local_allranks)
-        # The below code looks complicated but it's just an allgather of the
-        # (variable length) coords_local array such that they are concatenated.
-        coords_local_size = np.array(coords_local.size)
-        coords_local_sizes = np.empty(parent_mesh._comm.size, dtype=int)
-        parent_mesh._comm.Allgatherv(coords_local_size, coords_local_sizes)
-        coords_global = np.empty(
-            (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
-        )
-        parent_mesh._comm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
-        # # ncoords_local_allranks is in rank order so we can just sum up the
-        # # previous ranks to get the starting index for the global numbering.
-        # # For rank 0 we make use of the fact that sum([]) = 0.
-        # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
-        # endidx = startidx + ncoords_local
-        # global_idxs_global = np.arange(startidx, endidx)
-        global_idxs_global = np.arange(coords_global.shape[0])
-        input_coords_idxs_local = np.arange(ncoords_local)
-        input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-        parent_mesh._comm.Allgatherv(
-            input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
-        )
-        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
-        input_ranks_global = np.empty(ncoords_global, dtype=int)
-        parent_mesh._comm.Allgatherv(
-            input_ranks_local, (input_ranks_global, ncoords_local_allranks)
-        )
+    with temp_internal_comm(parent_mesh.comm) as icomm:
+        # In parallel, we need to make sure we know which point is which and save
+        # it.
+        if redundant:
+            # rank 0 broadcasts coords to all ranks
+            coords_local = icomm.bcast(coords, root=0)
+            ncoords_local = coords_local.shape[0]
+            coords_global = coords_local
+            ncoords_global = coords_global.shape[0]
+            global_idxs_global = np.arange(coords_global.shape[0])
+            input_coords_idxs_local = np.arange(ncoords_local)
+            input_coords_idxs_global = input_coords_idxs_local
+            input_ranks_local = np.zeros(ncoords_local, dtype=int)
+            input_ranks_global = input_ranks_local
+        else:
+            # Here, we have to assume that all points we can see are unique.
+            # We therefore gather all points on all ranks in rank order: if rank 0
+            # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
+            # rank 0's points have global numbering 0-9, rank 1's points have
+            # global numbering 10-29, and rank 3's points have global numbering
+            # 30-34.
+            coords_local = coords
+            ncoords_local = coords.shape[0]
+            ncoords_local_allranks = icomm.allgather(ncoords_local)
+            ncoords_global = sum(ncoords_local_allranks)
+            # The below code looks complicated but it's just an allgather of the
+            # (variable length) coords_local array such that they are concatenated.
+            coords_local_size = np.array(coords_local.size)
+            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
+            icomm.Allgatherv(coords_local_size, coords_local_sizes)
+            coords_global = np.empty(
+                (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
+            )
+            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+            # # ncoords_local_allranks is in rank order so we can just sum up the
+            # # previous ranks to get the starting index for the global numbering.
+            # # For rank 0 we make use of the fact that sum([]) = 0.
+            # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
+            # endidx = startidx + ncoords_local
+            # global_idxs_global = np.arange(startidx, endidx)
+            global_idxs_global = np.arange(coords_global.shape[0])
+            input_coords_idxs_local = np.arange(ncoords_local)
+            input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+            icomm.Allgatherv(
+                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
+            )
+            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
+            input_ranks_global = np.empty(ncoords_global, dtype=int)
+            icomm.Allgatherv(
+                input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+            )
 
     # Get parent mesh rank ownership information:
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
