@@ -64,11 +64,13 @@ __all__ = (
 
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
-COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
-COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
+COMM_WORLD = MPI.COMM_WORLD
+# COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
+# COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
 
-COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
-COMM_SELF.Set_name("PYOP2_COMM_SELF")
+COMM_SELF = MPI.COMM_SELF
+# COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
+# COMM_SELF.Set_name("PYOP2_COMM_SELF")
 
 # Creation index counter
 _COMM_CIDX = count()
@@ -571,15 +573,6 @@ def _free_comms():
     debug("STATE0")
     debug(pyop2_comm_status())
 
-    debug("Freeing PYOP2_COMM_WORLD")
-    COMM_WORLD.Free()
-    debug("STATE1")
-    debug(pyop2_comm_status())
-
-    debug("Freeing PYOP2_COMM_SELF")
-    COMM_SELF.Free()
-    debug("STATE2")
-    debug(pyop2_comm_status())
     debug(f"Freeing comms in list (length {len(_DUPED_COMM_DICT)})")
     for key in sorted(_DUPED_COMM_DICT.keys(), reverse=True):
         comm = _DUPED_COMM_DICT[key]

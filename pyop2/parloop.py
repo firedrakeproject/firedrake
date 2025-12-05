@@ -189,7 +189,7 @@ class Parloop:
 
         self.global_kernel = global_knl
         self.iterset = iterset
-        self.comm = mpi.internal_comm(iterset.comm, self)
+        self.comm = iterset.comm
         self.arguments, self.reduced_globals = self.prepare_reduced_globals(arguments, global_knl)
 
     @property
@@ -419,10 +419,11 @@ class Parloop:
                       Access.MIN: mpi.MPI.MIN,
                       Access.MAX: mpi.MPI.MAX}.get(self.accesses[idx])
 
-            if mpi.MPI.VERSION >= 3:
-                requests.append(self.comm.Iallreduce(glob._data, glob._buf, op=mpi_op))
-            else:
-                self.comm.Allreduce(glob._data, glob._buf, op=mpi_op)
+            with mpi.temp_internal_comm(self.comm) as icomm:
+                if mpi.MPI.VERSION >= 3:
+                    requests.append(icomm.Iallreduce(glob._data, glob._buf, op=mpi_op))
+                else:
+                    icomm.Allreduce(glob._data, glob._buf, op=mpi_op)
         return tuple(requests)
 
     @PETSc.Log.EventDecorator("ParLoopRednEnd")

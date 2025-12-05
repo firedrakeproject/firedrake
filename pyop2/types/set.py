@@ -8,7 +8,6 @@ from pyop2 import (
     caching,
     datatypes as dtypes,
     exceptions as ex,
-    mpi,
     utils
 )
 
@@ -65,7 +64,7 @@ class Set:
     @utils.validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), ex.SizeTypeError),
                          ('name', str, ex.NameTypeError))
     def __init__(self, size, name=None, halo=None, comm=None, constrained_size=0):
-        self.comm = mpi.internal_comm(comm, self)
+        self.comm = comm
         if isinstance(size, numbers.Integral):
             size = [size] * 3
         size = utils.as_tuple(size, numbers.Integral, 3)
@@ -238,7 +237,7 @@ class GlobalSet(Set):
     _argtypes_ = ()
 
     def __init__(self, comm=None):
-        self.comm = mpi.internal_comm(comm, self)
+        self.comm = comm
         self._cache = {}
 
     @utils.cached_property
@@ -323,7 +322,7 @@ class ExtrudedSet(Set):
     @utils.validate_type(('parent', Set, TypeError))
     def __init__(self, parent, layers, extruded_periodic=False):
         self._parent = parent
-        self.comm = mpi.internal_comm(parent.comm, self)
+        self.comm = parent.comm
         try:
             layers = utils.verify_reshape(layers, dtypes.IntType, (parent.total_size, 2))
             self.constant_layers = False
@@ -404,7 +403,7 @@ class Subset(ExtrudedSet):
     @utils.validate_type(('superset', Set, TypeError),
                          ('indices', (list, tuple, np.ndarray), TypeError))
     def __init__(self, superset, indices):
-        self.comm = mpi.internal_comm(superset.comm, self)
+        self.comm = superset.comm
 
         # sort and remove duplicates
         indices = np.unique(indices)
@@ -548,10 +547,7 @@ class MixedSet(Set, caching.ObjectCached):
         assert all(s is None or isinstance(s, GlobalSet) or ((s.layers == self._sets[0].layers).all() if s.layers is not None else True) for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
-        self.comm = mpi.internal_comm(
-            pytools.single_valued(s.comm for s in sets if s is not None),
-            self
-        )
+        self.comm = pytools.single_valued(s.comm for s in sets if s is not None)
         self._initialized = True
 
     @utils.cached_property
