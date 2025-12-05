@@ -179,14 +179,9 @@ def _(dat: op3_expr.Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loop_index_vars.register(op3_expr.LinearCompositeDat)
-def _(dat: op3_expr.LinearCompositeDat, /) -> OrderedSet:
-    return collect_loop_index_vars(dat.leaf_expr)
-
-
-@collect_loop_index_vars.register(op3_expr.NonlinearCompositeDat)
-def _(dat: op3_expr.NonlinearCompositeDat, /) -> OrderedSet:
-    return OrderedSet(dat.loop_indices)
+@collect_loop_index_vars.register(op3_expr.CompositeDat)
+def _(dat: op3_expr.CompositeDat, /) -> OrderedSet:
+    return utils.reduce("|", map(collect_loop_index_vars, dat.exprs.values()), OrderedSet())
 
 
 @collect_loop_index_vars.register(op3_expr.LinearDatBufferExpression)
@@ -800,7 +795,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     # replace LoopIndexVars in the expression with AxisVars
     # loop_index_replace_map = []
     loop_slices = []
-    for loop_var in composite_dat.loop_vars:
+    for loop_var in collect_loop_index_vars(composite_dat):
         orig_axis = loop_var.axis
         new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
 
@@ -838,8 +833,10 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
+        from pyop3.expr.base import get_loop_tree
+        loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
         for path_ in composite_dat.axis_tree.node_map:
-            fullpath = composite_dat.loop_tree.leaf_path | path_
+            fullpath = loop_tree.leaf_path | path_
             layout = assignee.axes.subst_layouts()[fullpath]
             newlayout = replace(layout, axis_to_loop_var_replace_map)
             newlayouts[path_] = newlayout

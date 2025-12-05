@@ -586,47 +586,9 @@ class CompositeDat(abc.ABC):
 
     # }}}
 
-    @cached_property
-    def loop_vars(self) -> FrozenOrderedSet[LoopIndexVar, ...]:
-        from pyop3.expr.visitors import collect_loop_index_vars
-
-        # all expressions are assumed to have the same outer loops
-        return utils.OrderedSet.union(*(map(collect_loop_index_vars, self.exprs.values())))
-
     @property
     def shape(self) -> tuple[AxisTree]:
         return (self.axis_tree,)
-
-    @property
-    def loop_axes(self):
-        # NOTE: ick API, just deal in loop index vars
-        return idict({
-            loop_index: loop_index.axis
-            for loop_index in self.loop_indices
-        })
-
-    @property
-    def loop_tree(self):
-        return self._loop_tree_and_replace_map[0]
-
-    @property
-    def loop_replace_map(self):
-        return self._loop_tree_and_replace_map[1]
-
-    @cached_property
-    def _loop_tree_and_replace_map(self) -> AxisTree:
-        from ..base import get_loop_tree
-
-        return get_loop_tree(self)
-
-    @cached_property
-    def loopified_axis_tree(self) -> AxisTree:
-        """Return the fully materialised axis tree including loops."""
-        return loopified_shape(self)[0]
-
-    # @cached_property
-    # def loop_vars(self) -> tuple[LoopIndexVar, ...]:
-    #     return self.loop_indices
 
 
 @utils.frozenrecord()
@@ -656,9 +618,9 @@ class LinearCompositeDat(CompositeDat):
     def __str__(self) -> str:
         return f"<{self.leaf_expr}>"
 
-    @property
-    def leaf_expr(self):
-        return self._exprs[self.axis_tree.leaf_path]
+    # @property
+    # def leaf_expr(self):
+    #     return self._exprs[self.axis_tree.leaf_path]
 
 
 @utils.frozenrecord()
@@ -685,14 +647,15 @@ class NonlinearCompositeDat(CompositeDat):
         object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_exprs", exprs)
 
-    @cached_property
-    def loop_indices(self) -> tuple[LoopIndexVar, ...]:
-        from pyop3.expr.visitors import collect_loop_index_vars
-
-        # assuming a single leaf expression
-        # assert len(self.axis_tree.leaf_paths) == len(self._exprs)
-        # all expressions are assumed to have the same outer loops
-        return utils.single_valued(map(collect_loop_index_vars, self.leaf_exprs))
+    # @cached_property
+    # def loop_indices(self) -> tuple[LoopIndexVar, ...]:
+    #     from pyop3.expr.visitors import collect_loop_index_vars
+    #
+    #     # assuming a single leaf expression
+    #     # assert len(self.axis_tree.leaf_paths) == len(self._exprs)
+    #     # all expressions are assumed to have the same outer loops
+    #     # return utils.single_valued(map(collect_loop_index_vars, self.leaf_exprs))
+    #     return utils.single_valued(map(collect_loop_index_vars, self.exprs.values()))
 
     # TODO: remove me
     @property
