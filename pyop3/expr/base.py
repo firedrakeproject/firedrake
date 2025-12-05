@@ -450,21 +450,11 @@ def conditional(predicate, if_true, if_false):
 class Terminal(Expression, abc.ABC):
     pass
 
-    def __hash__(self) -> int:
-        return hash((type(self), self.terminal_key))
 
-    def __eq__(self, other, /) -> bool:
-        return type(self) == type(other) and other.terminal_key == self.terminal_key
-    #
-    # @property
-    # @abc.abstractmethod
-    # def terminal_key(self):
-    #     # used in `replace_terminals()`
-    #     pass
-
-
-# @utils.frozenrecord()
+@utils.frozenrecord()
 class AxisVar(Terminal):
+
+    axis: Axis
 
     # {{{ interface impls
 
@@ -485,12 +475,7 @@ class AxisVar(Terminal):
         assert len(axis.components) == 1
         assert axis.component.sf is None
         assert tuple(r.label for r in axis.component.regions) == (None,)
-        # self.axis = axis
         object.__setattr__(self, "axis", axis)
-
-    # TODO: when we use frozenrecord
-    # def __post_init__(self) -> None:
-    #     assert self.axis.is_linear
 
     # TODO: deprecate?
     @property
@@ -500,12 +485,8 @@ class AxisVar(Terminal):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.axis_label!r})"
 
-    @property
-    def terminal_key(self) -> str:
-        return self.axis_label
 
-
-# @utils.frozenrecord()
+@utils.frozenrecord()
 class NaN(Terminal):
     # {{{ interface impls
 
@@ -516,20 +497,26 @@ class NaN(Terminal):
 
     # }}}
 
-    def __repr__(self) -> str:
-        return "NaN()"
-
-    @property
-    def terminal_key(self) -> str:
-        return str(self)
-
 
 NAN = NaN()
 
 
-# TODO: Refactor so loop ID passed in not the actual index
-# @utils.frozenrecord()
+@utils.frozenrecord()
 class LoopIndexVar(Terminal):
+
+    loop_index: LoopIndex
+    axis: Axis
+
+    def __init__(self, loop_index, axis) -> None:
+        from pyop3 import LoopIndex
+
+        # we must be linear at this point
+        assert len(axis.components) == 1
+
+        assert isinstance(loop_index, LoopIndex)
+        assert axis.component.sf is None
+        object.__setattr__(self, "loop_index", loop_index)
+        object.__setattr__(self, "axis", axis)
 
     # {{{ interface impls
 
@@ -547,21 +534,6 @@ class LoopIndexVar(Terminal):
 
     # }}}
 
-    def __init__(self, loop_index, axis) -> None:
-        from pyop3 import LoopIndex
-
-        assert not isinstance(axis, str), "changed"
-        assert isinstance(loop_index, LoopIndex)
-        assert axis.component.sf is None
-        # self.loop_index = loop_index
-        # self.axis = axis
-        object.__setattr__(self, "loop_index", loop_index)
-        object.__setattr__(self, "axis", axis)
-
-
-        # we must be linear at this point
-        assert len(self.axis.components) == 1
-
     # TODO: deprecate me
     @property
     def axis_label(self):
@@ -573,10 +545,6 @@ class LoopIndexVar(Terminal):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.loop_index!r}, {self.axis_label!r})"
-
-    @property
-    def terminal_key(self) -> tuple:
-        return (self.loop_index.id, self.axis_label)
 
 
 ExpressionT = Expression | numbers.Number
