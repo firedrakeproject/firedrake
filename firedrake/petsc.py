@@ -69,21 +69,23 @@ def _extract_comm(obj: Any) -> MPI.Comm:
     # communicator, otherwise get the internal communicator attribute from the
     # given communicator.
     if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
-        try:
-            if mpi.is_pyop2_comm(obj):
-                comm = obj
-            else:
-                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
-                if internal_comm is None:
-                    comm = obj
-                else:
-                    comm = internal_comm
-        except mpi.PyOP2CommError:
-            pass
-    elif hasattr(obj, "_comm"):
-        comm = obj._comm
+        comm = obj
+        # try:
+        #     if mpi.is_pyop2_comm(obj):
+        #         comm = obj
+        #     else:
+        #         internal_comm = obj.Get_attr(mpi.innercomm_keyval)
+        #         if internal_comm is None:
+        #             comm = obj
+        #         else:
+        #             comm = internal_comm
+        # except mpi.PyOP2CommError:
+        #     pass
     elif hasattr(obj, "comm"):
         comm = obj.comm
+    # elif hasattr(obj, "_comm"):
+    #     comm = obj._comm
+    assert not mpi.is_pyop2_comm(obj)
     return comm
 
 

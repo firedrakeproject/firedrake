@@ -10,7 +10,6 @@ from pyop2 import (
     exceptions as ex,
     utils
 )
-from pyop2 import mpi
 from pyop2.types.set import GlobalSet, MixedSet, Set
 
 
@@ -37,7 +36,7 @@ class Map:
     def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, offset_quotient=None):
         self._iterset = iterset
         self._toset = toset
-        self.comm = mpi.internal_comm(toset.comm, self)
+        self.comm = toset.comm
         self._arity = arity
         self._values = utils.verify_reshape(values, dtypes.IntType,
                                             (iterset.total_size, arity), allow_none=True)
@@ -197,7 +196,7 @@ class PermutedMap(Map):
         if isinstance(map_, ComposedMap):
             raise NotImplementedError("PermutedMap of ComposedMap not implemented: simply permute before composing")
         self.map_ = map_
-        self.comm = mpi.internal_comm(map_.comm, self)
+        self.comm = map_.comm
         self.permutation = np.asarray(permutation, dtype=Map.dtype)
         assert (np.unique(permutation) == np.arange(map_.arity, dtype=Map.dtype)).all()
 
@@ -248,7 +247,7 @@ class ComposedMap(Map):
                 raise ex.MapTypeError("frommap.arity must be 1")
         self._iterset = maps_[-1].iterset
         self._toset = maps_[0].toset
-        self.comm = mpi.internal_comm(self._toset.comm, self)
+        self.comm = self._toset.comm
         self._arity = maps_[0].arity
         # Don't call super().__init__() to avoid calling verify_reshape()
         self._values = None
@@ -345,7 +344,7 @@ class MixedMap(Map, caching.ObjectCached):
             raise ex.MapTypeError("All maps needs to share a communicator")
         if len(comms) == 0:
             raise ex.MapTypeError("Don't know how to make communicator")
-        self.comm = mpi.internal_comm(comms[0], self)
+        self.comm = comms[0]
         self._initialized = True
 
     @classmethod

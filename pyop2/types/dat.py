@@ -83,7 +83,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         EmptyDataMixin.__init__(self, data, dtype, self._shape)
 
         self._dataset = dataset
-        self.comm = mpi.internal_comm(dataset.comm, self)
+        self.comm = dataset.comm
         self.halo_valid = True
         self._name = name or "dat_#x%x" % id(self)
 
@@ -889,7 +889,7 @@ class MixedDat(AbstractDat, VecAccessMixin):
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise ex.DataValueError('MixedDat with different dtypes is not supported')
         # TODO: Think about different communicators on dats (c.f. MixedSet)
-        self.comm = mpi.internal_comm(self._dats[0].comm, self)
+        self.comm = self._dats[0].comm
 
     @property
     def dat_version(self):

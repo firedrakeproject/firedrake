@@ -1,6 +1,10 @@
 """Global test configuration."""
 
+import contextlib
+import gc
+import io
 import os
+import re
 import sys
 
 # Disable warnings for missing options when running with pytest as PETSc does
@@ -8,8 +12,17 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc
+from mpi4py import MPI
 from petsctools import get_external_packages
+from pyadjoint.tape import annotate_tape, get_working_tape
+from pyop2.mpi import temp_internal_comm
+from pytest_mpi.parallel_assert import parallel_assert
+
+from firedrake.petsc import PETSc
+
+
+# see test_stdout from petsc4py, weird
+PETSc._push_python_vfprintf()
 
 
 def _skip_test_dependency(dependency):
@@ -171,9 +184,7 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import annotate_tape, get_working_tape
-
-    def fin():
+    def finalizer():
         # make sure taping is switched off
         assert not annotate_tape()
 
@@ -182,7 +193,42 @@ def check_empty_tape(request):
         if tape is not None:
             assert len(tape.get_blocks()) == 0
 
-    request.addfinalizer(fin)
+    request.addfinalizer(finalizer)
+
+
+# @pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
+def check_no_petsc_objects_on_private_comm(request):
+    """Check that PETSc objects are being created with the correct comm.
+
+    If objects are being created using Firedrake's private communicator then
+    they will not be destroyed using `PETSc.garbage_cleanup`.
+
+    """
+    def finalizer():
+        """Run `PETSc.garbage_view` on Firedrake's private comm and make it is empty."""
+        gc.collect()
+        with temp_internal_comm(MPI.COMM_WORLD) as private_comm:
+            with contextlib.redirect_stdout(io.StringIO()) as f:
+                PETSc.garbage_view(private_comm)
+        captured = MPI.COMM_WORLD.bcast(f.getvalue())
+
+        # debugging
+        with temp_internal_comm(MPI.COMM_WORLD) as private_comm:
+            PETSc.garbage_view(private_comm)
+
+        pattern = r"Rank \d+:: Total entries: (\d+)"
+        all_zero = True
+        nhits = 0
+        for line in captured.splitlines():
+            if match := re.fullmatch(pattern, line):
+                nhits += 1
+                if match.groups()[0] != "0":
+                    all_zero = False
+        parallel_assert(nhits == MPI.COMM_WORLD.size)
+        parallel_assert(all_zero)
+
+    request.addfinalizer(finalizer)
 
 
 class _petsc_raises:
