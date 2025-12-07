@@ -366,7 +366,8 @@ class GaussianCovariance:
 
     def __init__(self, V, L, sigma=1, m=2, rng=None,
                  bcs=None, form=None, function_space=None,
-                 solver_parameters=None, options_prefix=None):
+                 solver_parameters=None, options_prefix=None,
+                 mass_parameters=None, mass_prefix=None):
 
         form = form or self.DiffusionForm.CG
 
@@ -395,39 +396,45 @@ class GaussianCovariance:
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
             if isinstance(form, self.DiffusionForm):
-                a = diffusion_form(u, v, self.kappa, formulation=form)
+                K = diffusion_form(u, v, self.kappa, formulation=form)
             else:
-                a = form
-            self._rhs = Function(V)
-            rhs = inner(self._rhs, v)*dx
+                K = form
+
+            M = inner(u, v)*dx
+
             self._u = Function(V)
+            self._b = Cofunction(V.dual())
+
+            self._Mrhs = replace(M, {u: self._u})
+            self._Krhs = replace(K, {u: self._u})
 
             self.solver = LinearVariationalSolver(
-                LinearVariationalProblem(a, rhs, self._u, bcs=bcs,
+                LinearVariationalProblem(K, self._b, self._u, bcs=bcs,
                                          constant_jacobian=True),
                 solver_parameters=solver_parameters,
                 options_prefix=options_prefix)
 
-            # setup mass solver
-            M = inner(u, v)*dx
-            rhs = replace(a, {u: self._rhs})
-
             self.mass_solver = LinearVariationalSolver(
-                LinearVariationalProblem(M, rhs, self._u, bcs=bcs,
+                LinearVariationalProblem(M, self._b, self._u, bcs=bcs,
                                          constant_jacobian=True),
-                solver_parameters=solver_parameters)
+                solver_parameters=mass_parameters,
+                options_prefix=mass_prefix)
 
     def sample(self, *, rng=None, tensor=None):
         tensor = tensor or Function(self.function_space)
         rng = rng or self.rng
-        w = rng.sample(apply_riesz=True)
 
         if self.iterations == 0:
-            return tensor.assign(self._weight*w)
+            w = rng.sample(apply_riesz=True)
+            return tensor.assign(self.stddev*w)
 
-        self._u.assign(w)
-        for _ in range(self.iterations//2):
-            self._rhs.assign(self._u)
+        w = rng.sample(apply_riesz=False)
+
+        for i in range(self.iterations//2):
+            if i == 0:
+                self._b.assign(w)
+            else:
+                assemble(self._Mrhs, tensor=self._b)
             self.solver.solve()
 
         return tensor.assign(self._weight*self._u)
@@ -438,41 +445,51 @@ class GaussianCovariance:
             return assemble(inner(sigma_x, sigma_x)*dx)
 
         lamda1 = 1/self._weight
-
         self._u.assign(lamda1*x)
-        for k in range(self.iterations//2):
-            self._rhs.assign(self._u)
+
+        for i in range(self.iterations//2):
+            assemble(self._Krhs, tensor=self._b)
             self.mass_solver.solve()
 
         return assemble(inner(self._u, self._u)*dx)
 
     def apply_inverse(self, x, *, tensor=None):
-        tensor = tensor or Function(self.function_space)
+        """B^{-1} : V -> V*
+        """
+        tensor = tensor or Cofunction(self.function_space.dual())
 
         if self.iterations == 0:
+            riesz_map = self.rng.backend.riesz_map
+            Cx = x.riesz_representation(riesz_map)
             variance1 = 1/(self.stddev*self.stddev)
-            return tensor.assign(variance1*x)
+            return tensor.assign(variance1*Cx)
 
-        lamda1 = 1/self._weight
+        lamda1 = Constant(1/self._weight)
         self._u.assign(lamda1*x)
 
-        for k in range(self.iterations):
-            self._rhs.assign(self._u)
-            self.mass_solver.solve()
+        for i in range(self.iterations):
+            assemble(self._Krhs, tensor=self._b)
+            if i != self.iterations - 1:
+                self.mass_solver.solve()
 
-        return tensor.assign(lamda1*self._u)
+        return tensor.assign(lamda1*self._b)
 
     def apply_action(self, x, *, tensor=None):
+        """B : V* -> V
+        """
         tensor = tensor or Function(self.function_space)
 
         if self.iterations == 0:
+            riesz_map = self.rng.backend.riesz_map
+            Cx = x.riesz_representation(riesz_map)
             variance = self.stddev*self.stddev
-            return tensor.assign(variance*x)
+            return tensor.assign(variance*Cx)
 
-        self._u.assign(self._weight*x)
-
-        for k in range(self.iterations):
-            self._rhs.assign(self._u)
+        for i in range(self.iterations):
+            if i == 0:
+                self._b.assign(self._weight*x)
+            else:
+                assemble(self._Mrhs, tensor=self._b)
             self.solver.solve()
 
         return tensor.assign(self._weight*self._u)
@@ -505,7 +522,7 @@ def diffusion_form(u, v, kappa, formulation):
         raise ValueError("Unknown GaussianCovariance.DiffusionForm {formulation}")
 
 
-class CovarianceOperatorMat:
+class CovarianceMatCtx:
     class Operation(Enum):
         ACTION = 'action'
         INVERSE = 'inverse'
@@ -532,7 +549,7 @@ class CovarianceOperatorMat:
             self._mult_op = covariance.apply_inverse
         else:
             raise ValueError(
-                f"Unrecognised CovarianceOperatorMat operation {operation}")
+                f"Unrecognised CovarianceMat operation {operation}")
 
     def mult(self, mat, x, y):
         with self.x.dat.vec_wo as v:
@@ -552,7 +569,7 @@ class CovarianceOperatorMat:
         viewer.printfASCII(f"  firedrake covariance operator matrix: {type(self).__name__}\n")
         viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
 
-        if type(self.covariance) is GaussianCovariance:
+        if (type(self.covariance) is GaussianCovariance) and (self.covariance.iterations > 0):
             viewer.printfASCII("  Autoregressive covariance operator with:\n")
             viewer.printfASCII(f"    order: {self.covariance.iterations}\n")
             viewer.printfASCII(f"    correlation lengthscale: {self.covariance.lengthscale}\n")
@@ -560,14 +577,18 @@ class CovarianceOperatorMat:
 
             if self.operation == self.Operation.ACTION:
                 viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
-                self.covariance.solver.snes.ksp.view(viewer)
+                ksp = self.covariance.solver.snes.ksp
             elif self.operation == self.Operation.INVERSE:
                 viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
-                self.covariance.mass_solver.snes.ksp.view(viewer)
+                ksp = self.covariance.mass_solver.snes.ksp
+            level = ksp.getTabLevel()
+            ksp.setTabLevel(mat.getTabLevel() + 1)
+            ksp.view(viewer)
+            ksp.setTabLevel(level)
 
 
-def CovarianceOperatorMatrix(covariance, operation=None):
-    ctx = CovarianceOperatorMat(covariance, operation=operation)
+def CovarianceMat(covariance, operation=None):
+    ctx = CovarianceMatCtx(covariance, operation=operation)
 
     sizes = covariance.function_space.dof_dset.layout_vec.getSizes()
 
@@ -578,12 +599,13 @@ def CovarianceOperatorMatrix(covariance, operation=None):
     return mat
 
 
-class CovarianceOperatorPC(PCBase):
+class CovariancePC(PCBase):
     """
     Precondition the inverse covariance operator:
     P = B : V* -> V
     """
     needs_python_pmat = True
+    prefix = "covariance"
 
     def initialize(self, pc):
         A, P = pc.getOperators()
@@ -591,9 +613,10 @@ class CovarianceOperatorPC(PCBase):
         use_amat_prefix = self.parent_prefix + "pc_use_amat"
         self.use_amat = PETSc.Options().getBool(use_amat_prefix, False)
         mat = (A if self.use_amat else P).getPythonContext()
-        if not isinstance(mat, CovarianceOperatorMat):
+
+        if not isinstance(mat, CovarianceMatCtx):
             raise TypeError(
-                "CovarianceOperatorPC needs a CovarianceOperatorMat")
+                "CovariancePC needs a CovarianceMatCtx")
         covariance = mat.covariance
 
         self.covariance = covariance
@@ -604,13 +627,13 @@ class CovarianceOperatorPC(PCBase):
         dual = Function(V.dual())
 
         # PC does the opposite of the Mat
-        if mat.operation == CovarianceOperatorMat.Operation.ACTION:
-            self.operation = CovarianceOperatorMat.Operation.INVERSE
+        if mat.operation == CovarianceMatCtx.Operation.ACTION:
+            self.operation = CovarianceMatCtx.Operation.INVERSE
             self.x = primal
             self.y = dual
             self._apply_op = covariance.apply_inverse
-        elif mat.operation == self.Operation.INVERSE:
-            self.operation = CovarianceOperatorMat.Operation.ACTION
+        elif mat.operation == CovarianceMatCtx.Operation.INVERSE:
+            self.operation = CovarianceMatCtx.Operation.ACTION
             self.x = dual
             self.y = primal
             self._apply_op = covariance.apply_action
@@ -639,10 +662,10 @@ class CovarianceOperatorPC(PCBase):
         if self.use_amat:
             viewer.printfASCII("  using Amat matrix\n")
 
-        if type(self.covariance) is GaussianCovariance:
-            if self.operation == self.Operation.ACTION:
+        if (type(self.covariance) is GaussianCovariance) and (self.covariance.iterations > 0):
+            if self.operation == CovarianceMatCtx.Operation.ACTION:
                 viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
                 self.covariance.solver.snes.ksp.view(viewer)
-            elif self.operation == self.Operation.INVERSE:
+            elif self.operation == CovarianceMatCtx.Operation.INVERSE:
                 viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
                 self.covariance.mass_solver.snes.ksp.view(viewer)

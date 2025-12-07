@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from scipy.sparse import csr_matrix
+import petsctools
 from firedrake import *
 from firedrake.adjoint import *
 
@@ -88,13 +89,9 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
 @pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vector1", "vector2"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
-@pytest.mark.parametrize("backend", ("pyop2", "petsc"))
-def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
+def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
     """Test that correlated noise generator has the right covariance matrix.
     """
-    if backend == "petsc" and COMM_WORLD.size > 1:
-        pytest.skip(
-            "petsc backend for noise generation not implemented in parallel.")
 
     nx = 20
     if mesh_type == 'interval':
@@ -104,7 +101,7 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
     elif mesh_type == 'square':
         mesh = PeriodicUnitSquareMesh(nx, nx)
         x, y = SpatialCoordinate(mesh)
-        wexpr = cos(2*pi*x)*cos(4*pi*x)
+        wexpr = cos(2*pi*x)*cos(4*pi*y)
     elif mesh_type == 'cube':
         mesh = PeriodicUnitCubeMesh(nx, nx, nx)
         x, y, z = SpatialCoordinate(mesh)
@@ -116,8 +113,7 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
         V = FunctionSpace(mesh, family, degree)
 
     rng = WhiteNoiseGenerator(
-        V, backend=WhiteNoiseGenerator.Backend(backend),
-        rng=RandomGenerator(PCG64(seed=13)))
+        V, rng=RandomGenerator(PCG64(seed=13)))
 
     L = 0.1
     sigma = 0.9
@@ -141,9 +137,9 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
         options_prefix="")
 
     w = Function(V).project(wexpr)
-    wcheck = B.apply_inverse(B.apply_action(w))
+    wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-7
+    tol = 1e-10
 
     assert errornorm(w, wcheck) < tol
 
@@ -151,13 +147,9 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim, backend):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
-@pytest.mark.parametrize("backend", ("pyop2", "petsc"))
-def test_covariance_inverse_action_hdiv(m, degree, backend):
+def test_covariance_inverse_action_hdiv(m, degree):
     """Test that correlated noise generator has the right covariance matrix.
     """
-    if backend == "petsc" and COMM_WORLD.size > 1:
-        pytest.skip(
-            "petsc backend for noise generation not implemented in parallel.")
 
     nx = 20
     mesh = PeriodicUnitSquareMesh(nx, nx)
@@ -184,9 +176,9 @@ def test_covariance_inverse_action_hdiv(m, degree, backend):
         options_prefix="")
 
     w = Function(V).project(wexpr)
-    wcheck = B.apply_inverse(B.apply_action(w))
+    wcheck = B.apply_action(B.apply_inverse(w))
 
-    tol = 1e-7
+    tol = 1e-8
 
     assert errornorm(w, wcheck) < tol
 
@@ -233,3 +225,102 @@ def test_covariance_adjoint_norm(m, family):
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
     assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("m", (0, 2, 4))
+@pytest.mark.parametrize("family", ("CG", "DG"))
+@pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
+@pytest.mark.parametrize("operation", ("action", "inverse"))
+def test_covariance_mat(m, family, degree, operation):
+    """Test that correlated noise generator has the right covariance matrix.
+    """
+    nx = 20
+    L = 0.2
+    sigma = 0.9
+
+    mesh = UnitIntervalMesh(nx)
+    coords, = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, family, degree)
+
+    if family == 'CG':
+        form = GaussianCovariance.DiffusionForm.CG
+    elif family == 'DG':
+        form = GaussianCovariance.DiffusionForm.IP
+    else:
+        raise ValueError("Do not know which diffusion form to use for family {family}")
+
+    B = GaussianCovariance(V, L, sigma, m, form=form)
+
+    operation = CovarianceMatCtx.Operation(operation)
+
+    mat = CovarianceMat(B, operation=operation)
+
+    expr = 2*pi*coords
+
+    if operation == CovarianceMatCtx.Operation.ACTION:
+        x = Function(V).project(expr).riesz_representation()
+        y = Function(V)
+        xcheck = x.copy(deepcopy=True)
+        ycheck = y.copy(deepcopy=True)
+
+        B.apply_action(xcheck, tensor=ycheck)
+
+    elif operation == CovarianceMatCtx.Operation.INVERSE:
+        x = Function(V).project(expr)
+        y = Function(V.dual())
+        xcheck = x.copy(deepcopy=True)
+        ycheck = y.copy(deepcopy=True)
+
+        B.apply_inverse(xcheck, tensor=ycheck)
+
+    with x.dat.vec as xv, y.dat.vec as yv:
+        mat.mult(xv, yv)
+
+    # flip to primal space to calculate norms
+    if operation == CovarianceMatCtx.Operation.INVERSE:
+        y = y.riesz_representation()
+        ycheck = ycheck.riesz_representation()
+
+    assert errornorm(ycheck, y)/norm(ycheck) < 1e-12
+
+    if operation == CovarianceMatCtx.Operation.INVERSE:
+        y = y.riesz_representation()
+        ycheck = ycheck.riesz_representation()
+
+    ksp = PETSc.KSP().create()
+    ksp.setOperators(mat)
+
+    # poorly conditioned cases
+    if (degree == 2) and (m == 4):
+        tol = 1e-6
+    else:
+        tol = 1e-8
+
+    petsctools.set_from_options(
+        ksp, options_prefix="action",
+        parameters={
+            'ksp_monitor': None,
+            'ksp_type': 'richardson',
+            'ksp_max_it': 3,
+            'ksp_rtol': tol,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.adjoint.CovariancePC',
+        }
+    )
+    x.zero()
+
+    with x.dat.vec as xv, y.dat.vec as yv:
+        with petsctools.inserted_options(ksp):
+            ksp.solve(yv, xv)
+
+    # CovarianceOperator operations should
+    # be exact inverses of each other.
+    assert ksp.its == 1
+
+    if operation == CovarianceMatCtx.Operation.ACTION:
+        x = x.riesz_representation()
+        xcheck = xcheck.riesz_representation()
+
+    assert errornorm(xcheck, x)/norm(xcheck) < tol
