@@ -424,8 +424,6 @@ def main_test_strong_4dvar_advection():
     # make sure we've set up the reference rf correctly
     assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
-    # If we match the functional, then passing the taylor
-    # tests means that we should match the derivative too.
     taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
@@ -479,8 +477,6 @@ def main_test_weak_4dvar_advection():
         # make sure we've set up the reference rf correctly
         assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
-        # If we match the functional, then passing the taylor
-        # tests means that we should match the derivative too.
         taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
         assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
         assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']

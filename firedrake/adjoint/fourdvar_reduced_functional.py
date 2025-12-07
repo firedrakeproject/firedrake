@@ -18,8 +18,6 @@ from types import SimpleNamespace
 from contextlib import contextmanager
 from firedrake.petsc import PETSc
 
-__all__ = ['FourDVarReducedFunctional']
-
 
 def sc_passthrough(func):
     """

@@ -5,11 +5,17 @@ Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
-Here, we demonstrate how to do this in the latter case. ::
+Here, we demonstrate how to do this in the latter case.
+
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the meshes must have an overlapping
+parallel domain decomposition that supports the vertex star patches. This is set
+via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 
-  base = UnitCubeMesh(2, 2, 2)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  base = UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 

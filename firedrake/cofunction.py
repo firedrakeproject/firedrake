@@ -168,31 +168,48 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None, expr_from_assemble=False):
-        r"""Set the :class:`Cofunction` value to the pointwise value of
-        expr. expr may only contain :class:`Cofunction`\s on the same
-        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+    def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        expr : ufl.form.BaseForm
+            Expression to be assigned.
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed cofunction.
+        expr_from_assemble : bool
+            Flag indicating whether the expression results from an assemble operation
+            performed within the current method. Required for the `CofunctionAssignBlock`.
+        allow_missing_dofs : bool
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Cofunction` s on the same :class:`.FiredrakeDualSpace` as the
+        assignee :class:`Cofunction` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-        both Cofunctions on the same :class:`.FunctionSpace` then::
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
+        both Cofunctions on the same :class:`.FiredrakeDualSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Cofunction`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``.
 
-        The `expr_from_assemble` optional argument indicates whether the
-        expression results from an assemble operation performed within the
-        current method. `expr_from_assemble` is required for the
-        `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
@@ -220,7 +237,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
             expr.dat.copy(self.dat, subset=subset)
             return self
-        elif isinstance(expr, BaseForm):
+        elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
             # BaseForm object. If annotation is enabled, the following
             # operation will result in an assemble block on the Pyadjoint tape.
@@ -231,7 +248,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
@@ -323,7 +340,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         Parameters
         ----------
         expression
-            A dual UFL expression to interpolate.
+            A UFL BaseForm to adjoint interpolate.
         ad_block_tag
             An optional string for tagging the resulting assemble
             block on the Pyadjoint tape.
@@ -336,9 +353,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         v, = self.arguments()
-        interp = interpolation.Interpolate(v, expression, **kwargs)
+        interp = interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
@@ -418,6 +435,8 @@ class RieszMap:
         variational problem that solves for the Riesz map.
     restrict: bool
         If `True`, use restricted function spaces in the Riesz map solver.
+    constant_jacobian : bool
+        Whether the matrix associated with the map is constant.
     """
 
     def __init__(self, function_space_or_inner_product=None,
@@ -522,3 +541,10 @@ class RieszMap:
                 f"Unable to ascertain if {value} is primal or dual."
             )
         return output
+
+    @property
+    def constant_jacobian(self) -> bool:
+        """Whether the matrix associated with the map is constant.
+        """
+
+        return self._constant_jacobian
