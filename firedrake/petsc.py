@@ -50,8 +50,8 @@ def get_blas_library():
     return petsctools.get_blas_library()
 
 
-def _extract_comm(obj: Any) -> MPI.Comm:
-    """Extract and return the Firedrake/PyOP2 internal comm of a given object.
+def _extract_comm(obj: Any) -> MPI.Comm | None:
+    """Extract and return the comm of a given object.
 
     Parameters
     ----------
@@ -60,37 +60,20 @@ def _extract_comm(obj: Any) -> MPI.Comm:
 
     Returns
     -------
-    MPI.Comm
-        Internal communicator
+    MPI.Comm | None
+        A communicator if found, else `None`.
 
     """
-    comm = None
-    # If the object is a communicator check whether it is already an internal
-    # communicator, otherwise get the internal communicator attribute from the
-    # given communicator.
-    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
-        comm = obj
-        # try:
-        #     if mpi.is_pyop2_comm(obj):
-        #         comm = obj
-        #     else:
-        #         internal_comm = obj.Get_attr(mpi.innercomm_keyval)
-        #         if internal_comm is None:
-        #             comm = obj
-        #         else:
-        #             comm = internal_comm
-        # except mpi.PyOP2CommError:
-        #     pass
+    if isinstance(obj, PETSc.Comm | mpi.MPI.Comm):
+        return obj
     elif hasattr(obj, "comm"):
-        comm = obj.comm
-    # elif hasattr(obj, "_comm"):
-    #     comm = obj._comm
-    assert not mpi.is_pyop2_comm(obj)
-    return comm
+        return obj.comm
+    else:
+        return None
 
 
 @mpi.collective
-def garbage_cleanup(obj: Any):
+def garbage_cleanup(obj: Any) -> None:
     """Clean up garbage PETSc objects on a Firedrake object or any comm.
 
     Parameters
@@ -112,7 +95,7 @@ def garbage_cleanup(obj: Any):
 
 
 @mpi.collective
-def garbage_view(obj: Any):
+def garbage_view(obj: Any) -> None:
     """View garbage PETSc objects stored on a Firedrake object or any comm.
 
     Parameters

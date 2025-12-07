@@ -1101,13 +1101,13 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
     prolong_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    prolong_map_code = cache_generate_code(prolong_map_kernel, Q._comm)
+    prolong_map_code = cache_generate_code(prolong_map_kernel, Q.comm)
     prolong_map_code = prolong_map_code.replace("void expression_kernel", "static void prolongation_mapping")
     coefficients.remove(u)
 
     expr = ufl.dot(u, tensor)
     restrict_map_kernel, coefficients = prolongation_transfer_kernel_action(Q, expr)
-    restrict_map_code = cache_generate_code(restrict_map_kernel, Q._comm)
+    restrict_map_code = cache_generate_code(restrict_map_kernel, Q.comm)
     restrict_map_code = restrict_map_code.replace("void expression_kernel", "static void restriction_mapping")
     restrict_map_code = restrict_map_code.replace("#include <stdint.h>", "")
     restrict_map_code = restrict_map_code.replace("#include <complex.h>", "")
@@ -1529,7 +1529,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         if i == j:
             s = self._standalones[i]
             sizes = (s.uf.dof_dset.layout_vec.getSizes(), s.uc.dof_dset.layout_vec.getSizes())
-            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf._comm)
+            M_shll = PETSc.Mat().createPython(sizes, s, comm=s.uf.comm)
             M_shll.setUp()
             return M_shll
         else:
@@ -1555,6 +1555,6 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
     sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
-    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
+    M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.comm)
     M_shll.setUp()
     return M_shll

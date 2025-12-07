@@ -183,7 +183,7 @@ class TransferManager(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V._comm)
+            ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")

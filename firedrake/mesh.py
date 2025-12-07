@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, temp_internal_comm
+    MPI, COMM_WORLD, temp_internal_comm
 )
 from pyop2.utils import as_tuple
 import petsctools
@@ -3337,7 +3337,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         # variable-height layers need to be present for the maximum number
         # of extruded layers
         num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
-        num_layers = mesh._comm.allreduce(num_layers, op=MPI.MAX)
+        with temp_internal_comm(mesh.comm) as icomm:
+            num_layers = icomm.allreduce(num_layers, op=MPI.MAX)
 
         # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
@@ -4252,7 +4253,7 @@ def _parent_mesh_embedding(
             # # ncoords_local_allranks is in rank order so we can just sum up the
             # # previous ranks to get the starting index for the global numbering.
             # # For rank 0 we make use of the fact that sum([]) = 0.
-            # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
+            # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
             # endidx = startidx + ncoords_local
             # global_idxs_global = np.arange(startidx, endidx)
             global_idxs_global = np.arange(coords_global.shape[0])
@@ -4932,10 +4933,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         for i, m in enumerate(result):
             set_level(m, result, i)
 
-    @property
-    def _comm(self):
-        return self.topology._comm
-
 
 class MeshSequenceTopology(object):
     """A representation of mixed mesh topology."""
@@ -4954,7 +4951,6 @@ class MeshSequenceTopology(object):
                 raise ValueError(f"Got {type(m)}")
         self._meshes = tuple(meshes)
         self.comm = meshes[0].comm
-        self._comm = internal_comm(self.comm, self)
 
     @property
     def topology(self):

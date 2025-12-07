@@ -55,7 +55,6 @@ __all__ = (
     "COMM_WORLD",
     "COMM_SELF",
     "MPI",
-    "internal_comm",
     "is_pyop2_comm",
     "incref",
     "decref",

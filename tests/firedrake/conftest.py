@@ -1,8 +1,6 @@
 """Global test configuration."""
 
-import contextlib
 import gc
-import io
 import os
 import re
 import sys
@@ -19,10 +17,6 @@ from pyop2.mpi import temp_internal_comm
 from pytest_mpi.parallel_assert import parallel_assert
 
 from firedrake.petsc import PETSc
-
-
-# see test_stdout from petsc4py, weird
-PETSc._push_python_vfprintf()
 
 
 def _skip_test_dependency(dependency):
@@ -196,9 +190,10 @@ def check_empty_tape(request):
     request.addfinalizer(finalizer)
 
 
+# TODO: UNDO ME
 # @pytest.fixture(scope="session", autouse=True)
 @pytest.fixture(autouse=True)
-def check_no_petsc_objects_on_private_comm(request):
+def check_no_petsc_objects_on_private_comm(request, capfd):
     """Check that PETSc objects are being created with the correct comm.
 
     If objects are being created using Firedrake's private communicator then
@@ -206,16 +201,15 @@ def check_no_petsc_objects_on_private_comm(request):
 
     """
     def finalizer():
-        """Run `PETSc.garbage_view` on Firedrake's private comm and make it is empty."""
+        """Check that no objects exist on Firedrake's private comm."""
+        # Put ref cycle objects into the garbage
         gc.collect()
-        with temp_internal_comm(MPI.COMM_WORLD) as private_comm:
-            with contextlib.redirect_stdout(io.StringIO()) as f:
-                PETSc.garbage_view(private_comm)
-        captured = MPI.COMM_WORLD.bcast(f.getvalue())
+        # Clear any previous captured output
+        _ = capfd.readouterr()
 
-        # debugging
         with temp_internal_comm(MPI.COMM_WORLD) as private_comm:
             PETSc.garbage_view(private_comm)
+        captured = MPI.COMM_WORLD.bcast(capfd.readouterr().out)
 
         pattern = r"Rank \d+:: Total entries: (\d+)"
         all_zero = True
