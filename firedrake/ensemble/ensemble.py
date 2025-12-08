@@ -5,7 +5,7 @@ from itertools import zip_longest
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from pyop2.mpi import MPI, temp_internal_comm
+from pyop2.mpi import MPI, internal_comm
 
 __all__ = ("Ensemble", )
 
@@ -23,13 +23,12 @@ def _ensemble_mpi_dispatch(func):
                for arg in [*args, *kwargs.values()]):
             return func(self, *args, **kwargs)
         else:
-            with temp_internal_comm(self.ensemble_comm) as icomm:
-                mpicall = getattr(icomm, func.__name__)
-                return mpicall(*args, **kwargs)
+            mpicall = getattr(self._ensemble_comm, func.__name__)
+            return mpicall(*args, **kwargs)
     return _mpi_dispatch
 
 
-class Ensemble(object):
+class Ensemble:
     def __init__(self, comm, M, **kwargs):
         """
         Create a set of space and ensemble subcommunicators.
@@ -61,6 +60,7 @@ class Ensemble(object):
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         self.ensemble_comm.name = f"{ensemble_name} ensemble comm"
         weakref.finalize(self, self.ensemble_comm.Free)
+        self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
@@ -111,8 +111,7 @@ class Ensemble(object):
         self._check_function(f, f_reduced)
 
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
-            with temp_internal_comm(self.ensemble_comm) as icomm:
-                icomm.Allreduce(vin.array_r, vout.array, op=op)
+            self._ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 
     @PETSc.Log.EventDecorator()
@@ -130,8 +129,7 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            return [icomm.Iallreduce(fdat.data, rdat.data, op=op)
+        return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
                     for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
@@ -149,13 +147,12 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            if self.ensemble_comm.rank == root:
-                with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
-                    icomm.Reduce(vin.array_r, vout.array, op=op, root=root)
-            else:
-                with f.dat.vec_ro as vin:
-                    icomm.Reduce(vin.array_r, None, op=op, root=root)
+        if self.ensemble_comm.rank == root:
+            with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
+                self._ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
+        else:
+            with f.dat.vec_ro as vin:
+                self._ensemble_comm.Reduce(vin.array_r, None, op=op, root=root)
 
         return f_reduced
 
@@ -175,9 +172,8 @@ class Ensemble(object):
         """
         self._check_function(f, f_reduced)
 
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            return [icomm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
-                    for fdat, rdat in zip(f.dat, f_reduced.dat)]
+        return [self._ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
+                for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -190,9 +186,8 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            with f.dat.vec as vec:
-                icomm.Bcast(vec.array, root=root)
+        with f.dat.vec as vec:
+            self._ensemble_comm.Bcast(vec.array, root=root)
 
         return f
 
@@ -208,10 +203,8 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            return [icomm.Ibcast(dat.data, root=root)
-                    for dat in f.dat]
+        return [self._ensemble_comm.Ibcast(dat.data, root=root)
+                for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -226,9 +219,8 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            for dat in f.dat:
-                icomm.Send(dat.data_ro, dest=dest, tag=tag)
+        for dat in f.dat:
+            self._ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -246,9 +238,8 @@ class Ensemble(object):
         self._check_function(f)
         if statuses is not None and len(statuses) != len(f.dat):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
-                icomm.Recv(dat.data, source=source, tag=tag, status=status)
+        for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
+            self._ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
         return f
 
     @PETSc.Log.EventDecorator()
@@ -265,9 +256,8 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            return [icomm.Isend(dat.data_ro, dest=dest, tag=tag)
-                    for dat in f.dat]
+        return [self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
+                for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -283,9 +273,8 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            return [icomm.Irecv(dat.data, source=source, tag=tag)
-                    for dat in f.dat]
+        return [self._ensemble_comm.Irecv(dat.data, source=source, tag=tag)
+                for dat in f.dat]
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -306,11 +295,10 @@ class Ensemble(object):
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
-                icomm.Sendrecv(sendvec, dest, sendtag=sendtag,
-                               recvbuf=recvvec, source=source, recvtag=recvtag,
-                               status=status)
+        with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
+            self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
+                                         recvbuf=recvvec, source=source, recvtag=recvtag,
+                                         status=status)
         return frecv
 
     @PETSc.Log.EventDecorator()
@@ -333,9 +321,8 @@ class Ensemble(object):
         self._check_function(fsend)
         self._check_function(frecv)
         requests = []
-        with temp_internal_comm(self.ensemble_comm) as icomm:
-            requests.extend([icomm.Isend(dat.data_ro, dest=dest, tag=sendtag)
-                             for dat in fsend.dat])
-            requests.extend([icomm.Irecv(dat.data, source=source, tag=recvtag)
-                             for dat in frecv.dat])
+        requests.extend([self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=sendtag)
+                         for dat in fsend.dat])
+        requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
+                         for dat in frecv.dat])
         return requests
