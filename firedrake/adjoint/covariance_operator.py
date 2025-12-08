@@ -1,6 +1,7 @@
 import abc
 from enum import Enum
 from functools import cached_property
+from typing import Iterable
 from textwrap import dedent
 from scipy.special import factorial
 import petsctools
@@ -8,6 +9,8 @@ from loopy import generate_code_v2
 from pyop2 import op2
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
+from firedrake.functionspaceimpl import WithGeometry
+from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
     assemble, CellSize, FacetNormal,
@@ -46,6 +49,13 @@ class NoiseBackendBase:
 
     4. Optionally apply a Riesz map to :math:`z` to return a sample in :math:`V`.
 
+    Parameters
+    ----------
+    V :
+        The :func:`~.firedrake.functionspace.FunctionSpace` to generate the samples in.
+    rng :
+        The ``RandomGenerator`` to generate the samples on the discontinuous superspace.
+
     See Also
     --------
     PyOP2NoiseBackend
@@ -53,12 +63,14 @@ class NoiseBackendBase:
     WhiteNoiseGenerator
     """
 
-    def __init__(self, V, rng=None):
+    def __init__(self, V: WithGeometry, rng=None):
         self._V = V
         self._rng = rng or RandomGenerator(PCG64())
 
     @abc.abstractmethod
-    def sample(self, *, rng=None, tensor=None, apply_riesz=False):
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
         """
         Generate a white noise sample.
 
@@ -139,13 +151,15 @@ class PetscNoiseBackend(NoiseBackendBase):
     """
     A PETSc based implementation of a mass matrix square root action for generating white noise.
     """
-    def __init__(self, V, rng=None):
+    def __init__(self, V: WithGeometry, rng=None):
         super().__init__(V, rng=rng)
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
 
-    def sample(self, *, rng=None, tensor=None, apply_riesz=False):
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
         V = self.function_space
         rng = rng or self.rng
 
@@ -172,7 +186,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
     """
     A PyOP2 based implementation of a mass matrix square root for generating white noise.
     """
-    def __init__(self, V, rng=None):
+    def __init__(self, V: WithGeometry, rng=None):
         super().__init__(V, rng=rng)
 
         u = TrialFunction(V)
@@ -261,7 +275,9 @@ class PyOP2NoiseBackend(NoiseBackendBase):
             include_dirs=BLASLAPACK_INCLUDE.split(),
             ldargs=BLASLAPACK_LIB.split())
 
-    def sample(self, *, rng=None, tensor=None, apply_riesz=False):
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
         rng = rng or self.rng
 
         z = rng.standard_normal(self.broken_space)
@@ -294,23 +310,19 @@ class PyOP2NoiseBackend(NoiseBackendBase):
 class WhiteNoiseGenerator:
     r"""Generate white noise samples.
 
+    Generates samples :math:`w\in V^{*}` with
+    :math:`w\sim\mathcal{N}(0, M)`, where :math:`M` is
+    the mass matrix, or its Riesz representer in :math:`V`.
+
     Parameters
     ----------
     V :
         The :class:`~firedrake.functionspace.FunctionSpace` to construct a
         white noise sample on.
-    backend :
-        The ``WhiteNoiseGenerator.Backend`` specifying how to calculate
-        and apply the mass matrix square root.
+    backend : WhiteNoiseGenerator.Backend
+        The backend specifying how to calculate and apply the mass matrix square root.
     rng :
         Initialised random number generator to use for sampling IID vectors.
-
-    Returns
-    -------
-    firedrake.function.Function :
-        with b ~ Normal(0, M) where b is the dat.data of the
-        :class:`~.firedrake.function.Function` returned and
-        M is the mass matrix.
 
     References
     ----------
@@ -340,7 +352,7 @@ class WhiteNoiseGenerator:
         PYOP2 = 'pyop2'
         PETSC = 'petsc'
 
-    def __init__(self, V, backend=None, rng=None):
+    def __init__(self, V: WithGeometry, backend=None, rng=None):
         backend = backend or self.Backend.PYOP2
         if backend == self.Backend.PYOP2:
             self.backend = PyOP2NoiseBackend(V, rng=rng)
@@ -376,7 +388,7 @@ class WhiteNoiseGenerator:
         Returns
         -------
         Function | Cofunction :
-            The white noise sample in :math:`V`
+            The white noise sample
         """
         return self.backend.sample(
             rng=rng, tensor=tensor, apply_riesz=apply_riesz)
@@ -504,7 +516,7 @@ class CovarianceOperatorBase:
         ----------
         rng :
             Generator for the white noise sample.
-            If not provided then self.rng will be used.
+            If not provided then ``self.rng`` will be used.
         tensor :
             Optional location to place the result into.
 
@@ -610,6 +622,35 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     The white noise sample :math:`M^{1/2}z` is generated by a
     :class:`.WhiteNoiseGenerator`.
 
+    Parameters
+    ----------
+    V :
+        The function space that the covariance operator maps into.
+    L :
+        The correlation lengthscale.
+    sigma :
+        The standard deviation.
+    m :
+        The number of diffusion operator steps.
+        Equal to the order of the autoregressive function kernel.
+    rng :
+        White noise generator to seed generating correlated samples.
+    form : AutoregressiveCovariance.DiffusionForm | ufl.Form | None
+        The diffusion formulation or form. If a ``DiffusionForm`` then
+        :func:`.diffusion_form` will be used to generate the diffusion
+        form. Otherwise assumed to be a ufl.Form on ``V``.
+        Defaults to ``AutoregressiveCovariance.DiffusionForm.CG``.
+    bcs :
+        Boundary conditions for the diffusion operator.
+    solver_parameters :
+        The PETSc options for the diffusion operator solver.
+    options_prefix :
+        The options prefix for the diffusion operator solver.
+    mass_parameters :
+        The PETSc options for the mass matrix solver.
+    mass_prefix :
+        The options prefix for the matrix matrix solver.
+
     References
     ----------
     Mirouze, I. and Weaver, A. T., 2010: "Representation of correlation
@@ -623,6 +664,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     CovarianceOperatorBase
     CovarianceMat
     CovariancePC
+    diffusion_form
     """
 
     class DiffusionForm(Enum):
@@ -636,15 +678,19 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         CG = 'CG'
         IP = 'IP'
 
-    def __init__(self, V, L, sigma=1, m=2, rng=None,
-                 bcs=None, form=None, function_space=None,
-                 solver_parameters=None, options_prefix=None,
-                 mass_parameters=None, mass_prefix=None):
+    def __init__(self, V: WithGeometry, L: float | Constant,
+                 sigma: float | Constant = 1., m: int = 2,
+                 rng: WhiteNoiseGenerator | None = None, form=None,
+                 bcs: BCBase | Iterable[BCBase] | None = None,
+                 solver_parameters: dict | None = None,
+                 options_prefix: str | None = None,
+                 mass_parameters: dict | None = None,
+                 mass_prefix: str | None = None):
 
         form = form or self.DiffusionForm.CG
 
         self._rng = rng or WhiteNoiseGenerator(V)
-        self._function_space = function_space or self.rng().function_space
+        self._function_space = self.rng().function_space
 
         if sigma <= 0:
             raise ValueError("Variance must be positive.")
@@ -698,7 +744,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     def rng(self):
         return self._rng
 
-    def sample(self, *, rng=None, tensor=None):
+    def sample(self, *, rng: WhiteNoiseGenerator | None = None,
+               tensor: Function | None = None):
         tensor = tensor or Function(self.function_space())
         rng = rng or self.rng()
 
@@ -715,7 +762,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return tensor.assign(self._weight*self._u)
 
-    def norm(self, x):
+    def norm(self, x: Function):
         if self.iterations == 0:
             sigma_x = self.stddev*x
             return assemble(inner(sigma_x, sigma_x)*dx)
@@ -729,7 +776,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return assemble(inner(self._u, self._u)*dx)
 
-    def apply_inverse(self, x, *, tensor=None):
+    def apply_inverse(self, x: Function, *,
+                      tensor: Cofunction | None = None):
         tensor = tensor or Cofunction(self.function_space().dual())
 
         if self.iterations == 0:
@@ -749,7 +797,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return tensor.assign(lamda1*b)
 
-    def apply_action(self, x, *, tensor=None):
+    def apply_action(self, x: Cofunction, *,
+                     tensor: Function | None = None):
         tensor = tensor or Function(self.function_space())
 
         riesz_map = self.rng().backend.riesz_map
@@ -848,6 +897,7 @@ class CovarianceMatCtx:
         The covariance operator.
     operation : CovarianceMatCtx.Operation
         Whether the matrix applies the action or inverse of the covariance operator.
+        Defaults to ``Operation.ACTION``.
 
     See Also
     --------
@@ -908,6 +958,8 @@ class CovarianceMatCtx:
             v.copy(result=y)
 
     def view(self, mat, viewer=None):
+        """View object. Method usually called by PETSc with e.g. -ksp_view.
+        """
         if viewer is None:
             return
         if viewer.getType() != PETSc.Viewer.Type.ASCII:
@@ -934,7 +986,8 @@ class CovarianceMatCtx:
             ksp.setTabLevel(level)
 
 
-def CovarianceMat(covariance, operation=None):
+def CovarianceMat(covariance: CovarianceOperatorBase,
+                  operation: CovarianceMatCtx.Operation | None = None):
     r"""
     A Mat for a covariance operator.
     Can apply either the action or inverse of the covariance.
@@ -956,7 +1009,7 @@ def CovarianceMat(covariance, operation=None):
     Returns
     -------
     PETSc.Mat :
-        The python type Mat with a CovarianceMatCtx context.
+        The python type Mat with a :class:`CovarianceMatCtx` context.
 
     See Also
     --------
@@ -1060,6 +1113,8 @@ class CovariancePC(petsctools.PCBase):
         pass
 
     def view(self, pc, viewer=None):
+        """View object. Method usually called by PETSc with e.g. -ksp_view.
+        """
         if viewer is None:
             return
         if viewer.getType() != PETSc.Viewer.Type.ASCII:
