@@ -35,9 +35,6 @@ def petsc2numpy_mat(petsc_mat):
 def test_white_noise(family, degree, mesh_type, dim, backend):
     """Test that white noise generator converges to a mass matrix covariance.
     """
-    if backend == "petsc" and COMM_WORLD.size > 1:
-        pytest.skip(
-            "petsc backend for noise generation not implemented in parallel.")
 
     nx = 10
     # Mesh dimension
