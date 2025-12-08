@@ -3,13 +3,10 @@ from contextlib import contextmanager
 from numbers import Real
 from operator import itemgetter
 from typing import Optional, Union
-from functools import cached_property
 
 import firedrake as fd
 from firedrake.adjoint import Control, ReducedFunctional, Tape
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.ufl_expr import action
-from firedrake.assemble import get_assembler
 import finat
 import pyadjoint
 from pyadjoint import no_annotations
@@ -80,33 +77,6 @@ class L2Cholesky:
 
         return pc
 
-    @cached_property
-    def _M_action_assembler(self):
-        wrk = fd.Function(self.space)
-        M = fd.inner(fd.TrialFunction(self.space),
-                     fd.TestFunction(self.space))*fd.dx
-        return wrk, get_assembler(action(M, wrk)).assemble
-
-    def _M_action(self, u: fd.Function,
-                  tensor: Optional[fd.Cofunction] = None) -> fd.Cofunction:
-        r"""Apply the action of the mass matrix.
-
-        Parameters
-        ----------
-
-        u :
-            The :class:`~firedrake.function.Function` being acted on.
-
-        Returns
-        -------
-
-        firedrake.cofunction.Cofunction
-            The result of the action of the mass matrix on ``u``.
-        """
-        wrk, assembler = self._M_action_assembler
-        wrk.assign(u)
-        return assembler(tensor=tensor)
-
     def C_inv_action(self, u: Union[fd.Function, fd.Cofunction]) -> fd.Cofunction:
         r"""For the Cholesky factorization
 
@@ -166,56 +136,6 @@ class L2Cholesky:
             with local_vector(u_v, readonly=True) as u_v_s, local_vector(v_v) as v_v_s:
                 pc.applySymmetricRight(u_v_s, v_v_s)
         return v
-
-    def C_action(self, u: Union[fd.Function, fd.Cofunction]) -> fd.Cofunction:
-        r"""For the Cholesky factorization
-
-        ... math :
-
-            M = C C^T,
-
-        compute the action of :math:`C`.
-
-        Parameters
-        ----------
-
-        u
-            Compute :math:`C \tilde{u}` where :math:`\tilde{u}` is the
-            vector of degrees of freedom for :math:`u`.
-
-        Returns
-        -------
-
-        firedrake.cofunction.Cofunction
-            Has vector of degrees of freedom :math:`C \tilde{u}`.
-        """
-        # ???
-        return self.C_T_inv_action(self._M_action(u))
-
-    def C_T_action(self, u: Union[fd.Function, fd.Cofunction]) -> fd.Cofunction:
-        r"""For the Cholesky factorization
-
-        ... math :
-
-            M = C C^T,
-
-        compute the action of :math:`C^{T}`.
-
-        Parameters
-        ----------
-
-        u
-            Compute :math:`C^{T} \tilde{u}` where :math:`\tilde{u}` is the
-            vector of degrees of freedom for :math:`u`.
-
-        Returns
-        -------
-
-        firedrake.function.Function
-            Has vector of degrees of freedom :math:`C^{T} \tilde{u}`.
-        """
-        # ???
-        return self._M_action(self.C_inv_action(u))
 
 
 class L2RieszMap(fd.RieszMap):

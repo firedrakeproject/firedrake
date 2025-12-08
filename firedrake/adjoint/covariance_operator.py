@@ -7,6 +7,7 @@ import petsctools
 from loopy import generate_code_v2
 from pyop2 import op2
 from firedrake.tsfc_interface import compile_form
+from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake import (
     grad, inner, avg, action, outer,
     assemble, CellSize, FacetNormal,
@@ -18,62 +19,8 @@ from firedrake import (
     RandomGenerator, PCG64,
     LinearVariationalProblem,
     LinearVariationalSolver,
-    LinearSolver,
     PETSc
 )
-
-
-class CholeskyFactorisation:
-    def __init__(self, V, form=None):
-        self._V = V
-
-        if form is None:
-            self.form = inner(TrialFunction(V),
-                              TestFunction(V))*dx
-        else:
-            self.form = form
-
-        self._wrk = Function(V)
-
-    @property
-    def function_space(self):
-        return self._V
-
-    @cached_property
-    def _assemble_action(self):
-        from firedrake.assemble import get_assembler
-        return get_assembler(action(self.form, self._wrk)).assemble
-
-    def assemble_action(self, u, tensor=None):
-        self._wrk.assign(u)
-        return self._assemble_action(tensor=tensor)
-
-    @cached_property
-    def solver(self):
-        return LinearSolver(
-            assemble(self.form, mat_type='aij'),
-            solver_parameters={
-                "ksp_type": "preonly",
-                "pc_type": "cholesky",
-                "pc_factor_mat_ordering_type": "nd"})
-
-    @cached_property
-    def pc(self):
-        return self.solver.ksp.getPC()
-
-    def apply(self, u):
-        u = self.assemble_action(u)
-        v = Cofunction(self.space.dual())
-        with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
-            self.pc.applySymmetricLeft(u_v, v_v)
-        return v
-
-    def apply_transpose(self, u):
-        v = Function(self.function_space)
-        with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
-            self.pc.applySymmetricRight(u_v, v_v)
-        v = self.assemble_action(v)
-        return v
 
 
 class NoiseBackendBase:
@@ -194,7 +141,9 @@ class PetscNoiseBackend(NoiseBackendBase):
     """
     def __init__(self, V, rng=None):
         super().__init__(V, rng=rng)
-        self.cholesky = CholeskyFactorisation(self.broken_space)
+        self.cholesky = L2Cholesky(self.broken_space)
+        self._zb = Function(self.broken_space)
+        self.M = inner(self._zb, TestFunction(self.broken_space))*dx
 
     def sample(self, *, rng=None, tensor=None, apply_riesz=False):
         V = self.function_space
@@ -203,7 +152,8 @@ class PetscNoiseBackend(NoiseBackendBase):
         # z
         z = rng.standard_normal(self.broken_space)
         # C z
-        Cz = self.cholesky.apply_transpose(z)
+        self._zb.assign(self.cholesky.C_T_inv_action(z))
+        Cz = assemble(self.M)
         # L C z
         b = Cofunction(V.dual()).interpolate(Cz)
 
