@@ -25,6 +25,7 @@ def petsc2numpy_mat(petsc_mat):
     ).todense()
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
 @pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
@@ -83,6 +84,7 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
     assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vector1", "vector2"])
@@ -143,6 +145,7 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     assert errornorm(w, wcheck) < tol
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 def test_covariance_inverse_action_hdiv(m):
@@ -182,6 +185,7 @@ def test_covariance_inverse_action_hdiv(m):
     assert errornorm(w, wcheck) < tol
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("family", ("CG", "DG"))
@@ -226,6 +230,7 @@ def test_covariance_adjoint_norm(m, family):
     assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("family", ("CG", "DG"))

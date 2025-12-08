@@ -764,7 +764,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
     def norm(self, x: Function):
         if self.iterations == 0:
-            sigma_x = self.stddev*x
+            sigma_x = (1/self.stddev)*x
             return assemble(inner(sigma_x, sigma_x)*dx)
 
         lamda1 = 1/self._weight
