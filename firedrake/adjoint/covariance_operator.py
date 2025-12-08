@@ -3,7 +3,7 @@ from enum import Enum
 from functools import cached_property
 from textwrap import dedent
 from scipy.special import factorial
-from petsctools import get_petscvariables, PCBase
+import petsctools
 from loopy import generate_code_v2
 from pyop2 import op2
 from firedrake.tsfc_interface import compile_form
@@ -215,7 +215,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         # TODO: Ask CW if this is the right comm to use.
         comm = V.mesh()._comm
         if comm.rank == 0:
-            petsc_variables = get_petscvariables()
+            petsc_variables = petsctools.get_petscvariables()
             BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
             BLASLAPACK_LIB = comm.bcast(BLASLAPACK_LIB, root=0)
             BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
@@ -310,6 +310,8 @@ class WhiteNoiseGenerator:
 
         self.function_space = self.backend.function_space
         self.rng = self.backend.rng
+
+        petsctools.cite("Croci2018")
 
     def sample(self, *, rng=None, tensor=None, apply_riesz=False):
         return self.backend.sample(
@@ -911,7 +913,7 @@ def CovarianceMat(covariance, operation=None):
     return mat
 
 
-class CovariancePC(PCBase):
+class CovariancePC(petsctools.PCBase):
     """
     A python PC context for a covariance operator.
     Will apply either the action or inverse of the covariance,
