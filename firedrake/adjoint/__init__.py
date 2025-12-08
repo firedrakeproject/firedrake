@@ -36,11 +36,12 @@ from firedrake.adjoint.ensemble_reduced_functional import EnsembleReducedFunctio
 from firedrake.adjoint.transformed_functional import L2RieszMap, L2TransformedFunctional  # noqa: F401
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
+import types
+import sys
 
 # Work around the name clash of firedrake.adjoint vs ufl.adjoint.
 # This will eventually become cleaner once we can rely on users having
 # Python 3.12 (see PEP 713).
-import types
 
 
 class _AdjointModule(types.ModuleType):
@@ -48,9 +49,8 @@ class _AdjointModule(types.ModuleType):
         return firedrake.ufl_expr.adjoint(form)
 
 
-del types
-
 sys.modules[__name__].__class__ = _AdjointModule
 del sys
+del types
 
 set_working_tape(Tape())
