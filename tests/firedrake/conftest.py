@@ -190,7 +190,7 @@ def check_empty_tape(request):
     request.addfinalizer(finalizer)
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(autouse=True)
 def check_no_petsc_objects_on_private_comm(request, capfd):
     """Check that PETSc objects are being created with the correct comm.
 
