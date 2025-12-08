@@ -787,6 +787,6 @@ class CovarianceReducedFunctional(ReducedFunctional):
         self.covariance = covariance
         rf = isolated_rf(
             lambda x: covariance.norm(x),
-            covariance.new_primal_variable())
+            Function(covariance.function_space()))
         super().__init__(
             rf.functional, rf.controls[0], tape=rf.tape)

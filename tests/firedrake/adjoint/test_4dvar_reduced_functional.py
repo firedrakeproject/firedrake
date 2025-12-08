@@ -3,10 +3,9 @@ import firedrake as fd
 from firedrake.adjoint import (
     continue_annotation, pause_annotation, stop_annotating, annotate_tape,
     set_working_tape, get_working_tape, taylor_test, taylor_to_dict,
-    Control, ReducedFunctional, FourDVarReducedFunctional)
+    Control, ReducedFunctional, FourDVarReducedFunctional,
+    AutoregressiveCovariance)
 from pytest_mpi.parallel_assert import parallel_assert
-from firedrake.adjoint.correlation_operators import (
-    ImplicitMassCorrelation, ImplicitDiffusionCorrelation)
 from math import sqrt
 
 
@@ -199,8 +198,8 @@ def strong_fdvar_pyadjoint(V):
     V = qn.function_space()
     U = obs_errors(0)(qn).function_space()
 
-    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
-    R = ImplicitMassCorrelation(U, sigma_r)
+    B = AutoregressiveCovariance(V, L=L_b, sigma=sigma_b, m=m_b)
+    R = AutoregressiveCovariance(U, L=0, sigma=sigma_r, m=0)
 
     continue_annotation()
     with set_working_tape() as tape:
@@ -245,8 +244,8 @@ def strong_fdvar_firedrake(V):
     V = qn.function_space()
     U = obs_errors(0)(qn).function_space()
 
-    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
-    R = ImplicitMassCorrelation(U, sigma_r)
+    B = AutoregressiveCovariance(V, L=L_b, sigma=sigma_b, m=m_b)
+    R = AutoregressiveCovariance(U, L=0., sigma=sigma_r, m=0)
 
     continue_annotation()
     set_working_tape()
@@ -300,9 +299,9 @@ def weak_fdvar_pyadjoint(V):
     V = qn.function_space()
     U = obs_errors(0)(qn).function_space()
 
-    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
-    Q = ImplicitDiffusionCorrelation(V, sigma_q, L_q, m=m_q)
-    R = ImplicitMassCorrelation(U, sigma_r)
+    B = AutoregressiveCovariance(V, L=L_b, sigma=sigma_b, m=m_b)
+    Q = AutoregressiveCovariance(V, L=L_q, sigma=sigma_q, m=m_q)
+    R = AutoregressiveCovariance(U, L=0, sigma=sigma_r, m=0)
 
     # start building the 4DVar system
     continue_annotation()
@@ -370,9 +369,9 @@ def weak_fdvar_firedrake(V, ensemble):
     V = qn.function_space()
     U = obs_errors(0)(qn).function_space()
 
-    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
-    Q = ImplicitDiffusionCorrelation(V, sigma_q, L_q, m=m_q)
-    R = ImplicitMassCorrelation(U, sigma_r)
+    B = AutoregressiveCovariance(V, L=L_b, sigma=sigma_b, m=m_b)
+    Q = AutoregressiveCovariance(V, L=L_q, sigma=sigma_q, m=m_q)
+    R = AutoregressiveCovariance(U, L=0, sigma=sigma_r, m=0)
 
     # start building the 4DVar system
     continue_annotation()
