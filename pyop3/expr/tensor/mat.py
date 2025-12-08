@@ -499,7 +499,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_spec = row_axes
             column_spec = column_axes
         else:
-            comm = utils.common_comm((row_axes, column_axes), "internal_comm")
+            comm = utils.common_comm((row_axes, column_axes), "comm")
 
             nrows = row_axes.unindexed.owned.local_size
             ncolumns = column_axes.unindexed.owned.local_size

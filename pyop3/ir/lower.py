@@ -323,7 +323,7 @@ class CompiledCodeExecutor:
 
     @cached_property
     def executable(self):
-        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
+        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
         """
@@ -801,7 +801,7 @@ def compile(expr, compiler_parameters=None):
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = (context.global_buffers[buffer_key], context.global_buffer_intents[buffer_key])
 
-    return CompiledCodeExecutor(translation_unit, sorted_buffers, compiler_parameters, expr.internal_comm)
+    return CompiledCodeExecutor(translation_unit, sorted_buffers, compiler_parameters, expr.comm)
 
 
 # put into a class in transform.py?
@@ -1445,10 +1445,8 @@ def _(expr: op3_expr.Expression, inames, loop_indices, context):
     return extent_name
 
 
-# FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a
-# compilation comm at a higher point.
 # NOTE: A lot of this is more generic than just loopy, try to refactor
-def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
+def compile_loopy(translation_unit, *, pyop3_compiler_parameters, comm):
     """Build a shared library and return a function pointer from it.
 
     :arg jitmodule: The JIT Module which can generate the code to compile, or
@@ -1490,8 +1488,7 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
         cppargs += ("-DLIKWID_PERFMON",)
         ldargs += ("-llikwid",)
 
-    # TODO: needs the right comm
-    dll = load(code, "c", cppargs, ldargs, mpi.COMM_SELF)
+    dll = load(code, "c", cppargs, ldargs, comm=comm)
 
     if pyop3_compiler_parameters.add_petsc_event:
         # Create the event in python and then set in the shared library to avoid

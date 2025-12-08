@@ -476,8 +476,8 @@ class AxisComponent(LabelledNodeComponent):
         return utils.strictly_all(r.label is not None for r in self._all_regions)
 
     @property
-    def user_comm(self) -> MPI.Comm | None:
-        return self.sf.user_comm if self.sf else None
+    def comm(self) -> MPI.Comm | None:
+        return self.sf.comm if self.sf else None
 
     @property
     def _region_labels(self) -> tuple[ComponentRegionLabelT]:
@@ -578,12 +578,8 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         return self.components[self.component_index(component_label)]
 
     @property
-    def user_comm(self) -> MPI.Comm | None:
-        return utils.single_comm(self.components, "user_comm", allow_undefined=True)
-
-    @property
-    def user_comm(self) -> MPI.Comm | None:
-        return utils.single_comm(self.components, "user_comm", allow_undefined=True)
+    def comm(self) -> MPI.Comm | None:
+        return utils.single_comm(self.components, "comm", allow_undefined=True)
 
     @property
     def size(self):
@@ -957,7 +953,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         if  self.is_empty:
             return 0
-        elif self.internal_comm.size > 1:
+        elif self.comm.size > 1:
             return Scalar(self.local_size)
         else:
             return self.local_size
@@ -1010,11 +1006,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             section.setDof(point, sizes[point])
         section.setUp()
         return section
-
-    @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm:
-        return self.internal_comm
 
     @cached_property
     def owned(self):
@@ -1247,8 +1238,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             return self[self._block_indices(block_shape)].materialize()
 
     @property
-    def user_comm(self):
-        return utils.single_comm(self.nodes, "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self):
+        return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # }}}
 
@@ -1331,7 +1322,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         if not self.comm:  # maybe goes away if we disallow comm=None
             numbering = np.arange(self.size, dtype=IntType)
         else:
-            start = self.sf.internal_comm.exscan(self.owned.local_size) or 0
+            # TODO: temp_internal_comm
+            start = self.sf.comm.exscan(self.owned.local_size) or 0
             numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
             # set ghost entries to -1 to make sure they are overwritten
@@ -1477,8 +1469,8 @@ class IndexedAxisTree(AbstractAxisTree):
 
 
     @property
-    def user_comm(self):
-        return self.unindexed.user_comm
+    def comm(self):
+        return self.unindexed.comm
 
     @property
     def layouts(self):
@@ -1631,8 +1623,8 @@ class UnitIndexedAxisTree(DistributedObject):
         })
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.unindexed.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.unindexed.comm
 
     def __str__(self) -> str:
         return "<UNIT>"
@@ -1900,8 +1892,8 @@ class AxisForest(DistributedObject):
                 return AxisForest(indexed_trees_)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.trees, "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.trees, "comm")
 
     def materialize(self):
         return type(self)((tree.materialize() for tree in self.trees))
@@ -1956,9 +1948,9 @@ class AxisForest(DistributedObject):
         return Dat(self, buffer=self.trees[0].global_numbering.buffer)
 
     @property
-    @utils.deprecated("internal_comm")
+    @utils.deprecated("comm")
     def comm(self) -> MPI.Comm:
-        return self.internal_comm
+        return self.comm
 
     @property
     def owned(self) -> AxisForest:
@@ -1972,8 +1964,8 @@ class AxisForest(DistributedObject):
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable, DistributedObject):
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.single_comm(self.context_map.values(), "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.single_comm(self.context_map.values(), "comm")
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.context_map!r})"

@@ -69,8 +69,8 @@ class Scalar(Tensor):
         return f"*{self.name}"
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     def concretize(self):
         from pyop3.expr import as_linear_buffer_expression

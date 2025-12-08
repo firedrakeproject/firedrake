@@ -267,8 +267,8 @@ class Loop(Instruction):
     # {{{ interface impls
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.statements, "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.statements, "comm")
 
     # }}}
 
@@ -387,8 +387,8 @@ class InstructionList(Instruction):
     # {{{ interface impls
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.instructions, "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.instructions, "comm")
 
     # }}}
 
@@ -565,8 +565,8 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         )
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.arguments, "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.arguments, "comm", allow_undefined=True) or MPI.COMM_SELF
 
 
 @utils.frozenrecord()
@@ -617,7 +617,8 @@ class NullInstruction(Terminal):
 
     arguments = ()
 
-    user_comm = MPI.COMM_SELF
+    # COMM_DYNAMIC?
+    comm = MPI.COMM_SELF
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -775,8 +776,8 @@ class ArrayAssignment(AbstractAssignment):
     assignment_type: ClassVar[property] = utils.attr("_assignment_type")
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm([self.assignee, self.expression], "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm([self.assignee, self.expression], "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # NOTE: Wrong type here...
     @property
@@ -826,7 +827,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     expression: ClassVar[property] = utils.attr("_expression")
     axis_trees: ClassVar[property] = utils.attr("_axis_trees")
     assignment_type: ClassVar[property] = utils.attr("_assignment_type")
-    user_comm: ClassVar[property] = utils.attr("_comm")
+    comm: ClassVar[property] = utils.attr("_comm")
 
     # }}}
 
@@ -859,7 +860,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     expression: ClassVar[property] = property(lambda self: self._expression)
     assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
-    user_comm: ClassVar[property] = utils.attr("_comm")
+    comm: ClassVar[property] = utils.attr("_comm")
 
     # }}}
 
@@ -884,7 +885,7 @@ class Exscan(Terminal):
         return (self.assignee, self.expression)
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return self._comm
 
     # }}}

@@ -164,7 +164,7 @@ class NullBuffer(AbstractArrayBuffer):
     is_nested: ClassVar[bool] = False
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return MPI.COMM_SELF
 
     # }}}
@@ -278,8 +278,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.sf.user_comm if self.sf is not None else MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm if self.sf is not None else MPI.COMM_SELF
 
     # }}}
 
@@ -659,7 +659,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         return handle_
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return self.mat.comm.tompi4py()
 
     # }}}
@@ -888,5 +888,5 @@ class BufferRef(DistributedObject):
         return self.buffer.handle(nest_indices=self.nest_indices)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm

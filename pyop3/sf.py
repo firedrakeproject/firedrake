@@ -39,22 +39,7 @@ class ParallelAwareObject(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def user_comm(self) -> MPI.Comm | None:
-        pass
-
-    # TODO: probably decorate as 'collective'
-    @property
-    def internal_comm(self) -> Pyop3Comm | None:
-        if self.user_comm is None:
-            return None
-
-        # this is where the magic happens...
-        # but not yet
-        return self.user_comm
-
-    # TODO: cast to a Pyop3 and register a weakref handler of some kind
-    @staticmethod
-    def register_comm(self, comm) -> Pyop3Comm:
+    def comm(self) -> MPI.Comm | None:
         pass
 
 
@@ -66,15 +51,8 @@ class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
     """
 
     @property
-    def internal_comm(self) -> Pyop3Comm:
-        # this is where the magic happens...
-        # but not yet
-        assert self.user_comm is not None
-        return self.user_comm
-
-    @property
     @abc.abstractmethod
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         pass
 
 
@@ -174,7 +152,7 @@ class StarForest(AbstractStarForest):
         return cls(sf, size)
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return self.sf.comm.tompi4py()
 
     @cached_property
@@ -310,7 +288,7 @@ class NullStarForest(AbstractStarForest):
         return False
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return MPI.COMM_SELF
 
     def reduce_begin(self, *args):

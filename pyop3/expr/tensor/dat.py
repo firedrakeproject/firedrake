@@ -148,8 +148,8 @@ class Dat(Tensor):
         return (self.axes,)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     # }}}
 

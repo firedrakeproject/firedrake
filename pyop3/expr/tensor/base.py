@@ -21,8 +21,8 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     def __getitem__(self, indices):
         # Handle the fact that 'obj[123]' sets 'indices' to '123' (not a tuple)
