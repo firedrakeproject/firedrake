@@ -615,7 +615,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             interpolator = get_interpolator(expr)
-            return interpolator.assemble(tensor=tensor, bcs=bcs)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):

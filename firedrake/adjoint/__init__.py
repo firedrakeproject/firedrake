@@ -10,13 +10,6 @@ To start taping, run::
 import pyadjoint
 __version__ = pyadjoint.__version__
 
-import sys
-if 'backend' not in sys.modules:
-    import firedrake
-    sys.modules['backend'] = firedrake
-else:
-    raise ImportError("'backend' module already exists?")
-
 from pyadjoint.tape import Tape, set_working_tape, get_working_tape, \
                             pause_annotation, continue_annotation, \
                             stop_annotating, annotate_tape  # noqa F401
