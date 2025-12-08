@@ -154,7 +154,7 @@ assemble this matrix by doing
    :start-after: [test_interpolate_operator 11]
    :end-before: [test_interpolate_operator 12]
 
-Note that passing a :py:class:`~.FunctionSpace` into the dual slot of :py:func:`~.interpolate` is
+Passing a :py:class:`~.FunctionSpace` into the dual slot of :py:func:`~.interpolate` is
 syntactic sugar for ``TestFunction(V.dual())``.
 
 If :math:`g\in U` is a :py:class:`~.Function`, then we can write it as :math:`g = g_j \psi_j` for
