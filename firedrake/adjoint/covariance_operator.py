@@ -745,7 +745,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
             self._urhs.assign(self._u)
             if i != self.iterations - 1:
                 self.mass_solver.solve()
-            b = assemble(self._Krhs)
+        b = assemble(self._Krhs)
 
         return tensor.assign(lamda1*b)
 
