@@ -76,8 +76,8 @@ from firedrake.functionspace import (  # noqa: F401
     TensorFunctionSpace, RestrictedFunctionSpace
 )
 from firedrake.interpolation import (  # noqa: F401
-    interpolate, Interpolate, Interpolator, DofNotDefinedError,
-    CrossMeshInterpolator, SameMeshInterpolator
+    interpolate, Interpolate, DofNotDefinedError,
+    get_interpolator
 )
 from firedrake.linear_solver import LinearSolver  # noqa: F401
 from firedrake.preconditioners import (  # noqa: F401
@@ -161,6 +161,10 @@ from firedrake.logging import (  # noqa: F401
     WARNING, ERROR, CRITICAL, log, debug, info, warning, error,
     critical, info_red, info_green, info_blue, RED, GREEN, BLUE
 )
+from firedrake.matrix import (  # noqa: F401
+    MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
+)
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
