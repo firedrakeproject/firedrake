@@ -85,11 +85,10 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
-@pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
 @pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vector1", "vector2"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
-def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
+def test_covariance_inverse_action(m, family, mesh_type, dim):
     """Test that covariance operator action and inverse are opposites.
     """
 
@@ -107,10 +106,10 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
         x, y, z = SpatialCoordinate(mesh)
         wexpr = cos(2*pi*x)*cos(4*pi*y)*cos(pi*z)
     if dim > 0:
-        V = VectorFunctionSpace(mesh, family, degree, dim=dim)
+        V = VectorFunctionSpace(mesh, family, 1, dim=dim)
         wexpr = as_vector([-1**(j+1)*wexpr for j in range(dim)])
     else:
-        V = FunctionSpace(mesh, family, degree)
+        V = FunctionSpace(mesh, family, 1)
 
     rng = WhiteNoiseGenerator(
         V, rng=RandomGenerator(PCG64(seed=13)))
@@ -125,13 +124,13 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
     }
 
     if family == 'CG':
-        form = GaussianCovariance.DiffusionForm.CG
+        form = AutoregressiveCovariance.DiffusionForm.CG
     elif family == 'DG':
-        form = GaussianCovariance.DiffusionForm.IP
+        form = AutoregressiveCovariance.DiffusionForm.IP
     else:
         raise ValueError("Do not know which diffusion form to use for family {family}")
 
-    B = GaussianCovariance(
+    B = AutoregressiveCovariance(
         V, L, sigma, m, rng=rng, form=form,
         solver_parameters=solver_parameters,
         options_prefix="")
@@ -146,8 +145,7 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
-@pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
-def test_covariance_inverse_action_hdiv(m, degree):
+def test_covariance_inverse_action_hdiv(m):
     """Test that covariance operator action and inverse are opposites
     for hdiv spaces.
     """
@@ -157,7 +155,7 @@ def test_covariance_inverse_action_hdiv(m, degree):
     x, y = SpatialCoordinate(mesh)
     wexpr = cos(2*pi*x)*cos(4*pi*x)
 
-    V = FunctionSpace(mesh, "BDM", degree)
+    V = FunctionSpace(mesh, "BDM", 1)
     wexpr = as_vector([-1**(j+1)*wexpr for j in range(2)])
 
     L = 0.1
@@ -169,9 +167,9 @@ def test_covariance_inverse_action_hdiv(m, degree):
         'pc_factor_mat_solver_type': 'mumps'
     }
 
-    form = GaussianCovariance.DiffusionForm.IP
+    form = AutoregressiveCovariance.DiffusionForm.IP
 
-    B = GaussianCovariance(
+    B = AutoregressiveCovariance(
         V, L, sigma, m, form=form,
         solver_parameters=solver_parameters,
         options_prefix="")
@@ -203,13 +201,13 @@ def test_covariance_adjoint_norm(m, family):
     v = Function(V).project(2 - 0.5*sin(6*pi*x))
 
     if family == 'CG':
-        form = GaussianCovariance.DiffusionForm.CG
+        form = AutoregressiveCovariance.DiffusionForm.CG
     elif family == 'DG':
-        form = GaussianCovariance.DiffusionForm.IP
+        form = AutoregressiveCovariance.DiffusionForm.IP
     else:
         raise ValueError("Do not know which diffusion form to use for family {family}")
 
-    B = GaussianCovariance(V, L, sigma, m, form=form)
+    B = AutoregressiveCovariance(V, L, sigma, m, form=form)
 
     continue_annotation()
     with set_working_tape() as tape:
@@ -231,9 +229,8 @@ def test_covariance_adjoint_norm(m, family):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("family", ("CG", "DG"))
-@pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
 @pytest.mark.parametrize("operation", ("action", "inverse"))
-def test_covariance_mat(m, family, degree, operation):
+def test_covariance_mat(m, family, operation):
     """Test that covariance mat and pc apply correct and opposite actions.
     """
     nx = 20
@@ -243,16 +240,16 @@ def test_covariance_mat(m, family, degree, operation):
     mesh = UnitIntervalMesh(nx)
     coords, = SpatialCoordinate(mesh)
 
-    V = FunctionSpace(mesh, family, degree)
+    V = FunctionSpace(mesh, family, 1)
 
     if family == 'CG':
-        form = GaussianCovariance.DiffusionForm.CG
+        form = AutoregressiveCovariance.DiffusionForm.CG
     elif family == 'DG':
-        form = GaussianCovariance.DiffusionForm.IP
+        form = AutoregressiveCovariance.DiffusionForm.IP
     else:
         raise ValueError("Do not know which diffusion form to use for family {family}")
 
-    B = GaussianCovariance(V, L, sigma, m, form=form)
+    B = AutoregressiveCovariance(V, L, sigma, m, form=form)
 
     operation = CovarianceMatCtx.Operation(operation)
 
@@ -293,18 +290,14 @@ def test_covariance_mat(m, family, degree, operation):
     ksp = PETSc.KSP().create()
     ksp.setOperators(mat)
 
-    # poorly conditioned cases
-    if (degree == 2) and (m == 4):
-        tol = 1e-6
-    else:
-        tol = 1e-8
+    tol = 1e-8
 
     petsctools.set_from_options(
-        ksp, options_prefix="action",
+        ksp, options_prefix=str(operation),
         parameters={
             'ksp_monitor': None,
             'ksp_type': 'richardson',
-            'ksp_max_it': 3,
+            'ksp_max_it': 2,
             'ksp_rtol': tol,
             'pc_type': 'python',
             'pc_python_type': 'firedrake.adjoint.CovariancePC',

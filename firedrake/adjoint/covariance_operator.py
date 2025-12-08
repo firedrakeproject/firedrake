@@ -8,7 +8,7 @@ from loopy import generate_code_v2
 from pyop2 import op2
 from firedrake.tsfc_interface import compile_form
 from firedrake import (
-    grad, inner, avg, action, outer, replace,
+    grad, inner, avg, action, outer,
     assemble, CellSize, FacetNormal,
     dx, ds, dS, sqrt, Constant,
     Function, Cofunction, RieszMap,
@@ -77,15 +77,68 @@ class CholeskyFactorisation:
 
 
 class NoiseBackendBase:
+    r"""
+    A base class for implementations of a mass matrix square root action
+    for generating white noise samples.
+
+    Inheriting classes implement the method from [Croci et al 2018](https://epubs.siam.org/doi/10.1137/18M1175239)
+
+    Generating the samples on the function space :math:`V` requires the following steps:
+
+    1. On each element generate a white noise sample :math:`z_{e}\sim\mathcal{N}(0, I)`
+       over all DoFs in the element. Equivalantly, generate the sample on the
+       discontinuous superspace :math:`V_{d}^{*}` containing :math:`V^{*}`.
+       (i.e. ``Vd.ufl_element() = BrokenElement(V.ufl_element``).
+
+    2. Apply the Cholesky factor :math:`C_{e}` of the element-wise mass matrix :math:`M_{e}`
+       to the element-wise sample (:math:`M_{e}=C_{e}C_{e}^{T}`).
+
+    3. Assemble the element-wise samples :math:`z_{e}\in V_{d}^{*}` into the global
+       sample vector :math:`z\in V^{*}`. If :math:`L` is the interpolation operator
+       then :math:`z=Lz_{e}=LC_{e}z_{e}`.
+
+    4. Optionally apply a Riesz map to :math:`z` to return a sample in :math:`V`.
+
+    See Also
+    --------
+    PyOP2NoiseBackend
+    PetscNoiseBackend
+    WhiteNoiseGenerator
+    """
+
     def __init__(self, V, rng=None):
         self._V = V
         self._rng = rng or RandomGenerator(PCG64())
 
-    def sample(self, *, rng=None, tensor=None):
+    @abc.abstractmethod
+    def sample(self, *, rng=None, tensor=None, apply_riesz=False):
+        """
+        Generate a white noise sample.
+
+        Parameters
+        ----------
+        rng :
+            A ``RandomGenerator`` to use for sampling IID vectors.
+            If ``None`` then ``self.rng`` is used.
+
+        tensor :
+            Optional location to place the result into.
+
+        apply_riesz :
+            Whether to apply the L2 Riesz map to return a sample in :math:`V`.
+
+        Returns
+        -------
+        Function | Cofunction :
+            The white noise sample in :math:`V`
+        """
         raise NotImplementedError
 
     @cached_property
     def broken_space(self):
+        """
+        The discontinuous superspace containing :math:`V`, ``self.function_space``.
+        """
         element = self.function_space.ufl_element()
         mesh = self.function_space.mesh().unique()
         if isinstance(element, VectorElement):
@@ -101,18 +154,44 @@ class NoiseBackendBase:
 
     @property
     def function_space(self):
+        """The function space that the noise will be generated on.
+        """
         return self._V
 
     @property
     def rng(self):
+        """The ``RandomGenerator`` to generate the IID sample on the broken function space.
+        """
         return self._rng
 
     @cached_property
     def riesz_map(self):
+        """A :class:`~firedrake.cofunction.RieszMap` to cache the solver
+        for :meth:`~firedrake.cofunction.Cofunction.riesz_representation`.
+        """
         return RieszMap(self.function_space, constant_jacobian=True)
+        """
+        Generate a white noise sample.
+
+        Parameters
+        ----------
+        rng :
+            A ``RandomGenerator`` to use for sampling IID vectors.
+            If ``None`` then ``self.rng`` is used.
+
+        tensor :
+            Optional location to place the result into.
+
+        apply_riesz :
+            Whether to apply an L2 Riesz map to the result to return
+            a sample in the primal space.
+        """
 
 
 class PetscNoiseBackend(NoiseBackendBase):
+    """
+    A PETSc based implementation of a mass matrix square root action for generating white noise.
+    """
     def __init__(self, V, rng=None):
         super().__init__(V, rng=rng)
         self.cholesky = CholeskyFactorisation(self.broken_space)
@@ -140,6 +219,9 @@ class PetscNoiseBackend(NoiseBackendBase):
 
 
 class PyOP2NoiseBackend(NoiseBackendBase):
+    """
+    A PyOP2 based implementation of a mass matrix square root for generating white noise.
+    """
     def __init__(self, V, rng=None):
         super().__init__(V, rng=rng)
 
@@ -260,7 +342,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
 
 
 class WhiteNoiseGenerator:
-    r""" Generates a white noise sample
+    r"""Generate white noise samples.
 
     Parameters
     ----------
@@ -271,8 +353,7 @@ class WhiteNoiseGenerator:
         The ``WhiteNoiseGenerator.Backend`` specifying how to calculate
         and apply the mass matrix square root.
     rng :
-        Initialised random number generator to use for obtaining
-        random numbers. Defaults to PCG64.
+        Initialised random number generator to use for sampling IID vectors.
 
     Returns
     -------
@@ -281,10 +362,21 @@ class WhiteNoiseGenerator:
         :class:`~.firedrake.function.Function` returned and
         M is the mass matrix.
 
-    For details see [Croci et al 2018]:
-    https://epubs.siam.org/doi/10.1137/18M1175239
+    References
+    ----------
+    Croci, M. and Giles, M. B and Rognes, M. E. and Farrell, P. E., 2018:
+    "Efficient White Noise Sampling and Coupling for Multilevel Monte Carlo
+    with Nonnested Meshes". SIAM/ASA J. Uncertainty Quantification, Vol. 6,
+    No. 4, pp. 1630--1655.
+    https://doi.org/10.1137/18M1175239
+
+    See Also
+    --------
+    NoiseBackendBase
+    PyOP2NoiseBackend
+    PetscNoiseBackend
+    CovarianceOperatorBase
     """
-    # TODO: Add Croci to citations manager
 
     class Backend(Enum):
         """
@@ -313,7 +405,29 @@ class WhiteNoiseGenerator:
 
         petsctools.cite("Croci2018")
 
-    def sample(self, *, rng=None, tensor=None, apply_riesz=False):
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
+        """
+        Generate a white noise sample.
+
+        Parameters
+        ----------
+        rng :
+            A ``RandomGenerator`` to use for sampling IID vectors.
+            If ``None`` then ``self.rng`` is used.
+
+        tensor :
+            Optional location to place the result into.
+
+        apply_riesz :
+            Whether to apply the L2 Riesz map to return a sample in :math:`V`.
+
+        Returns
+        -------
+        Function | Cofunction :
+            The white noise sample in :math:`V`
+        """
         return self.backend.sample(
             rng=rng, tensor=tensor, apply_riesz=apply_riesz)
 
@@ -378,12 +492,12 @@ def kappa_m(Lar: float, m: int):
 
 
 class CovarianceOperatorBase:
-    """
+    r"""
     Abstract base class for a covariance operator B where
 
     .. math::
 
-        B: V^{*} \\to V \quad \\text{and} \quad B^{-1}: V \\to V^{*}
+        B: V^{*} \to V \quad \text{and} \quad B^{-1}: V \to V^{*}
 
     The covariance operators can be used to:
 
@@ -415,7 +529,7 @@ class CovarianceOperatorBase:
     CovarianceMatCtx
     CovarianceMat
     CovariancePC
-    """  # noqa: W605
+    """
 
     @abc.abstractmethod
     def rng(self):
@@ -432,7 +546,7 @@ class CovarianceOperatorBase:
     @abc.abstractmethod
     def sample(self, *, rng: WhiteNoiseGenerator | None = None,
                tensor: Function | None = None):
-        """
+        r"""
         Sample from :math:`\mathcal{N}(0, B)` by correlating a
         white noise sample: :math:`w = B^{1/2}z`.
 
@@ -448,11 +562,11 @@ class CovarianceOperatorBase:
         -------
         firedrake.function.Function :
             The sample.
-        """  # noqa: W605
+        """
         raise NotImplementedError
 
     def norm(self, x: Function):
-        """Return the weighted norm :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`.
+        r"""Return the weighted norm :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`.
 
         Default implementation uses ``apply_inverse`` to first calculate
         the :class:`~firedrake.cofunction.Cofunction` :math:`y = B^{-1}x`,
@@ -469,14 +583,14 @@ class CovarianceOperatorBase:
         -------
         pyadjoint.AdjFloat :
             The norm of ``x``.
-        """  # noqa: W605
+        """
         return self.apply_inverse(x)(x)
 
     @abc.abstractmethod
     def apply_inverse(self, x: Function, *,
                       tensor: Cofunction | None = None):
-        """Return :math:`y = B^{-1}x` where B is the covariance operator.
-        :math:`B^{-1}: V \\to V^{*}`.
+        r"""Return :math:`y = B^{-1}x` where B is the covariance operator.
+        :math:`B^{-1}: V \to V^{*}`.
 
         Parameters
         ----------
@@ -489,14 +603,14 @@ class CovarianceOperatorBase:
         -------
         firedrake.cofunction.Cofunction :
             The result of :math:`B^{-1}x`
-        """  # noqa: W605
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
     def apply_action(self, x: Cofunction, *,
                      tensor: Function | None = None):
-        """Return :math:`y = Bx` where B is the covariance operator.
-        :math:`B: V^{*} \\to V`.
+        r"""Return :math:`y = Bx` where B is the covariance operator.
+        :math:`B: V^{*} \to V`.
 
         Parameters
         ----------
@@ -510,12 +624,12 @@ class CovarianceOperatorBase:
         -------
         firedrake.function.Function :
             The result of :math:`B^{-1}x`
-        """  # noqa: W605
+        """
         raise NotImplementedError
 
 
 class AutoregressiveCovariance(CovarianceOperatorBase):
-    """
+    r"""
     An m-th order autoregressive covariance operator using an implicit diffusion operator.
 
     Covariance operator B with a kernel that is the ``m``-th autoregressive
@@ -529,9 +643,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
     .. math::
 
-        B: V^{*} \\to V = \lambda((K^{-1}M)^{m}M^{-1})\lambda
+        B: V^{*} \to V = \lambda((K^{-1}M)^{m}M^{-1})\lambda
 
-        B^{-1}: V \\to V^{*} = (1/\lambda)M(M^{-1}K)^{m}(1/\lambda)
+        B^{-1}: V \to V^{*} = (1/\lambda)M(M^{-1}K)^{m}(1/\lambda)
 
     This formulation leads to an efficient implementations for :math:`B^{1/2}`
     by taking only m/2 steps of the diffusion operator. This can be used
@@ -550,7 +664,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     ----------
     Mirouze, I. and Weaver, A. T., 2010: "Representation of correlation
     functions in variational assimilation using an implicit diffusion
-    operator". Q. J. R. Meteorol. Soc. 136: 1421–1443, July 2010 Part B,
+    operator". Q. J. R. Meteorol. Soc. 136: 1421–1443, July 2010 Part B.
     https://doi.org/10.1002/qj.643
 
     See Also
@@ -559,7 +673,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     CovarianceOperatorBase
     CovarianceMat
     CovariancePC
-    """  # noqa: W605
+    """
 
     class DiffusionForm(Enum):
         """
@@ -580,7 +694,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         form = form or self.DiffusionForm.CG
 
         self._rng = rng or WhiteNoiseGenerator(V)
-        self._function_space = function_space or self.rng.function_space
+        self._function_space = function_space or self.rng().function_space
 
         if sigma <= 0:
             raise ValueError("Variance must be positive.")
@@ -611,19 +725,19 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
             M = inner(u, v)*dx
 
             self._u = Function(V)
-            self._b = Cofunction(V.dual())
+            self._urhs = Function(V)
 
-            self._Mrhs = replace(M, {u: self._u})
-            self._Krhs = replace(K, {u: self._u})
+            self._Mrhs = action(M, self._urhs)
+            self._Krhs = action(K, self._urhs)
 
             self.solver = LinearVariationalSolver(
-                LinearVariationalProblem(K, self._b, self._u, bcs=bcs,
+                LinearVariationalProblem(K, self._Mrhs, self._u, bcs=bcs,
                                          constant_jacobian=True),
                 solver_parameters=solver_parameters,
                 options_prefix=options_prefix)
 
             self.mass_solver = LinearVariationalSolver(
-                LinearVariationalProblem(M, self._b, self._u, bcs=bcs,
+                LinearVariationalProblem(M, self._Krhs, self._u, bcs=bcs,
                                          constant_jacobian=True),
                 solver_parameters=mass_parameters,
                 options_prefix=mass_prefix)
@@ -642,13 +756,11 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
             w = rng.sample(apply_riesz=True)
             return tensor.assign(self.stddev*w)
 
-        w = rng.sample(apply_riesz=False)
+        w = rng.sample(apply_riesz=True)
+        self._u.assign(w)
 
         for i in range(self.iterations//2):
-            if i == 0:
-                self._b.assign(w)
-            else:
-                assemble(self._Mrhs, tensor=self._b)
+            self._urhs.assign(self._u)
             self.solver.solve()
 
         return tensor.assign(self._weight*self._u)
@@ -662,7 +774,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         self._u.assign(lamda1*x)
 
         for i in range(self.iterations//2):
-            assemble(self._Krhs, tensor=self._b)
+            self._urhs.assign(self._u)
             self.mass_solver.solve()
 
         return assemble(inner(self._u, self._u)*dx)
@@ -680,26 +792,27 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         self._u.assign(lamda1*x)
 
         for i in range(self.iterations):
-            assemble(self._Krhs, tensor=self._b)
+            self._urhs.assign(self._u)
             if i != self.iterations - 1:
                 self.mass_solver.solve()
+            b = assemble(self._Krhs)
 
-        return tensor.assign(lamda1*self._b)
+        return tensor.assign(lamda1*b)
 
     def apply_action(self, x, *, tensor=None):
         tensor = tensor or Function(self.function_space())
 
+        riesz_map = self.rng().backend.riesz_map
+        Cx = x.riesz_representation(riesz_map)
+
         if self.iterations == 0:
-            riesz_map = self.rng().backend.riesz_map
-            Cx = x.riesz_representation(riesz_map)
             variance = self.stddev*self.stddev
             return tensor.assign(variance*Cx)
 
+        self._u.assign(self._weight*Cx)
+
         for i in range(self.iterations):
-            if i == 0:
-                self._b.assign(self._weight*x)
-            else:
-                assemble(self._Mrhs, tensor=self._b)
+            self._urhs.assign(self._u)
             self.solver.solve()
 
         return tensor.assign(self._weight*self._u)
@@ -769,15 +882,15 @@ def diffusion_form(u, v, kappa: Constant | Function,
 
 
 class CovarianceMatCtx:
-    """
+    r"""
     A python Mat context for a covariance operator.
     Can apply either the action or inverse of the covariance.
 
     .. math::
 
-        B: V^{*} \\to V
+        B: V^{*} \to V
 
-        B^{-1}: V \\to V^{*}
+        B^{-1}: V \to V^{*}
 
     Parameters
     ----------
@@ -792,7 +905,7 @@ class CovarianceMatCtx:
     AutoregressiveCovariance
     CovarianceMat
     CovariancePC
-    """  # noqa: W605
+    """
     class Operation(Enum):
         ACTION = 'action'
         INVERSE = 'inverse'
@@ -872,16 +985,16 @@ class CovarianceMatCtx:
 
 
 def CovarianceMat(covariance, operation=None):
-    """
+    r"""
     A Mat for a covariance operator.
     Can apply either the action or inverse of the covariance.
     This is a convenience function to create a PETSc.Mat with a :class:`.CovarianceMatCtx` Python context.
 
     .. math::
 
-        B: V^{*} \\to V
+        B: V^{*} \to V
 
-        B^{-1}: V \\to V^{*}
+        B^{-1}: V \to V^{*}
 
     Parameters
     ----------
@@ -901,10 +1014,10 @@ def CovarianceMat(covariance, operation=None):
     AutoregressiveCovariance
     CovarianceMatCtx
     CovariancePC
-    """  # noqa: W605
+    """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
-    sizes = covariance.function_space.dof_dset.layout_vec.getSizes()
+    sizes = covariance.function_space().dof_dset.layout_vec.getSizes()
 
     mat = PETSc.Mat().createPython(
         (sizes, sizes), ctx, comm=ctx.comm)
@@ -914,16 +1027,16 @@ def CovarianceMat(covariance, operation=None):
 
 
 class CovariancePC(petsctools.PCBase):
-    """
+    r"""
     A python PC context for a covariance operator.
     Will apply either the action or inverse of the covariance,
     whichever is the opposite of the Mat operator.
 
     .. math::
 
-        B: V^{*} \\to V
+        B: V^{*} \to V
 
-        B^{-1}: V \\to V^{*}
+        B^{-1}: V \to V^{*}
 
     Available options:
 
@@ -935,7 +1048,7 @@ class CovariancePC(petsctools.PCBase):
     AutoregressiveCovariance
     CovarianceMatCtx
     CovarianceMat
-    """  # noqa: W605
+    """
     needs_python_pmat = True
     prefix = "covariance"
 
@@ -954,7 +1067,7 @@ class CovariancePC(petsctools.PCBase):
         self.covariance = covariance
         self.mat = mat
 
-        V = covariance.function_space
+        V = covariance.function_space()
         primal = Function(V)
         dual = Function(V.dual())
 
