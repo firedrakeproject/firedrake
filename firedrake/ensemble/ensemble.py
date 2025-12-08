@@ -130,7 +130,7 @@ class Ensemble:
         self._check_function(f, f_reduced)
 
         return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
-                    for fdat, rdat in zip(f.dat, f_reduced.dat)]
+                for fdat, rdat in zip(f.dat, f_reduced.dat)]
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
