@@ -90,7 +90,7 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
-    """Test that correlated noise generator has the right covariance matrix.
+    """Test that covariance operator action and inverse are opposites.
     """
 
     nx = 20
@@ -148,7 +148,8 @@ def test_covariance_inverse_action(m, family, degree, mesh_type, dim):
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
 def test_covariance_inverse_action_hdiv(m, degree):
-    """Test that correlated noise generator has the right covariance matrix.
+    """Test that covariance operator action and inverse are opposites
+    for hdiv spaces.
     """
 
     nx = 20
@@ -187,7 +188,7 @@ def test_covariance_inverse_action_hdiv(m, degree):
 @pytest.mark.parametrize("m", (0, 2, 4))
 @pytest.mark.parametrize("family", ("CG", "DG"))
 def test_covariance_adjoint_norm(m, family):
-    """Test that correlated noise generator has the right covariance matrix.
+    """Test that covariance operators are properly taped.
     """
     nx = 20
     L = 0.2
@@ -233,7 +234,7 @@ def test_covariance_adjoint_norm(m, family):
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
 @pytest.mark.parametrize("operation", ("action", "inverse"))
 def test_covariance_mat(m, family, degree, operation):
-    """Test that correlated noise generator has the right covariance matrix.
+    """Test that covariance mat and pc apply correct and opposite actions.
     """
     nx = 20
     L = 0.2

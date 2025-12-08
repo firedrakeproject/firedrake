@@ -1,3 +1,4 @@
+import abc
 from enum import Enum
 from functools import cached_property
 from textwrap import dedent
@@ -261,17 +262,24 @@ class PyOP2NoiseBackend(NoiseBackendBase):
 class WhiteNoiseGenerator:
     r""" Generates a white noise sample
 
-    :arg V: The :class:`firedrake.FunctionSpace` to construct a
-        white noise sample on
-    :arg backend: The :enum:`WhiteNoiseGenerator.Backend` specifying how to calculate
+    Parameters
+    ----------
+    V :
+        The :class:`~firedrake.functionspace.FunctionSpace` to construct a
+        white noise sample on.
+    backend :
+        The ``WhiteNoiseGenerator.Backend`` specifying how to calculate
         and apply the mass matrix square root.
-    :arg rng: Initialised random number generator to use for obtaining
+    rng :
+        Initialised random number generator to use for obtaining
         random numbers. Defaults to PCG64.
 
-    Returns a :firedrake.Function: with
-    b ~ Normal(0, M)
-    where b is the dat.data of the function returned
-    and M is the mass matrix.
+    Returns
+    -------
+    firedrake.function.Function :
+        with b ~ Normal(0, M) where b is the dat.data of the
+        :class:`~.firedrake.function.Function` returned and
+        M is the mass matrix.
 
     For details see [Croci et al 2018]:
     https://epubs.siam.org/doi/10.1137/18M1175239
@@ -279,6 +287,14 @@ class WhiteNoiseGenerator:
     # TODO: Add Croci to citations manager
 
     class Backend(Enum):
+        """
+        The backend to implement applying the mass matrix square root.
+
+        See Also
+        --------
+        PyOP2NoiseBackend
+        PetscNoiseBackend
+        """
         PYOP2 = 'pyop2'
         PETSC = 'petsc'
 
@@ -302,65 +318,255 @@ class WhiteNoiseGenerator:
 
 # Auto-regressive function parameters
 
-def lengthscale_m(Lar: float, M: int):
-    """Daley-equivalent lengthscale of M-th order autoregressive function.
+def lengthscale_m(Lar: float, m: int):
+    """Daley-equivalent lengthscale of m-th order autoregressive function.
 
     Parameters
     ----------
-        Lar :
-            Target Daley correlation lengthscale.
-        M :
-            Order of autoregressive function.
+    Lar :
+        Target Daley correlation lengthscale.
+    m :
+        Order of autoregressive function.
 
     Returns
     -------
-        L :
-            Lengthscale parameter for autoregressive function.
+    L : float
+        Lengthscale parameter for autoregressive function.
     """
-    return Lar/sqrt(2*M - 3)
+    return Lar/sqrt(2*m - 3)
 
 
-def lambda_m(Lar: float, M: int):
+def lambda_m(Lar: float, m: int):
     """Normalisation factor for autoregressive function.
 
     Parameters
     ----------
-        Lar :
-            Target Daley correlation lengthscale.
-        M :
-            Order of autoregressive function.
+    Lar :
+        Target Daley correlation lengthscale.
+    m :
+        Order of autoregressive function.
 
     Returns
     -------
-        lambda :
-            Normalisation coefficient for autoregressive correlation operator.
+    lambda : float
+        Normalisation coefficient for autoregressive correlation operator.
     """
-    L = lengthscale_m(Lar, M)
-    num = (2**(2*M - 1))*factorial(M - 1)**2
-    den = factorial(2*M - 2)
+    L = lengthscale_m(Lar, m)
+    num = (2**(2*m - 1))*factorial(m - 1)**2
+    den = factorial(2*m - 2)
     return L*num/den
 
 
-def kappa_m(Lar: float, M: int):
+def kappa_m(Lar: float, m: int):
     """Diffusion coefficient for autoregressive function.
 
     Parameters
     ----------
-        Lar :
-            Target Daley correlation lengthscale.
-        M :
-            Order of autoregressive function.
+    Lar :
+        Target Daley correlation lengthscale.
+    m :
+        Order of autoregressive function.
 
     Returns
     -------
-        kappa :
-            Diffusion coefficient for autoregressive covariance operator.
+    kappa : float
+        Diffusion coefficient for autoregressive covariance operator.
     """
-    return lengthscale_m(Lar, M)**2
+    return lengthscale_m(Lar, m)**2
 
 
-class GaussianCovariance:
+class CovarianceOperatorBase:
+    """
+    Abstract base class for a covariance operator B where
+
+    .. math::
+
+        B: V^{*} \\to V \quad \\text{and} \quad B^{-1}: V \\to V^{*}
+
+    The covariance operators can be used to:
+
+    - calculate weighted norms :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`
+      to account for uncertainty in optimisation methods.
+
+    - generate samples from the normal distribution :math:`\mathcal{N}(0, B)`
+      using :math:`w = B^{1/2}z` where :math:`z\sim\mathcal{N}(0, I)`.
+
+    Inheriting classes must implement the following methods:
+
+    - ``sample``
+
+    - ``apply_inverse``
+
+    - ``apply_action``
+
+    - ``rng``
+
+    - ``function_space``
+
+    They may optionally implement ``norm`` to provide a more
+    efficient implementation.
+
+    See Also
+    --------
+    WhiteNoiseGenerator
+    AutoregressiveCovariance
+    CovarianceMatCtx
+    CovarianceMat
+    CovariancePC
+    """  # noqa: W605
+
+    @abc.abstractmethod
+    def rng(self):
+        """:class:`~.WhiteNoiseGenerator` for generating samples.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def function_space(self):
+        """The function space V that the covariance operator maps to.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def sample(self, *, rng: WhiteNoiseGenerator | None = None,
+               tensor: Function | None = None):
+        """
+        Sample from :math:`\mathcal{N}(0, B)` by correlating a
+        white noise sample: :math:`w = B^{1/2}z`.
+
+        Parameters
+        ----------
+        rng :
+            Generator for the white noise sample.
+            If not provided then self.rng will be used.
+        tensor :
+            Optional location to place the result into.
+
+        Returns
+        -------
+        firedrake.function.Function :
+            The sample.
+        """  # noqa: W605
+        raise NotImplementedError
+
+    def norm(self, x: Function):
+        """Return the weighted norm :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`.
+
+        Default implementation uses ``apply_inverse`` to first calculate
+        the :class:`~firedrake.cofunction.Cofunction` :math:`y = B^{-1}x`,
+        then returns :math:`y(x)`.
+
+        Inheriting classes may provide more efficient specialisations.
+
+        Parameters
+        ----------
+        x :
+            The :class:`~firedrake.function.Function` to take the norm of.
+
+        Returns
+        -------
+        pyadjoint.AdjFloat :
+            The norm of ``x``.
+        """
+        return self.apply_inverse(x)(x)
+
+    @abc.abstractmethod
+    def apply_inverse(self, x: Function, *,
+                      tensor: Cofunction | None = None):
+        """Return :math:`y = B^{-1}x` where B is the covariance operator.
+        :math:`B^{-1}: V \\to V^{*}`.
+
+        Parameters
+        ----------
+        x :
+            The :class:`~firedrake.function.Function` to apply the inverse to.
+        tensor :
+            Optional location to place the result into.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction :
+            The result of :math:`B^{-1}x`
+        """  # noqa: W605
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def apply_action(self, x: Cofunction, *,
+                     tensor: Function | None = None):
+        """Return :math:`y = Bx` where B is the covariance operator.
+        :math:`B: V^{*} \\to V`.
+
+        Parameters
+        ----------
+        x :
+            The :class:`~firedrake.cofunction.Cofunction` to apply
+            the action to.
+        tensor :
+            Optional location to place the result into.
+
+        Returns
+        -------
+        firedrake.function.Function :
+            The result of :math:`B^{-1}x`
+        """  # noqa: W605
+        raise NotImplementedError
+
+
+class AutoregressiveCovariance(CovarianceOperatorBase):
+    """
+    An m-th order autoregressive covariance operator using an implicit diffusion operator.
+
+    Covariance operator B with a kernel that is the ``m``-th autoregressive
+    function can be calculated using ``m`` Backward Euler steps of a
+    diffusion operator, where the diffusion coefficient is specified by
+    the desired correlation lengthscale.
+
+    If :math:`M` is the mass matrix, :math:`K` is the matrix for a single
+    Backward Euler step, and :math:`\lambda` is a normalisation factor, then the
+    m-th order correlation operator (unit variance) is:
+
+    .. math::
+
+        B: V^{*} \\to V = \lambda((K^{-1}M)^{m}M^{-1})\lambda
+
+        B^{-1}: V \\to V^{*} = (1/\lambda)M(M^{-1}K)^{m}(1/\lambda)
+
+    This formulation leads to an efficient implementations for :math:`B^{1/2}`
+    by taking only m/2 steps of the diffusion operator. This can be used
+    to calculate weighted norms and sample from :math:`\mathcal{N}(0,B)`.
+
+    .. math::
+
+        \|x\|_{B^{-1}} = \|(M^{-1}K)^{m/2}(1/\lambda)x\|_{M}
+
+        w = B^{1/2}z = \lambda M^{-1}(MK^{-1})^{m/2}(M^{1/2}z)
+
+    The white noise sample :math:`M^{1/2}z` is generated by a
+    :class:`.WhiteNoiseGenerator`.
+
+    References
+    ----------
+    Mirouze, I. and Weaver, A. T., 2010: "Representation of correlation
+    functions in variational assimilation using an implicit diffusion
+    operator". Q. J. R. Meteorol. Soc. 136: 1421–1443, July 2010 Part B,
+    https://doi.org/10.1002/qj.643
+
+    See Also
+    --------
+    WhiteNoiseGenerator
+    CovarianceOperatorBase
+    CovarianceMat
+    CovariancePC
+    """  # noqa: W605
+
     class DiffusionForm(Enum):
+        """
+        The diffusion operator formulation.
+
+        See Also
+        --------
+        diffusion_form
+        """
         CG = 'CG'
         IP = 'IP'
 
@@ -371,8 +577,8 @@ class GaussianCovariance:
 
         form = form or self.DiffusionForm.CG
 
-        self.rng = rng or WhiteNoiseGenerator(V)
-        self.function_space = function_space or self.rng.function_space
+        self._rng = rng or WhiteNoiseGenerator(V)
+        self._function_space = function_space or self.rng.function_space
 
         if sigma <= 0:
             raise ValueError("Variance must be positive.")
@@ -420,9 +626,15 @@ class GaussianCovariance:
                 solver_parameters=mass_parameters,
                 options_prefix=mass_prefix)
 
+    def function_space(self):
+        return self._function_space
+
+    def rng(self):
+        return self._rng
+
     def sample(self, *, rng=None, tensor=None):
-        tensor = tensor or Function(self.function_space)
-        rng = rng or self.rng
+        tensor = tensor or Function(self.function_space())
+        rng = rng or self.rng()
 
         if self.iterations == 0:
             w = rng.sample(apply_riesz=True)
@@ -454,12 +666,10 @@ class GaussianCovariance:
         return assemble(inner(self._u, self._u)*dx)
 
     def apply_inverse(self, x, *, tensor=None):
-        """B^{-1} : V -> V*
-        """
-        tensor = tensor or Cofunction(self.function_space.dual())
+        tensor = tensor or Cofunction(self.function_space().dual())
 
         if self.iterations == 0:
-            riesz_map = self.rng.backend.riesz_map
+            riesz_map = self.rng().backend.riesz_map
             Cx = x.riesz_representation(riesz_map)
             variance1 = 1/(self.stddev*self.stddev)
             return tensor.assign(variance1*Cx)
@@ -475,12 +685,10 @@ class GaussianCovariance:
         return tensor.assign(lamda1*self._b)
 
     def apply_action(self, x, *, tensor=None):
-        """B : V* -> V
-        """
-        tensor = tensor or Function(self.function_space)
+        tensor = tensor or Function(self.function_space())
 
         if self.iterations == 0:
-            riesz_map = self.rng.backend.riesz_map
+            riesz_map = self.rng().backend.riesz_map
             Cx = x.riesz_representation(riesz_map)
             variance = self.stddev*self.stddev
             return tensor.assign(variance*Cx)
@@ -495,11 +703,47 @@ class GaussianCovariance:
         return tensor.assign(self._weight*self._u)
 
 
-def diffusion_form(u, v, kappa, formulation):
-    if formulation == GaussianCovariance.DiffusionForm.CG:
+def diffusion_form(u, v, kappa: Constant | Function,
+                   formulation: AutoregressiveCovariance.DiffusionForm):
+    """
+    Convenience function for common diffusion forms.
+
+    Currently provides:
+
+    - Standard continuous Galerkin form.
+
+    - Interior penalty method for discontinuous spaces.
+
+
+    Parameters
+    ----------
+    u :
+        :func:`~firedrake.ufl_expr.TrialFunction` to construct diffusion form with.
+    v :
+        :func:`~firedrake.ufl_expr.TestFunction` to construct diffusion form with.
+    kappa :
+        The diffusion coefficient.
+    formulation :
+        The type of diffusion form.
+
+    Returns
+    -------
+    ufl.Form :
+        The diffusion form over u and v.
+
+    Raises
+    ------
+    ValueError
+        Unrecognised formulation.
+
+    See Also
+    --------
+    AutoregressiveCovariance
+    """
+    if formulation == AutoregressiveCovariance.DiffusionForm.CG:
         return inner(u, v)*dx + inner(kappa*grad(u), grad(v))*dx
 
-    elif formulation == GaussianCovariance.DiffusionForm.IP:
+    elif formulation == AutoregressiveCovariance.DiffusionForm.IP:
         mesh = v.function_space().mesh()
         n = FacetNormal(mesh)
         h = CellSize(mesh)
@@ -519,18 +763,42 @@ def diffusion_form(u, v, kappa, formulation):
         )
 
     else:
-        raise ValueError("Unknown GaussianCovariance.DiffusionForm {formulation}")
+        raise ValueError("Unknown AutoregressiveCovariance.DiffusionForm {formulation}")
 
 
 class CovarianceMatCtx:
+    """
+    A python Mat context for a covariance operator.
+    Can apply either the action or inverse of the covariance.
+
+    .. math::
+
+        B: V^{*} \\to V
+
+        B^{-1}: V \\to V^{*}
+
+    Parameters
+    ----------
+    covariance :
+        The covariance operator.
+    operation : CovarianceMatCtx.Operation
+        Whether the matrix applies the action or inverse of the covariance operator.
+
+    See Also
+    --------
+    CovarianceOperatorBase
+    AutoregressiveCovariance
+    CovarianceMat
+    CovariancePC
+    """  # noqa: W605
     class Operation(Enum):
         ACTION = 'action'
         INVERSE = 'inverse'
 
-    def __init__(self, covariance, operation=None):
+    def __init__(self, covariance: CovarianceOperatorBase, operation=None):
         operation = operation or self.Operation.ACTION
 
-        V = covariance.function_space
+        V = covariance.function_space()
         self.function_space = V
         self.comm = V.mesh().comm
         self.covariance = covariance
@@ -552,6 +820,20 @@ class CovarianceMatCtx:
                 f"Unrecognised CovarianceMat operation {operation}")
 
     def mult(self, mat, x, y):
+        """Apply the action or inverse of the covariance operator
+        to x, putting the result in y.
+
+        y is not guaranteed to be zero on entry.
+
+        Parameters
+        ----------
+        A : PETSc.Mat
+            The PETSc matrix that self is the python context of.
+        x : PETSc.Vec
+            The vector acted on by the matrix.
+        y : PETSc.Vec
+            The result of the matrix action.
+        """
         with self.x.dat.vec_wo as v:
             x.copy(result=v)
 
@@ -569,7 +851,7 @@ class CovarianceMatCtx:
         viewer.printfASCII(f"  firedrake covariance operator matrix: {type(self).__name__}\n")
         viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
 
-        if (type(self.covariance) is GaussianCovariance) and (self.covariance.iterations > 0):
+        if (type(self.covariance) is AutoregressiveCovariance) and (self.covariance.iterations > 0):
             viewer.printfASCII("  Autoregressive covariance operator with:\n")
             viewer.printfASCII(f"    order: {self.covariance.iterations}\n")
             viewer.printfASCII(f"    correlation lengthscale: {self.covariance.lengthscale}\n")
@@ -588,6 +870,36 @@ class CovarianceMatCtx:
 
 
 def CovarianceMat(covariance, operation=None):
+    """
+    A Mat for a covariance operator.
+    Can apply either the action or inverse of the covariance.
+    This is a convenience function to create a PETSc.Mat with a :class:`.CovarianceMatCtx` Python context.
+
+    .. math::
+
+        B: V^{*} \\to V
+
+        B^{-1}: V \\to V^{*}
+
+    Parameters
+    ----------
+    covariance :
+        The covariance operator.
+    operation : CovarianceMatCtx.Operation
+        Whether the matrix applies the action or inverse of the covariance operator.
+
+    Returns
+    -------
+    PETSc.Mat :
+        The python type Mat with a CovarianceMatCtx context.
+
+    See Also
+    --------
+    CovarianceOperatorBase
+    AutoregressiveCovariance
+    CovarianceMatCtx
+    CovariancePC
+    """  # noqa: W605
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
     sizes = covariance.function_space.dof_dset.layout_vec.getSizes()
@@ -601,9 +913,27 @@ def CovarianceMat(covariance, operation=None):
 
 class CovariancePC(PCBase):
     """
-    Precondition the inverse covariance operator:
-    P = B : V* -> V
-    """
+    A python PC context for a covariance operator.
+    Will apply either the action or inverse of the covariance,
+    whichever is the opposite of the Mat operator.
+
+    .. math::
+
+        B: V^{*} \\to V
+
+        B^{-1}: V \\to V^{*}
+
+    Available options:
+
+    * ``-pc_use_amat`` - use Amat to apply the covariance operator.
+
+    See Also
+    --------
+    CovarianceOperatorBase
+    AutoregressiveCovariance
+    CovarianceMatCtx
+    CovarianceMat
+    """  # noqa: W605
     needs_python_pmat = True
     prefix = "covariance"
 
@@ -639,6 +969,20 @@ class CovariancePC(PCBase):
             self._apply_op = covariance.apply_action
 
     def apply(self, pc, x, y):
+        """Apply the action or inverse of the covariance operator
+        to x, putting the result in y.
+
+        y is not guaranteed to be zero on entry.
+
+        Parameters
+        ----------
+        pc : PETSc.PC
+            The PETSc preconditioner that self is the python context of.
+        x : PETSc.Vec
+            The vector acted on by the pc.
+        y : PETSc.Vec
+            The result of the pc application.
+        """
         with self.x.dat.vec_wo as xvec:
             x.copy(result=xvec)
 
@@ -662,7 +1006,7 @@ class CovariancePC(PCBase):
         if self.use_amat:
             viewer.printfASCII("  using Amat matrix\n")
 
-        if (type(self.covariance) is GaussianCovariance) and (self.covariance.iterations > 0):
+        if (type(self.covariance) is AutoregressiveCovariance) and (self.covariance.iterations > 0):
             if self.operation == CovarianceMatCtx.Operation.ACTION:
                 viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
                 self.covariance.solver.snes.ksp.view(viewer)
