@@ -229,6 +229,11 @@ def delcomm_outer(comm, keyval, icomm):
     :arg icomm: The inner communicator, should have a reference to
         ``comm``.
     """
+    # Disable the garbage collector during cleanup - we don't want to trigger
+    # any further destructors as this is progressing (believe me, ask how I know)
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+
     # Use debug printer that is safe to use at exit time
     debug = finalize_safe_debug()
     if keyval not in (innercomm_keyval, compilationcomm_keyval):
@@ -258,7 +263,6 @@ def delcomm_outer(comm, keyval, icomm):
     cidx = icomm.Get_attr(cidx_keyval)
     cidx = cidx[0]
     del _DUPED_COMM_DICT[cidx]
-    gc.collect()
     refcount = icomm.Get_attr(refcount_keyval)
     if refcount[0] > 1:
         # In the case where `comm` is a custom user communicator there may be references
@@ -269,6 +273,9 @@ def delcomm_outer(comm, keyval, icomm):
             "this will cause deadlock if the communicator has been incorrectly freed"
         )
     icomm.Free()
+
+    if gc_was_enabled:
+        gc.enable()
 
 
 # Reference count, creation index, inner/outer/compilation communicator

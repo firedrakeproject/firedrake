@@ -190,9 +190,7 @@ def check_empty_tape(request):
     request.addfinalizer(finalizer)
 
 
-# TODO: UNDO ME
-# @pytest.fixture(scope="session", autouse=True)
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def check_no_petsc_objects_on_private_comm(request, capfd):
     """Check that PETSc objects are being created with the correct comm.
 
@@ -220,7 +218,10 @@ def check_no_petsc_objects_on_private_comm(request, capfd):
                 if match.groups()[0] != "0":
                     all_zero = False
         parallel_assert(nhits == MPI.COMM_WORLD.size)
-        parallel_assert(all_zero)
+        parallel_assert(
+            all_zero,
+            msg=f"Objects found on private communicator, got:\n{captured}"
+        )
 
     request.addfinalizer(finalizer)
 
