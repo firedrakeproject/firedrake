@@ -467,7 +467,7 @@ class CovarianceOperatorBase:
         -------
         pyadjoint.AdjFloat :
             The norm of ``x``.
-        """
+        """  # noqa: W605
         return self.apply_inverse(x)(x)
 
     @abc.abstractmethod
