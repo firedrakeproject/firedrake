@@ -6,6 +6,13 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
+def mat_equals(a, b):
+    """Check that two Matrices are equal."""
+    a = a.petscmat.copy()
+    a.axpy(-1.0, b.petscmat)
+    return a.norm() < 1e-14
+
+
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))
@@ -660,3 +667,59 @@ def test_interpolate_composition(mode):
         res_adj = assemble(u5)
         res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
         assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form():
+    mesh = UnitSquareMesh(5, 5)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    V3_trial = TrialFunction(V3)
+    V2_test = TestFunction(V2)
+    V1_test = TestFunction(V1)
+    V2_dual_trial = TrialFunction(V2.dual())
+
+    two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
+    interp = interpolate(V1_test, two_form)  # V3 x V1 -> R, equiv V3 -> V1^*
+    assert interp.arguments() == (V1_test, V3_trial)
+    res1 = assemble(interp)
+
+    I = interpolate(V1_test, V2_dual_trial)  # V2^* x V1 -> R, equiv V2^* -> V1^*
+    interp2 = action(I, two_form)  # V3 -> V1^*
+    assert interp2.arguments() == (V1_test, V3_trial)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(V3_trial, V1_test) * dx)  # V3 x V1 -> R
+    assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form_mixed():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V = V3 * V4
+    W = V1 * V2
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    q = TestFunction(W)
+
+    form = inner(u, v) * dx  # V x V -> R, equiv V -> V^*
+    interp = interpolate(q, form)  # V -> W^*, equiv V x W -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    I = interpolate(q, TrialFunction(V.dual()))  # V^* x W -> R, equiv V^* -> W^*
+    interp2 = action(I, form)  # V -> W^*
+    assert interp2.arguments() == (q, u)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(u, q) * dx)  # V x W -> R
+    assert mat_equals(res1, res3)
