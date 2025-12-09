@@ -472,7 +472,11 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError("freeze_expr not implemented")
         if bcs:
             raise NotImplementedError("bcs not implemented")
-        if V.ufl_element().mapping() != "identity":
+
+        target_element = V.ufl_element()
+        if not ((isinstance(target_element, finat.ufl.MixedElement)
+                 and all(sub.mapping() == "identity" for sub in target_element.sub_elements))
+                or target_element.mapping() == "identity"):
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes. A more general version would
             # require finding the global coordinates of all quadrature points
@@ -551,7 +555,8 @@ class CrossMeshInterpolator(Interpolator):
         elif len(shape) == 1:
             fs_type = partial(firedrake.VectorFunctionSpace, dim=shape[0])
         else:
-            fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
+            symmetry = V_dest.ufl_element().symmetry()
+            fs_type = partial(firedrake.TensorFunctionSpace, shape=shape, symmetry=symmetry)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
         self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
         # The parallel decomposition of the nodes of V_dest in the DESTINATION
