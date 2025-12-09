@@ -55,9 +55,11 @@ class NoiseBackendBase:
     V :
         The :func:`~.firedrake.functionspace.FunctionSpace` to generate the samples in.
     rng :
-        The ``RandomGenerator`` to generate the samples on the discontinuous superspace.
+        The :mod:`RandomGenerator <firedrake.randomfunctiongen>` to generate the samples
+        on the discontinuous superspace.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
 
     See Also
     --------
@@ -81,8 +83,8 @@ class NoiseBackendBase:
         Parameters
         ----------
         rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
+            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
+            sampling IID vectors.  If ``None`` then ``self.rng`` is used.
 
         tensor :
             Optional location to place the result into.
@@ -123,7 +125,8 @@ class NoiseBackendBase:
 
     @property
     def rng(self):
-        """The ``RandomGenerator`` to generate the IID sample on the broken function space.
+        """The :mod:`RandomGenerator <firedrake.randomfunctiongen>` to generate the
+        IID sample on the broken function space.
         """
         return self._rng
 
@@ -139,8 +142,8 @@ class NoiseBackendBase:
         Parameters
         ----------
         rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
+            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
+            sampling IID vectors. If ``None`` then ``self.rng`` is used.
 
         tensor :
             Optional location to place the result into.
@@ -372,7 +375,8 @@ class WhiteNoiseGenerator:
     rng :
         Initialised random number generator to use for sampling IID vectors.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
 
     References
     ----------
@@ -420,8 +424,8 @@ class WhiteNoiseGenerator:
         Parameters
         ----------
         rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
+            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
+            sampling IID vectors.  If ``None`` then ``self.rng`` is used.
 
         tensor :
             Optional location to place the result into.
@@ -680,7 +684,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     rng :
         White noise generator to seed generating correlated samples.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
     form : AutoregressiveCovariance.DiffusionForm | ufl.Form | None
         The diffusion formulation or form. If a ``DiffusionForm`` then
         :func:`.diffusion_form` will be used to generate the diffusion
@@ -899,7 +904,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
 
     See Also
     --------
-    AutoregressiveCovariance
+    AutoregressiveCovariance.DiffusionForm
     """
     if formulation == AutoregressiveCovariance.DiffusionForm.CG:
         return inner(u, v)*dx + inner(kappa*grad(u), grad(v))*dx
