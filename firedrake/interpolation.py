@@ -33,7 +33,7 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import MatrixBase, AssembledMatrix
+from firedrake.matrix import MatrixBase, Matrix
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -364,7 +364,7 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            return AssembledMatrix(self.interpolate_args, bcs, result)
+            return Matrix(self.ufl_interpolate, bcs, mat_type, result)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
