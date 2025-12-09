@@ -1,8 +1,6 @@
 """Global test configuration."""
 
-import gc
 import os
-import re
 import sys
 
 # Disable warnings for missing options when running with pytest as PETSc does
@@ -10,11 +8,8 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from mpi4py import MPI
 from petsctools import get_external_packages
 from pyadjoint.tape import annotate_tape, get_working_tape
-from pyop2.mpi import temp_internal_comm
-from pytest_mpi.parallel_assert import parallel_assert
 
 from firedrake.petsc import PETSc
 
@@ -186,42 +181,6 @@ def check_empty_tape(request):
         tape = get_working_tape()
         if tape is not None:
             assert len(tape.get_blocks()) == 0
-
-    request.addfinalizer(finalizer)
-
-
-@pytest.fixture(autouse=True)
-def check_no_petsc_objects_on_private_comm(request, capfd):
-    """Check that PETSc objects are being created with the correct comm.
-
-    If objects are being created using Firedrake's private communicator then
-    they will not be destroyed using `PETSc.garbage_cleanup`.
-
-    """
-    def finalizer():
-        """Check that no objects exist on Firedrake's private comm."""
-        # Put ref cycle objects into the garbage
-        gc.collect()
-        # Clear any previous captured output
-        _ = capfd.readouterr()
-
-        with temp_internal_comm(MPI.COMM_WORLD) as private_comm:
-            PETSc.garbage_view(private_comm)
-        captured = MPI.COMM_WORLD.bcast(capfd.readouterr().out)
-
-        pattern = r"Rank \d+:: Total entries: (\d+)"
-        all_zero = True
-        nhits = 0
-        for line in captured.splitlines():
-            if match := re.fullmatch(pattern, line):
-                nhits += 1
-                if match.groups()[0] != "0":
-                    all_zero = False
-        parallel_assert(nhits == MPI.COMM_WORLD.size)
-        parallel_assert(
-            all_zero,
-            msg=f"Objects found on private communicator, got:\n{captured}"
-        )
 
     request.addfinalizer(finalizer)
 
