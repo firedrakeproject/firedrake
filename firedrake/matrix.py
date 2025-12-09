@@ -1,9 +1,13 @@
 import itertools
-import ufl
+from typing import Any, Iterable, Literal
 
+import ufl
+from ufl.argument import BaseArgument
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+from firedrake.bcs import DirichletBC
+from firedrake.matrix_free.operators import ImplicitMatrixContext
 
 
 class DummyOP2Mat:
@@ -13,25 +17,37 @@ class DummyOP2Mat:
 
 
 class MatrixBase(ufl.Matrix):
-    """A representation of the linear operator associated with a
-    bilinear form and bcs.  Explicitly assembled matrices and matrix-free
-    matrix classes will derive from this
 
-    :arg a: the bilinear form this :class:`MatrixBase` represents
-            or a tuple of the arguments it represents
+    def __init__(
+            self, 
+            a: ufl.BaseForm | tuple[BaseArgument, BaseArgument],
+            mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
+            bcs: Iterable[DirichletBC] | None = None,
+            fc_params: dict["str", Any] | None = None,
+        ):
+        """A representation of the linear operator associated with a bilinear form and bcs.
+        Explicitly assembled matrices and matrix-free .matrix classes will derive from this.
 
-    :arg bcs: an iterable of boundary conditions to apply to this
-        :class:`MatrixBase`.  May be `None` if there are no boundary
-        conditions to apply.
-    :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
-    :kwarg fc_params: a dict of form compiler parameters of this matrix
-    """
-    def __init__(self, a, bcs, mat_type, fc_params=None):
+        Parameters
+        ----------
+        a
+            A UFL BaseForm (with two arguments) that this MatrixBase represents,
+            or a tuple of the arguments it represents.
+        mat_type
+            Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
+            or 'matfree' for matrix-free.
+        fc_params
+            A dictionary of form compiler parameters for this matrix.
+        bcs
+            An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
+            None by default.
+        """        
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
             arguments = a
         else:
+            assert isinstance(a, ufl.BaseForm)
             self.a = a
             test, trial = a.arguments()
             arguments = None
@@ -39,7 +55,7 @@ class MatrixBase(ufl.Matrix):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
-        ufl.Matrix.__init__(self, test.function_space(), trial.function_space())
+        super().__init__(self, test.function_space(), trial.function_space())
 
         # ufl.Matrix._analyze_form_arguments sets the _arguments attribute to
         # non-Firedrake objects, which breaks things. To avoid this we overwrite
@@ -54,10 +70,6 @@ class MatrixBase(ufl.Matrix):
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
-        """Matrix type.
-
-        Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
-        or 'matfree' for matrix-free."""
         self.form_compiler_parameters = fc_params
 
     def arguments(self):
@@ -96,13 +108,10 @@ class MatrixBase(ufl.Matrix):
             self._bcs = ()
 
     def __repr__(self):
-        return "%s(a=%r, bcs=%r)" % (type(self).__name__,
-                                     self.a,
-                                     self.bcs)
+        return f"{type(self).__name__}(a={self.a}, bcs={self.bcs})"
 
     def __str__(self):
-        return "assembled %s(a=%s, bcs=%s)" % (type(self).__name__,
-                                               self.a, self.bcs)
+        return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
 
     def __add__(self, other):
         if isinstance(other, MatrixBase):
@@ -132,36 +141,43 @@ class MatrixBase(ufl.Matrix):
         return self
 
 
+"""A representation of an assembled bilinear form.
+
+:arg a: the bilinear form this :class:`Matrix` represents.
+
+:arg bcs: an iterable of boundary conditions to apply to this
+    :class:`Matrix`.  May be `None` if there are no boundary
+    conditions to apply.
+
+:arg mat_type: matrix type of assembled matrix.
+
+:kwarg fc_params: a dict of form compiler parameters for this matrix.
+
+A ``pyop2.types.mat.Mat`` will be built from the remaining
+arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
+
+.. note::
+
+    This object acts to the right on an assembled :class:`.Function`
+    and to the left on an assembled cofunction (currently represented
+    by a :class:`.Function`).
+
+"""
+
 class Matrix(MatrixBase):
-    """A representation of an assembled bilinear form.
 
-    :arg a: the bilinear form this :class:`Matrix` represents.
-
-    :arg bcs: an iterable of boundary conditions to apply to this
-        :class:`Matrix`.  May be `None` if there are no boundary
-        conditions to apply.
-
-    :arg mat_type: matrix type of assembled matrix.
-
-    :kwarg fc_params: a dict of form compiler parameters for this matrix.
-
-    A ``pyop2.types.mat.Mat`` will be built from the remaining
-    arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
-
-    .. note::
-
-        This object acts to the right on an assembled :class:`.Function`
-        and to the left on an assembled cofunction (currently represented
-        by a :class:`.Function`).
-
-    """
-
-    def __init__(self, a, bcs, mat_type, *args, **kwargs):
-        # sets self.a, self.bcs, self.mat_type, and self.fc_params
-        fc_params = kwargs.pop("fc_params", None)
-        MatrixBase.__init__(self, a, bcs, mat_type, fc_params=fc_params)
-        options_prefix = kwargs.pop("options_prefix", None)
-        self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
+    def __init__(
+            self,
+            a: ufl.BaseForm,
+            mat: op2.Mat | PETSc.Mat,
+            mat_type: Literal["aij", "baij", "dense", "nest"],
+            bcs: Iterable[DirichletBC] | None = None,
+            fc_params: dict["str", Any] | None = None,
+            options_prefix: str | None = None,
+            *args,
+        ):
+        super().__init__(self, a, bcs, mat_type, fc_params=fc_params)
+        self.M = mat
         self.petscmat = self.M.handle
         if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
@@ -201,7 +217,6 @@ class ImplicitMatrix(MatrixBase):
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
 
-        from firedrake.matrix_free.operators import ImplicitMatrixContext
         ctx = ImplicitMatrixContext(a,
                                     row_bcs=self.bcs,
                                     col_bcs=self.bcs,
