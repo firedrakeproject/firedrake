@@ -22,7 +22,6 @@ The chemicals then mix in the center of the container and exit through an outlet
 We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3`::
 
     from firedrake import *
-    from firedrake.petsc import PETSc
     import netgen.occ as ngocc
 
     # The polynomial order we will use for our curved mesh and finite element spaces

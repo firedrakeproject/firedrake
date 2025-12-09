@@ -57,6 +57,7 @@ import firedrake.citations  # noqa: F401
 petsctools.cite("FiredrakeUserManual")
 del petsctools
 
+from firedrake.petsc import PETSc  # noqa: F401
 from firedrake.assemble import assemble  # noqa: F401
 from firedrake.bcs import DirichletBC, homogenize, EquationBC  # noqa: F401
 from firedrake.checkpointing import (  # noqa: F401
@@ -147,7 +148,8 @@ from firedrake.eigensolver import (  # noqa: F401
 )
 from firedrake.ensemble import (  # noqa: F401
     Ensemble, EnsembleFunction, EnsembleCofunction,
-    EnsembleFunctionSpace, EnsembleDualSpace
+    EnsembleFunctionSpace, EnsembleDualSpace, EnsembleBJacobiPC,
+    EnsembleBlockDiagonalMat
 )
 from firedrake.randomfunctiongen import *  # noqa: F401
 from firedrake.external_operators import (  # noqa: F401
