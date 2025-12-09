@@ -65,6 +65,7 @@ class NoiseBackendBase:
     --------
     PyOP2NoiseBackend
     PetscNoiseBackend
+    VOMNoiseBackend
     WhiteNoiseGenerator
     """
 
@@ -135,29 +136,18 @@ class NoiseBackendBase:
         """A :class:`~firedrake.cofunction.RieszMap` to cache the solver
         for :meth:`~firedrake.cofunction.Cofunction.riesz_representation`.
         """
-        return RieszMap(self.function_space, constant_jacobian=True)
-        """
-        Generate a white noise sample.
-
-        Parameters
-        ----------
-        rng :
-            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
-            sampling IID vectors. If ``None`` then ``self.rng`` is used.
-
-        tensor :
-            Optional location to place the result into.
-
-        apply_riesz :
-            Whether to apply an L2 Riesz map to the result to return
-            a sample in the primal space.
-        """
+        return RieszMap(self.function_space, "L2", constant_jacobian=True)
 
 
 class PyOP2NoiseBackend(NoiseBackendBase):
     """
     A PyOP2 based implementation of a mass matrix square root
     for generating white noise.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
     """
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
@@ -285,6 +275,11 @@ class PetscNoiseBackend(NoiseBackendBase):
     """
     A PETSc based implementation of a mass matrix square root action
     for generating white noise.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
     """
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
@@ -320,32 +315,26 @@ class PetscNoiseBackend(NoiseBackendBase):
 
 class VOMNoiseBackend(NoiseBackendBase):
     """
-    A PETSc based implementation of a mass matrix square root action
-    for generating white noise on a vertex only mesh.
-    """
-    def __init__(self, V: WithGeometry, rng=None,
-                 seed: int | None = None):
-        super().__init__(V, rng=rng, seed=seed)
-        self.cholesky = L2Cholesky(V)
-        self._zb = Function(V)
-        self.M = inner(self._zb, TestFunction(V))*dx
+    A mass matrix square root for generating white noise
+    on a vertex only mesh.
 
+    Notes
+    -----
+    Computationally this is a no-op because the mass matrix
+    on a vertex only mesh is the identity, but we need a
+    consistent interface with other white noise backends.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
+    """
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
         rng = rng or self.rng
 
-        # z
-        z = rng.standard_normal(self.broken_space)
-        # C z
-        self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
-
-        # Usually we would interpolate to the unbroken space,
-        # but here we're on a VOM so everything is broken.
-        # L C z
-        # b = Cofunction(V.dual()).interpolate(Cz)
-        b = Cz
+        b = rng.standard_normal(self.function_space)
 
         if apply_riesz:
             b = b.riesz_representation(self.riesz_map)
@@ -519,17 +508,20 @@ class CovarianceOperatorBase:
 
     Inheriting classes must implement the following methods:
 
+    - ``rng``
+
+    - ``function_space``
+
+    Inheriting classes may implement the following methods (at least one
+    of this list must be implemented for this class to be useful):
+
     - ``sample``
 
     - ``apply_inverse``
 
     - ``apply_action``
 
-    - ``rng``
-
-    - ``function_space``
-
-    They may optionally implement ``norm`` to provide a more
+    They may optionally override ``norm`` to provide a more
     efficient implementation.
 
     See Also
@@ -553,7 +545,6 @@ class CovarianceOperatorBase:
         """
         raise NotImplementedError
 
-    @abc.abstractmethod
     def sample(self, *, rng: WhiteNoiseGenerator | None = None,
                tensor: Function | None = None):
         r"""
@@ -573,7 +564,9 @@ class CovarianceOperatorBase:
         firedrake.function.Function :
             The sample.
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Need to implementation for sampling w~N(0, B), for"
+            " example by calculating w=B^{1/2}z with z~N(0, I)")
 
     def norm(self, x: Function):
         r"""Return the weighted norm :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`.
@@ -596,7 +589,6 @@ class CovarianceOperatorBase:
         """
         return self.apply_inverse(x)(x)
 
-    @abc.abstractmethod
     def apply_inverse(self, x: Function, *,
                       tensor: Cofunction | None = None):
         r"""Return :math:`y = B^{-1}x` where B is the covariance operator.
@@ -614,9 +606,10 @@ class CovarianceOperatorBase:
         firedrake.cofunction.Cofunction :
             The result of :math:`B^{-1}x`
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Inverse of B not implemented. You probably"
+            " also want to implement apply_action.")
 
-    @abc.abstractmethod
     def apply_action(self, x: Cofunction, *,
                      tensor: Function | None = None):
         r"""Return :math:`y = Bx` where B is the covariance operator.
@@ -635,7 +628,9 @@ class CovarianceOperatorBase:
         firedrake.function.Function :
             The result of :math:`B^{-1}x`
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Action of B not implemented. You probably"
+            " also want to implement apply_inverse.")
 
 
 class AutoregressiveCovariance(CovarianceOperatorBase):
