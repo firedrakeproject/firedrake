@@ -64,12 +64,7 @@ __all__ = (
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
 COMM_WORLD = MPI.COMM_WORLD
-# COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
-# COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
-
 COMM_SELF = MPI.COMM_SELF
-# COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
-# COMM_SELF.Set_name("PYOP2_COMM_SELF")
 
 # Creation index counter
 _COMM_CIDX = count()
@@ -229,20 +224,25 @@ def delcomm_outer(comm, keyval, icomm):
     :arg icomm: The inner communicator, should have a reference to
         ``comm``.
     """
-    # Disable the garbage collector during cleanup - we don't want to trigger
-    # any further destructors as this is progressing (believe me, ask how I know)
-    gc_was_enabled = gc.isenabled()
-    gc.disable()
-
-    # Use debug printer that is safe to use at exit time
-    debug = finalize_safe_debug()
     if keyval not in (innercomm_keyval, compilationcomm_keyval):
         raise PyOP2CommError("Unexpected keyval")
 
+    # Use debug printer that is safe to use at exit time
+    debug = finalize_safe_debug()
     if keyval == innercomm_keyval:
         debug(f'Deleting innercomm keyval on {comm.name}')
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
+
+    # During finalisation the inner comms are cleaned up first so can be null here
+    if icomm == MPI.COMM_NULL:
+        debug("Inner comm is MPI_COMM_NULL")
+        return
+
+    # Disable the garbage collector during cleanup - we don't want to trigger
+    # any further destructors as this is progressing (believe me, ask how I know)
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
 
     ocomm = icomm.Get_attr(outercomm_keyval)
     if ocomm is None:
@@ -579,6 +579,7 @@ def _free_comms():
     debug("STATE0")
     debug(pyop2_comm_status())
 
+    # We free the comms in order because comm destruction is collective
     debug(f"Freeing comms in list (length {len(_DUPED_COMM_DICT)})")
     for key in sorted(_DUPED_COMM_DICT.keys(), reverse=True):
         comm = _DUPED_COMM_DICT[key]

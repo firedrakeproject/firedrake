@@ -281,6 +281,7 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
             super().__init__(dim, data, dtype, name)
             if comm is None:
                 warnings.warn("PyOP2.Global has no comm, this is likely to break in parallel!")
+                comm = mpi.COMM_WORLD
             self.comm = comm
 
             # Object versioning setup

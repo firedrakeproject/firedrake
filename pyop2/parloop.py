@@ -419,11 +419,10 @@ class Parloop:
                       Access.MIN: mpi.MPI.MIN,
                       Access.MAX: mpi.MPI.MAX}.get(self.accesses[idx])
 
-            with mpi.temp_internal_comm(self.comm) as icomm:
-                if mpi.MPI.VERSION >= 3:
-                    requests.append(icomm.Iallreduce(glob._data, glob._buf, op=mpi_op))
-                else:
-                    icomm.Allreduce(glob._data, glob._buf, op=mpi_op)
+            if mpi.MPI.VERSION >= 3:
+                requests.append(self.comm.Iallreduce(glob._data, glob._buf, op=mpi_op))
+            else:
+                self.comm.Allreduce(glob._data, glob._buf, op=mpi_op)
         return tuple(requests)
 
     @PETSc.Log.EventDecorator("ParLoopRednEnd")

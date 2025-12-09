@@ -350,13 +350,9 @@ class MixedDataSet(DataSet):
         if self._initialized:
             return
         self._dsets = arg
-        try:
-            # Try to choose the comm to be the same as the first set
-            # of the MixedDataSet
-            comm = self._process_args(arg, dims)[0][0].comm
-        except AttributeError:
-            comm = None
-        self.comm = comm
+        # Try to choose the comm to be the same as the first set
+        # of the MixedDataSet
+        self.comm = self._process_args(arg, dims)[0][0].comm
         self._initialized = True
 
     @classmethod

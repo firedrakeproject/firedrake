@@ -8,6 +8,7 @@ from pyop2 import (
     caching,
     datatypes as dtypes,
     exceptions as ex,
+    mpi,
     utils
 )
 
@@ -63,7 +64,7 @@ class Set:
 
     @utils.validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), ex.SizeTypeError),
                          ('name', str, ex.NameTypeError))
-    def __init__(self, size, name=None, halo=None, comm=None, constrained_size=0):
+    def __init__(self, size, name=None, halo=None, comm=mpi.COMM_WORLD, constrained_size=0):
         self.comm = comm
         if isinstance(size, numbers.Integral):
             size = [size] * 3
