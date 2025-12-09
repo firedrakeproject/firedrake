@@ -60,6 +60,10 @@ class Ensemble:
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         self.ensemble_comm.name = f"{ensemble_name} ensemble comm"
         weakref.finalize(self, self.ensemble_comm.Free)
+        # Keep a reference to the internal communicator because some methods return
+        # non-blocking requests and we need to avoid cleaning up the communicator before
+        # they complete. Note that this communicator should *never* be passed to PETSc, as
+        # objects created with the communicator will never get cleaned up.
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
         assert self.comm.size == M
