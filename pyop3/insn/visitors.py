@@ -510,7 +510,7 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     assignee = concretize_expression_layouts(assignment.assignee, assignment.shape)
     expression = concretize_expression_layouts(assignment.expression, assignment.shape)
 
-    return NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.internal_comm)
+    return NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 5
@@ -667,5 +667,5 @@ def _(assignment: NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> Con
         for i, arg in enumerate(assignment.arguments)
     )
     return ConcretizedNonEmptyArrayAssignment(
-        assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.user_comm
+        assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
     )

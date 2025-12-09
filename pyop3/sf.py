@@ -10,9 +10,8 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
-from pyop3.mpi import internal_comm
-from pyop3.utils import just_one, strict_int
 
 
 if typing.TYPE_CHECKING:
@@ -126,7 +125,7 @@ class StarForest(AbstractStarForest):
 
     # NOTE: I think 'size' now has to equal the number of roots
     def __init__(self, sf: PETSc.SF, size: IntType) -> None:
-        size = strict_int(size)
+        size = utils.strict_int(size)
 
         # TODO: This check only makes sense for SFs that we make (where ghosts are at the end)
         # in the general case it isn't true
@@ -143,7 +142,7 @@ class StarForest(AbstractStarForest):
 
     @classmethod
     def from_graph(cls, size: IntType, nroots: IntType, ilocal, iremote, comm):
-        size = strict_int(size)
+        size = utils.strict_int(size)
         ilocal = ilocal.astype(IntType, casting="safe")
         iremote = iremote.astype(IntType, casting="safe")
 
@@ -165,7 +164,7 @@ class StarForest(AbstractStarForest):
 
         # now clear the leaf indices, the remaining marked indices are roots
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
     @property
     def ileaf(self):
@@ -177,7 +176,7 @@ class StarForest(AbstractStarForest):
         mask = np.full(self.size, True, dtype=bool)
         mask[self.iroot] = False
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
     # not useful
     # @property

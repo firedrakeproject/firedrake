@@ -30,7 +30,7 @@ from pyop3.cache import active_scoped_cache, cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
-from pyop3.mpi import collective
+from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
     as_node_map,
@@ -1322,8 +1322,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         if not self.comm:  # maybe goes away if we disallow comm=None
             numbering = np.arange(self.size, dtype=IntType)
         else:
-            # TODO: temp_internal_comm
-            start = self.sf.comm.exscan(self.owned.local_size) or 0
+            with temp_internal_comm(self.sf.comm) as icomm:
+                start = self.sf.comm.exscan(self.owned.local_size) or 0
             numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
             # set ghost entries to -1 to make sure they are overwritten
@@ -1946,11 +1946,6 @@ class AxisForest(DistributedObject):
         from pyop3 import Dat
 
         return Dat(self, buffer=self.trees[0].global_numbering.buffer)
-
-    @property
-    @utils.deprecated("comm")
-    def comm(self) -> MPI.Comm:
-        return self.comm
 
     @property
     def owned(self) -> AxisForest:

@@ -302,12 +302,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if isinstance(self.function_space().topological, MixedFunctionSpace):
             return tuple(
-                type(self)(self.function_space().sub(i, weak=True), val)
+                type(self)(self.function_space().sub(i), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         shape = self.function_space().shape
         components = np.empty(shape, dtype=object)

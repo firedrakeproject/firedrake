@@ -139,11 +139,6 @@ class Dat(Tensor):
     dim: ClassVar[int] = 1
 
     @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm:
-        return self.internal_comm
-
-    @property
     def axis_trees(self) -> tuple[AbstractAxisTree]:
         return (self.axes,)
 

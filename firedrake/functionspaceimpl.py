@@ -194,12 +194,6 @@ class WithGeometryBase:
         self.cargo.topological = val
 
     @utils.cached_property
-    def strong_subspaces(self):
-        r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, mesh, parent=self)
-                     for mesh, subspace in zip(self.mesh(), self.topological.strong_subspaces, strict=True))
-
-    @utils.cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         if isinstance(self.topological, MixedFunctionSpace):
@@ -232,32 +226,19 @@ class WithGeometryBase:
         return self.mesh().ufl_cell()
 
     @utils.cached_property
-    def _strong_components(self):
-        components = numpy.empty(self.shape, dtype=object)
-        for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix, weak=False), self.mesh())
-        return utils.readonly(components)
-
-    @utils.cached_property
     def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh(), parent=self)
+            components[ix] = type(self).create(self.topological.sub(ix), self.mesh(), parent=self)
         return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices, *, weak: bool = True):
+    def sub(self, indices):
         if type(self.ufl_element()) is finat.ufl.MixedElement:
-            if weak:
-                return self.subspaces[indices]
-            else:
-                return self.strong_subspaces[indices]
+            return self.subspaces[indices]
         else:
             indices = parse_component_indices(indices, self.shape)
-            if weak:
-                return self._components[indices]
-            else:
-                return self._strong_components[indices]
+            return self._components[indices]
 
     @utils.cached_property
     def dm(self):
@@ -1205,8 +1186,6 @@ class FunctionSpace:
         """Split into a tuple of constituent spaces."""
         return (self,)
 
-    strong_subspaces = property(lambda self: self.subspaces)
-
     @property
     def subfunctions(self):
         import warnings
@@ -1221,16 +1200,6 @@ class FunctionSpace:
         return self
 
     @utils.cached_property
-    def _strong_components(self):
-        if self.rank == 0:
-            return self.strong_subspaces
-        else:
-            components = numpy.empty(self.shape, dtype=object)
-            for ix in numpy.ndindex(self.shape):
-                components[ix] = ComponentFunctionSpace(self, ix, weak=False)
-            return utils.readonly(components)
-
-    @utils.cached_property
     def _components(self):
         if self.rank == 0:
             return self.subspaces
@@ -1240,13 +1209,10 @@ class FunctionSpace:
                 components[ix] = ComponentFunctionSpace(self, ix)
             return utils.readonly(components)
 
-    def sub(self, indices, *, weak: bool = True):
+    def sub(self, indices):
         r"""Return a view into the ith component."""
         indices = parse_component_indices(indices, self.shape)
-        if weak:
-            return self._components[indices or 0]
-        else:
-            return self._strong_components[indices or 0]
+        return self._components[indices or 0]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -1632,8 +1598,6 @@ class MixedFunctionSpace:
 
         self._orig_spaces = spaces
         self.layout = layout
-        self._strong_spaces = tuple(IndexedFunctionSpace(i, s, self, weak=False)
-                             for i, s in enumerate(spaces))
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
@@ -1752,12 +1716,6 @@ class MixedFunctionSpace:
         return hash(tuple(self))
 
     @property
-    def strong_subspaces(self):
-        r"""The list of :class:`FunctionSpace`\s of which this
-        :class:`MixedFunctionSpace` is composed."""
-        return self._strong_spaces
-
-    @property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
@@ -1770,13 +1728,10 @@ class MixedFunctionSpace:
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
-    def sub(self, i, *, weak=True):
+    def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        if weak:
-            return self._spaces[i]
-        else:
-            return self._strong_spaces[i]
+        return self._spaces[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
@@ -2061,7 +2016,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
+def IndexedFunctionSpace(index, space, parent):
     r"""Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
 
@@ -2084,7 +2039,7 @@ def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
     return new
 
 
-def ComponentFunctionSpace(parent, component, *, weak: bool = True):
+def ComponentFunctionSpace(parent, component):
     r"""Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
     components of a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace`.

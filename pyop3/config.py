@@ -79,13 +79,6 @@ class Pyop3Configuration:
 
     # }}}
 
-    # {{{ other options
-
-    log_level: str | int = "WARNING"
-    """The logging level of the pyop3 logger."""
-
-    # }}}
-
     @classmethod
     def _from_env(cls, env_options: collections.abc.Mapping) -> Pyop3Configuration:
         """Create a configuration object from environment variables.
@@ -116,14 +109,6 @@ class Pyop3Configuration:
             parsed_options[key] = pathlib.Path(env_options.pop(key))
         if (key := "node_local_compilation") in env_options:
             parsed_options[key] = bool(env_options.pop(key))
-
-        # other options
-        if (key := "log_level") in env_options:  # str | int
-            env_option = env_options.pop(key)
-            try:
-                parsed_options[key] = int(env_option)
-            except ValueError:  # e.g. 'WARNING'
-                parsed_options[key] = env_option
 
         assert not env_options
         return cls(**parsed_options)

@@ -49,7 +49,7 @@ import weakref
 
 from pyop3.config import CONFIG
 from pyop3.exceptions import CompilationException
-from pyop3.log import debug, logger, DEBUG
+from pyop3.log import debug, LOGGER, DEBUG
 from pyop3.pyop2_utils import trim
 
 
@@ -552,7 +552,7 @@ def finalize_safe_debug():
     '''
     global debug
     if PYOP2_FINALIZED:
-        if logger.level > DEBUG:
+        if LOGGER.level > DEBUG:
             debug = lambda string: None
         else:
             debug = lambda string: print(string)

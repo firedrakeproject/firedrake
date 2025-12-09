@@ -314,11 +314,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
-    @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm | None:
-        return self.internal_comm
-
     # @property
     # @not_in_flight
     # @deprecated(".data_rw")
