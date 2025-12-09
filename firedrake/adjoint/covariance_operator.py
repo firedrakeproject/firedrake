@@ -56,6 +56,8 @@ class NoiseBackendBase:
         The :func:`~.firedrake.functionspace.FunctionSpace` to generate the samples in.
     rng :
         The ``RandomGenerator`` to generate the samples on the discontinuous superspace.
+    seed :
+        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
 
     See Also
     --------
@@ -64,9 +66,10 @@ class NoiseBackendBase:
     WhiteNoiseGenerator
     """
 
-    def __init__(self, V: WithGeometry, rng=None):
+    def __init__(self, V: WithGeometry, rng=None,
+                 seed: int | None = None):
         self._V = V
-        self._rng = rng or RandomGenerator(PCG64())
+        self._rng = rng or RandomGenerator(PCG64(seed=seed))
 
     @abc.abstractmethod
     def sample(self, *, rng=None,
@@ -153,8 +156,9 @@ class PyOP2NoiseBackend(NoiseBackendBase):
     A PyOP2 based implementation of a mass matrix square root
     for generating white noise.
     """
-    def __init__(self, V: WithGeometry, rng=None):
-        super().__init__(V, rng=rng)
+    def __init__(self, V: WithGeometry, rng=None,
+                 seed: int | None = None):
+        super().__init__(V, rng=rng, seed=seed)
 
         u = TrialFunction(V)
         v = TestFunction(V)
@@ -279,8 +283,9 @@ class PetscNoiseBackend(NoiseBackendBase):
     A PETSc based implementation of a mass matrix square root action
     for generating white noise.
     """
-    def __init__(self, V: WithGeometry, rng=None):
-        super().__init__(V, rng=rng)
+    def __init__(self, V: WithGeometry, rng=None,
+                 seed: int | None = None):
+        super().__init__(V, rng=rng, seed=seed)
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
@@ -315,8 +320,9 @@ class VOMNoiseBackend(NoiseBackendBase):
     A PETSc based implementation of a mass matrix square root action
     for generating white noise on a vertex only mesh.
     """
-    def __init__(self, V: WithGeometry, rng=None):
-        super().__init__(V, rng=rng)
+    def __init__(self, V: WithGeometry, rng=None,
+                 seed: int | None = None):
+        super().__init__(V, rng=rng, seed=seed)
         self.cholesky = L2Cholesky(V)
         self._zb = Function(V)
         self.M = inner(self._zb, TestFunction(V))*dx
@@ -365,6 +371,8 @@ class WhiteNoiseGenerator:
         The backend to calculate and apply the mass matrix square root.
     rng :
         Initialised random number generator to use for sampling IID vectors.
+    seed :
+        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
 
     References
     ----------
@@ -384,17 +392,18 @@ class WhiteNoiseGenerator:
     """
 
     def __init__(self, V: WithGeometry,
-                 backend: NoiseBackendBase | None = None, rng=None):
+                 backend: NoiseBackendBase | None = None,
+                 rng=None, seed: int | None = None):
 
         # Not all backends are valid for VOM.
         if isinstance(V.mesh().topology, VertexOnlyMeshTopology):
-            backend = backend or VOMNoiseBackend(V, rng=rng)
+            backend = backend or VOMNoiseBackend(V, rng=rng, seed=seed)
             if not isinstance(backend, VOMNoiseBackend):
                 raise ValueError(
                     f"Cannot use white noise backend {type(backend).__name__}"
                     " with a VertexOnlyMesh. Please use a VOMNoiseBackend.")
         else:
-            backend = backend or PyOP2NoiseBackend(V, rng=rng)
+            backend = backend or PyOP2NoiseBackend(V, rng=rng, seed=seed)
 
         self.backend = backend
         self.function_space = backend.function_space
@@ -670,6 +679,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         Equal to the order of the autoregressive function kernel.
     rng :
         White noise generator to seed generating correlated samples.
+    seed :
+        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
     form : AutoregressiveCovariance.DiffusionForm | ufl.Form | None
         The diffusion formulation or form. If a ``DiffusionForm`` then
         :func:`.diffusion_form` will be used to generate the diffusion
@@ -715,7 +726,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
     def __init__(self, V: WithGeometry, L: float | Constant,
                  sigma: float | Constant = 1., m: int = 2,
-                 rng: WhiteNoiseGenerator | None = None, form=None,
+                 rng: WhiteNoiseGenerator | None = None,
+                 seed: int | None = None, form=None,
                  bcs: BCBase | Iterable[BCBase] | None = None,
                  solver_parameters: dict | None = None,
                  options_prefix: str | None = None,
@@ -726,11 +738,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         if isinstance(form, str):
             form = self.DiffusionForm(form)
 
-        self._rng = rng or WhiteNoiseGenerator(V)
+        self._rng = rng or WhiteNoiseGenerator(V, seed=seed)
         self._function_space = self.rng().function_space
 
-        if sigma <= 0:
-            raise ValueError("Variance must be positive.")
         if L < 0:
             raise ValueError("Correlation lengthscale must be positive.")
         if m < 0:
