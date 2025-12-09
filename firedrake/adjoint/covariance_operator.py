@@ -22,6 +22,7 @@ from firedrake import (
     RandomGenerator, PCG64,
     LinearVariationalProblem,
     LinearVariationalSolver,
+    VertexOnlyMeshTopology,
     PETSc
 )
 
@@ -147,9 +148,49 @@ class NoiseBackendBase:
         """
 
 
+class VOMNoiseBackend(NoiseBackendBase):
+    """
+    A PETSc based implementation of a mass matrix square root action
+    for generating white noise on a vertex only mesh.
+    """
+    def __init__(self, V: WithGeometry, rng=None):
+        super().__init__(V, rng=rng)
+        self.cholesky = L2Cholesky(V)
+        self._zb = Function(V)
+        self.M = inner(self._zb, TestFunction(V))*dx
+
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
+        rng = rng or self.rng
+
+        # z
+        z = rng.standard_normal(self.broken_space)
+        # C z
+        self._zb.assign(self.cholesky.C_T_inv_action(z))
+        Cz = assemble(self.M)
+
+        # Usually we would interpolate to the unbroken space,
+        # but here we're on a VOM so everything is broken.
+        # L C z
+        # b = Cofunction(V.dual()).interpolate(Cz)
+        b = Cz
+
+        if apply_riesz:
+            b = b.riesz_representation(self.riesz_map)
+
+        if tensor:
+            tensor.assign(b)
+        else:
+            tensor = b
+
+        return tensor
+
+
 class PetscNoiseBackend(NoiseBackendBase):
     """
-    A PETSc based implementation of a mass matrix square root action for generating white noise.
+    A PETSc based implementation of a mass matrix square root action
+    for generating white noise.
     """
     def __init__(self, V: WithGeometry, rng=None):
         super().__init__(V, rng=rng)
@@ -184,7 +225,8 @@ class PetscNoiseBackend(NoiseBackendBase):
 
 class PyOP2NoiseBackend(NoiseBackendBase):
     """
-    A PyOP2 based implementation of a mass matrix square root for generating white noise.
+    A PyOP2 based implementation of a mass matrix square root
+    for generating white noise.
     """
     def __init__(self, V: WithGeometry, rng=None):
         super().__init__(V, rng=rng)
@@ -337,6 +379,7 @@ class WhiteNoiseGenerator:
     NoiseBackendBase
     PyOP2NoiseBackend
     PetscNoiseBackend
+    VOMNoiseBackend
     CovarianceOperatorBase
     """
 
@@ -348,16 +391,31 @@ class WhiteNoiseGenerator:
         --------
         PyOP2NoiseBackend
         PetscNoiseBackend
+        VOMNoiseBackend
         """
         PYOP2 = 'pyop2'
         PETSC = 'petsc'
+        VOM = 'vom'
 
     def __init__(self, V: WithGeometry, backend=None, rng=None):
-        backend = backend or self.Backend.PYOP2
+        # Not all backends are valid for VOM.
+        if isinstance(V.mesh().topology, VertexOnlyMeshTopology):
+            backend = self.Backend(backend or self.Backend.VOM)
+            if backend != self.Backend.VOM:
+                raise ValueError(
+                    f"Cannot use white noise backend {backend} with a VertexOnlyMesh."
+                    " Please use WhiteNoiseGenerator.Backend.VOM")
+        else:
+            backend = self.Backend(backend or self.Backend.PYOP2)
+
+        backend = self.Backend(backend)
+
         if backend == self.Backend.PYOP2:
             self.backend = PyOP2NoiseBackend(V, rng=rng)
         elif backend == self.Backend.PETSC:
             self.backend = PetscNoiseBackend(V, rng=rng)
+        elif backend == self.Backend.VOM:
+            self.backend = VOMNoiseBackend(V, rng=rng)
         else:
             raise ValueError(
                 f"Unrecognised white noise generation backend {backend}")
@@ -688,6 +746,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
                  mass_prefix: str | None = None):
 
         form = form or self.DiffusionForm.CG
+        if isinstance(form, str):
+            form = self.DiffusionForm(form)
 
         self._rng = rng or WhiteNoiseGenerator(V)
         self._function_space = self.rng().function_space
@@ -911,7 +971,7 @@ class CovarianceMatCtx:
         INVERSE = 'inverse'
 
     def __init__(self, covariance: CovarianceOperatorBase, operation=None):
-        operation = operation or self.Operation.ACTION
+        operation = self.Operation(operation or self.Operation.ACTION)
 
         V = covariance.function_space()
         self.function_space = V

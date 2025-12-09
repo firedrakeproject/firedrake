@@ -25,6 +25,11 @@ def petsc2numpy_mat(petsc_mat):
     ).todense()
 
 
+@pytest.fixture
+def rng():
+    return RandomGenerator(PCG64(seed=13))
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
@@ -32,7 +37,7 @@ def petsc2numpy_mat(petsc_mat):
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 @pytest.mark.parametrize("backend", ("pyop2", "petsc"))
-def test_white_noise(family, degree, mesh_type, dim, backend):
+def test_white_noise(family, degree, mesh_type, dim, backend, rng):
     """Test that white noise generator converges to a mass matrix covariance.
     """
     if backend == "petsc" and COMM_WORLD.size > 1:
@@ -59,10 +64,61 @@ def test_white_noise(family, degree, mesh_type, dim, backend):
     covmat = petsc2numpy_mat(
         assemble(M, mat_type='aij').petscmat)
 
-    rng = RandomGenerator(PCG64(seed=13))
+    generator = WhiteNoiseGenerator(V, backend=backend, rng=rng)
 
-    generator = WhiteNoiseGenerator(
-        V, backend=WhiteNoiseGenerator.Backend(backend), rng=rng)
+    # Test convergence as sample size increases
+    nsamples = [50, 100, 200, 400, 800]
+
+    samples = np.empty((V.dim(), nsamples[-1]))
+    for i in range(nsamples[-1]):
+        with generator.sample().dat.vec_ro as bv:
+            samples[:, i] = petsc2numpy_vec(bv)
+
+    covariances = [np.cov(samples[:, :ns]) for ns in nsamples]
+
+    # Covariance matrix should converge at a rate of sqrt(n)
+    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
+    normalised_errors = [err*sqrt(n) for err, n in zip(errors, nsamples)]
+    normalised_errors /= normalised_errors[-1]
+
+    # Loose tolerance because RNG
+    tol = 0.2
+    assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
+@pytest.mark.parametrize("mesh_type", ("interval", "square"))
+def test_vom_white_noise(dim, mesh_type, rng):
+    """Test that white noise generator converges to a mass matrix covariance.
+    """
+
+    nx = 10
+    nv = 10
+    np.random.seed(13)
+    # Mesh dimension
+    if mesh_type == 'interval':
+        mesh = UnitIntervalMesh(nx)
+        points = np.random.random_sample((nv, 1))
+    elif mesh_type == 'square':
+        mesh = UnitSquareMesh(nx, nx)
+        points = np.random.random_sample((nv, 2))
+
+    vom = VertexOnlyMesh(mesh, points)
+
+    # Variable rank
+    if dim > 0:
+        V = VectorFunctionSpace(vom, "DG", 0, dim=dim)
+    else:
+        V = FunctionSpace(vom, "DG", 0)
+
+    # Finite element white noise has mass matrix covariance
+    M = inner(TrialFunction(V), TestFunction(V))*dx
+    covmat = petsc2numpy_mat(
+        assemble(M, mat_type='aij').petscmat)
+
+    generator = WhiteNoiseGenerator(V, backend='vom', rng=rng)
 
     # Test convergence as sample size increases
     nsamples = [50, 100, 200, 400, 800]
@@ -113,9 +169,6 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
     else:
         V = FunctionSpace(mesh, family, 1)
 
-    rng = WhiteNoiseGenerator(
-        V, rng=RandomGenerator(PCG64(seed=13)))
-
     L = 0.1
     sigma = 0.9
 
@@ -125,15 +178,10 @@ def test_covariance_inverse_action(m, family, mesh_type, dim):
         'pc_factor_mat_solver_type': 'mumps'
     }
 
-    if family == 'CG':
-        form = AutoregressiveCovariance.DiffusionForm.CG
-    elif family == 'DG':
-        form = AutoregressiveCovariance.DiffusionForm.IP
-    else:
-        raise ValueError("Do not know which diffusion form to use for family {family}")
+    form = 'IP' if family == 'DG' else 'CG'
 
     B = AutoregressiveCovariance(
-        V, L, sigma, m, rng=rng, form=form,
+        V, L, sigma, m, form=form,
         solver_parameters=solver_parameters,
         options_prefix="")
 
@@ -170,10 +218,8 @@ def test_covariance_inverse_action_hdiv(m):
         'pc_factor_mat_solver_type': 'mumps'
     }
 
-    form = AutoregressiveCovariance.DiffusionForm.IP
-
     B = AutoregressiveCovariance(
-        V, L, sigma, m, form=form,
+        V, L, sigma, m, form='IP',
         solver_parameters=solver_parameters,
         options_prefix="")
 
@@ -204,13 +250,7 @@ def test_covariance_adjoint_norm(m, family):
     u = Function(V).project(sin(2*pi*x))
     v = Function(V).project(2 - 0.5*sin(6*pi*x))
 
-    if family == 'CG':
-        form = AutoregressiveCovariance.DiffusionForm.CG
-    elif family == 'DG':
-        form = AutoregressiveCovariance.DiffusionForm.IP
-    else:
-        raise ValueError("Do not know which diffusion form to use for family {family}")
-
+    form = 'IP' if family == 'DG' else 'CG'
     B = AutoregressiveCovariance(V, L, sigma, m, form=form)
 
     continue_annotation()
@@ -247,22 +287,15 @@ def test_covariance_mat(m, family, operation):
 
     V = FunctionSpace(mesh, family, 1)
 
-    if family == 'CG':
-        form = AutoregressiveCovariance.DiffusionForm.CG
-    elif family == 'DG':
-        form = AutoregressiveCovariance.DiffusionForm.IP
-    else:
-        raise ValueError("Do not know which diffusion form to use for family {family}")
+    form = 'IP' if family == 'DG' else 'CG'
 
     B = AutoregressiveCovariance(V, L, sigma, m, form=form)
-
-    operation = CovarianceMatCtx.Operation(operation)
 
     mat = CovarianceMat(B, operation=operation)
 
     expr = 2*pi*coords
 
-    if operation == CovarianceMatCtx.Operation.ACTION:
+    if operation == 'action':
         x = Function(V).project(expr).riesz_representation()
         y = Function(V)
         xcheck = x.copy(deepcopy=True)
@@ -270,7 +303,7 @@ def test_covariance_mat(m, family, operation):
 
         B.apply_action(xcheck, tensor=ycheck)
 
-    elif operation == CovarianceMatCtx.Operation.INVERSE:
+    elif operation == 'inverse':
         x = Function(V).project(expr)
         y = Function(V.dual())
         xcheck = x.copy(deepcopy=True)
@@ -282,13 +315,13 @@ def test_covariance_mat(m, family, operation):
         mat.mult(xv, yv)
 
     # flip to primal space to calculate norms
-    if operation == CovarianceMatCtx.Operation.INVERSE:
+    if operation == 'inverse':
         y = y.riesz_representation()
         ycheck = ycheck.riesz_representation()
 
     assert errornorm(ycheck, y)/norm(ycheck) < 1e-12
 
-    if operation == CovarianceMatCtx.Operation.INVERSE:
+    if operation == 'inverse':
         y = y.riesz_representation()
         ycheck = ycheck.riesz_representation()
 
@@ -318,7 +351,7 @@ def test_covariance_mat(m, family, operation):
     # be exact inverses of each other.
     assert ksp.its == 1
 
-    if operation == CovarianceMatCtx.Operation.ACTION:
+    if operation == 'action':
         x = x.riesz_representation()
         xcheck = xcheck.riesz_representation()
 
