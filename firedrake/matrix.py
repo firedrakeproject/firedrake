@@ -1,13 +1,15 @@
+from __future__ import annotations
+from typing import Any, Iterable, Literal, TYPE_CHECKING
 import itertools
-from typing import Any, Iterable, Literal
+
+if TYPE_CHECKING:
+    from firedrake.bcs import DirichletBC
 
 import ufl
 from ufl.argument import BaseArgument
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
-from firedrake.bcs import DirichletBC
-from firedrake.matrix_free.operators import ImplicitMatrixContext
 
 
 class DummyOP2Mat:
@@ -23,7 +25,7 @@ class MatrixBase(ufl.Matrix):
             a: ufl.BaseForm | tuple[BaseArgument, BaseArgument],
             mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
             bcs: Iterable[DirichletBC] | None = None,
-            fc_params: dict["str", Any] | None = None,
+            fc_params: dict[str, Any] | None = None,
         ):
         """A representation of the linear operator associated with a bilinear form and bcs.
         Explicitly assembled matrices and matrix-free .matrix classes will derive from this.
@@ -55,7 +57,7 @@ class MatrixBase(ufl.Matrix):
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
 
-        super().__init__(self, test.function_space(), trial.function_space())
+        super().__init__(test.function_space(), trial.function_space())
 
         # ufl.Matrix._analyze_form_arguments sets the _arguments attribute to
         # non-Firedrake objects, which breaks things. To avoid this we overwrite
@@ -141,7 +143,7 @@ class MatrixBase(ufl.Matrix):
         return self
 
 
-"""A representation of an assembled bilinear form.
+"""
 
 :arg a: the bilinear form this :class:`Matrix` represents.
 
@@ -172,14 +174,34 @@ class Matrix(MatrixBase):
             mat: op2.Mat | PETSc.Mat,
             mat_type: Literal["aij", "baij", "dense", "nest"],
             bcs: Iterable[DirichletBC] | None = None,
-            fc_params: dict["str", Any] | None = None,
+            fc_params: dict[str, Any] | None = None,
             options_prefix: str | None = None,
-            *args,
         ):
-        super().__init__(self, a, bcs, mat_type, fc_params=fc_params)
-        self.M = mat
+        """A representation of an assembled bilinear form.
+
+        Parameters
+        ----------
+        a
+            The bilinear form this :class:`Matrix` represents.
+        mat : op2.Mat | PETSc.Mat
+            _description_
+        mat_type
+            _description_
+        bcs : Iterable[DirichletBC] | None, optional
+            _description_, by default None
+        fc_params : dict[str, Any] | None, optional
+            _description_, by default None
+        options_prefix : str | None, optional
+            _description_, by default None
+        """
+        super().__init__(a, mat_type, bcs=bcs, fc_params=fc_params)
+        if isinstance(mat, op2.Mat):
+            self.M = mat
+        else:
+            assert isinstance(mat, PETSc.Mat)
+            self.M = DummyOP2Mat(mat)
         self.petscmat = self.M.handle
-        if options_prefix is not None:
+        if options_prefix:
             self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
 
@@ -209,19 +231,16 @@ class ImplicitMatrix(MatrixBase):
         by a :class:`.Function`).
 
     """
-    def __init__(self, a, bcs, *args, **kwargs):
-        # sets self.a, self.bcs, self.mat_type, and self.fc_params
-        fc_params = kwargs["fc_params"]
-        super(ImplicitMatrix, self).__init__(a, bcs, "matfree", fc_params)
+    def __init__(
+            self,
+            a,
+            ctx,
+            bcs,
+            fc_params,
+            options_prefix,
+        ):
+        super().__init__(a, bcs, "matfree", fc_params)
 
-        options_prefix = kwargs.pop("options_prefix")
-        appctx = kwargs.get("appctx", {})
-
-        ctx = ImplicitMatrixContext(a,
-                                    row_bcs=self.bcs,
-                                    col_bcs=self.bcs,
-                                    fc_params=fc_params,
-                                    appctx=appctx)
         self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),

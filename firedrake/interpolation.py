@@ -364,7 +364,7 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            return Matrix(self.ufl_interpolate, bcs, mat_type, result)
+            return Matrix(self.ufl_interpolate, result, mat_type, bcs=bcs)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result

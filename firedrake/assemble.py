@@ -1381,10 +1381,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._mat_type,
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
-        return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             sub_mat_type=self._sub_mat_type,
-                             options_prefix=self._options_prefix,
-                             fc_params=self._form_compiler_params)
+        op2mat = op2.Mat(
+            sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+            dtype=ScalarType
+        )
+        return matrix.Matrix(self._form, op2mat, self._mat_type,
+                             bcs=self._bcs,
+                             fc_params=self._form_compiler_params,
+                             options_prefix=self._options_prefix)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
@@ -1583,10 +1587,17 @@ class MatrixFreeAssembler(FormAssembler):
         self._appctx = appctx
 
     def allocate(self):
-        return matrix.ImplicitMatrix(self._form, self._bcs,
-                                     fc_params=self._form_compiler_params,
-                                     options_prefix=self._options_prefix,
-                                     appctx=self._appctx or {})
+        from firedrake.matrix_free.operators import ImplicitMatrixContext
+        ctx = ImplicitMatrixContext(
+            self._form, row_bcs=self._bcs, col_bcs=self._bcs,
+            fc_params=self._form_compiler_params,
+            appctx=self._appctx or {}
+        )
+        return matrix.ImplicitMatrix(
+            self._form, ctx, self._bcs, 
+            fc_params=self._form_compiler_params, 
+            options_prefix=self._options_prefix
+        )
 
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
