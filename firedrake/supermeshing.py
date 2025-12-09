@@ -117,6 +117,7 @@ def assemble_mixed_mass_matrix(V_A, V_B):
     assert V_A.block_size == V_B.block_size
     orig_block_size = V_A.block_size
 
+    # To deal with symmetry, each block of the mass matrix must be rescaled by the multiplicity
     if V_A.ufl_element().mapping() == "symmetries":
         symmetry = V_A.ufl_element().symmetry()
         assert V_B.ufl_element().mapping() == "symmetries"
@@ -126,6 +127,8 @@ def assemble_mixed_mass_matrix(V_A, V_B):
         for idx in numpy.ndindex(V_A.value_shape):
             idx = symmetry.get(idx, idx)
             multiplicity[idx] += 1
+
+        # dict mapping reference components to their multiplicity (if greater than 1)
         symmetry = {i: multiplicity[idx] for i, idx in enumerate(multiplicity)
                     if multiplicity[idx] != 1}
     else:
