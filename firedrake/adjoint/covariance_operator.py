@@ -959,6 +959,16 @@ class CovarianceMatCtx:
     CovariancePC
     """
     class Operation(Enum):
+        """
+        The covariance operation to apply with this Mat.
+
+        See Also
+        --------
+        CovarianceOperatorBase
+        AutoregressiveCovariance
+        CovarianceMat
+        CovariancePC
+        """
         ACTION = 'action'
         INVERSE = 'inverse'
 
@@ -1068,6 +1078,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     CovarianceOperatorBase
     AutoregressiveCovariance
     CovarianceMatCtx
+    CovarianceMatCtx.Operation
     CovariancePC
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
@@ -1079,6 +1090,9 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     mat.setUp()
     mat.assemble()
     return mat
+
+
+CovarianceMat.Operation = CovarianceMatCtx.Operation
 
 
 class CovariancePC(petsctools.PCBase):
