@@ -117,15 +117,19 @@ def assemble_mixed_mass_matrix(V_A, V_B):
     assert V_A.block_size == V_B.block_size
     orig_block_size = V_A.block_size
 
-    symmetry = V_A.ufl_element().symmetry()
-    assert symmetry == V_B.ufl_element().symmetry()
-    if symmetry is not None:
+    if V_A.ufl_element().mapping() == "symmetries":
+        symmetry = V_A.ufl_element().symmetry()
+        assert V_B.ufl_element().mapping() == "symmetries"
+        assert V_B.ufl_element().symmetry() == symmetry
+
         multiplicity = defaultdict(int)
         for idx in numpy.ndindex(V_A.value_shape):
             idx = symmetry.get(idx, idx)
             multiplicity[idx] += 1
         symmetry = {i: multiplicity[idx] for i, idx in enumerate(multiplicity)
                     if multiplicity[idx] != 1}
+    else:
+        symmetry = None
 
     if V_A.block_size > 1:
         V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
