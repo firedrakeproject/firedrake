@@ -856,6 +856,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
 
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) -> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
         if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
             form, operand = expr.argument_slots()
             vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
