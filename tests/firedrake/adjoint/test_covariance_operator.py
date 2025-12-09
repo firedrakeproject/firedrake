@@ -36,13 +36,10 @@ def rng():
 @pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
-@pytest.mark.parametrize("backend", ("pyop2", "petsc"))
-def test_white_noise(family, degree, mesh_type, dim, backend, rng):
+@pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
+def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
     """Test that white noise generator converges to a mass matrix covariance.
     """
-    if backend == "petsc" and COMM_WORLD.size > 1:
-        pytest.skip(
-            "petsc backend for noise generation not implemented in parallel.")
 
     nx = 10
     # Mesh dimension
@@ -64,7 +61,8 @@ def test_white_noise(family, degree, mesh_type, dim, backend, rng):
     covmat = petsc2numpy_mat(
         assemble(M, mat_type='aij').petscmat)
 
-    generator = WhiteNoiseGenerator(V, backend=backend, rng=rng)
+    generator = WhiteNoiseGenerator(
+        V, backend=backend_type(V, rng=rng))
 
     # Test convergence as sample size increases
     nsamples = [50, 100, 200, 400, 800]
@@ -118,7 +116,8 @@ def test_vom_white_noise(dim, mesh_type, rng):
     covmat = petsc2numpy_mat(
         assemble(M, mat_type='aij').petscmat)
 
-    generator = WhiteNoiseGenerator(V, backend='vom', rng=rng)
+    backend = VOMNoiseBackend(V, rng)
+    generator = WhiteNoiseGenerator(V, backend=backend)
 
     # Test convergence as sample size increases
     nsamples = [50, 100, 200, 400, 800]

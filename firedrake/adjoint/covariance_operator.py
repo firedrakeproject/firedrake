@@ -148,81 +148,6 @@ class NoiseBackendBase:
         """
 
 
-class VOMNoiseBackend(NoiseBackendBase):
-    """
-    A PETSc based implementation of a mass matrix square root action
-    for generating white noise on a vertex only mesh.
-    """
-    def __init__(self, V: WithGeometry, rng=None):
-        super().__init__(V, rng=rng)
-        self.cholesky = L2Cholesky(V)
-        self._zb = Function(V)
-        self.M = inner(self._zb, TestFunction(V))*dx
-
-    def sample(self, *, rng=None,
-               tensor: Function | Cofunction | None = None,
-               apply_riesz: bool = False):
-        rng = rng or self.rng
-
-        # z
-        z = rng.standard_normal(self.broken_space)
-        # C z
-        self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
-
-        # Usually we would interpolate to the unbroken space,
-        # but here we're on a VOM so everything is broken.
-        # L C z
-        # b = Cofunction(V.dual()).interpolate(Cz)
-        b = Cz
-
-        if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
-
-        if tensor:
-            tensor.assign(b)
-        else:
-            tensor = b
-
-        return tensor
-
-
-class PetscNoiseBackend(NoiseBackendBase):
-    """
-    A PETSc based implementation of a mass matrix square root action
-    for generating white noise.
-    """
-    def __init__(self, V: WithGeometry, rng=None):
-        super().__init__(V, rng=rng)
-        self.cholesky = L2Cholesky(self.broken_space)
-        self._zb = Function(self.broken_space)
-        self.M = inner(self._zb, TestFunction(self.broken_space))*dx
-
-    def sample(self, *, rng=None,
-               tensor: Function | Cofunction | None = None,
-               apply_riesz: bool = False):
-        V = self.function_space
-        rng = rng or self.rng
-
-        # z
-        z = rng.standard_normal(self.broken_space)
-        # C z
-        self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
-        # L C z
-        b = Cofunction(V.dual()).interpolate(Cz)
-
-        if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
-
-        if tensor:
-            tensor.assign(b)
-        else:
-            tensor = b
-
-        return tensor
-
-
 class PyOP2NoiseBackend(NoiseBackendBase):
     """
     A PyOP2 based implementation of a mass matrix square root
@@ -349,6 +274,81 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         return tensor
 
 
+class PetscNoiseBackend(NoiseBackendBase):
+    """
+    A PETSc based implementation of a mass matrix square root action
+    for generating white noise.
+    """
+    def __init__(self, V: WithGeometry, rng=None):
+        super().__init__(V, rng=rng)
+        self.cholesky = L2Cholesky(self.broken_space)
+        self._zb = Function(self.broken_space)
+        self.M = inner(self._zb, TestFunction(self.broken_space))*dx
+
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
+        V = self.function_space
+        rng = rng or self.rng
+
+        # z
+        z = rng.standard_normal(self.broken_space)
+        # C z
+        self._zb.assign(self.cholesky.C_T_inv_action(z))
+        Cz = assemble(self.M)
+        # L C z
+        b = Cofunction(V.dual()).interpolate(Cz)
+
+        if apply_riesz:
+            b = b.riesz_representation(self.riesz_map)
+
+        if tensor:
+            tensor.assign(b)
+        else:
+            tensor = b
+
+        return tensor
+
+
+class VOMNoiseBackend(NoiseBackendBase):
+    """
+    A PETSc based implementation of a mass matrix square root action
+    for generating white noise on a vertex only mesh.
+    """
+    def __init__(self, V: WithGeometry, rng=None):
+        super().__init__(V, rng=rng)
+        self.cholesky = L2Cholesky(V)
+        self._zb = Function(V)
+        self.M = inner(self._zb, TestFunction(V))*dx
+
+    def sample(self, *, rng=None,
+               tensor: Function | Cofunction | None = None,
+               apply_riesz: bool = False):
+        rng = rng or self.rng
+
+        # z
+        z = rng.standard_normal(self.broken_space)
+        # C z
+        self._zb.assign(self.cholesky.C_T_inv_action(z))
+        Cz = assemble(self.M)
+
+        # Usually we would interpolate to the unbroken space,
+        # but here we're on a VOM so everything is broken.
+        # L C z
+        # b = Cofunction(V.dual()).interpolate(Cz)
+        b = Cz
+
+        if apply_riesz:
+            b = b.riesz_representation(self.riesz_map)
+
+        if tensor:
+            tensor.assign(b)
+        else:
+            tensor = b
+
+        return tensor
+
+
 class WhiteNoiseGenerator:
     r"""Generate white noise samples.
 
@@ -361,8 +361,8 @@ class WhiteNoiseGenerator:
     V :
         The :class:`~firedrake.functionspace.FunctionSpace` to construct a
         white noise sample on.
-    backend : WhiteNoiseGenerator.Backend
-        The backend specifying how to calculate and apply the mass matrix square root.
+    backend :
+        The backend to calculate and apply the mass matrix square root.
     rng :
         Initialised random number generator to use for sampling IID vectors.
 
@@ -383,45 +383,22 @@ class WhiteNoiseGenerator:
     CovarianceOperatorBase
     """
 
-    class Backend(Enum):
-        """
-        The backend to implement applying the mass matrix square root.
+    def __init__(self, V: WithGeometry,
+                 backend: NoiseBackendBase | None = None, rng=None):
 
-        See Also
-        --------
-        PyOP2NoiseBackend
-        PetscNoiseBackend
-        VOMNoiseBackend
-        """
-        PYOP2 = 'pyop2'
-        PETSC = 'petsc'
-        VOM = 'vom'
-
-    def __init__(self, V: WithGeometry, backend=None, rng=None):
         # Not all backends are valid for VOM.
         if isinstance(V.mesh().topology, VertexOnlyMeshTopology):
-            backend = self.Backend(backend or self.Backend.VOM)
-            if backend != self.Backend.VOM:
+            backend = backend or VOMNoiseBackend(V, rng=rng)
+            if not isinstance(backend, VOMNoiseBackend):
                 raise ValueError(
-                    f"Cannot use white noise backend {backend} with a VertexOnlyMesh."
-                    " Please use WhiteNoiseGenerator.Backend.VOM")
+                    f"Cannot use white noise backend {type(backend).__name__}"
+                    " with a VertexOnlyMesh. Please use a VOMNoiseBackend.")
         else:
-            backend = self.Backend(backend or self.Backend.PYOP2)
+            backend = backend or PyOP2NoiseBackend(V, rng=rng)
 
-        backend = self.Backend(backend)
-
-        if backend == self.Backend.PYOP2:
-            self.backend = PyOP2NoiseBackend(V, rng=rng)
-        elif backend == self.Backend.PETSC:
-            self.backend = PetscNoiseBackend(V, rng=rng)
-        elif backend == self.Backend.VOM:
-            self.backend = VOMNoiseBackend(V, rng=rng)
-        else:
-            raise ValueError(
-                f"Unrecognised white noise generation backend {backend}")
-
-        self.function_space = self.backend.function_space
-        self.rng = self.backend.rng
+        self.backend = backend
+        self.function_space = backend.function_space
+        self.rng = backend.rng
 
         petsctools.cite("Croci2018")
 
