@@ -10,7 +10,7 @@ def mat_equals(a, b):
     """Check that two Matrices are equal."""
     a = a.petscmat.copy()
     a.axpy(-1.0, b.petscmat)
-    return a.norm() < 1e-14
+    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
 
 
 def test_constant():
