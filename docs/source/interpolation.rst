@@ -117,13 +117,13 @@ The interpolation operator between :math:`U` and :math:`V` is defined
 
 .. math::
 
-   \begin{align*} \mathcal{I}_{V} : U &\to V \\ \mathcal{I}_{V}(u)(x) &= \phi^{*}_{i}(u)\phi_{i}(x). \end{align*}
+   \mathcal{I}_{V} : U &\to V \\ \mathcal{I}_{V}(u)(x) &= \phi^{*}_{i}(u)\phi_{i}(x).
 
 We define the following bilinear form
 
 .. math::
 
-   \begin{align*} I : U \times V^{*} &\to \mathbb{R} \\ I(u, v^*) &= v^{*}(u) \end{align*}
+   I : U \times V^{*} &\to \mathbb{R} \\ I(u, v^*) &= v^{*}(u)
 
 where :math:`v^{*}\in V^{*}` is a linear functional in the dual space to :math:`V`, extended so that
 it can act on functions in :math:`U`. If we choose :math:`v^{*} = \phi^{*}_{i}` then 
