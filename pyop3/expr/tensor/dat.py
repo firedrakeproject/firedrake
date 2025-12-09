@@ -103,10 +103,7 @@ class Dat(Tensor):
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        try:
-            assert buffer.size == axes.unindexed.local_size
-        except:
-            breakpoint()
+        assert buffer.size == axes.unindexed.local_max_size
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -146,6 +143,19 @@ class Dat(Tensor):
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
 
+    # TODO: global_max as well (can remove some code from Gusto)
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "max")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "min")
+
     # }}}
 
     # {{{ constructors
@@ -153,7 +163,7 @@ class Dat(Tensor):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.empty(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -163,7 +173,7 @@ class Dat(Tensor):
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.zeros(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -173,13 +183,13 @@ class Dat(Tensor):
     @classmethod
     def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.full(axes.unindexed.local_max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype, **buffer_kwargs)
+        buffer = NullBuffer(axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -552,17 +562,34 @@ class Dat(Tensor):
 @utils.frozenrecord()
 class CompositeDat(Terminal):
 
+    # {{{ instance attrs
+
     axis_tree: AxisTree
     exprs: idict[ConcretePathT, ExpressionT]
 
-    dtype = IntType
-
     def __init__(self, axis_tree, exprs) -> None:
         assert len(axis_tree._all_region_labels) == 0
-
+        exprs = idict(exprs)
         object.__setattr__(self, "axis_tree", axis_tree)
         object.__setattr__(self, "exprs", exprs)
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
 
     @property
     def _full_str(self):
         return str(self)
+
+    # }}}
+
+    dtype = IntType
+

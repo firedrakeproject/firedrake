@@ -14,12 +14,12 @@ import sys
 import threading
 from types import GeneratorType
 import typing
+from collections import defaultdict
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
 
-import cachetools
 import numpy as np
 from cachetools import cachedmethod
 from mpi4py import MPI
@@ -213,7 +213,7 @@ class _UnitAxisTree(CacheMixin):
         return "<UNIT>"
 
     size = 1
-    max_size = 1
+    local_max_size = 1
     alloc_size = 1
     local_size = 1
     depth = 1
@@ -232,6 +232,9 @@ class _UnitAxisTree(CacheMixin):
     regionless = property(lambda self: self)
 
     nest_indices = ()
+
+    def localize(self):
+        return self
 
     def prune(self) -> Self:
         return self
@@ -311,6 +314,14 @@ class AxisComponentRegion:
         else:
             return f"{{{self.label}: {self.size}}}"
 
+    @property
+    def local_size(self):
+        from pyop3.expr import ScalarBufferExpression
+        if isinstance(self.size, ScalarBufferExpression):
+            return self.size.value
+        else:
+            return self.size
+
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> AxisComponentSize:
@@ -334,6 +345,7 @@ def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
             raise ValueError("Only regions for single-region components can be labelled None")
 
     return regions
+
 
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> FixedAxisComponentSize:
@@ -391,8 +403,11 @@ def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
         return (initial_region_label, owned_or_ghost)
 
 
+@utils.frozenrecord()
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"regions", "sf"}
+    regions: Any
+    _label: Any
+    sf: Any
 
     def __init__(
         self,
@@ -405,12 +420,21 @@ class AxisComponent(LabelledNodeComponent):
         size = sum(r.size for r in regions)
         sf = _parse_sf(sf, size)
 
-        super().__init__(label=label)
-        self.regions = regions
-        self.sf = sf
+        object.__setattr__(self, "regions", regions)
+        object.__setattr__(self, "_label", label)
+        object.__setattr__(self, "sf", sf)
 
-        if sf is not None:
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if self.sf is not None:
             assert self.local_size == self.sf.size
+
+    # {{{ interface impls
+
+    label = utils.attr("_label")
+
+    # }}}
 
     def __str__(self) -> str:
         if self.has_non_trivial_regions:
@@ -425,7 +449,8 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def regionless(self) -> AxisComponent:
-        return self.copy(regions=(AxisComponentRegion(self.local_size),), sf=None)
+        breakpoint()  # probably a bad idea
+        return self.__record_init__(regions=(AxisComponentRegion(self.local_size),), sf=None)
 
     @property
     def rank_equal(self) -> bool:
@@ -441,6 +466,8 @@ class AxisComponent(LabelledNodeComponent):
     def size(self) -> Any:
         from pyop3 import Scalar
 
+        # TODO: Handle this in the constructor - convert regions into having a Scalar...
+
         # TODO: check the communicator instead?
         if self.sf is not None:
             if not isinstance(self.local_size, numbers.Integral):
@@ -454,17 +481,13 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def local_size(self) -> Any:
-        return sum(r.size for r in self.regions)
+        return sum(r.local_size for r in self.regions)
 
     @cached_property
-    @collective
-    def max_size(self):
-        if not isinstance(self.local_size, numbers.Integral):
-            raise NotImplementedError("Not sure what to do here yet")
-        if self.sf is not None:
-            return self.comm.reduce(self.local_size, MPI.MAX)
-        else:
-            return self.local_size
+    def local_max_size(self):
+        from pyop3.expr.visitors import get_local_max
+
+        return get_local_max(self.local_size)
 
     @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
@@ -487,12 +510,14 @@ class AxisComponent(LabelledNodeComponent):
     def _all_region_labels(self) -> tuple[str]:
         return tuple(r.label for r in self._all_regions)
 
+    @utils.cached_method()
     def localize(self) -> AxisComponent:
-        return self._localized
-
-    @cached_property
-    def _localized(self) -> AxisComponent:
-        return self.copy(sf=None)
+        if len(self.regions) > 1:
+            raise NotImplementedError
+        new_regions = [
+            AxisComponentRegion(self.size, label=utils.just_one(self.regions).label)
+        ]
+        return self.__record_init__(regions=tuple(new_regions), sf=None)
 
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
@@ -509,9 +534,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         # relabel components if needed
         if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
             if len(components) > 1:
-                components = tuple(c.copy(label=i) for i, c in enumerate(components))
+                components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
             else:
-                components = (utils.just_one(components).copy(label=None),)
+                components = (utils.just_one(components).__record_init__(_label=None),)
 
         self.components = components
         super().__init__(label=label)
@@ -632,12 +657,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         """
         return self._tree
 
+    @utils.cached_method()
     def localize(self):
-        return self._localized
-
-    @cached_property
-    def _localized(self):
-        return self.copy(components=[c.localize() for c in self.components])
+        return self.copy(components=tuple(c.localize() for c in self.components))
 
     def component_offset(self, component):
         cidx = self.component_index(component)
@@ -965,10 +987,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return compute_axis_tree_size(self)
 
     @cached_property
-    def max_size(self):
-        from pyop3.expr.visitors import max_value
+    def local_max_size(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max
 
-        return max_value(self.local_size)
+        return get_local_max(self.local_size)
 
     @cached_property
     @collective
@@ -992,7 +1014,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         else:
             size_expr = self.materialize().subtree(subpath).local_size
 
-        size_dat = Dat.empty(axis.linearize(component.label).regionless, dtype=IntType)
+        size_dat = Dat.empty(axis.linearize(component.label).localize(), dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
         sizes = size_dat.buffer.data_ro
@@ -1207,7 +1229,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
             for component in axis.components:
                 path_ = path | {axis.label: component.label}
-                expr = AxisVar(axis.linearize(component.label).regionless)
+                expr = AxisVar(axis.linearize(component.label).localize())
                 target = AxisTarget(axis.label, component.label, expr)
                 targets_[path_] = [[target]]
         return utils.freeze(targets_)
@@ -1243,11 +1265,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     # }}}
 
+    @utils.cached_method()
     def localize(self) -> AxisTree:
-        return self._localized
-
-    @cached_property
-    def _localized(self) -> AxisTree:
         node_map = {
             path: axis.localize() if axis else None
             for path, axis in self.node_map.items()
@@ -1259,6 +1278,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         """
         Return the possible paths represented by this tree.
         """
+        assert False, "old code"
         return frozenset({self._source_path_and_exprs})
 
     def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
@@ -1312,6 +1332,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     @cached_property
     def _buffer_slice(self) -> slice:
+        assert isinstance(self.local_size, numbers.Integral)
         return slice(self.local_size)
 
     @cached_property

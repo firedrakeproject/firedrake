@@ -94,6 +94,14 @@ class Mat(Tensor):
     parent: ClassVar[property] = utils.attr("_parent")
 
     @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 

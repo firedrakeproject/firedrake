@@ -50,6 +50,7 @@ from tempfile import gettempdir, mkstemp
 from typing import Hashable
 from random import randint
 
+from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import mpi
@@ -442,7 +443,7 @@ def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
 @mpi.collective
 @memory_cache(hashkey=load_hashkey)
 @PETSc.Log.EventDecorator()
-def load(code, extension, cppargs=(), ldargs=(), comm=None):
+def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
     """Build a shared library and return a function pointer from it.
 
     :arg code: The code to compile.
@@ -450,7 +451,7 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     :arg cppargs: A tuple of arguments to the C compiler (optional)
     :arg ldargs: A tuple of arguments to the linker (optional)
     :kwarg comm: Optional communicator to compile the code on (only
-        rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
+        rank 0 compiles code) (defaults to mpi4py.MPI.COMM_WORLD).
     """
     if _compiler:
         # Use the global compiler if it has been set
@@ -539,6 +540,7 @@ def check_source_hashes(compiler, code, extension, comm):
             with open(srcfile, "w") as fh:
                 fh.write(code)
             icomm.barrier()
+            breakpoint()
             raise CompilationException(f"Generated code differs across ranks (see output in {output})")
 
 

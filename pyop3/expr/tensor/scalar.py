@@ -77,6 +77,14 @@ class Scalar(Tensor):
 
         return as_linear_buffer_expression(self)
 
+    @property
+    def local_max(self) -> numbers.Number:
+        return self.value
+
+    @property
+    def local_min(self) -> numbers.Number:
+        return self.local_max
+
     # }}}
 
     # {{{ class attrs

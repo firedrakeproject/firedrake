@@ -248,10 +248,10 @@ class ImplicitPackUnpackExpander(Transformer):
             if _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
-                    temporary = Dat.null(arg.axes.materialize().regionless, dtype=arg.dtype, prefix="t")
+                    temporary = Dat.null(arg.axes.materialize().localize(), dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.row_axes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().localize(), arg.caxes.materialize().localize(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))

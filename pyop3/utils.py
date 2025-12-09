@@ -12,6 +12,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
 from typing import Any
 
+import cachetools
 import numpy as np
 import pytools
 from immutabledict import immutabledict
@@ -599,8 +600,11 @@ def _make_record(**kwargs):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.__record_init__ = _record_init
 
-        if kwargs.get("frozen", False):
-            cls.__hash__ = _frozenrecord_hash
+        def _record_method_cache(self):
+            return collections.defaultdict(dict)
+
+        # if kwargs.get("frozen", False):
+        #     cls.__hash__ = _frozenrecord_hash
 
         return cls
     return wrapper
@@ -624,7 +628,6 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         attr = changed_attrs.pop(field.name, getattr(self, field.name))
         object.__setattr__(new, field.name, attr)
 
-    # FIXME: __post_init__ is not called when a custom __init__ method is provided
     if hasattr(new, "__post_init__"):
         new.__post_init__()
 
@@ -817,3 +820,18 @@ def dict_stack(dict_, to_push):
     yield
     for key in to_push:
         dict_.pop(key)
+
+
+def _get_method_cache(obj):
+    if not hasattr(obj, "_method_cache"):
+        # Use object.__setattr__ to get around frozen dataclasses
+        object.__setattr__(obj, "_method_cache", collections.defaultdict(dict))
+    return obj._method_cache
+
+
+def cached_method(*args, **kwargs):
+    def wrapper(func):
+        return cachetools.cachedmethod(
+            lambda self: _get_method_cache(self)[func.__qualname__], *args, **kwargs
+        )(func)
+    return wrapper

@@ -1046,15 +1046,10 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # then we have to convert `666` into an appropriately sized temporary
         # for Mat{Get,Set}Values to work.
         # TODO: There must be a more elegant way of doing this
-        nrows = row_axis_tree.max_size
-        ncols = column_axis_tree.max_size
+        nrows = row_axis_tree.local_max_size
+        ncols = column_axis_tree.local_max_size
         expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
 
-        # if isinstance(nrows, numbers.Integral) and isinstance(ncols, numbers.Integral):
-        # else:
-        #     pyop3.extras.debug.warn_todo("Need expr.materialize() or similar to get the max size")
-        #     max_size = 36  # assume that this is OK
-        #     expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
         array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
     else:
         assert isinstance(expr, op3_expr.BufferExpression)

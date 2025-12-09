@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import functools
+import numbers
 from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import ClassVar
@@ -77,22 +78,32 @@ class ScalarBufferExpression(BufferExpression):
 
     _buffer: BufferRef
 
+    def __init__(self, buffer) -> None:
+        object.__setattr__(self, "_buffer", buffer)
+
     # }}}
 
     # {{{ interface impls
 
     buffer = utils.attr("_buffer")
-    shape = (UNIT_AXIS_TREE,)
-    loop_axes = idict()
 
-    # }}}
+    @property
+    def local_max(self) -> numbers.Number:
+        return self.value
 
-    def __init__(self, buffer) -> None:
-        object.__setattr__(self, "_buffer", buffer)
+    @property
+    def local_min(self) -> numbers.Number:
+        return self.value
 
     @property
     def _full_str(self) -> str:
         return self.name
+
+    # }}}
+
+    @property
+    def value(self) -> numbers.Number:
+        return self.buffer.buffer.data_ro.item()
 
 
 # TODO: Does a Dat count as one of these?
@@ -124,6 +135,19 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     _buffer: Any  # array buffer type
     layout: Any
 
+    def __init__(self, buffer, layout):
+        if isinstance(buffer, AbstractBuffer):
+            buffer = BufferRef(buffer)
+
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "layout", layout)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        from pyop3.expr.visitors import get_shape
+
+        assert utils.just_one(get_shape(self.layout)).is_linear
+
     # }}}
 
     # {{{ interface impls
@@ -131,22 +155,23 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     buffer: ClassVar = utils.attr("_buffer")
 
     @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "max")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "min")
+
+
+    @property
     def _full_str(self) -> str:
         return f"{self.name}[{as_str(self.layout)}]"
 
     # }}}
-
-    def __init__(self, buffer, layout):
-        if isinstance(buffer, AbstractBuffer):
-            buffer = BufferRef(buffer)
-
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "layout", layout)
-
-    def __post_init__(self) -> None:
-        from pyop3.expr.visitors import get_shape
-
-        assert utils.just_one(get_shape(self.layout)).is_linear
 
     def concretize(self):
         return self
@@ -175,6 +200,14 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
     @property
     def _full_str(self) -> str:
@@ -211,7 +244,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     @classmethod
     def from_axis_trees(cls, buffer_ref, row_axes, column_axes) -> MatPetscMatBufferExpression:
         row_layout, column_layout = (
-            CompositeDat(axis_tree.materialize().regionless, axis_tree.subst_layouts())
+            CompositeDat(axis_tree.materialize().localize(), axis_tree.subst_layouts())
             for axis_tree in [row_axes, column_axes]
         )
         return cls(buffer_ref, row_layout, column_layout)
@@ -221,6 +254,14 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
     @property
     def _full_str(self) -> str:
@@ -255,6 +296,14 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
     def _full_str(self) -> str:
         return f"{self.buffer.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
 
@@ -285,8 +334,7 @@ def _(dat: Dat) -> LinearDatBufferExpression:
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
-    axes = dat.axes.regionless
-
+    axes = dat.axes.localize()
     layout = utils.just_one(axes.leaf_subst_layouts.values())
     return LinearDatBufferExpression(BufferRef(dat.buffer), layout)
 

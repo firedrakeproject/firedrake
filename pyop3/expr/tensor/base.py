@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import numbers
 from functools import cached_property
 from typing import Any, ClassVar
 

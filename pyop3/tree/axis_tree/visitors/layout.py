@@ -488,7 +488,7 @@ def _tabulate_regions(offset_axes, step, comm):
         regioned_offset_axes = offset_axes.with_region_labels(regions)
         assert not regioned_offset_axes._all_region_labels
 
-        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless)
+        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.localize())
 
         if not regioned_offset_axes.is_linear:
             raise NotImplementedError("Doesn't strictly have to be linear here")
@@ -510,7 +510,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # all of the available axes (there is no axis-wise 'exscan' here). This is
     # because the axes above this have not yet been tabulated so accumulation
     # is not a concern.
-    step_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+    step_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
     step_dat.assign(step, eager=True)
 
     # But the steps here are in the wrong order since they do not account for
@@ -523,4 +523,4 @@ def _tabulate_regions(offset_axes, step, comm):
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
-    return Dat(offset_axes.regionless, data=offsets)
+    return Dat(step_dat.axes, data=offsets)

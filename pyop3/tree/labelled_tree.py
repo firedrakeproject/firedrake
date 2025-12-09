@@ -70,14 +70,11 @@ class Node(pytools.ImmutableRecord):
         pytools.ImmutableRecord.__init__(self)
 
 
-
-
-
-class LabelledNodeComponent(pytools.ImmutableRecord):
-    fields = {"label"}
-
-    def __init__(self, label=None):
-        self.label = label
+class LabelledNodeComponent(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def label(self) -> ComponentLabelT:
+        pass
 
 
 class MultiComponentLabelledNode(Node, Labelled):

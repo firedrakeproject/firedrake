@@ -5,6 +5,7 @@ import collections
 import functools
 import numbers
 from functools import cached_property
+from typing import NoReturn
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -13,12 +14,21 @@ from pyop3 import utils
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
 
 
-# TODO: define __str__ as an abc?
 class Expression(abc.ABC):
 
     MAX_NUM_CHARS = 120
 
     # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def local_max(self) -> numbers.Number:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def local_min(self) -> numbers.Number:
+        pass
 
     @property
     @abc.abstractmethod
@@ -145,18 +155,6 @@ class Expression(abc.ABC):
                 assert b_result is None
                 return Or(a, b)
 
-    @cached_property
-    def max_value(self) -> numbers.Number:
-        from pyop3.expr.visitors import find_max_value
-
-        return find_max_value(self)
-
-    @cached_property
-    def min_value(self) -> numbers.Number:
-        from pyop3.expr.visitors import find_min_value
-
-        return find_min_value(self)
-
 
 class Operator(Expression, metaclass=abc.ABCMeta):
 
@@ -166,6 +164,22 @@ class Operator(Expression, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def operands(self) -> tuple[ExpressionT, ...]:
         pass
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max
+
+        return max(map(get_local_max, self.operands))
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_min
+
+        return min(map(get_local_min, self.operands))
 
     # }}}
 
@@ -379,15 +393,9 @@ class Terminal(Expression, abc.ABC):
 @utils.frozenrecord()
 class AxisVar(Terminal):
 
+    # {{{ instance attrs
+
     axis: Axis
-
-    # {{{ interface impls
-
-    @property
-    def _full_str(self) -> str:
-        return f"i_{{{self.axis_label}}}"
-
-    # }}}
 
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
@@ -395,13 +403,38 @@ class AxisVar(Terminal):
         assert tuple(r.label for r in axis.component.regions) == (None,)
         object.__setattr__(self, "axis", axis)
 
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.axis.label!r})"
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def _full_str(self) -> str:
+        return f"i_{{{self.axis.label}}}"
+
+    # }}}
 
 
+# TODO: notanumberexception
 @utils.frozenrecord()
 class NaN(Terminal):
+
     # {{{ interface impls
+
+    @property
+    def local_max(self) -> NoReturn:
+        raise TypeError
+
+    @property
+    def local_min(self) -> NoReturn:
+        raise TypeError
 
     _full_str = "NaN"
 
@@ -413,6 +446,8 @@ NAN = NaN()
 
 @utils.frozenrecord()
 class LoopIndexVar(Terminal):
+
+    # {{{ instance attrs
 
     loop_index: LoopIndex
     axis: Axis
@@ -428,7 +463,17 @@ class LoopIndexVar(Terminal):
         object.__setattr__(self, "loop_index", loop_index)
         object.__setattr__(self, "axis", axis)
 
+    # }}}
+
     # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
 
     @property
     def _full_str(self) -> str:
@@ -501,7 +546,8 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
                 for region in component.regions:
                     new_size = replace(region.size, loop_var_replace_map)
                     new_regions.append(region.__record_init__(size=new_size))
-                new_components.append(component.copy(regions=new_regions))
+                new_regions = tuple(new_regions)
+                new_components.append(component.__record_init__(regions=new_regions))
             new_node_map[path] = axis.copy(components=new_components)
         subtree = AxisTree(new_node_map)
         axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)

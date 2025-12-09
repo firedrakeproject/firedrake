@@ -105,12 +105,12 @@ class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
     # }}}
 
-class SliceComponent(LabelledNodeComponent, abc.ABC):
-    fields = LabelledNodeComponent.fields | {"component"}
 
-    def __init__(self, component, *, label=None):
-        super().__init__(label)
-        self.component = component
+class SliceComponent(LabelledNodeComponent, abc.ABC):
+    @property
+    @abc.abstractmethod
+    def component(self):
+        pass
 
     @property
     @abc.abstractmethod
@@ -118,8 +118,15 @@ class SliceComponent(LabelledNodeComponent, abc.ABC):
         pass
 
 
+@utils.frozenrecord()
 class AffineSliceComponent(SliceComponent):
-    fields = SliceComponent.fields | {"start", "stop", "step", "label_was_none"}
+
+    _component: Any
+    start: Any
+    stop: Any
+    step: Any
+    _label: Any
+    label_was_none: bool  # old
 
     # use None for the default args here since that agrees with Python slices
     def __init__(
@@ -135,23 +142,33 @@ class AffineSliceComponent(SliceComponent):
     ):
         label_was_none = label_was_none or label is None
 
-        super().__init__(component, label=label, **kwargs)
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "_label", label)
+
         # TODO: make None here and parse with `with_size()`
-        self.start = start if start is not None else 0
-        self.stop = stop
+        object.__setattr__(self, "start", start if start is not None else 0)
+        object.__setattr__(self, "stop", stop)
         # could be None here
-        self.step = step if step is not None else 1
+        object.__setattr__(self, "step", step if step is not None else 1)
 
         # hack to force a relabelling
-        self.label_was_none = label_was_none
+        object.__setattr__(self, "label_was_none", label_was_none)
+
+    # {{{ interface impls
 
     @property
-    def datamap(self) -> idict:
-        return idict()
+    def component(self):
+        return self._component
+
+    @property
+    def label(self):
+        return self._label
 
     @property
     def is_full(self) -> bool:
         return self.start == 0 and self.stop is None and self.step == 1
+
+    # }}}
 
     # as_range?
     # to_range?
@@ -166,26 +183,44 @@ class AffineSliceComponent(SliceComponent):
         return start, stop, step
 
 
+@utils.frozenrecord()
 class SubsetSliceComponent(SliceComponent):
-    fields = SliceComponent.fields | {"array"}
 
-    def __init__(self, component, array, **kwargs):
+    _component: Any
+    _label: Any
+    array: Any
+
+    def __init__(self, component, array, *, label=None):
         from pyop3.expr import as_linear_buffer_expression
 
         array = as_linear_buffer_expression(array)
 
-        self.array = array
-        super().__init__(component, **kwargs)
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "_label", label)
+        object.__setattr__(self, "array", array)
+
+    # {{{ interface impls
+
+    @property
+    def label(self):
+        return self._label
+
+    @property
+    def component(self):
+        return self._component
 
     @property
     def is_full(self) -> bool:
         return False
+
+    # }}}
 
 
 # alternative name, better or worse? I think worse
 Subset = SubsetSliceComponent
 
 
+@utils.frozenrecord()
 class RegionSliceComponent(SliceComponent):
     """A slice component that takes all entries from a particular region.
 
@@ -194,13 +229,30 @@ class RegionSliceComponent(SliceComponent):
     like `axes.owned.buffer_slice` (which accesses `axes.owned.buffer_slice`...).
 
     """
+
+    # {{{ instance attrs
+
+    _component: Any
+    _label: Any
+    region: Any
+
     def __init__(self, component, region: str, *, label=None) -> None:
-        super().__init__(component, label=label)
-        self.region = region
+        object.__setattr__(self, "_component", component)
+        object.__setattr__(self, "_label", label)
+        object.__setattr__(self, "region", region)
+
+    # }}}
+
+    # {{{ interface impls
+
+    component = utils.attr("_component")
+    label = utils.attr("_label")
 
     @property
     def is_full(self) -> bool:
         return False
+
+    # }}}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -401,7 +453,7 @@ class Slice(Index):
         if any(c.label is None for c in components):
             if not all(c.label is None for c in components):
                 raise ValueError("Cannot have only some as None")
-            components = tuple(c.copy(label=i) for i, c in enumerate(components))
+            components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
 
         self.axis = axis
         self.components = components
@@ -1173,7 +1225,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             c for c in target_axis.components if c.label == target_component_label
         )
 
-        linear_axis = axis.linearize(axis_component.label).localize().regionless
+        linear_axis = axis.linearize(axis_component.label).localize()
 
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
@@ -1870,7 +1922,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
     """
     from pyop3.expr import conditional
-    from pyop3.expr.visitors import replace_terminals as expr_replace, min_, min_value, max_value
+    from pyop3.expr.visitors import replace_terminals as expr_replace, min_
 
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)

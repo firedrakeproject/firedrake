@@ -808,7 +808,8 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     _expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
-    _comm: MPI.Comm
+    # is this still needed?
+    _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def __init__(self, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)

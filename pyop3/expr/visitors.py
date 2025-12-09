@@ -7,7 +7,7 @@ import numbers
 import typing
 from collections.abc import Iterable, Mapping
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -159,6 +159,7 @@ def _(loop_var: op3_expr.LoopIndexVar):
 @collect_loop_index_vars.register(numbers.Number)
 @collect_loop_index_vars.register(op3_expr.AxisVar)
 @collect_loop_index_vars.register(op3_expr.NaN)
+@collect_loop_index_vars.register(op3_expr.ScalarBufferExpression)
 def _(var):
     return OrderedSet()
 
@@ -621,7 +622,7 @@ def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -
                 for loop_axis in loop_axes:
                     # NOTE: This makes (and asserts) a strong assumption that loops are
                     # linear by now. It may be good to encode this into the type system.
-                    op_cost *= loop_axis.component.max_size
+                    op_cost *= loop_axis.component.local_max_size
             candidates.append((compressed_expr, op_cost))
 
     return tuple(candidates)
@@ -642,7 +643,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, visited_axes, loop_indices, *
         for loop_axis in loop_axes:
             # NOTE: This makes (and asserts) a strong assumption that loops are
             # linear by now. It may be good to encode this into the type system.
-            dat_cost *= loop_axis.component.max_size
+            dat_cost *= loop_axis.component.local_max_size
 
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_indices, compress=compress):
@@ -822,13 +823,12 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
             to_skip.add(leaf_path)
 
     # step 3: replace axis vars with loop indices in the layouts
-    # NOTE: We need *all* the layouts here (i.e. not just the leaves) because matrices do not want the full path here. Instead
-    # they want to abort once the loop indices are handled.
     newlayouts = {}
-    axis_to_loop_var_replace_map = utils.invert_mapping(loop_var_replace_map)
+    axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
+    will_modify = len(axis_to_loop_var_replace_map) > 0
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
         layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
-        newlayout = replace(layout, axis_to_loop_var_replace_map)
+        newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
         newlayouts[idict()] = newlayout
     else:
         from pyop3.expr.base import get_loop_tree
@@ -836,7 +836,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         for path_ in composite_dat.axis_tree.node_map:
             fullpath = loop_tree.leaf_path | path_
             layout = assignee.axes.subst_layouts()[fullpath]
-            newlayout = replace(layout, axis_to_loop_var_replace_map)
+            newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
             newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
@@ -882,8 +882,8 @@ def _(buffer_expr: op3_expr.BufferExpression) -> numbers.Number:
 # TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
 # NOTE: unit axis trees arent axis trees, need another type
 @functools.singledispatch
-def get_shape(obj: Any) -> tuple[AxisTree, ...]:
-    raise TypeError
+def get_shape(obj: Any, /) -> tuple[AxisTree, ...]:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @get_shape.register(op3_expr.Operator)
@@ -924,6 +924,7 @@ def _(dat_expr: op3_expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
 @get_shape.register(numbers.Number)
 @get_shape.register(op3_expr.LoopIndexVar)
 @get_shape.register(op3_expr.NaN)
+@get_shape.register(op3_expr.ScalarBufferExpression)
 def _(obj: Any, /) -> tuple[AxisTree, ...]:
     return (UNIT_AXIS_TREE,)
 
@@ -963,44 +964,50 @@ def _(obj: Any, /):
 
 
 @functools.singledispatch
-def max_value(obj: Any) -> numbers.Number:
+def get_local_max(obj: Any) -> numbers.Number:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@max_value.register(numbers.Number)
+@get_local_max.register(numbers.Number)
 def _(num: numbers.Number) -> numbers.Number:
     return num
 
 
-@max_value.register(op3_expr.Expression)
+@get_local_max.register(op3_expr.Expression)
 def _(expr: op3_expr.Expression) -> numbers.Number:
-    return expr.max_value
+    return expr.local_max
 
 
 @functools.singledispatch
-def min_value(obj: Any) -> numbers.Number:
+def get_local_min(obj: Any, /) -> numbers.Number:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@min_value.register(numbers.Number)
-def _(num: numbers.Number) -> numbers.Number:
+@get_local_min.register(numbers.Number)
+def _(num: numbers.Number, /) -> numbers.Number:
     return num
 
 
-@min_value.register(op3_expr.Expression)
-def _(expr: op3_expr.Expression) -> numbers.Number:
-    return expr.min_value
+@get_local_min.register(op3_expr.Expression)
+def _(expr: op3_expr.Expression, /) -> numbers.Number:
+    return expr.local_min
 
 
 def find_max_value(expr: op3_expr.Expression) -> numbers.Number:
-    return _find_extremum(expr, max_)
+    return get_extremum(expr, "max")
 
 
 def find_min_value(expr: op3_expr.Expression) -> numbers.Number:
-    return _find_extremum(expr, min_)
+    return get_extremum(expr, "min")
 
 
-def _find_extremum(expr, extremum: Callable[[ExpressionT, ExpressionT], op3_expr.Conditional | numbers.Number]) -> numbers.Number:
+def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
+    if extremum == "max":
+        fn = max_
+    else:
+        assert extremum == "min"
+        fn = min_
+
     axes, loop_var_replace_map = loopified_shape(expr)
     expr = replace(expr, loop_var_replace_map)
     loop_index = axes.index()
@@ -1015,7 +1022,7 @@ def _find_extremum(expr, extremum: Callable[[ExpressionT, ExpressionT], op3_expr
 
     loop_(
         loop_index,
-        result.assign(extremum(result, expr)),
+        result.assign(fn(result, expr)),
         eager=True
     )
     return just_one(result.buffer._data)
