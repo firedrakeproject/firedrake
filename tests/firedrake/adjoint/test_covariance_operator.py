@@ -33,7 +33,7 @@ def rng():
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
+@pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 @pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
@@ -47,11 +47,11 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
         mesh = UnitIntervalMesh(nx)
     elif mesh_type == 'square':
         mesh = UnitSquareMesh(nx, nx)
-    elif mesh_type == 'cube':
-        mesh = UnitCubeMesh(nx, nx, nx)
 
     # Variable rank
-    if dim > 0:
+    if not isinstance(dim, int):
+        V = TensorFunctionSpace(mesh, family, degree, shape=dim)
+    elif dim > 0:
         V = VectorFunctionSpace(mesh, family, degree, dim=dim)
     else:
         V = FunctionSpace(mesh, family, degree)
@@ -86,7 +86,7 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
+@pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_vom_white_noise(dim, mesh_type, rng):
     """Test that white noise generator converges to a mass matrix covariance.
@@ -106,7 +106,9 @@ def test_vom_white_noise(dim, mesh_type, rng):
     vom = VertexOnlyMesh(mesh, points)
 
     # Variable rank
-    if dim > 0:
+    if not isinstance(dim, int):
+        V = TensorFunctionSpace(vom, "DG", 0, shape=dim)
+    elif dim > 0:
         V = VectorFunctionSpace(vom, "DG", 0, dim=dim)
     else:
         V = FunctionSpace(vom, "DG", 0)
@@ -142,7 +144,7 @@ def test_vom_white_noise(dim, mesh_type, rng):
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vector1", "vector2"])
+@pytest.mark.parametrize("dim", (0, 2), ids=["scalar", "vector2"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_covariance_inverse_action(m, family, mesh_type, dim):

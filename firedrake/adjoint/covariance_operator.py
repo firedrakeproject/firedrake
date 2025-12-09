@@ -105,18 +105,9 @@ class NoiseBackendBase:
         """
         The discontinuous superspace containing :math:`V`, ``self.function_space``.
         """
-        element = self.function_space.ufl_element()
-        mesh = self.function_space.mesh().unique()
-        if isinstance(element, VectorElement):
-            dim = element.num_sub_elements
-            scalar_element = element.sub_elements[0]
-            broken_element = BrokenElement(scalar_element)
-            Vbroken = VectorFunctionSpace(
-                mesh, broken_element, dim=dim)
-        else:
-            Vbroken = FunctionSpace(
-                mesh, BrokenElement(element))
-        return Vbroken
+        return FunctionSpace(
+            self.function_space.mesh().unique(),
+            BrokenElement(self.function_space.ufl_element()))
 
     @property
     def function_space(self):
