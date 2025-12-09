@@ -59,6 +59,11 @@ def test_interpolate_operator():
     # [test_interpolate_operator 17]
     res2 = assemble(action(Istar1, cofunc))  # same as res1
     # [test_interpolate_operator 18]
+    u = Function(U)
+    # [test_interpolate_operator 19]
+    interpolate(u, cofunc)
+    # [test_interpolate_operator 20]
+
     res3 = assemble(action(Istar2, cofunc))  # same as res1
     assert isinstance(res1, Cofunction)
     assert np.allclose(res1.dat.data_ro, res2.dat.data_ro)

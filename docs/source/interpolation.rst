@@ -47,7 +47,7 @@ The basic syntax for interpolation is:
    :end-before: [test_interpolate_operator 2]
 
 Here, the :py:func:`~.interpolate` function returned a **symbolic** UFL_ :py:class:`~ufl.Interpolate`
-expression. To get a concrete numerical result, we need to call :py:func:`~.assemble` on this expression.
+expression. To calculate a concrete numerical result, we need to call :py:func:`~.assemble` on this expression.
 
 It is also possible to interpolate an expression directly into an existing
 :py:class:`~.Function`:
@@ -92,8 +92,7 @@ Here is an example demonstrating some of these features:
    :start-after: [test_interpolate_operator 7]
    :end-before: [test_interpolate_operator 8]
 
-This also works as expected when interpolating into a space defined on the facets
-of the mesh:
+This also works when interpolating into a space defined on the facets of the mesh:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -109,10 +108,10 @@ of the mesh:
    Argyris and Hermite.
 
 
-More on Symbolic interpolation
-------------------------------
+Semantics of symbolic interpolation
+--------------------------------------------
 
-Let :math:`U` and :math:`V` be finite element spaces with dofs :math:`\{\psi^{*}_{i}\}` and :math:`\{\phi^{*}_{i}\}`
+Let :math:`U` and :math:`V` be finite element spaces with DoFs :math:`\{\psi^{*}_{i}\}` and :math:`\{\phi^{*}_{i}\}`
 and basis functions :math:`\{\psi_{i}\}` and :math:`\{\phi_{i}\}`, respectively.
 The interpolation operator between :math:`U` and :math:`V` is defined
 
@@ -130,7 +129,7 @@ where :math:`v^{*}\in V^{*}` is a linear functional in the dual space to :math:`
 it can act on functions in :math:`U`. If we choose :math:`v^{*} = \phi^{*}_{i}` then 
 :math:`I(u, \phi^{*}_{i}) = \phi^{*}_{i}(u)` gives the coefficients of the interpolation of :math:`u` into :math:`V`.
 This allows us to represent the interpolation as a form in UFL_. This is exactly the 
-:py:class:`~ufl.Interpolate` UFL_ object. Note that this differs from usual bilinear forms since one of its
+:py:class:`~ufl.Interpolate` UFL_ object. Note that this differs from typical bilinear forms since one of the
 arguments is in a dual space. For more information on dual spaces in Firedrake, 
 see :ref:`the relevant section of the manual <duals>`.
 
@@ -164,7 +163,7 @@ some coefficients :math:`g_j`. Interpolating :math:`g` into :math:`V` gives
 
    I(g, v^*) = \phi^{*}_{i}(g_j \psi_j)= A_{ij} g_j,
 
-so we can multiply the vector of coefficients of :math:`g` by the interpolation matrix to get the
+so we can multiply the vector of coefficients of :math:`g` by the interpolation matrix to obtain the
 coefficients of the interpolated function. In Firedrake, we can do this by
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -201,7 +200,7 @@ the dual space :math:`U^{*}`. The associated form is
 
    I^{*} : V^{*} \times U \to \mathbb{R}.
 
-So to get the adjoint interpolation operator, we swap the arguments of the :py:class:`~ufl.Interpolate` 
+So to obtain the adjoint interpolation operator, we swap the arguments of the :py:class:`~ufl.Interpolate` 
 form. In Firedrake, we can accomplish this in two ways. The first is to swap the argument numbers to the form:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -243,6 +242,21 @@ we can take the :py:func:`~ufl.action` of the operator on the :py:class:`~.Cofun
    :start-after: [test_interpolate_operator 17]
    :end-before: [test_interpolate_operator 18]
 
+The final case is when we interpolate a :py:class:`~.Function` into :py:class:`~.Cofunction`:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 19]
+   :end-before: [test_interpolate_operator 20]
+
+This interpolation has zero arguments and hence is assembled into a number. Mathematically, we have
+
+.. math::
+
+   I^{*}(g^*, u) = g^*_i \phi_i^*(u_{j}\psi_j) = g^*_i A_{ij} u_j.
+
+which indeed contracts into a number.
 
 Interpolation across meshes
 ---------------------------
@@ -256,7 +270,7 @@ function space has finite elements (as given in the list of
 * **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements) and
 * **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra).
 
-Vector, tensor and mixed function spaces can also be interpolated into from
+Vector, tensor, and mixed function spaces can also be interpolated into from
 other meshes as long as they are constructed from these spaces.
 
 .. note::
