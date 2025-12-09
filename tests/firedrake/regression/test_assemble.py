@@ -3,7 +3,6 @@ import numpy as np
 from firedrake import *
 from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType, IntType
-from firedrake.petsc import PETSc
 
 
 @pytest.fixture(scope='module')
