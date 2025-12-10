@@ -8,6 +8,7 @@ PETSC_SUPPORTED_VERSIONS = ">=3.24.2"
 # TODO RELEASE
 # PETSC_SUPPORTED_VERSIONS = ">=3.25"
 
+
 def init_petsc():
     import os
     import sys

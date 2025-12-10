@@ -20,7 +20,7 @@ from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
 # Ensure that the PETSc getting linked against is compatible
-petsctools.init(version_spec=">=3.24.1")
+petsctools.init(version_spec=">=3.24.2")
 import petsc4py
 
 
