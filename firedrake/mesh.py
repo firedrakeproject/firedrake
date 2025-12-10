@@ -4740,8 +4740,9 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         Parent mesh (`MeshGeometry`).
     subdim : int
         Topological dimension of the submesh.
-    subdomain_id : int
+    subdomain_id : int | None
         Subdomain ID representing the submesh.
+        `None` defines the submesh owned by the sub-communicator.
     label_name : str
         Name of the label to search ``subdomain_id`` in.
     name : str
@@ -4813,23 +4814,22 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim not in [dim, dim - 1]:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-    if label_name is None:
-        if subdim == dim:
-            label_name = dmcommon.CELL_SETS_LABEL
-        elif subdim == dim - 1:
-            label_name = dmcommon.FACE_SETS_LABEL
-    name = name or _generate_default_submesh_name(mesh.name)
-    if comm is None or comm == mesh.comm:
-        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm)
+    if subdomain_id is None:
+        # Filter the plex with PETSc's default label (cells owned by comm)
+        if subdim != dim:
+            raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+        subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
     else:
-        # FIXME
-        subplex, _ = plex.filter(label=plex.getLabel(label_name),
-                                 value=subdomain_id,
-                                 sanitizeSubMesh=True,
-                                 ignoreHalo=ignore_halo,
-                                 comm=comm)
+        if subdim not in [dim, dim - 1]:
+            raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+        if label_name is None:
+            if subdim == dim:
+                label_name = dmcommon.CELL_SETS_LABEL
+            elif subdim == dim - 1:
+                label_name = dmcommon.FACE_SETS_LABEL
+        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+
+    name = name or _generate_default_submesh_name(mesh.name)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
