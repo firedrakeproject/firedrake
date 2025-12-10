@@ -7,6 +7,7 @@ from typing import Optional, Union
 import firedrake as fd
 from firedrake.adjoint import Control, ReducedFunctional, Tape
 from firedrake.functionspaceimpl import WithGeometry
+import finat
 import pyadjoint
 from pyadjoint import no_annotations
 from pyadjoint.enlisting import Enlist
@@ -155,6 +156,26 @@ class L2RieszMap(fd.RieszMap):
         super().__init__(target, ufl.L2, **kwargs)
 
 
+def is_dg_space(space: WithGeometry) -> bool:
+    """Return whether a function space is DG.
+
+    Parameters
+    ----------
+
+    space
+        The function space.
+
+    Returns
+    -------
+
+    bool
+        Whether the function space is DG.
+    """
+
+    e, _ = finat.element_factory.convert(space.ufl_element())
+    return e.is_dg()
+
+
 class L2TransformedFunctional(AbstractReducedFunctional):
     r"""Represents the functional
 
@@ -222,7 +243,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._space_D = Enlist(space_D)
         if len(self._space_D) != len(self._space):
             raise ValueError("Invalid length")
-        self._space_D = tuple(space.broken_space() if space_D is None else space_D
+        self._space_D = tuple((space if is_dg_space(space) else space.broken_space())
+                              if space_D is None else space_D
                               for space, space_D in zip(self._space, self._space_D))
 
         self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
