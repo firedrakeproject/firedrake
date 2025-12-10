@@ -4824,6 +4824,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         if subdim != dim:
             raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
         subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
+        comm = subplex.comm.tompi4py()
     else:
         if comm is not None and comm != mesh.comm:
             raise NotImplementedError("Submesh on subcommunicator not implemented on cell subsets.")
@@ -4835,6 +4836,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
             elif subdim == dim - 1:
                 label_name = dmcommon.FACE_SETS_LABEL
         subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+        comm = mesh.comm
 
     name = name or _generate_default_submesh_name(mesh.name)
     subplex.setName(_generate_default_mesh_topology_name(name))
@@ -4844,7 +4846,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         subplex,
         submesh_parent=mesh,
         name=name,
-        comm=subplex.comm.tompi4py(),
+        comm=comm,
         reorder=reorder,
         distribution_parameters={
             "partition": False,

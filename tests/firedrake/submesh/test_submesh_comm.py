@@ -4,7 +4,7 @@ from firedrake import *
 
 
 @pytest.mark.parallel([1, 3])
-def test_submesh_comm_self():
+def test_create_submesh_comm_self():
     comm = COMM_SELF
     subdomain_id = None
     nx = 4
