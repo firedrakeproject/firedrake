@@ -335,7 +335,6 @@ def test_broken_space(mesh, shape, family):
 
     fs = FunctionSpace(mesh, make_element(elem))
     broken = fs.broken_space()
-
     expected = FunctionSpace(mesh, make_element(BrokenElement(elem)))
 
     assert broken == expected
