@@ -199,11 +199,8 @@ class LoopyCodegenContext(CodegenContext):
 
             if isinstance(buffer_ref.handle, np.ndarray):
                 # Inject constant buffer data into the generated code if sufficiently small
-                # NOTE: We conflate 2 concepts for constant-ness here:
-                # * The array cannot be modified
-                # * The array is the same between ranks
                 if (
-                    buffer.constant
+                    buffer.rank_equal
                     and isinstance(buffer.size, numbers.Integral)
                     and buffer.size < CONFIG.max_static_array_size
                 ):

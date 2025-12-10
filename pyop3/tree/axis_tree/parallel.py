@@ -75,12 +75,6 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
                 _check_sf(petsc_sf)
             else:
                 petsc_sf = component.sf.sf
-
-            size = axis_tree.component_size(path, component.label)
-
-            if not isinstance(size, numbers.Integral):
-                raise NotImplementedError("Assume that star forests have integer size")
-
             sf = StarForest(petsc_sf)
             sfs.append(sf)
         elif subaxis := axis_tree.node_map.get(path_):

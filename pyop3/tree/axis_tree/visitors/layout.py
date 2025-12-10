@@ -346,8 +346,8 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
     return tuple(merged_regions)
 
 
-# TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
+# TODO: I dont really understand why this is so complicated, maybe do something like materialise dats?
 @functools.singledispatch
 def _accumulate_step_sizes(obj: Any, axis, comm):
     """TODO
@@ -360,6 +360,7 @@ def _accumulate_step_sizes(obj: Any, axis, comm):
 
 
 @_accumulate_step_sizes.register(numbers.Number)
+@_accumulate_step_sizes.register(op3_expr.ScalarBufferExpression)
 def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
     return num
 

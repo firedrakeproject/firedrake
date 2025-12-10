@@ -299,6 +299,17 @@ def has_unique_entries(iterable):
     return len(unique(it1)) == len(list(it2))
 
 
+def is_sorted(array: np.ndarray) -> np.bool:
+    """
+    Notes
+    -----
+    This function works even for empty arrays, which are reported as being
+    sorted.
+
+    """
+    return np.all(array[:-1] <= array[1:])
+
+
 def reduce(func, *args, **kwargs):
     if isinstance(func, str):
         match func:

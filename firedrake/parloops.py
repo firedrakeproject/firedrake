@@ -634,7 +634,7 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
     perms = utils.single_valued(space.finat_element.entity_permutations[dim_label].values())
     # TODO: can optimise the dtype here to be as small as possible
     perms_array = np.concatenate(list(perms.values()))
-    perms_buffer = op3.ArrayBuffer(perms_array, constant=True)
+    perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")

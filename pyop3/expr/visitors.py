@@ -135,8 +135,8 @@ def _(dat: op3_expr.Dat, /, **kwargs) -> Any:
 
 
 @_evaluate.register(op3_expr.ScalarBufferExpression)
-def _(expr: op3_expr.ScalarBufferExpression, **kwargs):
-    return expr.buffer.buffer.data_ro_with_halos.item()
+def _(scalar: op3_expr.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
+    return scalar.value
 
 
 @_evaluate.register
@@ -160,6 +160,7 @@ def _(loop_var: op3_expr.LoopIndexVar):
 @collect_loop_index_vars.register(op3_expr.AxisVar)
 @collect_loop_index_vars.register(op3_expr.NaN)
 @collect_loop_index_vars.register(op3_expr.ScalarBufferExpression)
+@collect_loop_index_vars.register(op3_expr.Scalar)
 def _(var):
     return OrderedSet()
 
@@ -579,6 +580,7 @@ def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tupl
 @collect_candidate_indirections.register(op3_expr.AxisVar)
 @collect_candidate_indirections.register(op3_expr.LoopIndexVar)
 @collect_candidate_indirections.register(op3_expr.NaN)
+@collect_candidate_indirections.register(op3_expr.ScalarBufferExpression)
 def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
     return ((var, 0),)
 
@@ -768,6 +770,7 @@ def _(op: op3_expr.Operator, /) -> frozenset:
 @collect_composite_dats.register(op3_expr.AxisVar)
 @collect_composite_dats.register(op3_expr.LoopIndexVar)
 @collect_composite_dats.register(op3_expr.NaN)
+@collect_composite_dats.register(op3_expr.ScalarBufferExpression)
 def _(op, /) -> frozenset:
     return frozenset()
 
@@ -925,6 +928,7 @@ def _(dat_expr: op3_expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
 @get_shape.register(op3_expr.LoopIndexVar)
 @get_shape.register(op3_expr.NaN)
 @get_shape.register(op3_expr.ScalarBufferExpression)
+@get_shape.register(op3_expr.Scalar)
 def _(obj: Any, /) -> tuple[AxisTree, ...]:
     return (UNIT_AXIS_TREE,)
 

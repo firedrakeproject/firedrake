@@ -309,8 +309,13 @@ class AxisComponentRegion:
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
+
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
+        elif isinstance(self.size, Scalar | ScalarBufferExpression):
+            assert self.size.value >= 0
 
     # }}}
 
@@ -383,6 +388,8 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarF
 
     (a, 5), (b, 3) and sf: {6 owned and 2 ghost -> (a_owned, 5), (b_owned, 1), (a_ghost, 0), (b_ghost, 2)
     """
+    from pyop3 import Scalar
+
     region_sizes = {}
     ptr = 0
     for point_type in ["owned", "ghost"]:
@@ -394,7 +401,10 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarF
             region_sizes[_as_region_label(region.label, point_type)] = size
             ptr += size
     assert ptr == sf.size
-    return tuple(AxisComponentRegion(size, label) for label, size in region_sizes.items())
+    return tuple(
+        AxisComponentRegion(Scalar(size, constant=True), label)
+        for label, size in region_sizes.items()
+    )
 
 
 def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
@@ -428,6 +438,9 @@ class AxisComponent(LabelledNodeComponent):
         *,
         sf=None,
     ) -> None:
+        from pyop3 import Scalar, evaluate
+        from pyop3.expr import ScalarBufferExpression
+
         regions = _parse_regions(regions)
         if sf is not None:
             sf = _parse_sf(sf)
@@ -440,12 +453,13 @@ class AxisComponent(LabelledNodeComponent):
                 num_owned = 0
                 num_ghost = 0
                 for region in regions:
+                    assert not isinstance(region.size, numbers.Integral)
                     if _region_label_matches(region, OWNED_REGION_LABEL):
                         num_owned += region.local_size
                     else:
                         assert _region_label_matches(region, GHOST_REGION_LABEL)
                         num_ghost += region.local_size
-                assert num_owned == sf.num_owned and num_ghost == sf.num_ghost
+                assert evaluate(num_owned) == sf.num_owned and evaluate(num_ghost) == sf.num_ghost
             else:
                 regions = _partition_regions(regions, sf)
 
@@ -499,8 +513,9 @@ class AxisComponent(LabelledNodeComponent):
     @cached_property
     def local_size(self) -> Any:
         from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
 
-        if isinstance(self.size, Scalar):
+        if isinstance(self.size, Scalar | ScalarBufferExpression):
             return self.size.value
         else:
             return self.size
@@ -976,10 +991,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
         from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
         from .visitors import compute_axis_tree_component_size
 
         size = compute_axis_tree_component_size(self, path, component_label)
-        if isinstance(size, Scalar):
+        if isinstance(size, Scalar | ScalarBufferExpression):
             return size.value
         else:
             return size
@@ -1020,8 +1036,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @cached_property
     def local_size(self):
         from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
 
-        if isinstance(self.size, Scalar):
+        if isinstance(self.size, Scalar | ScalarBufferExpression):
             return self.size.value
         else:
             return self.size
@@ -1958,11 +1975,15 @@ class AxisForest(DistributedObject):
     def comm(self) -> MPI.Comm:
         return utils.common_comm(self.trees, "comm")
 
-    def materialize(self):
+    def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
+
+    def localize(self) -> AxisForest:
+        return type(self)((tree.localize() for tree in self.trees))
 
     @cached_property
     def regionless(self):
+        assert False, "old code"
         return type(self)((tree.regionless for tree in self.trees))
 
     def prune(self) -> AxisForest:

@@ -23,22 +23,30 @@ class Scalar(Tensor):
     _name: str
     _buffer: AbstractBuffer
 
-    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, name: str | None = None, prefix: str | None = None):
+    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, constant: bool | None = None, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
+            # clean me up
+            assert constant is None
             if value is not None or comm is not None:
                 raise ValueError("Since 'buffer' is given, 'value' and 'comm' should not be passed")
         else:
+            # TODO: think about this, COMM_DETERMINE? probably comm self because we want to allow value
+            # to differ between ranks
             if comm is None:
                 comm = MPI.COMM_SELF
             sf = single_star_sf(comm)
 
+            buffer_kwargs = {"sf": sf}
+            if constant is not None:
+                buffer_kwargs["constant"] = constant
+
             if value is not None:
                 data = np.asarray([value])
-                buffer = ArrayBuffer(data, sf=sf)
+                buffer = ArrayBuffer(data, **buffer_kwargs)
             else:
-                buffer = ArrayBuffer.empty(1, sf=sf, dtype=self.DEFAULT_DTYPE)
+                buffer = ArrayBuffer.empty(1, dtype=self.DEFAULT_DTYPE, **buffer_kwargs)
 
         if buffer.size != 1:
             raise exc.SizeMismatchException("Expected a buffer with unit size")
@@ -94,6 +102,10 @@ class Scalar(Tensor):
 
     # }}}
 
+    @property
+    def constant(self) -> bool:
+        return self.buffer.constant
+
     def getitem(self, *, strict=False):
         return self
 
@@ -114,4 +126,18 @@ class Scalar(Tensor):
 
     @property
     def value(self):
-        return utils.just_one(self.buffer._data)
+        return utils.just_one(self.buffer.data_ro)
+
+    # {{{ arithmetic
+
+    # TODO: also think about comm sizes? is this valid for size>1?
+    # NOTE: Same impl needed for ScalarExpressions...
+    def __add__(self, other: ExpressionT, /) -> ExpressionT:
+        if self.constant:
+            if isinstance(other, numbers.Number):
+                return Scalar(self.value+other, constant=True)
+            elif isinstance(other, Scalar) and other.constant:
+                return Scalar(self.value+other.value, constant=True)
+        return super().__add__(other)
+
+    # }}}

@@ -1158,7 +1158,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     raise NotImplementedError("Need to have a special type for selecting owned/ghost, what follows assumes that we are only getting 'owned' or 'ghost'")
 
                 region_index = target_component.region_labels.index(slice_component.region)
-                steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
+                steps = utils.steps([r.local_size for r in target_component.regions], drop_last=False)
                 start, stop = steps[region_index:region_index+2]
                 indices = np.arange(start, stop, dtype=IntType)
                 sf = None
@@ -1179,8 +1179,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)
                     # I have just implemented a new attempt that uses another bit of the PETSc API
                     petsc_sf = filter_petsc_sf(target_component.sf.sf, indices, 0, target_component.local_size)
-
-                    indexed_size = sum(r.size for r in indexed_regions)
                     sf = StarForest(petsc_sf)
                 else:
                     assert isinstance(target_component.sf, NullStarForest)
@@ -1911,6 +1909,14 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     from pyop3.expr import conditional
     from pyop3.expr.visitors import replace_terminals as expr_replace, min_
 
+    if affine_component.is_full:
+        indexed_regions = []
+        for region in regions:
+            size = expr_replace(region.size, parent_exprs)
+            indexed_region = region.__record_init__(size=size)
+            indexed_regions.append(indexed_region)
+        return tuple(indexed_regions)
+
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
@@ -1934,6 +1940,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     indexed_regions = []
     loc = 0
     offset = start
+    breakpoint()
     for region in regions:
         lower_bound = loc
         upper_bound = loc + region.size
@@ -1962,6 +1969,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
         # Make sure that we apply any parent indexing to the size expression
         # (important if we are dealing with ragged things).
+        region_size_debug = region_size
         region_size = expr_replace(region_size, parent_exprs)
 
         indexed_region = AxisComponentRegion(region_size, region.label)
@@ -1983,18 +1991,25 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
     {"a": 3, "b": 2}[3,4]       -> {"a": 0, "b": 2}
 
     """
+    from pyop3 import Scalar
+
     indices = subset.array.buffer.buffer.data_ro
 
     indexed_regions = []
     loc = 0
     lower_index = 0
     for region in regions:
-        upper_index = np.searchsorted(indices, loc+region.size)
+        upper_index = np.searchsorted(indices, loc+region.local_size)
         size = upper_index - lower_index
-        indexed_region = AxisComponentRegion(size, region.label)
+
+        if isinstance(region.size, numbers.Integral):
+            size_ = size
+        else:
+            size_ = Scalar(size, constant=True)
+        indexed_region = AxisComponentRegion(size_, region.label)
         indexed_regions.append(indexed_region)
 
-        loc += region.size
+        loc += region.local_size
         lower_index = upper_index
     return tuple(indexed_regions)
 

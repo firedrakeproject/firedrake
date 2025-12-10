@@ -46,6 +46,7 @@ class Expression(abc.ABC):
             return full_str
 
     def __add__(self, other: ExpressionT, /) -> Expression:
+        # FIXME: This is generally not valid to do! In parallel we can't be sure that this is collective
         if other == 0:
             return self
         else:
@@ -119,13 +120,16 @@ class Expression(abc.ABC):
         return GreaterThanOrEqual(self, other)
 
     def __or__(self, other) -> Or | bool:
-        return self._maybe_eager_or(self, other)
+        # return self._maybe_eager_or(self, other)
+        return Or(self, other)
 
     def __ror__(self, other) -> Or | bool:
-        return self._maybe_eager_or(other, self)
+        # return self._maybe_eager_or(other, self)
+        return Or(other, self)
 
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
+        # not safe!
         from pyop3 import evaluate
         from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
 
@@ -164,22 +168,6 @@ class Operator(Expression, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def operands(self) -> tuple[ExpressionT, ...]:
         pass
-
-    # }}}
-
-    # {{{ interface impls
-
-    @property
-    def local_max(self) -> numbers.Number:
-        from pyop3.expr.visitors import get_local_max
-
-        return max(map(get_local_max, self.operands))
-
-    @property
-    def local_min(self) -> numbers.Number:
-        from pyop3.expr.visitors import get_local_min
-
-        return min(map(get_local_min, self.operands))
 
     # }}}
 
@@ -260,21 +248,72 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
 
 class Add(BinaryOperator):
+
+    # {{{ interface impls
+
     @property
     def _symbol(self) -> str:
         return "+"
 
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max
+
+        return get_local_max(self.a) + get_local_max(self.b)
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_min
+
+        return get_local_min(self.a) + get_local_min(self.b)
+
+    # }}}
+
 
 class Sub(BinaryOperator):
+
+    # {{{ interface impls
+
     @property
     def _symbol(self) -> str:
         return "-"
 
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max, get_local_min
+
+        return get_local_max(self.a) - get_local_min(self.b)
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max, get_local_min
+
+        return get_local_min(self.a) - get_local_max(self.b)
+
+    # }}}
+
 
 class Mul(BinaryOperator):
+
+    # {{{ interface impls
+
     @property
     def _symbol(self) -> str:
         return "*"
+
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max
+
+        return get_local_max(self.a) * get_local_max(self.b)
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_min
+
+        return get_local_min(self.a) * get_local_min(self.b)
+
+    # }}}
 
 
 class FloorDiv(BinaryOperator):
@@ -290,7 +329,18 @@ class Modulo(BinaryOperator):
 
 
 class Comparison(BinaryOperator, metaclass=abc.ABCMeta):
-    pass
+
+    # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    # }}}
 
 
 class LessThan(Comparison):
@@ -369,20 +419,10 @@ class Conditional(TernaryOperator):
 
 
 def conditional(predicate, if_true, if_false):
-    from pyop3 import evaluate
-    from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
-
-    # Try to simplify by eagerly evaluating the operands
-
     # If both branches are the same then just return one of them.
     if if_true == if_false:
         return if_true
-
-    # Attempt to eagerly evaluate 'predicate' to avoid creating
-    # unnecessary objects.
-    try:
-        return if_true if evaluate(predicate) else if_false
-    except MissingVariableException:
+    else:
         return Conditional(predicate, if_true, if_false)
 
 

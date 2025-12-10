@@ -206,6 +206,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     sf: StarForest
     _name: str
     _constant: bool
+    _rank_equal: bool
     _ordered: bool
 
     _max_value: np.number | None = None
@@ -217,22 +218,31 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
-        if ordered:
-            utils.debug_assert(lambda: (data == np.sort(data)).all())
+
+        if rank_equal and not constant:
+            raise ValueError
 
         self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
+        self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if self.rank_equal:
+            assert self.constant
+        if self.ordered:
+            utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
 
     # }}}
 
@@ -246,6 +256,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
+    rank_equal: ClassVar[property] = utils.attr("_rank_equal")  # TODO: make an abstract property
     state: ClassVar[property] = utils.attr("_state")
     max_value: ClassVar[property] = utils.attr("_max_value")
     ordered: ClassVar[property] = utils.attr("_ordered")
@@ -310,6 +321,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             raise NotImplementedError("Casting")
 
         data = np.full(size, fill_value, dtype=dtype)
+        return cls(data, **kwargs)
+
+    @classmethod
+    def from_scalar(cls, value: numbers.Number, **kwargs):
+        data = np.array([value])
         return cls(data, **kwargs)
 
     # }}}

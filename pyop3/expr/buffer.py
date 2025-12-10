@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from pyop3 import utils
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE
-from pyop3.buffer import BufferRef, AbstractBuffer
+from pyop3.buffer import BufferRef, AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
 
 from .base import Expression, as_str
@@ -55,22 +55,6 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
         return ArrayAssignment(self, other, "inc")
 
 
-# class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-#     pass
-
-
-# class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-#     """A buffer expression that is interfaced with using function calls.
-#
-#     An example of this is Mat{Get,Set}Values().
-#
-#     """
-
-
-# class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
-#     pass
-
-
 @utils.frozenrecord()
 class ScalarBufferExpression(BufferExpression):
 
@@ -79,6 +63,8 @@ class ScalarBufferExpression(BufferExpression):
     _buffer: BufferRef
 
     def __init__(self, buffer) -> None:
+        if isinstance(buffer, AbstractBuffer):
+            buffer = BufferRef(buffer)
         object.__setattr__(self, "_buffer", buffer)
 
     # }}}
@@ -98,6 +84,36 @@ class ScalarBufferExpression(BufferExpression):
     @property
     def _full_str(self) -> str:
         return self.name
+
+    def __add__(self, other: ExpressionT, /) -> ExpressionT:
+        if self.buffer.buffer.constant:
+            if isinstance(other, numbers.Number):
+                buffer = ArrayBuffer.from_scalar(self.value+other, constant=True)
+                return type(self)(buffer)
+            elif type(other) is type(self) and other.buffer.buffer.constant:
+                buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True)
+                return type(self)(buffer)
+        return super().__add__(other)
+
+    def __sub__(self, other: ExpressionT, /) -> ExpressionT:
+        if self.buffer.buffer.constant:
+            if isinstance(other, numbers.Number):
+                buffer = ArrayBuffer.from_scalar(self.value-other, constant=True)
+                return type(self)(buffer)
+            elif type(other) is type(self) and other.buffer.buffer.constant:
+                buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True)
+                return type(self)(buffer)
+        return super().__sub__(other)
+
+    def __mul__(self, other: ExpressionT, /) -> ExpressionT:
+        if self.buffer.buffer.constant:
+            if isinstance(other, numbers.Number):
+                buffer = ArrayBuffer.from_scalar(self.value*other, constant=True)
+                return type(self)(buffer)
+            elif type(other) is type(self) and other.buffer.buffer.constant:
+                buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True)
+                return type(self)(buffer)
+        return super().__mul__(other)
 
     # }}}
 
