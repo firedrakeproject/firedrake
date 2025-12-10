@@ -741,3 +741,35 @@ def test_interpolate_form_mixed():
 
     res3 = assemble(inner(u, q) * dx)  # V x W -> R
     assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+# @pytest.mark.parametrize("mode", ["forward", "adjoint"])
+@pytest.mark.parametrize("shape", ["scalar", "vector", "tensor"])
+def test_interpolate_operator_matfree(shape):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    if shape == "scalar":
+        fs = FunctionSpace
+        expr = sin(x + y)
+    elif shape == "vector":
+        fs = VectorFunctionSpace
+        expr = as_vector([sin(x + y), cos(x + y)])
+    elif shape == "tensor":
+        fs = TensorFunctionSpace
+        expr = as_tensor([[sin(x + y), x * y], [x + y, cos(x + y)]])
+
+    V1 = fs(mesh, "CG", 1)
+    V2 = fs(mesh, "CG", 2)
+
+    exact = Function(V1).interpolate(expr)
+
+    u = TrialFunction(V2)
+    I = assemble(interpolate(u, V1), mat_type="matfree")
+
+    f = Function(V2).interpolate(expr)
+    res = assemble(I @ f)
+
+    assert np.allclose(res.dat.data, exact.dat.data)
+
