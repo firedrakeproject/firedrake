@@ -17,6 +17,7 @@ from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
 from finat.ufl import BrokenElement
+from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
 import gem
 import numpy
@@ -197,7 +198,7 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
             return cache[key]
         except KeyError:
             if mesh.comm.size > 1:
-                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, comm=PETSc.COMM_SELF)
+                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, comm=COMM_SELF)
             else:
                 submesh = None
             return cache.setdefault(key, submesh)
