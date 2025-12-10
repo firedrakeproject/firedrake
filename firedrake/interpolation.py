@@ -33,7 +33,8 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import MatrixBase, Matrix
+from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
+from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -365,7 +366,13 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            return Matrix(self.ufl_interpolate, result, mat_type, bcs=bcs)
+            if mat_type == "matfree":
+                ctx = ImplicitMatrixContext(
+                    self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+                )
+                return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
+            else:
+                return Matrix(self.ufl_interpolate, result, mat_type, bcs=bcs)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -657,7 +664,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", None}
+        return {"aij", "matfree", None}
 
 
 class SameMeshInterpolator(Interpolator):
@@ -820,7 +827,7 @@ class SameMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij", None}
+        return {"aij", "baij", "matfree", None}
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -1708,4 +1715,4 @@ class MixedInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "nest", None}
+        return {"aij", "nest", "matfree", None}
