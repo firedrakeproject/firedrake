@@ -4835,8 +4835,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
             elif subdim == dim - 1:
                 label_name = dmcommon.FACE_SETS_LABEL
         subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
-        comm = mesh.comm
 
+    comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
