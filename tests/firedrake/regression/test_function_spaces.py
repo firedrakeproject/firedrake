@@ -2,7 +2,6 @@ import pytest
 from firedrake import *
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
-from finat.ufl import BrokenElement
 
 
 @pytest.fixture(scope="module")
@@ -336,5 +335,24 @@ def test_broken_space(mesh, shape, family):
     fs = FunctionSpace(mesh, make_element(elem))
     broken = fs.broken_space()
     expected = FunctionSpace(mesh, make_element(BrokenElement(elem)))
+
+    assert broken == expected
+
+
+def test_mixed_broken_space(mesh):
+    """Check that MixedFunctionSpace.broken_space returns the a
+    MixedFunctionSpace with the correct element.
+    """
+
+    mixed_elem = MixedElement([
+        FiniteElement("CG", mesh.ufl_cell(), 1),
+        VectorElement("BDM", mesh.ufl_cell(), 2, dim=2),
+        TensorElement("DG", mesh.ufl_cell(), 1, shape=(2, 3), variant="spectral")
+    ])
+    broken_elem = MixedElement([BrokenElement(elem) for elem in mixed_elem.sub_elements])
+
+    mfs = FunctionSpace(mesh, mixed_elem)
+    broken = mfs.broken_space()
+    expected = FunctionSpace(mesh, broken_elem)
 
     assert broken == expected
