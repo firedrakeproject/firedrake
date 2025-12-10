@@ -6,7 +6,7 @@ import ufl
 import finat.ufl
 from ufl.domain import extract_unique_domain
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop2.mpi import COMM_WORLD, temp_internal_comm
 from pyop2.utils import as_tuple
 from pyadjoint import no_annotations
 from firedrake.petsc import PETSc
@@ -393,15 +393,14 @@ class VTKFile:
             mode = "w"
 
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
 
-        if self._comm.rank == 0 and mode == "w":
+        if self.comm.rank == 0 and mode == "w":
             if not os.path.exists(basename):
                 os.makedirs(basename)
-        elif self._comm.rank == 0 and mode == "a":
+        elif self.comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
-        self._comm.barrier()
+        self.comm.barrier()
 
         self.filename = filename
         self.basename = basename
@@ -424,11 +423,11 @@ class VTKFile:
             raise ValueError("target_continuity must be either 'H1' or 'L2'.")
         countstart = 0
 
-        if self._comm.rank == 0 and mode == "w":
+        if self.comm.rank == 0 and mode == "w":
             with open(self.filename, "wb") as f:
                 f.write(self._header)
                 f.write(self._footer)
-        elif self._comm.rank == 0 and mode == "a":
+        elif self.comm.rank == 0 and mode == "a":
             import xml.etree.ElementTree as ElTree
             tree = ElTree.parse(os.path.abspath(filename))
             # Count how many the file already has
@@ -440,7 +439,8 @@ class VTKFile:
 
         if mode == "a":
             # Need to communicate the count across all cores involved; default op is SUM
-            countstart = self._comm.allreduce(countstart)
+            with temp_internal_comm(self.comm) as icomm:
+                countstart = icomm.allreduce(countstart)
 
         self.counter = itertools.count(countstart)
         self.timestep = itertools.count(countstart)
