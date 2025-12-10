@@ -3012,7 +3012,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
 
 
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
-    """Make mesh from tpology.
+    """Make mesh from topology.
 
     Parameters
     ----------
@@ -4820,11 +4820,13 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     if subdomain_id is None:
         # Filter the plex with PETSc's default label (cells owned by comm)
         if label_name is not None:
-            raise ValueError(f"Submesh on sub-communicator needs label_name == None.")
+            raise ValueError("subdomain_id == None requires label_name == None.")
         if subdim != dim:
             raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
         subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
     else:
+        if comm is not None and comm != mesh.comm:
+            raise NotImplementedError("Submesh on subcommunicator not implemented on cell subsets.")
         if subdim not in [dim, dim - 1]:
             raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
         if label_name is None:
@@ -4842,7 +4844,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         subplex,
         submesh_parent=mesh,
         name=name,
-        comm=subplex.comm,
+        comm=subplex.comm.tompi4py(),
         reorder=reorder,
         distribution_parameters={
             "partition": False,
