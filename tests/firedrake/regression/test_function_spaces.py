@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
+from finat.ufl import BrokenElement
 
 
 @pytest.fixture(scope="module")
@@ -120,7 +121,7 @@ def test_function_space_variant(mesh, space):
 
 
 @pytest.mark.parametrize("modifier",
-                         [BrokenElement, HDivElement,
+                         [HDivElement,
                           HCurlElement])
 @pytest.mark.parametrize("element",
                          [FiniteElement("CG", triangle, 1),
@@ -313,3 +314,28 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index
+
+
+@pytest.mark.parametrize("family", ("CG", "BDM", "DG"))
+@pytest.mark.parametrize("shape", (0, 2, (2, 3)), ids=("0", "2", "(2,3)"))
+def test_broken_space(mesh, shape, family):
+    """Check that FunctionSpace.broken_space returns the a
+    FunctionSpace with the correct element.
+    """
+    kwargs = {"variant": "spectral"} if family == "DG" else {}
+
+    elem = FiniteElement(family, mesh.ufl_cell(), 1, **kwargs)
+
+    if not isinstance(shape, int):
+        make_element = lambda elem: TensorElement(elem, shape=shape)
+    elif shape > 0:
+        make_element = lambda elem: VectorElement(elem, dim=shape)
+    else:
+        make_element = lambda elem: elem
+
+    fs = FunctionSpace(mesh, make_element(elem))
+    broken = fs.broken_space()
+
+    expected = FunctionSpace(mesh, make_element(BrokenElement(elem)))
+
+    assert broken == expected
