@@ -1263,7 +1263,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 nodes = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2)).reshape(dimension + 1, -1)
     else:
         nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    section = PETSc.Section().create(comm=mesh._comm)
+    section = PETSc.Section().create(comm=mesh.comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
 

@@ -1168,13 +1168,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):

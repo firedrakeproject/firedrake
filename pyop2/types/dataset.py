@@ -30,7 +30,7 @@ class DataSet(caching.ObjectCached):
             return
         if isinstance(iter_set, Subset):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
-        self.comm = mpi.internal_comm(iter_set.comm, self)
+        self.comm = iter_set.comm
         self._set = iter_set
         self._dim = utils.as_tuple(dim, numbers.Integral)
         self._cdim = np.prod(self._dim).item()
@@ -207,7 +207,7 @@ class GlobalDataSet(DataSet):
         if self._initialized:
             return
         self._global = global_
-        self.comm = mpi.internal_comm(global_.comm, self)
+        self.comm = global_.comm
         self._globalset = GlobalSet(comm=self.comm)
         self._name = "gdset_#x%x" % id(self)
         self._initialized = True
@@ -350,13 +350,9 @@ class MixedDataSet(DataSet):
         if self._initialized:
             return
         self._dsets = arg
-        try:
-            # Try to choose the comm to be the same as the first set
-            # of the MixedDataSet
-            comm = self._process_args(arg, dims)[0][0].comm
-        except AttributeError:
-            comm = None
-        self.comm = mpi.internal_comm(comm, self)
+        # Try to choose the comm to be the same as the first set
+        # of the MixedDataSet
+        self.comm = self._process_args(arg, dims)[0][0].comm
         self._initialized = True
 
     @classmethod
