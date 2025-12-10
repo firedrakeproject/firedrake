@@ -210,36 +210,38 @@ class Matrix(MatrixBase):
                                   has been removed.  Use 'assemble(a, bcs=bcs)', which\
                                   now returns an assembled matrix.")
 
+"""A representation of the action of bilinear form operating
+without explicitly assembling the associated matrix.  This class
+wraps the relevant information for Python PETSc matrix.
+
+:arg a: the bilinear form this :class:`Matrix` represents.
+
+:arg bcs: an iterable of boundary conditions to apply to this
+    :class:`Matrix`.  May be `None` if there are no boundary
+    conditions to apply.
+
+:kwarg fc_params: a dict of form compiler parameters for this matrix.
+
+.. note::
+
+    This object acts to the right on an assembled :class:`.Function`
+    and to the left on an assembled cofunction (currently represented
+    by a :class:`.Function`).
+
+"""
+
 
 class ImplicitMatrix(MatrixBase):
-    """A representation of the action of bilinear form operating
-    without explicitly assembling the associated matrix.  This class
-    wraps the relevant information for Python PETSc matrix.
 
-    :arg a: the bilinear form this :class:`Matrix` represents.
-
-    :arg bcs: an iterable of boundary conditions to apply to this
-        :class:`Matrix`.  May be `None` if there are no boundary
-        conditions to apply.
-
-    :kwarg fc_params: a dict of form compiler parameters for this matrix.
-
-    .. note::
-
-        This object acts to the right on an assembled :class:`.Function`
-        and to the left on an assembled cofunction (currently represented
-        by a :class:`.Function`).
-
-    """
     def __init__(
             self,
             a,
             ctx,
-            bcs,
-            fc_params,
-            options_prefix,
+            bcs = None,
+            fc_params = None,
+            options_prefix = None,
         ):
-        super().__init__(a, bcs, "matfree", fc_params)
+        super().__init__(a, "matfree", bcs=bcs, fc_params=fc_params)
 
         self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
