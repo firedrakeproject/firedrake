@@ -322,8 +322,7 @@ jobs:
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             GUSTO_BRANCH='main'
           else
-            # UNDO ME
-            GUSTO_BRANCH='connorjward/comm-fix'
+            GUSTO_BRANCH='future'
           fi
           git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
           pip install --verbose ./gusto-repo
