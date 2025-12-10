@@ -1,8 +1,10 @@
 from collections import OrderedDict
+from typing import Iterable
 import itertools
 
 from mpi4py import MPI
 import numpy
+import ufl
 
 from pyop2.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
@@ -62,11 +64,6 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-class ImplicitMatrixContext(object):
-    # By default, these matrices will represent diagonal blocks (the
-    # (0,0) block of a 1x1 block matrix is on the diagonal).
-    on_diag = True
-
     """This class gives the Python context for a PETSc Python matrix.
 
     :arg a: The bilinear form defining the matrix
@@ -86,9 +83,22 @@ class ImplicitMatrixContext(object):
        preconditioners and the like.
 
     """
+
+class ImplicitMatrixContext(object):
+    # By default, these matrices will represent diagonal blocks (the
+    # (0,0) block of a 1x1 block matrix is on the diagonal).
+    on_diag = True
+
+
     @PETSc.Log.EventDecorator()
-    def __init__(self, a, row_bcs=[], col_bcs=[],
-                 fc_params=None, appctx=None):
+    def __init__(
+        self, 
+        a: ufl.BaseForm, 
+        row_bcs: Iterable[DirichletBC] | None = None,
+        col_bcs: Iterable[DirichletBC] | None = None,
+        fc_params=None, 
+        appctx=None
+        ):
         from firedrake.assemble import get_assembler
 
         self.a = a
@@ -438,7 +448,6 @@ class ImplicitMatrixContext(object):
 
     @PETSc.Log.EventDecorator()
     def duplicate(self, mat, copy):
-
         if copy == 0:
             raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy=0")
         newmat_ctx = ImplicitMatrixContext(self.a,
