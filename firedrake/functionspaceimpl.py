@@ -414,7 +414,7 @@ class WithGeometryBase(object):
         """
         return type(self).make_function_space(
             self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
-            name=f"{self.name}_broken")
+            name=f"{self.name}_broken" if self.name else None)
 
     def reconstruct(
         self,
