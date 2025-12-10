@@ -201,7 +201,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 continue
 
             regioned_axes = offset_axes.with_region_labels(regions)
-            assert not regioned_axes._all_region_labels
+            assert not regioned_axes._all_region_labels  # confusing!
 
             # Add the global offset to the values in this region
             if starts[i] != 0:  # don't bother adding 0 to things
@@ -245,18 +245,17 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         subtree = axis_tree.subtree(path_acc_)
 
         if not subtree.is_empty:
+            # NOTE: THis is really confusing, _all_region_labels will drop nones
             subtree_has_non_trivial_regions = len(subtree._all_region_labels) > 0
         else:
             subtree_has_non_trivial_regions = False
 
-        # changed 30/10/25, need to keep SF info here
-        # linear_axis = axis.linearize(component.label).localize()
+        # NOTE: we need to keep region information here so we can loop over it in _tabulate_regions
         linear_axis = axis.linearize(component.label)
         parent_axes_ = parent_axes + (linear_axis,)
 
         # The subtree contains regions so we cannot have a layout function here.
         if subtree_has_non_trivial_regions:
-            # layout_expr_acc_ = layout_expr_acc + start  # 30/10 think this is wrong, not sure why it was there
             assert layout_expr_acc == 0
             layout_expr_acc_ = 0
             layouts[path_acc_] = NAN
@@ -333,7 +332,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
     axis = axes.node_map[path]
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        for region in component._all_regions:
+        for region in component.regions:
             merged_region = frozenset({region.label}) if region.label is not None else frozenset()
 
             if axes.node_map[path_]:

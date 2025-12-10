@@ -18,6 +18,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
+from types import NoneType
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
 
 import numpy as np
@@ -273,7 +274,7 @@ class _UnitAxisTree(CacheMixin):
     def comm(self):
         import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("This comm choice is unsafe")
-        return MPI.COMM_WORLD
+        return MPI.COMM_SELF
 
 
 
@@ -289,8 +290,11 @@ labels.
 
 @utils.frozenrecord()
 class AxisComponentRegion:
+
+    # {{{ instance attrs
+
     size: AxisComponentRegionSizeT
-    label: str | None = None
+    label: frozenset | str | None = None
 
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
@@ -307,6 +311,8 @@ class AxisComponentRegion:
     def __post_init__(self) -> None:
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
+
+    # }}}
 
     def __str__(self) -> str:
         if self.label is None:
@@ -353,26 +359,21 @@ def _(num: numbers.Integral) -> FixedAxisComponentSize:
 
 
 @functools.singledispatch
-def _parse_sf(obj: Any, size) -> AbstractStarForest | None:
-    if obj is None:
-        return None
-    else:
-        raise TypeError(f"No handler provided for {type(obj).__name__}")
+def _parse_sf(obj: Any, /) -> AbstractStarForest:
+    raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_parse_sf.register(AbstractStarForest)
-def _(sf: AbstractStarForest, size) -> AbstractStarForest:
-    if size != sf.size:
-        raise ValueError("Size mismatch between regions and SF")
+def _(sf: AbstractStarForest) -> AbstractStarForest:
     return sf
 
 
 @_parse_sf.register(PETSc.SF)
-def _(sf: PETSc.SF, size) -> StarForest:
-    return StarForest(sf, size)
+def _(petsc_sf: PETSc.SF, /) -> StarForest:
+    return StarForest(petsc_sf)
 
 
-def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -> tuple[AxisComponentRegion, ...]:
+def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarForest) -> tuple[AxisComponentRegion, ...]:
     """
     examples:
 
@@ -400,11 +401,22 @@ def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
     if initial_region_label is None:
         return owned_or_ghost
     else:
+        # could be a frozenset?
         return (initial_region_label, owned_or_ghost)
+
+
+def _region_label_matches(region, label) -> bool:
+    return (
+        region.label == label
+        or not isinstance(region.label, str | NoneType) and label in region.label
+    )
 
 
 @utils.frozenrecord()
 class AxisComponent(LabelledNodeComponent):
+
+    # {{{ instance attrs
+
     regions: Any
     _label: Any
     sf: Any
@@ -415,20 +427,38 @@ class AxisComponent(LabelledNodeComponent):
         label=utils.PYOP3_DECIDE,
         *,
         sf=None,
-    ):
+    ) -> None:
         regions = _parse_regions(regions)
-        size = sum(r.size for r in regions)
-        sf = _parse_sf(sf, size)
+        if sf is not None:
+            sf = _parse_sf(sf)
+            if any(
+                _region_label_matches(region, label_)
+                for region in regions
+                for label_ in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+            ):
+                # owned/ghost labels present, regions must be consistent with the SF
+                num_owned = 0
+                num_ghost = 0
+                for region in regions:
+                    if _region_label_matches(region, OWNED_REGION_LABEL):
+                        num_owned += region.local_size
+                    else:
+                        assert _region_label_matches(region, GHOST_REGION_LABEL)
+                        num_ghost += region.local_size
+                assert num_owned == sf.num_owned and num_ghost == sf.num_ghost
+            else:
+                regions = _partition_regions(regions, sf)
 
         object.__setattr__(self, "regions", regions)
         object.__setattr__(self, "_label", label)
         object.__setattr__(self, "sf", sf)
-
         self.__post_init__()
 
     def __post_init__(self) -> None:
         if self.sf is not None:
             assert self.local_size == self.sf.size
+
+    # }}}
 
     # {{{ interface impls
 
@@ -463,25 +493,17 @@ class AxisComponent(LabelledNodeComponent):
         return self.size
 
     @cached_property
-    def size(self) -> Any:
-        from pyop3 import Scalar
-
-        # TODO: Handle this in the constructor - convert regions into having a Scalar...
-
-        # TODO: check the communicator instead?
-        if self.sf is not None:
-            if not isinstance(self.local_size, numbers.Integral):
-                raise NotImplementedError(
-                    "Unsure what to do with non-integral sizes in parallel"
-                )
-            return Scalar(self.local_size)
-        else:
-            # can be an integer or a Dat
-            return self.local_size
+    def size(self) -> ExpressionT:
+        return sum(r.size for r in self.regions)
 
     @cached_property
     def local_size(self) -> Any:
-        return sum(r.local_size for r in self.regions)
+        from pyop3 import Scalar
+
+        if isinstance(self.size, Scalar):
+            return self.size.value
+        else:
+            return self.size
 
     @cached_property
     def local_max_size(self):
@@ -491,33 +513,48 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
+        assert False, "old code"
         """Return axis component regions having expanded star forests into owned and ghost."""
         return _partition_regions(self.regions, self.sf) if self.sf else self.regions
 
     @property
     def has_non_trivial_regions(self) ->  bool:
-        return utils.strictly_all(r.label is not None for r in self._all_regions)
+        return len(self.regions) > 1 or utils.just_one(self.regions).label is not None
 
     @property
     def comm(self) -> MPI.Comm | None:
         return self.sf.comm if self.sf else None
 
     @property
-    def _region_labels(self) -> tuple[ComponentRegionLabelT]:
+    def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
     @cached_property
     def _all_region_labels(self) -> tuple[str]:
+        assert False, "old code"
         return tuple(r.label for r in self._all_regions)
 
     @utils.cached_method()
     def localize(self) -> AxisComponent:
-        if len(self.regions) > 1:
-            raise NotImplementedError
-        new_regions = [
-            AxisComponentRegion(self.size, label=utils.just_one(self.regions).label)
-        ]
-        return self.__record_init__(regions=tuple(new_regions), sf=None)
+        if any(
+            _region_label_matches(region, label_)
+            for region in self.regions
+            for label_ in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+        ):
+            if len(self.regions) == 2:
+                assert set(r.label for r in self.regions) == {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+                new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+                return self.__record_init__(regions=(new_region,), sf=None)
+            else:
+                # have sets/tuples instead here of (something, "owned") or (something, "ghost")
+                # need to merge into a single 'something' region
+                raise NotImplementedError
+                # drop the owned/ghost distinction
+                for region in self.regions:
+                    ...
+        else:
+            assert self.sf is None
+            return self
 
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
@@ -938,9 +975,14 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self
 
     def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
+        from pyop3 import Scalar
         from .visitors import compute_axis_tree_component_size
 
-        return compute_axis_tree_component_size(self, path, component_label)
+        size = compute_axis_tree_component_size(self, path, component_label)
+        if isinstance(size, Scalar):
+            return size.value
+        else:
+            return size
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
@@ -971,20 +1013,18 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def size(self):
-        from pyop3 import Scalar
-
-        if  self.is_empty:
-            return 0
-        elif self.comm.size > 1:
-            return Scalar(self.local_size)
-        else:
-            return self.local_size
-
-    @cached_property
-    def local_size(self):
         from .visitors import compute_axis_tree_size
 
         return compute_axis_tree_size(self)
+
+    @cached_property
+    def local_size(self):
+        from pyop3 import Scalar
+
+        if isinstance(self.size, Scalar):
+            return self.size.value
+        else:
+            return self.size
 
     @cached_property
     def local_max_size(self) -> numbers.Number:
@@ -1046,6 +1086,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         if not region_labels:
             return self
 
+        # not sure about this
         if not allow_missing and set(region_labels) - set(self._all_region_labels):
             raise ValueError
 
@@ -1065,7 +1106,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         matching_label = None
         slice_components = []
         for component in axis.components:
-            if matching_labels := region_labels & set(component._all_region_labels):
+            if matching_labels := region_labels & set(component.region_labels):
                 matching_label = utils.just_one(matching_labels)
                 region_label_matches_no_components = False
                 slice_component = RegionSliceComponent(component.label, matching_label, label=f"{component.label}_{matching_label}")
@@ -1150,12 +1191,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
 
+    # TODO: rename to just _region_labels or similar
     @cached_property
     def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
         region_labels = utils.OrderedSet()
         for axis in self.axes:
             for component in axis.components:
-                for region in component._all_regions:
+                for region in component.regions:
                     if region.label is not None:
                         region_labels.add(region.label)
         return tuple(region_labels)

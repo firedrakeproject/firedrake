@@ -1141,20 +1141,12 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         # "owned" region is no longer a trivial slice. We therefore choose to discard
         # this information.
 
-        # # DEBUG: using _all_regions breaks things because we only express owned-ness
-        # # lazily from the SFs. We therefore have to special case the regionslice for
-        # # owned around here.
-        if (
-            isinstance(slice_component, RegionSliceComponent)
-            and slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
-        ):
-            orig_regions = target_component._all_regions
-        else:
-            orig_regions = target_component.regions
-
         # TODO: Might be clearer to combine these steps
-        regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
+        regions = _prepare_regions_for_slice_component(slice_component, target_component.regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=seen_target_exprs)
+
+        # if isinstance(slice_component, RegionSliceComponent):
+        #     breakpoint()
 
         if isinstance(target_component.sf, StarForest):
             # It is not possible to have a star forest attached to a
@@ -1165,17 +1157,11 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 if slice_component.region not in {"owned", "ghost"}:
                     raise NotImplementedError("Need to have a special type for selecting owned/ghost, what follows assumes that we are only getting 'owned' or 'ghost'")
 
-                region_index = target_component._all_region_labels.index(slice_component.region)
-                steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
+                region_index = target_component.region_labels.index(slice_component.region)
+                steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
                 start, stop = steps[region_index:region_index+2]
                 indices = np.arange(start, stop, dtype=IntType)
-                # import pyop3
-                # pyop3.extras.debug.maybe_breakpoint("region")
-                # 'sf' must be a null star forest instead of 'None' in order to
-                # distinguish between serial-only trees and parallel trees that
-                # have been restricted to the serial component (e.g. the size of
-                # the tree may differ between ranks).
-                sf = NullStarForest(indices.size)
+                sf = None
             else:
                 if isinstance(slice_component, AffineSliceComponent):
                     indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
@@ -1195,7 +1181,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     petsc_sf = filter_petsc_sf(target_component.sf.sf, indices, 0, target_component.local_size)
 
                     indexed_size = sum(r.size for r in indexed_regions)
-                    sf = StarForest(petsc_sf, indexed_size)
+                    sf = StarForest(petsc_sf)
                 else:
                     assert isinstance(target_component.sf, NullStarForest)
                     sf = NullStarForest(indices.size)
@@ -1225,14 +1211,15 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             c for c in target_axis.components if c.label == target_component_label
         )
 
+        # NOTE: is the localize() really needed?
         linear_axis = axis.linearize(axis_component.label).localize()
 
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
-                region_index = target_component._all_region_labels.index(slice_component.region)
-                steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
+                region_index = target_component.region_labels.index(slice_component.region)
+                steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
             else:
-                region_index = target_component._region_labels.index(slice_component.region)
+                region_index = target_component.region_labels.index(slice_component.region)
                 steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
             slice_expr = AxisVar(linear_axis) + steps[region_index]
         elif isinstance(slice_component, AffineSliceComponent):
@@ -1872,7 +1859,7 @@ def _(affine_component: AffineSliceComponent, regions):
 @_prepare_regions_for_slice_component.register(Subset)
 def _(subset: Subset, regions) -> tuple:
     # We must lose all region information if we are not accessing entries in order
-    if len(regions) > 1 and not subset.array.buffer.ordered:
+    if len(regions) > 1 and not subset.array.buffer.buffer.ordered:
         size = sum(r.size for r in regions)
         return (AxisComponentRegion(size),)
     else:

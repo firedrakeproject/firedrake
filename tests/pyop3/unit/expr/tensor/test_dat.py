@@ -75,3 +75,14 @@ def test_maxpy(dat):
 
     dat.maxpy((2, 3), (dat2, dat3))
     assert np.allclose(dat.data_ro, 2*2 + 3*3)
+
+
+def test_vec_norm_changes(dat):
+    dat.assign(1, eager=True)
+    with dat.vec_ro() as vec:
+        assert np.allclose(vec.norm(), 1)
+
+    dat.assign(2, eager=True)
+    with dat.vec_ro() as vec:
+        assert np.allclose(vec.norm(), 2)
+

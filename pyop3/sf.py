@@ -91,8 +91,6 @@ class AbstractStarForest(DistributedObject, abc.ABC):
 
     # }}}
 
-    def __init__(self, size: AxisComponentRegionSizeT) -> None:
-        self.size = size
 
     def broadcast(self, *args):
         self.broadcast_begin(*args)
@@ -124,31 +122,32 @@ class StarForest(AbstractStarForest):
     # }}}
 
     # NOTE: I think 'size' now has to equal the number of roots
-    def __init__(self, sf: PETSc.SF, size: IntType) -> None:
-        size = utils.strict_int(size)
+    def __init__(self, sf: PETSc.SF) -> None:
+        # size = utils.strict_int(size)
 
         # TODO: This check only makes sense for SFs that we make (where ghosts are at the end)
         # in the general case it isn't true
         # _check_sf(sf)
 
-        num_roots, local_leaf_indices, _ = sf.getGraph()
-        assert size >= num_roots and size >= len(local_leaf_indices)
-
         self.sf = sf
-        super().__init__(size)
+        super().__init__()
+
+    @property
+    def size(self):
+        return self.graph[0]
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
 
     @classmethod
-    def from_graph(cls, size: IntType, nroots: IntType, ilocal, iremote, comm):
+    def from_graph(cls, size: IntType, ilocal, iremote, comm):
         size = utils.strict_int(size)
         ilocal = ilocal.astype(IntType, casting="safe")
         iremote = iremote.astype(IntType, casting="safe")
 
         sf = PETSc.SF().create(comm)
-        sf.setGraph(nroots, ilocal, iremote)
-        return cls(sf, size)
+        sf.setGraph(size, ilocal, iremote)
+        return cls(sf)
 
     @property
     def comm(self) -> MPI.Comm:
@@ -255,6 +254,13 @@ class StarForest(AbstractStarForest):
 
 class NullStarForest(AbstractStarForest):
 
+    # {{{ instance attrs
+
+    def __init__(self, size):
+        self.size = size
+
+    # }}}
+
     # {{{ interface impls
 
     def __hash__(self) -> int:
@@ -314,15 +320,14 @@ def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 
         nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
         iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(nroots, ilocal, iremote, comm)
 
 
 def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
-    # nroots = IntType.type(0)
-    nroots = IntType.type(size)
+    size = IntType.type(size)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
 
 
 def _check_sf(sf: PETSc.SF):

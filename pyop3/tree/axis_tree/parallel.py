@@ -81,7 +81,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             if not isinstance(size, numbers.Integral):
                 raise NotImplementedError("Assume that star forests have integer size")
 
-            sf = StarForest(petsc_sf, size)
+            sf = StarForest(petsc_sf)
             sfs.append(sf)
         elif subaxis := axis_tree.node_map.get(path_):
             if isinstance(size := component.size, numbers.Integral) and size > 1:
@@ -165,7 +165,7 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
     ilocal = np.concatenate(local_leaf_indicess)
     iremote = np.concatenate(remote_leaf_indicess)
     comm = utils.single_comm(star_forests, "comm")
-    return StarForest.from_graph(total_size, total_size, ilocal, iremote, comm)
+    return StarForest.from_graph(total_size, ilocal, iremote, comm)
 
 
 # perhaps I can defer renumbering the SF to here?

@@ -103,7 +103,7 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
             all_axes = subtree_size_axes
         else:
             # current axis not used, just pass it up
-            return component.local_size * subtree_size
+            return component.size * subtree_size
         assert all_axes.is_linear
 
         component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize()
@@ -140,6 +140,6 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
             axis_to_loop_var_replace_map = utils.invert_mapping(outer_loop_to_axis_var_replace_map)
             return replace(XXX, axis_to_loop_var_replace_map)
     else:
-        return component.local_size * subtree_size
+        return component.size * subtree_size
 
 
