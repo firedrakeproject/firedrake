@@ -197,7 +197,7 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
             return cache[key]
         except KeyError:
             if mesh.comm.size > 1:
-                submesh = Submesh(mesh, mesh.topological_dimension, 0, ignore_halo=True, comm=PETSc.COMM_SELF)
+                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, comm=PETSc.COMM_SELF)
             else:
                 submesh = None
             return cache.setdefault(key, submesh)
