@@ -120,6 +120,7 @@ ci = [
   "pygraphviz",
   "pylit",
   "pytest",
+  "pytest-order",
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
@@ -138,6 +139,7 @@ docker = [  # Used in firedrake-vanilla container
   "pygraphviz",
   "pylit",
   "pytest",
+  "pytest-order",
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",

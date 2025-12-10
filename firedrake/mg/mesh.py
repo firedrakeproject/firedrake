@@ -55,13 +55,6 @@ class HierarchyBase(object):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
 
-    @cached_property
-    def _comm(self):
-        _comm = self[0]._comm
-        if not all(m._comm == _comm for m in self):
-            raise NotImplementedError("All meshes in hierarchy must be on same communicator")
-        return _comm
-
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
         for m in self.meshes:

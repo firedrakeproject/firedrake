@@ -615,7 +615,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             interpolator = get_interpolator(expr)
-            return interpolator.assemble(tensor=tensor, bcs=bcs)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -855,6 +855,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
+
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+            form, operand = expr.argument_slots()
+            vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
+            expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
+            return ufl.action(expr, form)
         return expr
 
     @staticmethod
@@ -1159,13 +1168,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):

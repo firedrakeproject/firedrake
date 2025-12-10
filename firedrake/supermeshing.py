@@ -126,7 +126,7 @@ each supermesh cell.
     assert V_A.value_size == 1
     assert V_B.value_size == 1
 
-    preallocator = PETSc.Mat().create(comm=mesh_A._comm)
+    preallocator = PETSc.Mat().create(comm=mesh_A.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
     rset = V_B.dof_dset
@@ -162,7 +162,7 @@ each supermesh cell.
     #
     # Preallocate M_AB.
     #
-    mat = PETSc.Mat().create(comm=mesh_A._comm)
+    mat = PETSc.Mat().create(comm=mesh_A.comm)
     mat.setType(PETSc.Mat.Type.AIJ)
     rsizes = tuple(n * rdim for n in nrows)
     csizes = tuple(c * cdim for c in ncols)
@@ -438,7 +438,7 @@ each supermesh cell.
         supermesh_kernel_str, "c",
         cppargs=includes,
         ldargs=libs,
-        comm=mesh_A._comm
+        comm=mesh_A.comm
     )
     lib = getattr(dll, "supermesh_kernel")
     lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
