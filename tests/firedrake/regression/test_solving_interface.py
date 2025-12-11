@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm

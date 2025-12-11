@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 import finat
 from os.path import abspath, dirname, join
