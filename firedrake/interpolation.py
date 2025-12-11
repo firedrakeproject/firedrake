@@ -357,6 +357,12 @@ class Interpolator(abc.ABC):
         """
         self._check_mat_type(mat_type)
 
+        if mat_type == "matfree":
+            ctx = ImplicitMatrixContext(
+                self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+            )
+            return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
+
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
         if self.rank == 2:
             # Assembling the operator
@@ -365,11 +371,6 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            if mat_type == "matfree":
-                ctx = ImplicitMatrixContext(
-                    self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
-                )
-                return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
             else:
                 return Matrix(self.ufl_interpolate, result, mat_type, bcs=bcs)
         else:
