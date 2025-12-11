@@ -7,7 +7,6 @@
 PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
-
 def init_petsc():
     import os
     import sys
