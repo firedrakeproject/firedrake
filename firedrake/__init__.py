@@ -5,8 +5,7 @@
 # accidentally install a too-new release that isn't yet supported.
 PETSC_SUPPORTED_VERSIONS = ">=3.24.2"
 
-# TODO RELEASE
-# PETSC_SUPPORTED_VERSIONS = ">=3.25"
+# TODO RELEASE set to ">=3.25"
 
 
 def init_petsc():
