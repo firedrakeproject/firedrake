@@ -466,7 +466,10 @@ class Mat(Tensor):
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
-        if self.row_axes.size * self.caxes.size > 1e6:
+        if self.comm.size > 1:
+            raise RuntimeError("Only valid in serial")
+
+        if self.row_axes.local_size * self.caxes.local_size > 1e6:
             raise ValueError(
                 "Printing a dense matrix with more than 1 million "
                 "entries is not allowed"

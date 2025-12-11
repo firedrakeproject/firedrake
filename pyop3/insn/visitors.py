@@ -8,10 +8,11 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from petsc4py import PETSc
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
 from pyop3 import utils
+from pyop3.node import Transformer, postorder
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
@@ -30,6 +31,8 @@ from pyop3.expr.visitors import (
     collect_tensor_candidate_indirections,
     concretize_materialized_tensor_indirections,
 )
+import pyop3.insn as op3_insn
+# TODO: remove all these in favour of op3_insn
 from pyop3.insn.base import (
     INC,
     READ,
@@ -65,86 +68,73 @@ from pyop3.utils import UniqueNameGenerator, just_one, single_valued, OrderedSet
 import pyop3.extras.debug
 
 
-# NOTE: A sensible pattern is to have a public and private (rec) implementations of a
-# transformation. Then the outer one can also drop extra instruction lists.
+class InstructionTransformer(Transformer):
+
+    # @singledispatchmethod
+    # def process(self, o, **kwargs) -> Expr:
+    #     """Placeholder"""
+    #     return super().process(o, **kwargs)
+
+    # Instruction lists have a common pattern
+    # @process.register(op3_expr.InstructionList)
+    @Transformer.process.register(op3_insn.InstructionList)
+    @postorder
+    def _(self, insn_list: op3_insn.InstructionList, /, *insns, **kwargs) -> op3_insn.Instruction:
+        return maybe_enlist(insns)
 
 
-# GET RID OF THIS
-# TODO Is this generic for other parsers/transformers? Esp. lower.py
-class Transformer(abc.ABC):
-    @abc.abstractmethod
-    def apply(self, expr):
-        pass
+class LoopContextExpander(InstructionTransformer):
+
+    @InstructionTransformer.process.register(op3_insn.Loop)
+    def _(self, loop: op3_insn.Loop, /, *, loop_context) -> Loop | InstructionList:
+        expanded_loops = []
+        iterset = loop.index.iterset
+        for leaf_path in iterset.leaf_paths:
+            # collect the possible targets per leaf
+            # leaf_target_paths = tuple(
+            #     leaf_target_paths_per_target[leaf_path]
+            #     for leaf_target_paths_per_target in iterset.leaf_target_paths
+            # )
+            # loop_context = {loop.index.id: leaf_target_paths}
+            loop_context_ = {loop.index.id: leaf_path}
+
+            restricted_loop_index = just_one(_as_context_free_indices(loop.index, loop_context))
+
+            # skip empty loops
+            if restricted_loop_index.iterset.size == 0:
+                continue
+
+            loop_context_acc_ = loop_context | loop_context_
+            expanded_loop = type(loop)(
+                restricted_loop_index,
+                [
+                    self(stmt, loop_context=loop_context_acc_)
+                    for stmt in loop.statements
+                ]
+            )
+            expanded_loops.append(expanded_loop)
+        return maybe_enlist(expanded_loops)
+
+
+    @InstructionTransformer.process.register(op3_insn.CalledFunction)
+    def _(self, func: op3_insn.CalledFunction, /, *, loop_context) -> op3_insn.CalledFunction:
+        new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
+        return func.__record_init__(_arguments=new_arguments)
+
+    @InstructionTransformer.process.register(op3_insn.ArrayAssignment)
+    def _(self, assignment: op3_insn.ArrayAssignment, /, *, loop_context) -> op3_insn.ArrayAssignment:
+        assignee = restrict_expression_to_context(assignment.assignee, loop_context)
+        expression = restrict_expression_to_context(assignment.expression, loop_context)
+        return assignment.__record_init__(_assignee=assignee, _expression=expression)
+
+    @InstructionTransformer.process.register(op3_insn.Exscan)  # for now assume we are fine
+    def _(self, insn: op3_insn.Instruction, /, **kwargs) -> op3_insn.Instruction:
+        return self.reuse_if_untouched(insn)
 
 
 # NOTE: This is a bad name for this transformation. 'expand_multi_component_loops'?
-def expand_loop_contexts(insn: Instruction, /) -> InstructionList:
-    """
-    This function also drops zero-sized loops.
-    """
-    return _expand_loop_contexts_rec(insn, loop_context_acc=immutabledict())
-
-
-@functools.singledispatch
-def _expand_loop_contexts_rec(obj: Any, /, *, loop_context_acc) -> InstructionList:
-    raise TypeError
-
-
-@_expand_loop_contexts_rec.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> Instruction:
-    return maybe_enlist([_expand_loop_contexts_rec(insn, **kwargs) for insn in insn_list])
-
-
-@_expand_loop_contexts_rec.register(Loop)
-def _(loop: Loop, /, *, loop_context_acc) -> Loop | InstructionList:
-    expanded_loops = []
-    iterset = loop.index.iterset
-    for leaf_path in iterset.leaf_paths:
-        # collect the possible targets per leaf
-        # leaf_target_paths = tuple(
-        #     leaf_target_paths_per_target[leaf_path]
-        #     for leaf_target_paths_per_target in iterset.leaf_target_paths
-        # )
-        # loop_context = {loop.index.id: leaf_target_paths}
-        loop_context = {loop.index.id: leaf_path}
-
-        restricted_loop_index = just_one(_as_context_free_indices(loop.index, loop_context))
-
-        # skip empty loops
-        if restricted_loop_index.iterset.size == 0:
-            continue
-
-        loop_context_acc_ = loop_context_acc | loop_context
-        expanded_loop = type(loop)(
-            restricted_loop_index,
-            [
-                _expand_loop_contexts_rec(stmt, loop_context_acc=loop_context_acc_)
-                for stmt in loop.statements
-            ]
-        )
-        expanded_loops.append(expanded_loop)
-    return maybe_enlist(expanded_loops)
-
-
-@_expand_loop_contexts_rec.register(CalledFunction)
-def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
-    return CalledFunction(
-        func.function,
-        [arg.with_context(loop_context_acc) for arg in func.arguments],
-    )
-
-
-@_expand_loop_contexts_rec.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
-    assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
-    expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
-    return assignment.__record_init__(_assignee=assignee, _expression=expression)
-
-
-# for now assume we are fine
-@_expand_loop_contexts_rec.register(Exscan)
-def _(exscan: Exscan, /, *, loop_context_acc) -> ArrayAssignment:
-    return exscan
+def expand_loop_contexts(insn: op3_insn.Instruction, /) -> op3_insn.Instruction:
+    return LoopContextExpander()(insn, loop_context=idict())
 
 
 class ImplicitPackUnpackExpander(Transformer):
@@ -595,30 +585,30 @@ def materialize_indirections(insn: Instruction, *, compress: bool = False) -> In
 
 
 
-def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> immutabledict:
+def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> idict:
     return _collect_candidate_indirections(insn, compress=compress, loop_indices=())
 
 
 @functools.singledispatch
-def _collect_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
+def _collect_candidate_indirections(obj: Any, /, **kwargs) -> idict:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_collect_candidate_indirections.register(NullInstruction)
 @_collect_candidate_indirections.register(Exscan)  # assume we are fine
-def _(null: InstructionList, /, **kwargs) -> immutabledict:
-    return immutabledict()
+def _(null: InstructionList, /, **kwargs) -> idict:
+    return idict()
 
 
 @_collect_candidate_indirections.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> immutabledict:
+def _(insn_list: InstructionList, /, **kwargs) -> idict:
     return merge_dicts(
         (_collect_candidate_indirections(insn, **kwargs) for insn in insn_list),
     )
 
 
 @_collect_candidate_indirections.register(Loop)
-def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> immutabledict:
+def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> idict:
     loop_indices_ = loop_indices + (loop.index,)
     return merge_dicts(
         (
@@ -629,7 +619,7 @@ def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> 
 
 
 @_collect_candidate_indirections.register(NonEmptyTerminal)
-def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     candidates = {}
     for i, arg in enumerate(terminal.arguments):
         per_arg_candidates = collect_tensor_candidate_indirections(
@@ -637,7 +627,7 @@ def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], com
         )
         for arg_key, value in per_arg_candidates.items():
             candidates[(terminal, i, arg_key)] = value
-    return immutabledict(candidates)
+    return idict(candidates)
 
 
 @functools.singledispatch

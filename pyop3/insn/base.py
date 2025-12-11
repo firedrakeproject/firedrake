@@ -18,11 +18,11 @@ import immutabledict
 import loopy as lp
 import numpy as np
 import pytools
-from cachetools import cachedmethod
 from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
+from pyop3.lang import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
@@ -175,13 +175,7 @@ class UnprocessedExpressionException(Pyop3Exception):
     """Exception raised when pyop3 expected a preprocessed expression."""
 
 
-class Instruction(DistributedObject, abc.ABC):
-
-    @property
-    def _cache(self) -> collections.defaultdict[dict]:
-        if not hasattr(self, "_lazy_cache"):
-            object.__setattr__(self, "_lazy_cache", collections.defaultdict(dict))
-        return self._lazy_cache
+class Instruction(Node, DistributedObject, abc.ABC):
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None, *, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -193,8 +187,8 @@ class Instruction(DistributedObject, abc.ABC):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
         return self._preprocess(compiler_parameters)
 
-    @cachedmethod(lambda self: self._cache["Instruction._preprocess"])
-    def _preprocess(self, compiler_parameters: ParsedCompilerParameters):
+    @utils.cached_method()
+    def _preprocess(self, compiler_parameters: ParsedCompilerParameters) -> Instruction:
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
@@ -217,11 +211,12 @@ class Instruction(DistributedObject, abc.ABC):
 
         return insn
 
+    # TODO: only really an attr of lowered ones...
     def compile(self, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
         return self._compile(compiler_parameters)
 
-    @cachedmethod(lambda self: self._cache["Instruction._compile"])
+    @utils.cached_method()
     def _compile(self, compiler_parameters: ParsedCompilerParameters):
         from pyop3.ir.lower import compile
 
@@ -247,18 +242,17 @@ _DEFAULT_LOOP_NAME = "pyop3_loop"
 @utils.frozenrecord()
 class Loop(Instruction):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     index: LoopIndex
-    statements: tuple[Instruction]
+    statements: tuple[Instruction, ...]
 
     def __init__(
         self,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
-    ):
+    ) -> None:
         statements = as_tuple(statements)
-
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
 
@@ -266,8 +260,11 @@ class Loop(Instruction):
 
     # {{{ interface impls
 
+    child_attrs = ("statements",)
+
     @property
     def comm(self) -> MPI.Comm:
+        # TODO: check iterset
         return utils.common_comm(self.statements, "comm")
 
     # }}}
@@ -347,12 +344,6 @@ class Loop(Instruction):
             # with PETSc.Log.Event(f"apply_{self.name}"):
             code(replacement_buffers)
 
-    @property
-    @utils.deprecated()
-    def comm(self):
-        # maybe collect the comm by looking at everything?
-        return self.index.iterset.comm
-
     @cached_property
     def function_arguments(self) -> tuple:
         args = {}  # ordered
@@ -374,7 +365,7 @@ class Loop(Instruction):
 class InstructionList(Instruction):
     """A list of instructions."""
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     instructions: tuple[Instruction]
 
@@ -385,6 +376,8 @@ class InstructionList(Instruction):
     # }}}
 
     # {{{ interface impls
+
+    child_attrs = ("instructions",)
 
     @property
     def comm(self) -> MPI.Comm:
@@ -436,7 +429,7 @@ def filter_null(iterable: Iterable[Instruction]):
     return filter(non_null, iterable)
 
 
-class Terminal(Instruction, metaclass=abc.ABCMeta):
+class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
     @property
     @abc.abstractmethod
@@ -448,7 +441,7 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
         return tuple(utils.filter_type(BufferExpression, self.arguments))
 
 
-class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):
+class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
@@ -612,7 +605,7 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
-class NullInstruction(Terminal):
+class NullInstruction(TerminalInstruction):
     """An instruction that does nothing."""
 
     arguments = ()
@@ -637,7 +630,7 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
+class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
     # {{{ Abstract methods
 
@@ -867,7 +860,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
 
 @utils.frozenrecord()
-class Exscan(Terminal):
+class Exscan(TerminalInstruction):
 
     # {{{ instance attrs
 
