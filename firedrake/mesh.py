@@ -4825,6 +4825,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         if subdim != dim:
             raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
         subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
+        dmcommon.submesh_update_facet_labels(plex, subplex)
     else:
         if comm is not None and comm != mesh.comm:
             raise NotImplementedError("Submesh on sub-communicator not implemented on cell subsets.")
