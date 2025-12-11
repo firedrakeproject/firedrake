@@ -4818,24 +4818,21 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
     plex = mesh.topology_dm
     dim = plex.getDimension()
+    if subdim not in [dim, dim - 1]:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+    if label_name is None:
+        if subdim == dim:
+            label_name = dmcommon.CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = dmcommon.FACE_SETS_LABEL
     if subdomain_id is None:
         # Filter the plex with PETSc's default label (cells owned by comm)
-        if label_name is not None:
-            raise ValueError("subdomain_id == None requires label_name == None.")
-        if subdim != dim:
-            raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-        subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
+        if label_name != dmcommon.CELL_SETS_LABEL:
+            raise ValueError("subdomain_id == None requires label_name == CELL_SETS_LABEL.")
+        subplex, sf = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
         dmcommon.submesh_update_facet_labels(plex, subplex)
+        dmcommon.submesh_correct_entity_classes(plex, subplex, sf)
     else:
-        if comm is not None and comm != mesh.comm:
-            raise NotImplementedError("Submesh on sub-communicator not implemented on cell subsets.")
-        if subdim not in [dim, dim - 1]:
-            raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-        if label_name is None:
-            if subdim == dim:
-                label_name = dmcommon.CELL_SETS_LABEL
-            elif subdim == dim - 1:
-                label_name = dmcommon.FACE_SETS_LABEL
         subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm
