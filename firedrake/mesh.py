@@ -4756,6 +4756,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         Whether to reorder the mesh entities.
     comm : PETSc.Comm | None
         An optional sub-communicator to define the submesh.
+        By default, the submesh is defined on `mesh.comm`.
 
     Returns
     -------
@@ -4826,7 +4827,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         subplex, _ = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
     else:
         if comm is not None and comm != mesh.comm:
-            raise NotImplementedError("Submesh on subcommunicator not implemented on cell subsets.")
+            raise NotImplementedError("Submesh on sub-communicator not implemented on cell subsets.")
         if subdim not in [dim, dim - 1]:
             raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
         if label_name is None:
