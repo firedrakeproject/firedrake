@@ -272,4 +272,4 @@ class AssembledMatrix(MatrixBase):
             self.petscmat.setOptionsPrefix(options_prefix)
 
         # this mimics op2.Mat.handle
-        self.M = DummyOP2Mat(self.mat())
+        self.M = DummyOP2Mat(self.petscmat)
