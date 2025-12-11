@@ -176,28 +176,6 @@ def is_dg_space(space: WithGeometry) -> bool:
     return e.is_dg()
 
 
-def dg_space(space: WithGeometry) -> WithGeometry:
-    """Construct a DG space containing a given function space as a subspace.
-
-    Parameters
-    ----------
-
-    space
-        A function space.
-
-    Returns
-    -------
-
-    firedrake.functionspaceimpl.WithGeometry
-        A DG space containing `space` as a subspace. May be `space`.
-    """
-
-    if is_dg_space(space):
-        return space
-    else:
-        return fd.FunctionSpace(space.mesh(), finat.ufl.BrokenElement(space.ufl_element()))
-
-
 class L2TransformedFunctional(AbstractReducedFunctional):
     r"""Represents the functional
 
@@ -265,7 +243,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._space_D = Enlist(space_D)
         if len(self._space_D) != len(self._space):
             raise ValueError("Invalid length")
-        self._space_D = tuple(dg_space(space) if space_D is None else space_D
+        self._space_D = tuple((space if is_dg_space(space) else space.broken_space())
+                              if space_D is None else space_D
                               for space, space_D in zip(self._space, self._space_D))
 
         self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
