@@ -634,8 +634,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
     def assembled_matrix(self, expr, bcs, petscmat):
-        return matrix.AssembledMatrix(expr.arguments(), bcs, petscmat,
-                                      options_prefix=self._options_prefix)
+        return matrix.AssembledMatrix(expr.arguments(), petscmat, self._mat_type,
+                                      bcs=bcs, options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
