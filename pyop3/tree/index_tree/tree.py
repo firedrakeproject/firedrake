@@ -758,8 +758,6 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
-        from pyop3 import NAN
-
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
 
@@ -790,6 +788,9 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                     axes_ = axes_.add_axis(input_leaf_path, subaxis)
                     for subtarget_key, subtarget_value in subtargets.items():
                         targets[input_leaf_path | subtarget_key] = subtarget_value
+
+                    # this axis is intermediate, it doesn't target anything
+                    targets[input_leaf_path] = ((),)
 
                     break
 
@@ -1580,7 +1581,7 @@ def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullm
         # also used in leaf_target_paths, generalise
         merged = []
         for debug in itertools.product(*AAA):
-            merged.append(utils.reduce("+", debug))
+            merged.append(utils.reduce("+", debug, []))
 
         composed_target[path_] = utils.freeze(merged)
 

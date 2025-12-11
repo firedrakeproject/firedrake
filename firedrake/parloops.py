@@ -441,38 +441,19 @@ def _(
     # if column_space.mesh().topology != iter_spec.mesh.topology:
     if column_space.mesh().submesh_youngest_common_ancester(iter_spec.mesh) is None:
         breakpoint()
-        # cindex = Vcol.mesh().cell_parent_cell_map(index)
-    # else:
-    #     cindex = index
 
-    # if not nodes:
-    #     if integral_type == "cell":
-    #         rcell = rindex
-    #         ccell = cindex
-    #         depth = 0
-    #     else:
-    #         assert "facet" in integral_type
-    #         rfacet = rindex
-    #         cfacet = cindex
-    #         rcell = Vrow.mesh().support(rfacet)
-    #         ccell = Vcol.mesh().support(cfacet)
-    #         depth = 1
-    #     packed_mat = mat[Vrow.mesh().closure(rcell), Vcol.mesh().closure(ccell)]
-    # else:
-    #     if integral_type == "cell":
-    #         rcell = rindex
-    #         ccell = cindex
-    #         depth = 0
-    #         packed_mat = mat[Vrow.cell_node_map(rcell), Vcol.cell_node_map(ccell)]
-    #     else:
-    #         raise NotImplementedError
     row_map = row_space.entity_node_map(iter_spec)
     column_map = column_space.entity_node_map(iter_spec)
 
     packed_mat = mat[row_map, column_map]
 
-    row_depth = [axis.label for axis in packed_mat.row_axes.axes].index("closure")
-    column_depth = [axis.label for axis in packed_mat.column_axes.axes].index("closure")
+    depths = []
+    for axes in [packed_mat.row_axes, packed_mat.column_axes]:
+        if isinstance(axes, op3.AxisForest):  # bit of a hack
+            axes = axes.trees[0]
+        depth = [axis.label for axis in axes.axes].index("closure")
+        depths.append(depth)
+    row_depth, column_depth = depths
 
     return transform_packed_cell_closure_mat(packed_mat, row_space, column_space, row_map.index, column_map.index, row_depth=row_depth, column_depth=column_depth, nodes=nodes)
 

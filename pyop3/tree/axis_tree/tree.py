@@ -395,12 +395,15 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarF
     for point_type in ["owned", "ghost"]:
         for region in regions:
             if point_type == "owned":
-                size = min((region.size, sf.num_owned-ptr))
+                size = min((region.local_size, sf.num_owned-ptr))
             else:
-                size = region.size - region_sizes[_as_region_label(region.label, "owned")]
+                size = region.local_size - region_sizes[_as_region_label(region.label, "owned")]
             region_sizes[_as_region_label(region.label, point_type)] = size
             ptr += size
-    assert ptr == sf.size
+    try:
+        assert ptr == sf.size
+    except:
+        breakpoint()
     return tuple(
         AxisComponentRegion(Scalar(size, constant=True), label)
         for label, size in region_sizes.items()
@@ -1457,18 +1460,8 @@ class IndexedAxisTree(AbstractAxisTree):
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = utils.StrictlyUniqueDict()
         for path, axis in self.node_map.items():
-            # if self._targets[path] == (None,):
-            #     targets_[path] = (None,)
-            # else:
             targets_[path] = self._targets[path] + self._materialized.targets[path]
         return complete_axis_targets(targets_)
-
-    # TODO: Should this return LoopIndexVars?
-    # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
-    @cached_property
-    def outer_loops(self) -> tuple[LoopIndex, ...]:
-        breakpoint()
-        return gather_loop_indices_from_targets(self.targets)
 
     @cached_property
     def _materialized(self) -> AxisTree:
@@ -1483,6 +1476,14 @@ class IndexedAxisTree(AbstractAxisTree):
             self.materialize().regionless,
             targets=self.targets,
             unindexed=self.unindexed.regionless,
+        )
+
+    @utils.cached_method()
+    def localize(self):
+        return type(self)(
+            self.materialize().localize(),
+            targets=self.targets,
+            unindexed=self.unindexed.localize(),
         )
 
     # TODO: Should have nest indices and nest labels as separate concepts.

@@ -936,7 +936,7 @@ def _(obj: Any, /) -> tuple[AxisTree, ...]:
 # NOTE: Bit of a strange return type...
 @functools.singledispatch
 def get_loop_axes(obj: Any) -> idict[LoopIndex: tuple[Axis, ...]]:
-    raise TypeError
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @get_loop_axes.register(op3_expr.Operator)
@@ -963,6 +963,7 @@ def _(loop_var: op3_expr.LoopIndexVar, /):
 @get_loop_axes.register(numbers.Number)
 @get_loop_axes.register(op3_expr.AxisVar)
 @get_loop_axes.register(op3_expr.NaN)
+@get_loop_axes.register(op3_expr.ScalarBufferExpression)
 def _(obj: Any, /):
     return idict()
 

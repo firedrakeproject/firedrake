@@ -423,7 +423,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     outer_loop_tree = offset_axes.drop_node(loc)
     assert linear_axis not in outer_loop_tree.nodes
 
-    offset_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+    offset_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
 
     size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
 
