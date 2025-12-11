@@ -6,7 +6,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Tuple
+from typing import Tuple, Union
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -486,7 +486,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
-class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
+class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
@@ -2970,19 +2970,21 @@ values from f.)"""
 
 
 @PETSc.Log.EventDecorator()
-def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
+def make_mesh_from_coordinates(
+    coordinates: Union["Function", "CoordinatelessFunction"],
+    name: str,
+    tolerance: numbers.Number = 0.5,
+) -> MeshGeometry:
     """Given a coordinate field build a new mesh, using said coordinate field.
 
     Parameters
     ----------
-    coordinates : CoordinatelessFunction
+    coordinates
         The `CoordinatelessFunction` from which mesh is made.
-    name : str
+    name
         The name of the mesh.
-    tolerance : numbers.Number
+    tolerance
         The tolerance; see `Mesh`.
-    comm: mpi4py.Intracomm
-        Communicator.
 
     Returns
     -------
@@ -2990,6 +2992,8 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
         The mesh.
 
     """
+    from firedrake import CoordinatelessFunction, Function
+
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
         if mesh is not None:
@@ -3002,11 +3006,12 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     assert V.mesh().ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry.__new__(MeshGeometry, element, coordinates.comm)
-    mesh.__init__(coordinates)
+    mesh.__init__(coordinates.topological)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
     mesh._tolerance = tolerance
+
     return mesh
 
 
@@ -3184,14 +3189,17 @@ def Mesh(meshfile, **kwargs):
         with CheckpointFile(meshfile, 'r', comm=user_comm) as afile:
             return afile.load_mesh(name=name, reorder=reorder,
                                    distribution_parameters=distribution_parameters)
-    elif isinstance(meshfile, function.Function):
-        coordinates = meshfile.topological
-    elif isinstance(meshfile, function.CoordinatelessFunction):
+
+    if isinstance(meshfile, function.Function | function.CoordinatelessFunction):
         coordinates = meshfile
-    else:
-        coordinates = None
-    if coordinates is not None:
-        return make_mesh_from_coordinates(coordinates, name)
+        mesh = make_mesh_from_coordinates(coordinates, name)
+
+        if isinstance(coordinates.topological.function_space().mesh().topology, ExtrudedMeshTopology):
+            if not isinstance(coordinates, function.Function):
+                raise TypeError
+            mesh._base_mesh = coordinates.function_space().mesh()._base_mesh
+
+        return mesh
 
     tolerance = kwargs.get("tolerance", 0.5)
 
