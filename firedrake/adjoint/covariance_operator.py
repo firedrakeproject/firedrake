@@ -17,7 +17,6 @@ from firedrake import (
     dx, ds, dS, sqrt, Constant,
     Function, Cofunction, RieszMap,
     TrialFunction, TestFunction,
-    FunctionSpace, BrokenElement,
     RandomGenerator, PCG64,
     LinearVariationalProblem,
     LinearVariationalSolver,
@@ -71,6 +70,7 @@ class NoiseBackendBase:
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
         self._V = V
+        self._Vb = V.broken_space()
         self._rng = rng or RandomGenerator(PCG64(seed=seed))
 
     @abc.abstractmethod
@@ -99,14 +99,12 @@ class NoiseBackendBase:
         """
         raise NotImplementedError
 
-    @cached_property
+    @property
     def broken_space(self):
         """
         The discontinuous superspace containing :math:`V`, ``self.function_space``.
         """
-        return FunctionSpace(
-            self.function_space.mesh().unique(),
-            BrokenElement(self.function_space.ufl_element()))
+        return self._Vb
 
     @property
     def function_space(self):
