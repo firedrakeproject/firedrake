@@ -191,8 +191,11 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
         assert I_mat.petscmat.type == "seqaij"
     else:
         assert I_mat.petscmat.type == "nest"
-        for i in range(2):
-            sub_mat = I_mat.petscmat.getNestSubMatrix(i, i)
+        for (i, j) in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+            sub_mat = I_mat.petscmat.getNestSubMatrix(i, j)
+            if i != j:
+                assert not sub_mat
+                continue
             if value_shape == "scalar":
                 # Always seqaij for scalar
                 assert sub_mat.type == "seqaij"

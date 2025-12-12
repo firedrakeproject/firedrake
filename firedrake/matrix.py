@@ -20,6 +20,14 @@ class DummyOP2Mat:
         self.handle = handle
 
 
+def _get_mat_type(petscmat: PETSc.Mat) -> str:
+    """Maps PETSc matrix types to Firedrake notation"""
+    mat_type = petscmat.getType()
+    if mat_type.startswith("seq") or mat_type.startswith("mpi"):
+        return mat_type[3:]
+    return mat_type
+
+
 class MatrixBase(ufl.Matrix):
 
     def __init__(
@@ -64,11 +72,12 @@ class MatrixBase(ufl.Matrix):
         self._analyze_form_arguments()
         self._arguments = arguments
 
-        self.bcs = bcs or ()
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
-        self.form_compiler_parameters = fc_params or {}
+
+        self.bcs = () if bcs is None else bcs
+        self.form_compiler_parameters = {} if fc_params is None else fc_params
 
     def arguments(self):
         if self.a:
@@ -106,10 +115,10 @@ class MatrixBase(ufl.Matrix):
             self._bcs = ()
 
     def __repr__(self):
-        return f"{type(self).__name__}(a={self.a}, bcs={self.bcs})"
+        return f"{type(self).__name__}(a={repr(self.a)}, bcs={repr(self.bcs)})"
 
     def __str__(self):
-        return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
+        return f"assembled {type(self).__name__}(a={str(self.a)}, bcs={str(self.bcs)})"
 
     def __add__(self, other):
         if isinstance(other, MatrixBase):
@@ -173,9 +182,9 @@ class Matrix(MatrixBase):
             assert isinstance(mat, PETSc.Mat)
             self.M = DummyOP2Mat(mat)
         self.petscmat = self.M.handle
-        if options_prefix:
+        if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
-        self.mat_type = self.petscmat.getType()
+        self.mat_type = _get_mat_type(self.petscmat)
 
     def assemble(self):
         raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
@@ -220,7 +229,8 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)
         self.petscmat.setPythonContext(ctx)
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
         self.petscmat.setUp()
         self.petscmat.assemble()
         self.mat_type = "matfree"
@@ -258,9 +268,9 @@ class AssembledMatrix(MatrixBase):
         super().__init__(args, bcs=bcs)
 
         self.petscmat = petscmat
-        if options_prefix:
+        if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
-        self.mat_type = self.petscmat.getType()
+        self.mat_type = _get_mat_type(self.petscmat)
 
         # this mimics op2.Mat.handle
         self.M = DummyOP2Mat(self.petscmat)
