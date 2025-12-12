@@ -11,10 +11,11 @@ import numpy as np
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
 
 
-class Expression(abc.ABC):
+class Expression(Node, abc.ABC):
 
     MAX_NUM_CHARS = 120
 
@@ -225,6 +226,8 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # {{{ interface impls
 
+    child_attrs = ("a", "b")
+
     @property
     def operands(self) -> tuple[ExpressionT, ExpressionT]:
         return (self.a, self.b)
@@ -426,12 +429,13 @@ def conditional(predicate, if_true, if_false):
         return Conditional(predicate, if_true, if_false)
 
 
-class Terminal(Expression, abc.ABC):
-    pass
+class TerminalExpression(Expression, Terminal, abc.ABC):
+
+    child_attrs = ()
 
 
 @utils.frozenrecord()
-class AxisVar(Terminal):
+class AxisVar(TerminalExpression):
 
     # {{{ instance attrs
 
@@ -464,7 +468,7 @@ class AxisVar(Terminal):
 
 # TODO: notanumberexception
 @utils.frozenrecord()
-class NaN(Terminal):
+class NaN(TerminalExpression):
 
     # {{{ interface impls
 
@@ -485,7 +489,7 @@ NAN = NaN()
 
 
 @utils.frozenrecord()
-class LoopIndexVar(Terminal):
+class LoopIndexVar(TerminalExpression):
 
     # {{{ instance attrs
 

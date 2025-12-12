@@ -1,5 +1,3 @@
-# TODO Rename this file insn.py - the pyop3 language is everything, not just this
-
 from __future__ import annotations
 
 import abc
@@ -22,7 +20,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.lang import Node, Terminal
+from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
@@ -209,7 +207,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
-        return insn
+        return PreprocessedOperation(insn)
 
     # TODO: only really an attr of lowered ones...
     def compile(self, compiler_parameters=None):
@@ -237,6 +235,32 @@ class ContextAwareInstruction(Instruction):
 
 
 _DEFAULT_LOOP_NAME = "pyop3_loop"
+
+
+@utils.frozenrecord()
+class PreprocessedOperation:
+    root_insn: Instruction
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.root_insn.comm
+
+    @cached_property
+    def buffers(self) -> OrderedSet:
+        """The buffers (global data) that are present in the operation."""
+        raise NotImplementedError
+
+    @cached_property
+    def disk_cache_key(self) -> Hashable:
+        """Key used to write the operation to disk.
+
+        The returned key should be consistent across ranks and not include
+        overly specific information such as buffer names or array values.
+
+        """
+        from pyop3.insn.visitors import get_disk_cache_key
+
+        return get_disk_cache_key(self.root_insn)
 
 
 @utils.frozenrecord()
@@ -835,7 +859,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     _expression: Any
     _assignment_type: AssignmentType
     _axis_trees: tuple[AxisTree, ...]
-    _comm: MPI.Comm
+    _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)

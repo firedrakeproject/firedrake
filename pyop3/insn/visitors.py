@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import abc
+import collections
 import functools
+import itertools
 from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
@@ -12,7 +14,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
 from pyop3 import utils
-from pyop3.node import Transformer, postorder
+from pyop3.node import Transformer, Visitor, postorder
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
@@ -39,23 +41,16 @@ from pyop3.insn.base import (
     RW,
     WRITE,
     AbstractAssignment,
-    ArrayAssignment,
     ConcretizedNonEmptyArrayAssignment,
     NonEmptyTerminal,
     StandaloneCalledFunction,
     FunctionArgument,
-    # NonEmptyPetscMatAssignment,
-    NullInstruction,
-    ArrayAssignment,
     AssignmentType,
     CalledFunction,
     NonEmptyArrayAssignment,
     DummyKernelArgument,
     Instruction,
-    Loop,
-    InstructionList,
     Exscan,
-    # PetscMatAssignment,
     ArrayAccessType,
     Terminal,
     enlist,
@@ -86,7 +81,7 @@ class InstructionTransformer(Transformer):
 class LoopContextExpander(InstructionTransformer):
 
     @InstructionTransformer.process.register(op3_insn.Loop)
-    def _(self, loop: op3_insn.Loop, /, *, loop_context) -> Loop | InstructionList:
+    def _(self, loop: op3_insn.Loop, /, *, loop_context) -> op3_insn.Loop | op3_insn.InstructionList:
         expanded_loops = []
         iterset = loop.index.iterset
         for leaf_path in iterset.leaf_paths:
@@ -148,19 +143,19 @@ class ImplicitPackUnpackExpander(Transformer):
     def _apply(self, expr: Any):
         raise NotImplementedError(f"No handler provided for {type(expr).__name__}")
 
-    @_apply.register(NullInstruction)
+    @_apply.register(op3_insn.NullInstruction)
     @_apply.register(Exscan)  # assume we are fine
     def _(self, insn, /):
         return insn
 
     # TODO Can I provide a generic "operands" thing? Put in the parent class?
-    @_apply.register(Loop)
-    def _(self, loop: Loop) -> Loop:
+    @_apply.register(op3_insn.Loop)
+    def _(self, loop: op3_insn.Loop) -> op3_insn.Loop:
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
         return loop.__record_init__(statements=new_statements)
 
     @_apply.register
-    def _(self, insn_list: InstructionList):
+    def _(self, insn_list: op3_insn.InstructionList):
         return type(insn_list)([insn_ for insn in insn_list for insn_ in enlist(self._apply(insn))])
 
     # # TODO: Should be the same as Assignment
@@ -171,7 +166,7 @@ class ImplicitPackUnpackExpander(Transformer):
     #     return (assignment,)
 
     @_apply.register
-    def _(self, assignment: ArrayAssignment):
+    def _(self, assignment: op3_insn.ArrayAssignment):
         # I think this is fine...
         return assignment
 
@@ -244,16 +239,16 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Mat.null(arg.row_axes.materialize().localize(), arg.caxes.materialize().localize(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
-                    gathers.append(ArrayAssignment(temporary, arg, "write"))
+                    gathers.append(op3_insn.ArrayAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+                    scatters.insert(0, op3_insn.ArrayAssignment(arg, temporary, "write"))
                 elif intent == RW:
-                    gathers.append(ArrayAssignment(temporary, arg, "write"))
-                    scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+                    gathers.append(op3_insn.ArrayAssignment(temporary, arg, "write"))
+                    scatters.insert(0, op3_insn.ArrayAssignment(arg, temporary, "write"))
                 else:
                     assert intent == INC
-                    gathers.append(ArrayAssignment(temporary, 0, "write"))
-                    scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
+                    gathers.append(op3_insn.ArrayAssignment(temporary, 0, "write"))
+                    scatters.insert(0, op3_insn.ArrayAssignment(arg, temporary, "inc"))
 
                 function_arg = LinearDatBufferExpression(temporary.buffer, 0)
             else:
@@ -324,18 +319,18 @@ def _layouts_match(axes: AxisTreeT) -> bool:
 
 
 @functools.singledispatch
-def expand_assignments(obj: Any, /) -> InstructionList:
+def expand_assignments(obj: Any, /) -> op3_insn.InstructionList:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@expand_assignments.register(InstructionList)
-def _(insn_list: InstructionList, /) -> InstructionList:
+@expand_assignments.register(op3_insn.InstructionList)
+def _(insn_list: op3_insn.InstructionList, /) -> op3_insn.InstructionList:
     return maybe_enlist((expand_assignments(insn) for insn in insn_list))
 
 
-@expand_assignments.register(Loop)
-def _(loop: Loop, /) -> Loop:
-    return Loop(
+@expand_assignments.register(op3_insn.Loop)
+def _(loop: op3_insn.Loop, /) -> op3_insn.Loop:
+    return op3_insn.Loop(
         loop.index,
         [
             stmt_ for stmt in loop.statements for stmt_ in enlist(expand_assignments(stmt))
@@ -345,14 +340,14 @@ def _(loop: Loop, /) -> Loop:
 
 @expand_assignments.register(StandaloneCalledFunction)
 # @expand_assignments.register(PetscMatAssignment)
-@expand_assignments.register(NullInstruction)
+@expand_assignments.register(op3_insn.NullInstruction)
 @expand_assignments.register(Exscan)  # assume we are fine
 def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
-@expand_assignments.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /) -> InstructionList:
+@expand_assignments.register(op3_insn.ArrayAssignment)
+def _(assignment: op3_insn.ArrayAssignment, /) -> op3_insn.InstructionList:
     # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
     # like
     #
@@ -364,7 +359,7 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
     #     mat[f(p), f(p)] <- t1
     # if assignment.is_mat_access:
     #     raise NotImplementedError("think")
-    #     return InstructionList([assignment])
+    #     return op3_insn.InstructionList([assignment])
 
     bare_expression, extra_input_insns = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
@@ -446,12 +441,12 @@ def _(array: Tensor, /, access_type):
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
 
         if access_type == ArrayAccessType.READ:
-            assignment = ArrayAssignment(temp_initial, transformed_dat, "write")
+            assignment = op3_insn.ArrayAssignment(temp_initial, transformed_dat, "write")
         elif access_type == ArrayAccessType.WRITE:
-            assignment = ArrayAssignment(transformed_dat, temp_initial, "write")
+            assignment = op3_insn.ArrayAssignment(transformed_dat, temp_initial, "write")
         else:
             assert access_type == ArrayAccessType.INC
-            assignment = ArrayAssignment(transformed_dat, temp_initial, "inc")
+            assignment = op3_insn.ArrayAssignment(transformed_dat, temp_initial, "inc")
 
         return (temp_reshaped, extra_insns + (assignment,))
     else:
@@ -471,23 +466,23 @@ def concretize_layouts(obj: Any, /) -> Instruction:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@concretize_layouts.register(NullInstruction)
+@concretize_layouts.register(op3_insn.NullInstruction)
 @concretize_layouts.register(Exscan)  # assume we are fine
-def _(null: NullInstruction, /) -> NullInstruction:
+def _(null: op3_insn.NullInstruction, /) -> op3_insn.NullInstruction:
     return null
 
 
-@concretize_layouts.register(InstructionList)
-def _(insn_list: InstructionList, /) -> Instruction:
+@concretize_layouts.register(op3_insn.InstructionList)
+def _(insn_list: op3_insn.InstructionList, /) -> Instruction:
     return maybe_enlist(
         filter(non_null, (map(concretize_layouts, insn_list)))
     )
 
 
-@concretize_layouts.register(Loop)
-def _(loop: Loop, /) -> Loop | NullInstruction:
+@concretize_layouts.register(op3_insn.Loop)
+def _(loop: op3_insn.Loop, /) -> op3_insn.Loop | op3_insn.NullInstruction:
     statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
-    return loop.__record_init__(statements=statements) if statements else NullInstruction()
+    return loop.__record_init__(statements=statements) if statements else op3_insn.NullInstruction()
 
 
 @concretize_layouts.register(StandaloneCalledFunction)
@@ -495,8 +490,8 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
-@concretize_layouts.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
+@concretize_layouts.register(op3_insn.ArrayAssignment)
+def _(assignment: op3_insn.ArrayAssignment, /) -> NonEmptyArrayAssignment | op3_insn.NullInstruction:
     assignee = concretize_expression_layouts(assignment.assignee, assignment.shape)
     expression = concretize_expression_layouts(assignment.expression, assignment.shape)
 
@@ -594,21 +589,21 @@ def _collect_candidate_indirections(obj: Any, /, **kwargs) -> idict:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@_collect_candidate_indirections.register(NullInstruction)
+@_collect_candidate_indirections.register(op3_insn.NullInstruction)
 @_collect_candidate_indirections.register(Exscan)  # assume we are fine
-def _(null: InstructionList, /, **kwargs) -> idict:
+def _(null: op3_insn.InstructionList, /, **kwargs) -> idict:
     return idict()
 
 
-@_collect_candidate_indirections.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> idict:
+@_collect_candidate_indirections.register(op3_insn.InstructionList)
+def _(insn_list: op3_insn.InstructionList, /, **kwargs) -> idict:
     return merge_dicts(
         (_collect_candidate_indirections(insn, **kwargs) for insn in insn_list),
     )
 
 
-@_collect_candidate_indirections.register(Loop)
-def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> idict:
+@_collect_candidate_indirections.register(op3_insn.Loop)
+def _(loop: op3_insn.Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> idict:
     loop_indices_ = loop_indices + (loop.index,)
     return merge_dicts(
         (
@@ -635,13 +630,13 @@ def concretize_materialized_indirections(obj, layouts) -> Instruction:
     raise TypeError
 
 
-@concretize_materialized_indirections.register(InstructionList)
-def _(insn_list: InstructionList, /, layouts: Mapping[Any, Any]) -> InstructionList:
+@concretize_materialized_indirections.register(op3_insn.InstructionList)
+def _(insn_list: op3_insn.InstructionList, /, layouts: Mapping[Any, Any]) -> op3_insn.InstructionList:
     return maybe_enlist(concretize_materialized_indirections(insn, layouts) for insn in insn_list)
 
 
-@concretize_materialized_indirections.register(Loop)
-def _(loop: Loop, /, layouts: Mapping[Any, Any]) -> Loop:
+@concretize_materialized_indirections.register(op3_insn.Loop)
+def _(loop: op3_insn.Loop, /, layouts: Mapping[Any, Any]) -> op3_insn.Loop:
     return loop.__record_init__(statements=tuple(concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements))
 
 
@@ -659,3 +654,66 @@ def _(assignment: NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> Con
     return ConcretizedNonEmptyArrayAssignment(
         assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
     )
+
+
+# does this live here?
+class Renamer:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def add(self, obj: Any):
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[type(obj)])
+            label = f"{type(obj).__name__}_{index}"
+            return self._store.setdefault(obj, label)
+
+
+class _DiskCacheKeyGetter(Visitor):
+
+    def __init__(self):
+        self._renamer = Renamer()
+        super().__init__()
+
+    @Visitor.process.register(op3_insn.InstructionList)
+    @Visitor.process.register(op3_insn.NullInstruction)
+    @postorder
+    def _(self, insn: Instruction, *visited: Hashable) -> Hashable:
+        return (type(insn), *visited)
+
+    @Visitor.process.register(op3_insn.Loop)
+    def _(self, loop: op3_insn.Loop) -> Hashable:
+        from pyop3.tree.axis_tree.visitors import (
+            get_disk_cache_key as get_axis_tree_disk_cache_key
+        )
+
+        self._renamer.add(loop.index)
+        return (
+            type(insn),
+            get_axis_tree_disk_cache_key(loop.index.iterset, self._renamer),
+            *(self(stmt) for stmt in loop.statements),
+        )
+
+    # TODO: Could have a nice visiter that checks fields (except where hash=False)
+    @Visitor.process.register(op3_insn.ConcretizedNonEmptyArrayAssignment)
+    def _(self, assignment: op3_insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
+        from pyop3.tree.axis_tree.visitors import get_disk_cache_key as get_axis_tree_disk_cache_key
+        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
+
+        return (
+            type(assignment),
+            get_expr_disk_cache_key(assignment.assignee, self._renamer),
+            get_expr_disk_cache_key(assignment.expression, self._renamer),
+            assignment.assignment_type,
+            tuple(get_axis_tree_disk_cache_key(tree, self._renamer) for tree in assignment.axis_trees),
+            *(self(stmt) for stmt in loop.statements),
+        )
+
+
+def get_disk_cache_key(insn: Instruction) -> Hashable:
+    return _DiskCacheKeyGetter()(insn)

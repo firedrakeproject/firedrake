@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import abc
+import functools
 from collections.abc import Hashable
-from functools import cached_property, singledispatchmethod, wraps
+from functools import cached_property
 
 from immutabledict import immutabledict as idict
 
@@ -19,39 +20,13 @@ class Node(abc.ABC):
     def children(self) -> idict:
         return idict({attr: getattr(self, attr) for attr in self.child_attrs})
 
-    @property
-    def is_final(self) -> bool:
-        return False
-
-    @property
-    def _disk_cache_key(self) -> Hashable:
-        raise NotImplementedError(f"{type(self).__name__} does not define a '_disk_cache_key' attribute")
-
-    @cached_property
-    def disk_cache_key(self) -> Hashable:
-        """Key used to write the element to disk.
-
-        The returned key should be consistent across ranks and not include
-        overly specific information such as buffer names or array values.
-
-        For mutable objects like buffers, the key should renumber them from 0
-        to achieve maximal reuse.
-
-        Lowered operations consisting solely of codegen-ready objects can use a
-        disk cache. This is because the type guarantees that no further
-        data-dependent transformations will occur.
-
-        """
-        assert self.is_final
-        return self._disk_cache_key
-
 
 class Terminal(Node, abc.ABC):
     child_attrs = ()
 
 
 """Taken from UFL"""
-class DAGTraverser(abc.ABC):
+class Visitor(abc.ABC):
     """Base class for DAG traversers.
 
     Args:
@@ -89,7 +64,7 @@ class DAGTraverser(abc.ABC):
         try:
             return self._visited_cache[cache_key]
         except KeyError:
-            result = self._safe_process(node, **kwargs)
+            result = self.process(node, **kwargs)
             # Optionally check if r is in result_cache, a memory optimization
             # to be able to keep representation of result compact
             if self._compress:
@@ -104,7 +79,7 @@ class DAGTraverser(abc.ABC):
             self._visited_cache[cache_key] = result
             return result
 
-    @singledispatchmethod
+    @functools.singledispatchmethod
     def process(self, o: Expr, **kwargs) -> Expr:
         """Process node by type.
 
@@ -132,14 +107,18 @@ class DAGTraverser(abc.ABC):
             Processed expression.
 
         """
-        new_children = {
+        new_children = idict({
             name: self(child, **kwargs)
-            for name, child in o.children
-        }
+            for name, child in o.children.items()
+        })
         if new_children == o.children:
             return o
         else:
             return o.__record_init__(**new_children)
+
+class Transformer(Visitor, abc.ABC):
+    pass
+
 
 def postorder(method):
     """Postorder decorator.
@@ -153,15 +132,12 @@ def postorder(method):
 
     """
 
-    @wraps(method)
+    @functools.wraps(method)
     def wrapper(self, o, **kwargs):
-        processed_operands = [self(operand, **kwargs) for operand in o.ufl_operands]
-        return method(self, o, *processed_operands, **kwargs)
+        new_children = idict({
+            name: self(child, **kwargs)
+            for name, child in o.children.items()
+        })
+        return method(self, o, new_children, **kwargs)
 
     return wrapper
-
-
-class Transformer(DAGTraverser, abc.ABC):
-    def _safe_process(self, o, **kwargs):
-        assert not o.is_final
-        return self.process(o, **kwargs)

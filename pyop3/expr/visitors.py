@@ -12,6 +12,7 @@ from typing import Any, Callable, Literal
 import numpy as np
 from immutabledict import immutabledict as idict
 from pyop3.cache import scoped_cache
+from pyop3.node import Visitor, postorder
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
@@ -1044,3 +1045,37 @@ def min_(a, b, /, *, lazy: bool = False) -> op3_expr.Conditional | numbers.Numbe
         return conditional(a < b, a, b)
     else:
         return op3_expr.Conditional(op3_expr.LessThan(a, b), a, b)
+
+
+class _DiskCacheKeyGetter(Visitor):
+
+    def __init__(self, renamer=None):
+        if renamer is None:
+            renamer = Renamer()
+        self._renamer = renamer
+        super().__init__()
+
+    @Visitor.process.register(numbers.Number)
+    def _(self, obj: ExpressionT, /) -> Hashable:
+        return (obj,)
+
+    @Visitor.process.register(op3_expr.AxisVar)
+    def _(self, axis_var: op3_expr.AxisVar, /) -> Hashable:
+        return (type(axis_var), self._renamer.add(axis_var.axis))
+
+    @Visitor.process.register(op3_expr.LoopIndexVar)
+    def _(self, loop_var: op3_expr.LoopIndexVar, /) -> Hashable:
+        return (type(loop_var), self._renamer[loop_var.index], self._renamer.add(loop_var.axis))
+
+    @Visitor.process.register(op3_expr.LinearDatBufferExpression)
+    @postorder
+    def _(self, dat_expr: op3_expr.LinearDatBufferExpression, visited: Mapping, /) -> Hashable:
+        return (
+            type(dat_expr),
+            self._renamer.add(dat_expr.buffer),
+            visited,
+        )
+
+
+def get_disk_cache_key(expr: ExpressionT, renamer) -> Hashable:
+    return _DiskCacheKeyGetter(renamer)(expr)

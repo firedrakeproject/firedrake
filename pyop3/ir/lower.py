@@ -26,6 +26,7 @@ import pymbolic as pym
 from immutabledict import immutabledict as idict
 
 from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi
+from pyop3.cache import memory_and_disk_cache
 from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
@@ -641,61 +642,34 @@ class SolveCallable(LACallable):
         yield ("solve", solve_preamble)
 
 
-class BinarySearchCallable(lp.ScalarCallable):
-    def __init__(self, name="bsearch", **kwargs):
-        super().__init__(name, **kwargs)
-
-    def with_types(self, arg_id_to_dtype, callables_table):
-        new_arg_id_to_dtype = arg_id_to_dtype.copy()
-        new_arg_id_to_dtype[-1] = int
-        return (
-            self.copy(name_in_target="bsearch", arg_id_to_dtype=new_arg_id_to_dtype),
-            callables_table,
-        )
-
-    def with_descrs(self, arg_id_to_descr, callables_table):
-        return self.copy(arg_id_to_descr=arg_id_to_descr), callables_table
-
-    def emit_call_insn(self, insn, target, expression_to_code_mapper):
-        assert False
-        from pymbolic import var
-
-        mat_descr = self.arg_id_to_descr[0]
-        m, n = mat_descr.shape
-        ecm = expression_to_code_mapper
-        mat, vec = insn.expression.parameters
-        (result,) = insn.assignees
-
-        c_parameters = [
-            var("CblasRowMajor"),
-            var("CblasNoTrans"),
-            m,
-            n,
-            1,
-            ecm(mat).expr,
-            1,
-            ecm(vec).expr,
-            1,
-            ecm(result).expr,
-            1,
-        ]
-        return (
-            var(self.name_in_target)(*c_parameters),
-            False,  # cblas_gemv does not return anything
-        )
-
-    def generate_preambles(self, target):
-        assert isinstance(target, lp.CTarget)
-        yield ("20_stdlib", "#include <stdlib.h>")
-        return
-
-
-# prefer generate_code?
+# TODO: prefer generate_code?
 def compile(expr, compiler_parameters=None):
-    insn = expr
-
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
+    loopy_code, buffer_index_map = _compile_static(expr, compiler_parameters)
+    breakpoint()  # need to manage the buffer index map...
+    return CompiledCodeExecutor(loopy_code, sorted_buffers, compiler_parameters, expr.comm)
 
+
+def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+    return (op.disk_cache_key, compiler_parameters, CONFIG)
+
+
+@memory_and_disk_cache(
+    hashkey=_compile_static_hashkey,
+    get_comm=lambda op, *args, **kwargs: op.comm,
+)
+def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> tuple:
+    """Compile the operation without regard for specific data values.
+
+    This function is therefore suitable for disk caching.
+
+    Returns
+    -------
+    TU
+    datamap
+
+    """
+    insn = op.root_insn
     # function_name = insn.name
     function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
@@ -714,21 +688,6 @@ def compile(expr, compiler_parameters=None):
         # add external loop indices as kernel arguments
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
-        # for index, (path, _) in context.items():
-        #     if len(path) > 1:
-        #         raise NotImplementedError("needs to be sorted")
-        #
-        #     # dummy = Dat(index.iterset, data=NullBuffer(IntType))
-        #     dummy = Dat(Axis(1), dtype=IntType)
-        #     # this is dreadful, pass an integer array instead
-        #     ctx.add_argument(dummy)
-        #     myname = ctx.actual_to_kernel_rename_map[dummy.name]
-        #     replace_map = {
-        #         axis: pym.subscript(pym.var(myname), (i,))
-        #         for i, axis in enumerate(path.keys())
-        #     }
-        #     # FIXME currently assume that source and target exprs are the same, they are not!
-        #     loop_indices[index] = (replace_map, replace_map)
 
         for e in utils.as_tuple(ex): # TODO: get rid of this loop
             # context manager?
@@ -756,19 +715,6 @@ def compile(expr, compiler_parameters=None):
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
-        (
-            "30_bsearch",
-            textwrap.dedent(
-                """
-                #include <stdlib.h>
-
-
-                int32_t cmpfunc(const void * a, const void * b) {
-                   return ( *(int32_t*)a - *(int32_t*)b );
-                }
-            """
-            ),
-        ),
     ]
 
     translation_unit = lp.make_kernel(
@@ -791,6 +737,9 @@ def compile(expr, compiler_parameters=None):
         entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
+    debug = op.buffers
+    breakpoint()
+
     # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
     sorted_buffers = {}
@@ -798,7 +747,8 @@ def compile(expr, compiler_parameters=None):
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = (context.global_buffers[buffer_key], context.global_buffer_intents[buffer_key])
 
-    return CompiledCodeExecutor(translation_unit, sorted_buffers, compiler_parameters, expr.comm)
+    return translation_unit, buffer_index_map
+
 
 
 # put into a class in transform.py?

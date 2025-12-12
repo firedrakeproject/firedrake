@@ -71,6 +71,8 @@ class ScalarBufferExpression(BufferExpression):
 
     # {{{ interface impls
 
+    child_attrs = ()
+
     buffer = utils.attr("_buffer")
 
     @property
@@ -167,6 +169,8 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     # }}}
 
     # {{{ interface impls
+
+    child_attrs = ("layout",)
 
     buffer: ClassVar = utils.attr("_buffer")
 
