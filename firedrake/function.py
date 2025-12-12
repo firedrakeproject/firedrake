@@ -4,6 +4,7 @@ import sys
 import ufl
 import warnings
 from ufl.algorithms.analysis import extract_arguments
+from ufl.constantvalue import as_ufl
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
@@ -382,7 +383,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             Returns `self`
         """
         from firedrake import interpolate, assemble
-        if len(extract_arguments(expression)) > 0:
+        if len(extract_arguments(as_ufl(expression))) > 0:
             raise ValueError("Can't interpolate an expression with arguments into a Function.")
         V = self.function_space()
         interp = interpolate(expression, V, **kwargs)
