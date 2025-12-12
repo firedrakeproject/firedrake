@@ -74,6 +74,8 @@ from firedrake.mg.mesh import *
 from firedrake.mg.interface import *
 from firedrake.mg.embedded import *
 from firedrake.mg.opencascade_mh import *
+from firedrake.mg.adaptive_hierarchy import *
+from firedrake.mg.adaptive_transfer_manager import *
 from firedrake.norms import *
 from firedrake.nullspace import *
 from firedrake.output import *
