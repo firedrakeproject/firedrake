@@ -180,8 +180,7 @@ class ExtractSubBlock(MultiFunction):
             args.append(asplit)
 
         submat = o.petscmat.createSubMatrix(*ises)
-        bcs = ()
-        return AssembledMatrix(tuple(args), bcs, submat)
+        return AssembledMatrix(tuple(args), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))

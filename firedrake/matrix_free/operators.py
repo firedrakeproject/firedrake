@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Iterable
+from typing import Any, Iterable
 import itertools
 
 from mpi4py import MPI
@@ -64,26 +64,6 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-    """This class gives the Python context for a PETSc Python matrix.
-
-    :arg a: The bilinear form defining the matrix
-
-    :arg row_bcs: An iterable of the :class.`.DirichletBC`s that are
-      imposed on the test space.  We distinguish between row and
-      column boundary conditions in the case of submatrices off of the
-      diagonal.
-
-    :arg col_bcs: An iterable of the :class.`.DirichletBC`s that are
-       imposed on the trial space.
-
-    :arg fcparams: A dictionary of parameters to pass on to the form
-       compiler.
-
-    :arg appctx: Any extra user-supplied context, available to
-       preconditioners and the like.
-
-    """
-
 class ImplicitMatrixContext(object):
     # By default, these matrices will represent diagonal blocks (the
     # (0,0) block of a 1x1 block matrix is on the diagonal).
@@ -96,16 +76,37 @@ class ImplicitMatrixContext(object):
         a: ufl.BaseForm, 
         row_bcs: Iterable[DirichletBC] | None = None,
         col_bcs: Iterable[DirichletBC] | None = None,
-        fc_params=None, 
-        appctx=None
+        fc_params : dict[str, Any] | None = None, 
+        appctx: dict[str, Any] | None = None
         ):
+        """This class gives the Python context for a PETSc Python matrix.
+
+        Parameters
+        ----------
+        a
+            The bilinear form defining the matrix.
+        row_bcs
+            An iterable of the :class.`.DirichletBC`s that are
+            imposed on the test space. We distinguish between row and
+            column boundary conditions in the case of submatrices off
+            of the diagonal. By default None.
+        col_bcs
+            An iterable of the :class.`.DirichletBC`s that are imposed
+            on the trial space. By default None.
+        fc_params
+            A dictionary of parameters to pass on to the form compiler.
+            By default None.
+        appctx
+            Any extra user-supplied context, available to preconditioners 
+            and the like. By default None.
+        """
         from firedrake.assemble import get_assembler
 
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self.fc_params = fc_params
-        self.appctx = appctx
+        self.fc_params = fc_params or {}
+        self.appctx = appctx or {}
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.

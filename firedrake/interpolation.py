@@ -364,6 +364,7 @@ class Interpolator(abc.ABC):
             return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
 
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
+
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
@@ -372,7 +373,7 @@ class Interpolator(abc.ABC):
                 result.copy(tensor.petscmat)
                 return tensor
             else:
-                return Matrix(self.ufl_interpolate, result, mat_type, bcs=bcs)
+                return Matrix(self.ufl_interpolate, result, bcs=bcs)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
