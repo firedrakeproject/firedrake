@@ -1,7 +1,7 @@
 from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
-from finat.ufl import BrokenElement, RestrictedElement, MixedElement, TensorElement, VectorElement
+from finat.ufl import MixedElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
@@ -60,8 +60,8 @@ class FacetSplitPC(PCBase):
             raise ValueError("Decomposition of mixed elements is not supported")
 
         element = V.ufl_element()
-        elements = [restrict(element, domain) for domain in domains]
-        W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(elements))
+        elements = [element[domain] for domain in domains]
+        W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(*elements))
         if V.boundary_set:
             W = restricted_function_space(W, [V.boundary_set]*len(W))
 
@@ -204,19 +204,6 @@ class FacetSplitPC(PCBase):
         if hasattr(self, "subset"):
             if self.subset:
                 self.subset.destroy()
-
-
-def restrict(ele, restriction_domain):
-    """ Restrict a UFL element, keeping VectorElement and TensorElement as the outermost modifier.
-    """
-    if isinstance(ele, VectorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
-    elif isinstance(ele, TensorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmetry)
-    elif restriction_domain == "broken":
-        return BrokenElement(ele)
-    else:
-        return RestrictedElement(ele, restriction_domain)
 
 
 def split_dofs(elem):
