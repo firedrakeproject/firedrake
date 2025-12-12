@@ -3012,7 +3012,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
 
 
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
-    """Make mesh from tpology.
+    """Make mesh from topology.
 
     Parameters
     ----------
@@ -4734,7 +4734,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=True, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4743,12 +4743,20 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         Parent mesh (`MeshGeometry`).
     subdim : int
         Topological dimension of the submesh.
-    subdomain_id : int
+    subdomain_id : int | None
         Subdomain ID representing the submesh.
-    label_name : str
+        `None` defines the submesh owned by the sub-communicator.
+    label_name : str | None
         Name of the label to search ``subdomain_id`` in.
-    name : str
+    name : str |  None
         Name of the submesh.
+    ignore_halo : bool
+        Whether to exclude the halo from the submesh.
+    reorder : bool
+        Whether to reorder the mesh entities.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
+        By default, the submesh is defined on `mesh.comm`.
 
     Returns
     -------
@@ -4817,8 +4825,18 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
             label_name = dmcommon.CELL_SETS_LABEL
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
+    if subdomain_id is None:
+        # Filter the plex with PETSc's default label (cells owned by comm)
+        if label_name != dmcommon.CELL_SETS_LABEL:
+            raise ValueError("subdomain_id == None requires label_name == CELL_SETS_LABEL.")
+        subplex, sf = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
+        dmcommon.submesh_update_facet_labels(plex, subplex)
+        dmcommon.submesh_correct_entity_classes(plex, subplex, sf)
+    else:
+        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+
+    comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, False)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
@@ -4826,6 +4844,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         subplex,
         submesh_parent=mesh,
         name=name,
+        comm=comm,
+        reorder=reorder,
         distribution_parameters={
             "partition": False,
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
