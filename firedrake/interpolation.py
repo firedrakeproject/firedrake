@@ -357,7 +357,7 @@ class Interpolator(abc.ABC):
         """
         self._check_mat_type(mat_type)
 
-        if mat_type == "matfree":
+        if mat_type == "matfree" and self.rank == 2:
             ctx = ImplicitMatrixContext(
                 self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
             )

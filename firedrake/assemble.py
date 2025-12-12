@@ -238,7 +238,7 @@ class ExprAssembler(object):
             if isinstance(expr, ufl.algebra.Sum):
                 a, b = [assemble(e) for e in expr.ufl_operands]
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
-                if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                if not all(isinstance(op, matrix.MatrixBase) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
                 return assemble(ufl.FormSum((a, 1), (b, 1)), tensor=tensor)
             elif isinstance(expr, ufl.algebra.Product):
