@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import restrict, restricted_dofs, split_dofs
+from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
@@ -1602,7 +1602,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 def broken_function(V, val):
     """Return a Function(V, val=val) interpolated onto the broken space."""
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
+    W = V.broken_space()
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"
