@@ -14,7 +14,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
 from pyop3 import utils
-from pyop3.node import Transformer, Visitor, postorder
+from pyop3.node import Transformer, NodeVisitor, NodeCollector
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
@@ -65,22 +65,25 @@ import pyop3.extras.debug
 
 class InstructionTransformer(Transformer):
 
-    # @singledispatchmethod
-    # def process(self, o, **kwargs) -> Expr:
-    #     """Placeholder"""
-    #     return super().process(o, **kwargs)
+    @functools.singledispatchmethod
+    def process(self, insn: Instruction, /, **kwargs) -> Instruction:
+        return super().process(insn, **kwargs)
 
     # Instruction lists have a common pattern
-    # @process.register(op3_expr.InstructionList)
-    @Transformer.process.register(op3_insn.InstructionList)
-    @postorder
+    @process.register(op3_insn.InstructionList)
+    @Transformer.postorder
     def _(self, insn_list: op3_insn.InstructionList, /, *insns, **kwargs) -> op3_insn.Instruction:
+        breakpoint()  # likely wrong
         return maybe_enlist(insns)
 
 
 class LoopContextExpander(InstructionTransformer):
 
-    @InstructionTransformer.process.register(op3_insn.Loop)
+    @functools.singledispatchmethod
+    def process(self, insn: Instruction, /, **kwargs) -> Instruction:
+        return super().process(insn, **kwargs)
+
+    @process.register(op3_insn.Loop)
     def _(self, loop: op3_insn.Loop, /, *, loop_context) -> op3_insn.Loop | op3_insn.InstructionList:
         expanded_loops = []
         iterset = loop.index.iterset
@@ -111,18 +114,18 @@ class LoopContextExpander(InstructionTransformer):
         return maybe_enlist(expanded_loops)
 
 
-    @InstructionTransformer.process.register(op3_insn.CalledFunction)
+    @process.register(op3_insn.CalledFunction)
     def _(self, func: op3_insn.CalledFunction, /, *, loop_context) -> op3_insn.CalledFunction:
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
         return func.__record_init__(_arguments=new_arguments)
 
-    @InstructionTransformer.process.register(op3_insn.ArrayAssignment)
+    @process.register(op3_insn.ArrayAssignment)
     def _(self, assignment: op3_insn.ArrayAssignment, /, *, loop_context) -> op3_insn.ArrayAssignment:
         assignee = restrict_expression_to_context(assignment.assignee, loop_context)
         expression = restrict_expression_to_context(assignment.expression, loop_context)
         return assignment.__record_init__(_assignee=assignee, _expression=expression)
 
-    @InstructionTransformer.process.register(op3_insn.Exscan)  # for now assume we are fine
+    @process.register(op3_insn.Exscan)  # for now assume we are fine
     def _(self, insn: op3_insn.Instruction, /, **kwargs) -> op3_insn.Instruction:
         return self.reuse_if_untouched(insn)
 
@@ -674,19 +677,24 @@ class Renamer:
             return self._store.setdefault(obj, label)
 
 
-class _DiskCacheKeyGetter(Visitor):
+class _DiskCacheKeyGetter(NodeVisitor):
 
     def __init__(self):
         self._renamer = Renamer()
         super().__init__()
 
-    @Visitor.process.register(op3_insn.InstructionList)
-    @Visitor.process.register(op3_insn.NullInstruction)
-    @postorder
+    @functools.singledispatchmethod
+    def process(self, obj: Instruction) -> Hashable:
+        return super().process(obj)
+
+
+    @process.register(op3_insn.InstructionList)
+    @process.register(op3_insn.NullInstruction)
+    @NodeVisitor.postorder
     def _(self, insn: Instruction, *visited: Hashable) -> Hashable:
         return (type(insn), *visited)
 
-    @Visitor.process.register(op3_insn.Loop)
+    @process.register(op3_insn.Loop)
     def _(self, loop: op3_insn.Loop) -> Hashable:
         from pyop3.tree.axis_tree.visitors import (
             get_disk_cache_key as get_axis_tree_disk_cache_key
@@ -700,7 +708,7 @@ class _DiskCacheKeyGetter(Visitor):
         )
 
     # TODO: Could have a nice visiter that checks fields (except where hash=False)
-    @Visitor.process.register(op3_insn.ConcretizedNonEmptyArrayAssignment)
+    @process.register(op3_insn.ConcretizedNonEmptyArrayAssignment)
     def _(self, assignment: op3_insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
         from pyop3.tree.axis_tree.visitors import get_disk_cache_key as get_axis_tree_disk_cache_key
         from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
@@ -711,9 +719,54 @@ class _DiskCacheKeyGetter(Visitor):
             get_expr_disk_cache_key(assignment.expression, self._renamer),
             assignment.assignment_type,
             tuple(get_axis_tree_disk_cache_key(tree, self._renamer) for tree in assignment.axis_trees),
-            *(self(stmt) for stmt in loop.statements),
         )
 
 
 def get_disk_cache_key(insn: Instruction) -> Hashable:
     return _DiskCacheKeyGetter()(insn)
+
+
+class BufferCollector(NodeCollector):
+
+    def __init__(self):
+        from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
+        from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
+
+        expr_collector = ExprBufferCollector()
+        tree_collector = TreeBufferCollector()
+        expr_collector.tree_collector = tree_collector
+        tree_collector.expr_collector = expr_collector
+
+        self._expr_collector = expr_collector
+        self._tree_collector = tree_collector
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj: Instruction) -> OrderedSet:
+        return super().process(obj)
+
+    @process.register(op3_insn.InstructionList)
+    @NodeCollector.postorder
+    def _(self, insn_list: op3_insn.InstructionList, visited, /) -> OrderedSet:
+        return utils.reduce("|", visited.values(), OrderedSet())
+
+    @process.register(op3_insn.NullInstruction)
+    def _(self, insn: op3_insn.NullInstruction, /) -> OrderedSet:
+        return OrderedSet()
+
+    @process.register(op3_insn.Loop)
+    @NodeCollector.postorder
+    def _(self, insn: op3_insn.Loop, visited, /) -> OrderedSet:
+        return utils.reduce("|", self._tree_collector(insn.index.iterset), visited.values())
+
+    @process.register(op3_insn.ConcretizedNonEmptyArrayAssignment)
+    def _(self, assignment: op3_insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
+        return (
+            self._expr_collector(assignment.assignee)
+            | self._expr_collector(assignment.expression)
+            | utils.reduce("|", map(self._tree_collector, assignment.axis_trees))
+        )
+
+
+def collect_buffers(insn: Instruction) -> OrderedSet:
+    return BufferCollector()(insn)

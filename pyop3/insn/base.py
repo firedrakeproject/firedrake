@@ -248,7 +248,9 @@ class PreprocessedOperation:
     @cached_property
     def buffers(self) -> OrderedSet:
         """The buffers (global data) that are present in the operation."""
-        raise NotImplementedError
+        from pyop3.insn.visitors import collect_buffers
+
+        return collect_buffers(self.root_insn)
 
     @cached_property
     def disk_cache_key(self) -> Hashable:

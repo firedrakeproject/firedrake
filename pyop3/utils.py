@@ -154,26 +154,13 @@ class UniqueList(list):
         return super().append(value)
 
 
-class OrderedSet(collections.abc.Sequence):
-    """A mutable ordered set."""
-
-    def __init__(self, values=None, /) -> None:
-        # Python dicts are ordered so we use one to keep the ordering
-        # and also have O(1) access.
-        # self._values = {}
-
-        # actually sometimes we have non-hashable things (PETSc Mats), so use a list
-        # NOTE: This is very unsatisfying
-        if values is not None:
-            self._values = list(values)
-        else:
-            self._values = []
+class AbstractOrderedSet:
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._values!r})"
 
     def __str__(self) -> str:
-        return f"{{{', '.join(self._values)}}})"
+        return f"{{{', '.join(self._values)}}}"
 
     def __len__(self) -> int:
         return len(self._values)
@@ -194,18 +181,39 @@ class OrderedSet(collections.abc.Sequence):
     def __reversed__(self):
         return iter(reversed(self._values))
 
-    def __or__(self, other, /) -> OrderedSet:
-        # NOTE: other must be iterable
-        merged = self.copy()
+    def __or__(self, other, /) -> AbstractOrderedSet:
+        assert is_ordered_sequence(other)
+        values = list(self._values)
         for item in other:
-            merged.add(item)
-        return merged
+            if item not in values:
+                values.append(item)
+        return type(self)(values)
+
+    def union(self, /, *others) -> AbstractOrderedSet:
+        new = self
+        for other in others:
+            new |= other
+        return new
+
+
+
+
+class OrderedSet(AbstractOrderedSet):
+    """A mutable ordered set."""
+
+    def __init__(self, values=None, /) -> None:
+        if values is not None:
+            self._values = list(values)
+        else:
+            self._values = []
+
 
     def index(self, value) -> int:
         return self._values.index(value)
 
     def count(self, value) -> int:
-        return 1
+        # why did I write this?
+        raise NotImplementedError
 
     def copy(self) -> OrderedSet:
         return OrderedSet(self._values)
@@ -215,17 +223,14 @@ class OrderedSet(collections.abc.Sequence):
         if value not in self._values:
             self._values.append(value)
 
-    def union(self, /, *others):
-        new = self.copy()
-        for other in others:
-            for value in other:
-                new.add(value)
-        return new
 
+class OrderedFrozenSet(AbstractOrderedSet):
 
-# TODO
-class FrozenOrderedSet:
-    pass
+    def __init__(self, values: collections.abc.Sequence = (), /) -> None:
+        self._values = tuple(values)
+
+    def __hash__(self) -> int:
+        return hash((type(self), self._values))
 
 
 def as_tuple(item):
@@ -518,9 +523,25 @@ def debug_assert(predicate, msg=None):
 
 _ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
 
+_dict_keys_type = type({}.keys())
+_dict_values_type = type({}.values())
+_dict_items_type = type({}.items())
+_ordered_sequence_types = (
+    list,
+    tuple,
+    AbstractOrderedSet,
+    _dict_keys_type,
+    _dict_values_type,
+    _dict_items_type,
+)
 
-def is_ordered_mapping(obj: Mapping):
+
+def is_ordered_mapping(obj: Mapping) -> bool:
     return isinstance(obj, _ordered_mapping_types)
+
+
+def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
+    return isinstance(obj, _ordered_sequence_types)
 
 
 # TODO: case for using typing generics

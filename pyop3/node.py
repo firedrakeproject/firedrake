@@ -4,6 +4,7 @@ import abc
 import functools
 from collections.abc import Hashable
 from functools import cached_property
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
@@ -47,7 +48,22 @@ class Visitor(abc.ABC):
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
 
-    def __call__(self, node: Expr, **kwargs) -> Expr:
+    # {{{ interface impls
+
+    def __call__(self, *args, **kwargs):
+        """Maybe overload this if you want to set some things up"""
+        return self._call(*args, **kwargs)
+
+    def get_cache_key(self, node, **kwargs) -> Hashable:
+        """Maybe overload this if you want to set some things up"""
+        return (node, tuple((k, v) for k, v in kwargs.items()))
+
+    def preprocess_node(self, node) -> tuple[Any, ...]:
+        return (node,)
+
+    # }}}
+
+    def _call(self, node: Expr, **kwargs) -> Expr:
         """Perform memoised DAG traversal with ``process`` singledispatch method.
 
         Args:
@@ -60,11 +76,12 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
-        cache_key = (node, tuple((k, v) for k, v in kwargs.items()))
+        cache_key = self.get_cache_key(node, **kwargs)
         try:
             return self._visited_cache[cache_key]
         except KeyError:
-            result = self.process(node, **kwargs)
+            preprocessed = self.preprocess_node(node)
+            result = self.process(*preprocessed, **kwargs)
             # Optionally check if r is in result_cache, a memory optimization
             # to be able to keep representation of result compact
             if self._compress:
@@ -94,6 +111,83 @@ class Visitor(abc.ABC):
         """
         raise AssertionError(f"Rule not set for {type(o)}")
 
+    @staticmethod
+    def postorder(method):
+        """Postorder decorator.
+
+        It is more natural for users to write a post-order singledispatchmethod
+        whose arguments are ``(self, o, *processed_operands, **kwargs)``,
+        while `DAGTraverser` expects one whose arguments are
+        ``(self, o, **kwargs)``.
+        This decorator takes the former and converts to the latter, processing
+        ``o.ufl_operands`` behind the users.
+
+        """
+        raise NotImplementedError
+
+
+class LabelledTreeVisitor(Visitor):
+    def __init__(self):
+        super().__init__()
+
+        # variables that are only valid mid traversal
+        self._tree = None
+
+    # {{{ interface impls
+
+    def __call__(self, tree: AxisTree, **kwargs):
+        try:
+            self._tree = tree
+            # NOTE: what happens when the tree is empty?
+            return self._call(idict(), **kwargs)
+        finally:
+            self._tree = None
+
+    def get_cache_key(self, path: ConcretePathT, **kwargs) -> Hashable:
+        # an axis is uniquely identified by itself and the subtree beneath it
+        return (
+            self._tree._subtree_node_map(path),
+            tuple((k, v) for k, v in kwargs.items()),
+        )
+
+    def preprocess_node(self, path: ConcetePathT, /) -> tuple[TreeNode, ConcretePathT]:
+        return (self._tree.node_map[path], path)
+
+    @staticmethod
+    def postorder(method):
+        @functools.wraps(method)
+        def wrapper(self, node, path, **kwargs):
+            visited = []
+            for component_label in node.component_labels:
+                path_ = path | {node.label: component_label}
+                if self._tree.node_map[path_]:
+                    visited.append(self._call(path_, **kwargs))
+                else:
+                    visited.append(None)
+            visited = tuple(visited)
+            return method(self, node, path, visited, **kwargs)
+        return wrapper
+
+    # }}}
+
+
+class NodeVisitor(Visitor):
+
+    @staticmethod
+    def postorder(method):
+        @functools.wraps(method)
+        def wrapper(self, o, **kwargs):
+            new_children = idict({
+                name: self(child, **kwargs)
+                for name, child in o.children.items()
+            })
+            return method(self, o, new_children, **kwargs)
+
+        return wrapper
+
+
+
+class Transformer(NodeVisitor, abc.ABC):
     def reuse_if_untouched(self, o: Expr | BaseForm, **kwargs) -> Expr | BaseForm:
         """Reuse if untouched.
 
@@ -116,28 +210,7 @@ class Visitor(abc.ABC):
         else:
             return o.__record_init__(**new_children)
 
-class Transformer(Visitor, abc.ABC):
+
+# TODO: postorder could merge things in advance...
+class NodeCollector(NodeVisitor, abc.ABC):
     pass
-
-
-def postorder(method):
-    """Postorder decorator.
-
-    It is more natural for users to write a post-order singledispatchmethod
-    whose arguments are ``(self, o, *processed_operands, **kwargs)``,
-    while `DAGTraverser` expects one whose arguments are
-    ``(self, o, **kwargs)``.
-    This decorator takes the former and converts to the latter, processing
-    ``o.ufl_operands`` behind the users.
-
-    """
-
-    @functools.wraps(method)
-    def wrapper(self, o, **kwargs):
-        new_children = idict({
-            name: self(child, **kwargs)
-            for name, child in o.children.items()
-        })
-        return method(self, o, new_children, **kwargs)
-
-    return wrapper

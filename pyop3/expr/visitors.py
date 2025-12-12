@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal
 import numpy as np
 from immutabledict import immutabledict as idict
 from pyop3.cache import scoped_cache
-from pyop3.node import Visitor, postorder
+from pyop3.node import NodeVisitor, NodeCollector
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
@@ -22,7 +22,7 @@ from pyop3 import utils
 # TODO: just namespace these
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
-from pyop3.utils import OrderedSet, just_one
+from pyop3.utils import OrderedSet, just_one, OrderedFrozenSet
 
 import pyop3.expr as op3_expr
 from pyop3.insn.base import loop_
@@ -1047,7 +1047,7 @@ def min_(a, b, /, *, lazy: bool = False) -> op3_expr.Conditional | numbers.Numbe
         return op3_expr.Conditional(op3_expr.LessThan(a, b), a, b)
 
 
-class _DiskCacheKeyGetter(Visitor):
+class _DiskCacheKeyGetter(NodeVisitor):
 
     def __init__(self, renamer=None):
         if renamer is None:
@@ -1055,20 +1055,31 @@ class _DiskCacheKeyGetter(Visitor):
         self._renamer = renamer
         super().__init__()
 
-    @Visitor.process.register(numbers.Number)
+    @functools.singledispatchmethod
+    def process(self, obj: Instruction) -> OrderedSet:
+        return super().process(obj)
+
+    @process.register(numbers.Number)
     def _(self, obj: ExpressionT, /) -> Hashable:
         return (obj,)
 
-    @Visitor.process.register(op3_expr.AxisVar)
+    @process.register(op3_expr.AxisVar)
     def _(self, axis_var: op3_expr.AxisVar, /) -> Hashable:
         return (type(axis_var), self._renamer.add(axis_var.axis))
 
-    @Visitor.process.register(op3_expr.LoopIndexVar)
+    @process.register(op3_expr.LoopIndexVar)
     def _(self, loop_var: op3_expr.LoopIndexVar, /) -> Hashable:
         return (type(loop_var), self._renamer[loop_var.index], self._renamer.add(loop_var.axis))
 
-    @Visitor.process.register(op3_expr.LinearDatBufferExpression)
-    @postorder
+    @process.register(op3_expr.ScalarBufferExpression)
+    def _(self, scalar: op3_expr.ScalarBufferExpression, /) -> Hashable:
+        return (
+            type(scalar),
+            self._renamer.add(scalar.buffer),
+        )
+
+    @process.register(op3_expr.LinearDatBufferExpression)
+    @NodeVisitor.postorder
     def _(self, dat_expr: op3_expr.LinearDatBufferExpression, visited: Mapping, /) -> Hashable:
         return (
             type(dat_expr),
@@ -1079,3 +1090,45 @@ class _DiskCacheKeyGetter(Visitor):
 
 def get_disk_cache_key(expr: ExpressionT, renamer) -> Hashable:
     return _DiskCacheKeyGetter(renamer)(expr)
+
+
+class BufferCollector(NodeCollector):
+
+    def __init__(self, tree_collector: TreeBufferCollector | None = None):
+        from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
+
+        if tree_collector is None:
+            tree_collector = TreeBufferCollector(self)
+        self.tree_collector = tree_collector
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj: Instruction) -> OrderedSet:
+        return super().process(obj)
+
+    @process.register(op3_expr.Operator)
+    @NodeCollector.postorder
+    def _(self, insn_list: op3_expr.Operator, visited, /) -> OrderedFrozenSet:
+        breakpoint()
+        return utils.reduce("|", visited.values(), OrderedSet())
+
+    @process.register(numbers.Number)
+    def _(self, expr: op3_expr.ExpressionT, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
+
+    @process.register(op3_expr.AxisVar)
+    def _(self, axis_var: op3_expr.AxisVar, /) -> OrderedFrozenSet:
+        return self.tree_collector(axis_var.axis.as_tree())
+
+    @process.register(op3_expr.ScalarBufferExpression)
+    def _(self, scalar_expr: op3_expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet([scalar_expr.buffer.buffer])
+
+    @process.register(op3_expr.LinearDatBufferExpression)
+    @NodeCollector.postorder
+    def _(self, dat_expr: op3_expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet([dat_expr.buffer.buffer]) | visited.values()
+
+
+def collect_buffers(expr: ExpressionT) -> OrderedSet:
+    return BufferCollector()(expr)
