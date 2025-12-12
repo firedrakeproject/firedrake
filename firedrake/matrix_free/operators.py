@@ -69,16 +69,15 @@ class ImplicitMatrixContext(object):
     # (0,0) block of a 1x1 block matrix is on the diagonal).
     on_diag = True
 
-
     @PETSc.Log.EventDecorator()
     def __init__(
-        self, 
-        a: ufl.BaseForm, 
+        self,
+        a: ufl.BaseForm,
         row_bcs: Iterable[DirichletBC] | None = None,
         col_bcs: Iterable[DirichletBC] | None = None,
-        fc_params : dict[str, Any] | None = None, 
+        fc_params: dict[str, Any] | None = None,
         appctx: dict[str, Any] | None = None
-        ):
+    ):
         """This class gives the Python context for a PETSc Python matrix.
 
         Parameters
@@ -97,7 +96,7 @@ class ImplicitMatrixContext(object):
             A dictionary of parameters to pass on to the form compiler.
             By default None.
         appctx
-            Any extra user-supplied context, available to preconditioners 
+            Any extra user-supplied context, available to preconditioners
             and the like. By default None.
         """
         from firedrake.assemble import get_assembler

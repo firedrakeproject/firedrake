@@ -1,18 +1,17 @@
 from __future__ import annotations
-from typing import Any, Iterable, Literal, TYPE_CHECKING
+from typing import Any, Iterable, TYPE_CHECKING
 import itertools
 
 if TYPE_CHECKING:
     from firedrake.bcs import BCBase
     from firedrake.matrix_free.operators import ImplicitMatrixContext
     from firedrake.slate.slate import TensorBase
-    
+
 import ufl
 from ufl.argument import BaseArgument
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
-
 
 
 class DummyOP2Mat:
@@ -24,11 +23,11 @@ class DummyOP2Mat:
 class MatrixBase(ufl.Matrix):
 
     def __init__(
-            self, 
-            a: ufl.BaseForm | TensorBase | tuple[BaseArgument, BaseArgument],
-            bcs: Iterable[BCBase] | None = None,
-            fc_params: dict[str, Any] | None = None,
-        ):
+        self,
+        a: ufl.BaseForm | TensorBase | tuple[BaseArgument, BaseArgument],
+        bcs: Iterable[BCBase] | None = None,
+        fc_params: dict[str, Any] | None = None,
+    ):
         """A representation of the linear operator associated with a bilinear form and bcs.
         Explicitly assembled matrices and matrix-free .matrix classes will derive from this.
 
@@ -143,13 +142,13 @@ class MatrixBase(ufl.Matrix):
 class Matrix(MatrixBase):
 
     def __init__(
-            self,
-            a: ufl.BaseForm,
-            mat: op2.Mat | PETSc.Mat,
-            bcs: Iterable[BCBase] | None = None,
-            fc_params: dict[str, Any] | None = None,
-            options_prefix: str | None = None,
-        ):
+        self,
+        a: ufl.BaseForm,
+        mat: op2.Mat | PETSc.Mat,
+        bcs: Iterable[BCBase] | None = None,
+        fc_params: dict[str, Any] | None = None,
+        options_prefix: str | None = None,
+    ):
         """A representation of an assembled bilinear form.
 
         Parameters
@@ -187,15 +186,15 @@ class Matrix(MatrixBase):
 class ImplicitMatrix(MatrixBase):
 
     def __init__(
-            self,
-            a: ufl.BaseForm,
-            ctx: ImplicitMatrixContext,
-            bcs: Iterable[BCBase] | None = None,
-            fc_params: dict[str, Any] | None = None,
-            options_prefix: str | None = None,
-        ):
-        """A representation of the action of bilinear form operating without 
-        explicitly assembling the associated matrix. This class wraps the 
+        self,
+        a: ufl.BaseForm,
+        ctx: ImplicitMatrixContext,
+        bcs: Iterable[BCBase] | None = None,
+        fc_params: dict[str, Any] | None = None,
+        options_prefix: str | None = None,
+    ):
+        """A representation of the action of bilinear form operating without
+        explicitly assembling the associated matrix. This class wraps the
         relevant information for Python PETSc matrix.
 
         Parameters
@@ -236,12 +235,12 @@ class ImplicitMatrix(MatrixBase):
 class AssembledMatrix(MatrixBase):
 
     def __init__(
-            self,
-            args: tuple[BaseArgument, BaseArgument],
-            petscmat: PETSc.Mat,
-            bcs: Iterable[BCBase] | None = None,
-            options_prefix: str | None = None,
-        ):
+        self,
+        args: tuple[BaseArgument, BaseArgument],
+        petscmat: PETSc.Mat,
+        bcs: Iterable[BCBase] | None = None,
+        options_prefix: str | None = None,
+    ):
         """A representation of a matrix that doesn't require knowing the underlying form.
 
         Parameters

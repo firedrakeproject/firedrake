@@ -1591,8 +1591,8 @@ class MatrixFreeAssembler(FormAssembler):
             appctx=self._appctx
         )
         return matrix.ImplicitMatrix(
-            self._form, ctx, self._bcs, 
-            fc_params=self._form_compiler_params, 
+            self._form, ctx, self._bcs,
+            fc_params=self._form_compiler_params,
             options_prefix=self._options_prefix
         )
 
