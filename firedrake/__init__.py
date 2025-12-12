@@ -3,6 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
+# TODO RELEASE set to ">=3.25"
 PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
@@ -75,6 +76,7 @@ from firedrake.mg.embedded import *
 from firedrake.mg.opencascade_mh import *
 from firedrake.norms import *
 from firedrake.nullspace import *
+from firedrake.output import *
 from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.projection import *
@@ -96,11 +98,7 @@ set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot, File  # noqa: F401
-# Once `File` is deprecated update the above line removing `File` and add
-#   from firedrake._deprecation import output
-#   sys.modules["firedrake.output"] = output
-from firedrake.output import *
+from firedrake._deprecation import plot  # noqa: F401
 import sys
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *

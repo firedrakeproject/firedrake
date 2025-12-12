@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, temp_internal_comm
+    MPI, COMM_WORLD, temp_internal_comm
 )
 from pyop2.utils import as_tuple
 import petsctools
@@ -425,7 +425,7 @@ def _from_triangle(filename, dim, comm):
             tdim = icomm.bcast(None, root=0)
             cells = None
             coordinates = None
-        plex = plex_from_cell_list(tdim, cells, coordinates, icomm)
+        plex = plex_from_cell_list(tdim, cells, coordinates, comm)
 
         # Apply boundary IDs
         if icomm.rank == 0:
@@ -460,19 +460,19 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
+    # These types are /correct/, DMPlexCreateFromCellList wants int
+    # and double (not PetscInt, PetscReal).
     with temp_internal_comm(comm) as icomm:
-        # These types are /correct/, DMPlexCreateFromCellList wants int
-        # and double (not PetscInt, PetscReal).
         if comm.rank == 0:
             cells = np.asarray(cells, dtype=np.int32)
             coords = np.asarray(coords, dtype=np.double)
-            comm.bcast(cells.shape, root=0)
-            comm.bcast(coords.shape, root=0)
+            icomm.bcast(cells.shape, root=0)
+            icomm.bcast(coords.shape, root=0)
             # Provide the actual data on rank 0.
-            plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=icomm)
+            plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
         else:
-            cell_shape = list(comm.bcast(None, root=0))
-            coord_shape = list(comm.bcast(None, root=0))
+            cell_shape = list(icomm.bcast(None, root=0))
+            coord_shape = list(icomm.bcast(None, root=0))
             cell_shape[0] = 0
             coord_shape[0] = 0
             # Provide empty plex on other ranks
@@ -480,7 +480,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
             plex = PETSc.DMPlex().createFromCellList(dim,
                                                      np.zeros(cell_shape, dtype=np.int32),
                                                      np.zeros(coord_shape, dtype=np.double),
-                                                     comm=icomm)
+                                                     comm=comm)
     if name is not None:
         plex.setName(name)
     return plex
@@ -533,8 +533,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self.submesh_parent = submesh_parent
         # User comm
         self.user_comm = comm
-        # Internal comm
-        self._comm = internal_comm(self.user_comm, self)
         dmcommon.label_facets(self.topology_dm)
         self._distribute()
         self._grown_halos = False
@@ -1180,7 +1178,8 @@ class MeshTopology(AbstractMeshTopology):
             nfacets = plex.getConeSize(cStart)
 
         # TODO: this needs to be updated for mixed-cell meshes.
-        nfacets = self._comm.allreduce(nfacets, op=MPI.MAX)
+        with temp_internal_comm(self.comm) as icomm:
+            nfacets = icomm.allreduce(nfacets, op=MPI.MAX)
 
         # Note that the geometric dimension of the cell is not set here
         # despite it being a property of a UFL cell. It will default to
@@ -1320,8 +1319,9 @@ class MeshTopology(AbstractMeshTopology):
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            unique_markers = np.asarray(sorted(self._comm.allreduce(local_markers, op=op)),
-                                        dtype=IntType)
+            with temp_internal_comm(self.comm) as icomm:
+                unique_markers = np.asarray(sorted(icomm.allreduce(local_markers, op=op)),
+                                            dtype=IntType)
             op.Free()
         else:
             unique_markers = None
@@ -1414,7 +1414,7 @@ class MeshTopology(AbstractMeshTopology):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self._comm)
+        return op2.Set(size, "Cells", comm=self.comm)
 
     @PETSc.Log.EventDecorator()
     def _set_partitioner(self, plex, distribute, partitioner_type=None):
@@ -1654,7 +1654,8 @@ class MeshTopology(AbstractMeshTopology):
                     target_subset_points = subpoints[source_subset_points]
                     _, target_indices_cell, source_indices_cell = np.intersect1d(_cell_numbers, target_subset_points, return_indices=True)
             n_cell = len(source_indices_cell)
-            n_cell_max = self._comm.allreduce(n_cell, op=MPI.MAX)
+            with temp_internal_comm(self.comm) as icomm:
+                n_cell_max = icomm.allreduce(n_cell, op=MPI.MAX)
             if n_cell_max > 0:
                 if n_cell > len(source_subset_points):
                     raise RuntimeError("Found inconsistent data")
@@ -1674,8 +1675,9 @@ class MeshTopology(AbstractMeshTopology):
                     _, target_indices_ext, source_indices_ext = np.intersect1d(_exterior_facet_numbers, target_subset_points, return_indices=True)
             n_int = len(source_indices_int)
             n_ext = len(source_indices_ext)
-            n_int_max = self._comm.allreduce(n_int, op=MPI.MAX)
-            n_ext_max = self._comm.allreduce(n_ext, op=MPI.MAX)
+            with temp_internal_comm(self.comm) as icomm:
+                n_int_max = icomm.allreduce(n_int, op=MPI.MAX)
+                n_ext_max = icomm.allreduce(n_ext, op=MPI.MAX)
             if n_int_max > 0:
                 if n_ext_max != 0:
                     raise RuntimeError(f"integral_type on the target mesh is interior facet, but {n_ext_max} exterior facet entities are also included")
@@ -1775,7 +1777,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         self._base_mesh = mesh
         self.user_comm = mesh.comm
-        self._comm = internal_comm(mesh._comm, self)
         if name is not None and name == mesh.name:
             raise ValueError("Extruded mesh topology and base mesh topology can not have the same name")
         self.name = name if name is not None else mesh.name + "_extruded"
@@ -2338,7 +2339,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
-        uid = utils._new_uid(internal_comm(comm, mesh))
+        uid = utils._new_uid(comm)
         mesh.uid = uid
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
@@ -3011,7 +3012,7 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
 
 
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
-    """Make mesh from tpology.
+    """Make mesh from topology.
 
     Parameters
     ----------
@@ -3336,7 +3337,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         # variable-height layers need to be present for the maximum number
         # of extruded layers
         num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
-        num_layers = mesh._comm.allreduce(num_layers, op=MPI.MAX)
+        with temp_internal_comm(mesh.comm) as icomm:
+            num_layers = icomm.allreduce(num_layers, op=MPI.MAX)
 
         # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
@@ -4214,56 +4216,57 @@ def _parent_mesh_embedding(
     import firedrake.interpolation as interpolation
     import firedrake.assemble as assemble
 
-    # In parallel, we need to make sure we know which point is which and save
-    # it.
-    if redundant:
-        # rank 0 broadcasts coords to all ranks
-        coords_local = parent_mesh._comm.bcast(coords, root=0)
-        ncoords_local = coords_local.shape[0]
-        coords_global = coords_local
-        ncoords_global = coords_global.shape[0]
-        global_idxs_global = np.arange(coords_global.shape[0])
-        input_coords_idxs_local = np.arange(ncoords_local)
-        input_coords_idxs_global = input_coords_idxs_local
-        input_ranks_local = np.zeros(ncoords_local, dtype=int)
-        input_ranks_global = input_ranks_local
-    else:
-        # Here, we have to assume that all points we can see are unique.
-        # We therefore gather all points on all ranks in rank order: if rank 0
-        # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
-        # rank 0's points have global numbering 0-9, rank 1's points have
-        # global numbering 10-29, and rank 3's points have global numbering
-        # 30-34.
-        coords_local = coords
-        ncoords_local = coords.shape[0]
-        ncoords_local_allranks = parent_mesh._comm.allgather(ncoords_local)
-        ncoords_global = sum(ncoords_local_allranks)
-        # The below code looks complicated but it's just an allgather of the
-        # (variable length) coords_local array such that they are concatenated.
-        coords_local_size = np.array(coords_local.size)
-        coords_local_sizes = np.empty(parent_mesh._comm.size, dtype=int)
-        parent_mesh._comm.Allgatherv(coords_local_size, coords_local_sizes)
-        coords_global = np.empty(
-            (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
-        )
-        parent_mesh._comm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
-        # # ncoords_local_allranks is in rank order so we can just sum up the
-        # # previous ranks to get the starting index for the global numbering.
-        # # For rank 0 we make use of the fact that sum([]) = 0.
-        # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
-        # endidx = startidx + ncoords_local
-        # global_idxs_global = np.arange(startidx, endidx)
-        global_idxs_global = np.arange(coords_global.shape[0])
-        input_coords_idxs_local = np.arange(ncoords_local)
-        input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-        parent_mesh._comm.Allgatherv(
-            input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
-        )
-        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
-        input_ranks_global = np.empty(ncoords_global, dtype=int)
-        parent_mesh._comm.Allgatherv(
-            input_ranks_local, (input_ranks_global, ncoords_local_allranks)
-        )
+    with temp_internal_comm(parent_mesh.comm) as icomm:
+        # In parallel, we need to make sure we know which point is which and save
+        # it.
+        if redundant:
+            # rank 0 broadcasts coords to all ranks
+            coords_local = icomm.bcast(coords, root=0)
+            ncoords_local = coords_local.shape[0]
+            coords_global = coords_local
+            ncoords_global = coords_global.shape[0]
+            global_idxs_global = np.arange(coords_global.shape[0])
+            input_coords_idxs_local = np.arange(ncoords_local)
+            input_coords_idxs_global = input_coords_idxs_local
+            input_ranks_local = np.zeros(ncoords_local, dtype=int)
+            input_ranks_global = input_ranks_local
+        else:
+            # Here, we have to assume that all points we can see are unique.
+            # We therefore gather all points on all ranks in rank order: if rank 0
+            # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
+            # rank 0's points have global numbering 0-9, rank 1's points have
+            # global numbering 10-29, and rank 3's points have global numbering
+            # 30-34.
+            coords_local = coords
+            ncoords_local = coords.shape[0]
+            ncoords_local_allranks = icomm.allgather(ncoords_local)
+            ncoords_global = sum(ncoords_local_allranks)
+            # The below code looks complicated but it's just an allgather of the
+            # (variable length) coords_local array such that they are concatenated.
+            coords_local_size = np.array(coords_local.size)
+            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
+            icomm.Allgatherv(coords_local_size, coords_local_sizes)
+            coords_global = np.empty(
+                (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
+            )
+            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+            # # ncoords_local_allranks is in rank order so we can just sum up the
+            # # previous ranks to get the starting index for the global numbering.
+            # # For rank 0 we make use of the fact that sum([]) = 0.
+            # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
+            # endidx = startidx + ncoords_local
+            # global_idxs_global = np.arange(startidx, endidx)
+            global_idxs_global = np.arange(coords_global.shape[0])
+            input_coords_idxs_local = np.arange(ncoords_local)
+            input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+            icomm.Allgatherv(
+                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
+            )
+            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
+            input_ranks_global = np.empty(ncoords_global, dtype=int)
+            icomm.Allgatherv(
+                input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+            )
 
     # Get parent mesh rank ownership information:
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
@@ -4731,7 +4734,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=True, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4740,12 +4743,20 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         Parent mesh (`MeshGeometry`).
     subdim : int
         Topological dimension of the submesh.
-    subdomain_id : int
+    subdomain_id : int | None
         Subdomain ID representing the submesh.
-    label_name : str
+        `None` defines the submesh owned by the sub-communicator.
+    label_name : str | None
         Name of the label to search ``subdomain_id`` in.
-    name : str
+    name : str |  None
         Name of the submesh.
+    ignore_halo : bool
+        Whether to exclude the halo from the submesh.
+    reorder : bool
+        Whether to reorder the mesh entities.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
+        By default, the submesh is defined on `mesh.comm`.
 
     Returns
     -------
@@ -4814,8 +4825,18 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
             label_name = dmcommon.CELL_SETS_LABEL
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
+    if subdomain_id is None:
+        # Filter the plex with PETSc's default label (cells owned by comm)
+        if label_name != dmcommon.CELL_SETS_LABEL:
+            raise ValueError("subdomain_id == None requires label_name == CELL_SETS_LABEL.")
+        subplex, sf = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
+        dmcommon.submesh_update_facet_labels(plex, subplex)
+        dmcommon.submesh_correct_entity_classes(plex, subplex, sf)
+    else:
+        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+
+    comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, False)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
@@ -4823,6 +4844,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         subplex,
         submesh_parent=mesh,
         name=name,
+        comm=comm,
+        reorder=reorder,
         distribution_parameters={
             "partition": False,
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
@@ -4930,10 +4953,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         for i, m in enumerate(result):
             set_level(m, result, i)
 
-    @property
-    def _comm(self):
-        return self.topology._comm
-
 
 class MeshSequenceTopology(object):
     """A representation of mixed mesh topology."""
@@ -4952,7 +4971,6 @@ class MeshSequenceTopology(object):
                 raise ValueError(f"Got {type(m)}")
         self._meshes = tuple(meshes)
         self.comm = meshes[0].comm
-        self._comm = internal_comm(self.comm, self)
 
     @property
     def topology(self):
