@@ -9,10 +9,10 @@ def test_interpolate_operator():
     x, y = SpatialCoordinate(mesh)
     expression = x * y
     # [test_interpolate_operator 1]
-    # create a UFL expression for the interpolation operation.
+    # create a symbolic expression for the interpolation operation.
     f_i = interpolate(expression, V)
 
-    # numerically evaluate the interpolation to create a new Function
+    # assemble the interpolation to get the result
     f = assemble(f_i)
     # [test_interpolate_operator 2]
     assert isinstance(f, Function)
@@ -39,6 +39,35 @@ def test_interpolate_operator():
     trace = FunctionSpace(mesh, "HDiv Trace", 0)
     f = assemble(interpolate(expression, trace))
     # [test_interpolate_operator 10]
+
+    U = FunctionSpace(mesh, "CG", 3)
+    g = Function(U).interpolate(expression)
+    # [test_interpolate_operator 11]
+    A = assemble(interpolate(TrialFunction(U), V))
+    # [test_interpolate_operator 12]
+    h = assemble(A @ g)
+    # [test_interpolate_operator 13]
+    assert np.allclose(h.dat.data_ro, f2.dat.data_ro)
+
+    # [test_interpolate_operator 14]
+    Istar1 = interpolate(TestFunction(U), TrialFunction(V.dual()))
+    # [test_interpolate_operator 15]
+    Istar2 = adjoint(interpolate(TrialFunction(U), V))
+    # [test_interpolate_operator 16]
+    cofunc = assemble(inner(1, TestFunction(V)) * dx)  # a cofunction in V*
+    res1 = assemble(interpolate(TestFunction(U), cofunc))  # a cofunction in U*
+    # [test_interpolate_operator 17]
+    res2 = assemble(action(Istar1, cofunc))  # same as res1
+    # [test_interpolate_operator 18]
+    u = Function(U)
+    # [test_interpolate_operator 19]
+    interpolate(u, cofunc)
+    # [test_interpolate_operator 20]
+
+    res3 = assemble(action(Istar2, cofunc))  # same as res1
+    assert isinstance(res1, Cofunction)
+    assert np.allclose(res1.dat.data_ro, res2.dat.data_ro)
+    assert np.allclose(res1.dat.data_ro, res3.dat.data_ro)
 
 
 def test_interpolate_external():
