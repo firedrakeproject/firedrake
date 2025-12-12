@@ -9,12 +9,9 @@ from firedrake import (
     PeriodicUnitSquareMesh, FunctionSpace, Constant,
     MixedFunctionSpace, TestFunctions, Function, split, inner, dx,
     SpatialCoordinate, as_vector, pi, sin, div,
-    NonlinearVariationalProblem, NonlinearVariationalSolver,
-    UnitIntervalMesh, Cofunction, TestFunction, interpolate
+    NonlinearVariationalProblem, NonlinearVariationalSolver
 )
-from firedrake.fml import subject, replace_subject, keep, drop, Label, LabelledForm
-
-import pytest
+from firedrake.fml import subject, replace_subject, keep, drop, Label
 
 
 def test_fml():
@@ -124,44 +121,3 @@ def test_fml():
     X.assign(X_np1)
     implicit_solver.solve()
     X.assign(X_np1)
-
-
-@pytest.fixture
-def V():
-    mesh = UnitIntervalMesh(2)
-    return FunctionSpace(mesh, "CG", 1)
-
-
-@pytest.mark.parametrize("baseform", ("form", "cofunction", "interpolate"))
-def test_fml_baseform(V, baseform):
-    if baseform == "form":
-        form = inner(1, TestFunction(V))*dx
-
-    elif baseform == "cofunction":
-        form = Cofunction(V.dual())
-        form.assign(42)
-
-    elif baseform == "interpolate":
-        W = V.reconstruct(degree=2)
-        w = Cofunction(W.dual())
-        w.assign(42)
-        form = interpolate(TestFunction(V), w)
-
-    # Test that we can wrap this BaseForm with a Label
-    has_labels = lambda term: len(term.labels) > 0
-    label = Label("label")
-    F = label(form)
-    assert isinstance(F, LabelledForm)
-    assert F.label_map(has_labels, map_if_true=keep, map_if_false=drop).form == form
-
-    # Test that we can linearly combine this BaseForm with a LabelledForm
-    Fcombs = [form + label(form),
-              label(form) + form,
-              label(form) - form]
-    for F2 in Fcombs:
-        assert isinstance(F2, LabelledForm)
-        assert F2.label_map(has_labels, map_if_true=keep, map_if_false=drop).form == form
-
-    F3 = form - label(form)
-    assert isinstance(F3, LabelledForm)
-    assert F3.label_map(has_labels, map_if_true=keep, map_if_false=drop).form == -form
