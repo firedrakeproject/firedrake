@@ -26,7 +26,6 @@ class MatrixBase(ufl.Matrix):
     def __init__(
             self, 
             a: ufl.BaseForm | TensorBase | tuple[BaseArgument, BaseArgument],
-            mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
             bcs: Iterable[BCBase] | None = None,
             fc_params: dict[str, Any] | None = None,
         ):
@@ -37,10 +36,7 @@ class MatrixBase(ufl.Matrix):
         ----------
         a
             A UFL BaseForm (with two arguments) that this MatrixBase represents,
-            or a tuple of the arguments it represents.
-        mat_type
-            Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
-            or 'matfree' for matrix-free.
+            or a tuple of the arguments it represents, or a slate TensorBase.
         fc_params
             A dictionary of form compiler parameters for this matrix.
         bcs
@@ -69,14 +65,11 @@ class MatrixBase(ufl.Matrix):
         self._analyze_form_arguments()
         self._arguments = arguments
 
-        if bcs is None:
-            bcs = ()
-        self.bcs = bcs
+        self.bcs = bcs or ()
         self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
-        self.mat_type = mat_type
-        self.form_compiler_parameters = fc_params
+        self.form_compiler_parameters = fc_params or {}
 
     def arguments(self):
         if self.a:
@@ -153,7 +146,6 @@ class Matrix(MatrixBase):
             self,
             a: ufl.BaseForm,
             mat: op2.Mat | PETSc.Mat,
-            mat_type: Literal["aij", "baij", "dense", "nest"],
             bcs: Iterable[BCBase] | None = None,
             fc_params: dict[str, Any] | None = None,
             options_prefix: str | None = None,
@@ -166,8 +158,6 @@ class Matrix(MatrixBase):
             The bilinear form this :class:`Matrix` represents.
         mat : op2.Mat | PETSc.Mat
             The underlying matrix object. Either a PyOP2 Mat or a PETSc Mat.
-        mat_type
-            The type of the PETSc matrix.
         bcs : Iterable[DirichletBC] | None, optional
             An iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply.
@@ -177,7 +167,7 @@ class Matrix(MatrixBase):
         options_prefix : str | None, optional
             PETSc options prefix to apply, by default None.
         """
-        super().__init__(a, mat_type, bcs=bcs, fc_params=fc_params)
+        super().__init__(a, bcs=bcs, fc_params=fc_params)
         if isinstance(mat, op2.Mat):
             self.M = mat
         else:
@@ -186,7 +176,7 @@ class Matrix(MatrixBase):
         self.petscmat = self.M.handle
         if options_prefix:
             self.petscmat.setOptionsPrefix(options_prefix)
-        self.mat_type = mat_type
+        self.mat_type = self.petscmat.getType()
 
     def assemble(self):
         raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
@@ -224,7 +214,7 @@ class ImplicitMatrix(MatrixBase):
         options_prefix
             PETSc options prefix to apply, by default None.
         """
-        super().__init__(a, "matfree", bcs=bcs, fc_params=fc_params)
+        super().__init__(a, bcs=bcs, fc_params=fc_params)
 
         self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
@@ -234,6 +224,7 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setOptionsPrefix(options_prefix)
         self.petscmat.setUp()
         self.petscmat.assemble()
+        self.mat_type = "matfree"
 
     def assemble(self):
         # Bump petsc matrix state by assembling it.
@@ -248,7 +239,6 @@ class AssembledMatrix(MatrixBase):
             self,
             args: tuple[BaseArgument, BaseArgument],
             petscmat: PETSc.Mat,
-            mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
             bcs: Iterable[BCBase] | None = None,
             options_prefix: str | None = None,
         ):
@@ -260,19 +250,18 @@ class AssembledMatrix(MatrixBase):
             A tuple of the arguments the matrix represents.
         petscmat
             The PETSc matrix this object wraps.
-        mat_type
-            The type of the PETSc matrix.
         bcs
             an iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply. By default None.
         options_prefix
             PETSc options prefix to apply, by default None.
         """
-        super().__init__(args, mat_type, bcs=bcs)
+        super().__init__(args, bcs=bcs)
 
         self.petscmat = petscmat
         if options_prefix:
             self.petscmat.setOptionsPrefix(options_prefix)
+        self.mat_type = self.petscmat.getType()
 
         # this mimics op2.Mat.handle
         self.M = DummyOP2Mat(self.petscmat)
