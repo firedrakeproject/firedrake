@@ -2,7 +2,7 @@ from functools import cached_property
 from typing import Collection
 
 from ufl.duals import is_primal, is_dual
-from pyop2.mpi import internal_comm, MPI
+from pyop2.mpi import MPI
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
@@ -107,11 +107,6 @@ class EnsembleFunctionSpaceBase:
         # EnsembleFunctions/Cofunctions, we'll create (possibly mixed)
         # subfunctions that view the correct subfunctions of this big space.
         self._full_local_space = MixedFunctionSpace(self.local_spaces)
-
-        # ensemble._comm is congruent with ensemble.global_comm not ensemble.comm
-        # because obj._comm is used for garbage collection, so it needs to be the
-        # communicator that the ensemble objects are collective over.
-        self._comm = internal_comm(ensemble._comm, self)
 
     @property
     def ensemble(self):
