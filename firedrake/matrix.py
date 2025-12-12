@@ -3,14 +3,16 @@ from typing import Any, Iterable, Literal, TYPE_CHECKING
 import itertools
 
 if TYPE_CHECKING:
-    from firedrake.bcs import DirichletBC
+    from firedrake.bcs import BCBase
     from firedrake.matrix_free.operators import ImplicitMatrixContext
-
+    from firedrake.slate.slate import TensorBase
+    
 import ufl
 from ufl.argument import BaseArgument
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+
 
 
 class DummyOP2Mat:
@@ -23,9 +25,9 @@ class MatrixBase(ufl.Matrix):
 
     def __init__(
             self, 
-            a: ufl.BaseForm | tuple[BaseArgument, BaseArgument],
+            a: ufl.BaseForm | TensorBase | tuple[BaseArgument, BaseArgument],
             mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
-            bcs: Iterable[DirichletBC] | None = None,
+            bcs: Iterable[BCBase] | None = None,
             fc_params: dict[str, Any] | None = None,
         ):
         """A representation of the linear operator associated with a bilinear form and bcs.
@@ -44,13 +46,14 @@ class MatrixBase(ufl.Matrix):
         bcs
             An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
             None by default.
-        """        
+        """
+        from firedrake.slate.slate import TensorBase
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
             arguments = a
         else:
-            assert isinstance(a, ufl.BaseForm)
+            assert isinstance(a, ufl.BaseForm | TensorBase)
             self.a = a
             test, trial = a.arguments()
             arguments = None
@@ -151,7 +154,7 @@ class Matrix(MatrixBase):
             a: ufl.BaseForm,
             mat: op2.Mat | PETSc.Mat,
             mat_type: Literal["aij", "baij", "dense", "nest"],
-            bcs: Iterable[DirichletBC] | None = None,
+            bcs: Iterable[BCBase] | None = None,
             fc_params: dict[str, Any] | None = None,
             options_prefix: str | None = None,
         ):
@@ -197,7 +200,7 @@ class ImplicitMatrix(MatrixBase):
             self,
             a: ufl.BaseForm,
             ctx: ImplicitMatrixContext,
-            bcs: Iterable[DirichletBC] | None = None,
+            bcs: Iterable[BCBase] | None = None,
             fc_params: dict[str, Any] | None = None,
             options_prefix: str | None = None,
         ):
@@ -246,7 +249,7 @@ class AssembledMatrix(MatrixBase):
             args: tuple[BaseArgument, BaseArgument],
             petscmat: PETSc.Mat,
             mat_type: Literal["aij", "baij", "dense", "nest", "matfree"],
-            bcs: Iterable[DirichletBC] | None = None,
+            bcs: Iterable[BCBase] | None = None,
             options_prefix: str | None = None,
         ):
         """A representation of a matrix that doesn't require knowing the underlying form.
