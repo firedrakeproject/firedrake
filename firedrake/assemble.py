@@ -503,6 +503,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
+                elif isinstance(rhs, matrix.MatrixBase):
+                    # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                    petsc_mat = rhs.petscmat
+                    (_, col) = rhs.arguments()
+                    res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                    with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.multHermitian(v_vec, res_vec)
+                    return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             else:

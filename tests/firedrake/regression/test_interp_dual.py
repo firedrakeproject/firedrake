@@ -382,7 +382,7 @@ def test_assemble_action_adjoint(V1, V2):
     A = assemble(a)
     assert isinstance(A, MatrixBase)
 
-    # This explicitly assembles the adjoint of A, then matmults with f
+    # This (currently) explicitly assembles the adjoint of A, then matmults with f
     expr3 = action(adjoint(A), f)
     assert isinstance(expr3, Action)
     res3 = assemble(expr3)
