@@ -26,6 +26,7 @@ from collections import defaultdict
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
+# TODO replace with KAIJ (we require petsc4py wrappers)
 class BlockMatrix(object):
     def __init__(self, mat, dimension, block_scale=None):
         self.mat = mat
@@ -128,7 +129,7 @@ def assemble_mixed_mass_matrix(V_A, V_B):
             idx = symmetry.get(idx, idx)
             multiplicity[idx] += 1
 
-        block_scale = tuple(scale for idx, scale in multiplicity)
+        block_scale = tuple(scale for idx, scale in multiplicity.items())
     else:
         block_scale = None
 
