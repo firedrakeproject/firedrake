@@ -403,6 +403,19 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
+    def broken_space(self):
+        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
+        constructed from this function space's FiniteElement.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        """
+        return type(self).make_function_space(
+            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            name=f"{self.name}_broken" if self.name else None)
+
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,

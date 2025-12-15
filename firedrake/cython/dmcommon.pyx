@@ -3906,7 +3906,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         DMLabel lbl_core, lbl_owned, lbl_ghost
         PetscBool has
 
-    if dm.comm.size == 1:
+    if subdm.comm.size == 1:
         return
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))

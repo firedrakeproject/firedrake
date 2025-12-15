@@ -93,7 +93,7 @@ class Term(object):
 
     __slots__ = ["form", "labels"]
 
-    def __init__(self, form: ufl.BaseForm, label_dict: Mapping = None):
+    def __init__(self, form: ufl.Form, label_dict: Mapping = None):
         """
 
         Parameters
@@ -216,9 +216,6 @@ class Term(object):
 
     __rmul__ = __mul__
 
-    def __neg__(self):
-        return -1 * self
-
     def __truediv__(
         self,
         other: Union[float, Constant, ufl.algebra.Product]
@@ -277,7 +274,7 @@ class LabelledForm(object):
 
     def __add__(
         self,
-        other: Union[ufl.BaseForm, Term, "LabelledForm"]
+        other: Union[ufl.Form, Term, "LabelledForm"]
     ) -> "LabelledForm":
         """Add a form, term or labelled form to this labelled form.
 
@@ -292,12 +289,12 @@ class LabelledForm(object):
             A labelled form containing the terms.
 
         """
-        if type(other) is Term:
+        if isinstance(other, ufl.Form):
+            return LabelledForm(*self, Term(other))
+        elif type(other) is Term:
             return LabelledForm(*self, other)
         elif type(other) is LabelledForm:
             return LabelledForm(*self, *other)
-        elif isinstance(other, ufl.BaseForm):
-            return LabelledForm(*self, Term(other))
         elif other is None:
             return self
         else:
@@ -307,7 +304,7 @@ class LabelledForm(object):
 
     def __sub__(
         self,
-        other: Union[ufl.BaseForm, Term, "LabelledForm"]
+        other: Union[ufl.Form, Term, "LabelledForm"]
     ) -> "LabelledForm":
         """Subtract a form, term or labelled form from this labelled form.
 
@@ -323,17 +320,14 @@ class LabelledForm(object):
 
         """
         if type(other) is Term:
-            return LabelledForm(*self, -other)
+            return LabelledForm(*self, Constant(-1.)*other)
         elif type(other) is LabelledForm:
-            return LabelledForm(*self, *[-t for t in other])
+            return LabelledForm(*self, *[Constant(-1.)*t for t in other])
         elif other is None:
             return self
         else:
             # Make new Term for other and subtract it
             return LabelledForm(*self, Term(Constant(-1.)*other))
-
-    def __rsub__(self, other):
-        return other + (-self)
 
     def __mul__(
         self,
@@ -376,9 +370,6 @@ class LabelledForm(object):
         return self * (Constant(1.0) / other)
 
     __rmul__ = __mul__
-
-    def __neg__(self):
-        return -1 * self
 
     def __iter__(self) -> Sequence:
         """Iterable of the terms in the labelled form."""
@@ -436,7 +427,7 @@ class LabelledForm(object):
         return new_labelled_form
 
     @property
-    def form(self) -> ufl.BaseForm:
+    def form(self) -> ufl.Form:
         """Provide the whole form from the labelled form.
 
         Raises
@@ -446,7 +437,7 @@ class LabelledForm(object):
 
         Returns
         -------
-        ufl.BaseForm
+        ufl.Form
             The whole form corresponding to all the terms.
 
         """
@@ -488,7 +479,7 @@ class Label(object):
 
     def __call__(
         self,
-        target: Union[ufl.BaseForm, Term, LabelledForm],
+        target: Union[ufl.Form, Term, LabelledForm],
         value: Any = None
     ) -> Union[Term, LabelledForm]:
         """Apply the label to a form or term.
@@ -503,7 +494,7 @@ class Label(object):
         Raises
         ------
         ValueError
-            If the `target` is not a ufl.BaseForm, Term or
+            If the `target` is not a ufl.Form, Term or
             LabelledForm.
 
         Returns
@@ -523,7 +514,7 @@ class Label(object):
             self.value = self.default_value
         if isinstance(target, LabelledForm):
             return LabelledForm(*(self(t, value) for t in target.terms))
-        elif isinstance(target, ufl.BaseForm):
+        elif isinstance(target, ufl.Form):
             return LabelledForm(Term(target, {self.label: self.value}))
         elif isinstance(target, Term):
             new_labels = target.labels.copy()
