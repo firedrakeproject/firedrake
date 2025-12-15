@@ -27,10 +27,10 @@ __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
 class BlockMatrix(object):
-    def __init__(self, mat, dimension, symmetry=None):
+    def __init__(self, mat, dimension, block_scale=None):
         self.mat = mat
         self.dimension = dimension
-        self.symmetry = symmetry or {}
+        self.block_scale = block_scale
 
     def mult(self, mat, x, y):
         sizes = self.mat.getSizes()
@@ -43,8 +43,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[1], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[0], comm=y.comm)
             self.mat.mult(xi, yi)
-            if i in self.symmetry:
-                yi.array[:] *= self.symmetry[i]
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
     def multTranspose(self, mat, x, y):
@@ -58,8 +58,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[0], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[1], comm=y.comm)
             self.mat.multTranspose(xi, yi)
-            if i in self.symmetry:
-                yi.array[:] *= self.symmetry[i]
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
 
@@ -128,11 +128,9 @@ def assemble_mixed_mass_matrix(V_A, V_B):
             idx = symmetry.get(idx, idx)
             multiplicity[idx] += 1
 
-        # dict mapping reference components to their multiplicity (if greater than 1)
-        symmetry = {i: multiplicity[idx] for i, idx in enumerate(multiplicity)
-                    if multiplicity[idx] != 1}
+        block_scale = tuple(scale for idx, scale in multiplicity)
     else:
-        symmetry = None
+        block_scale = None
 
     if V_A.block_size > 1:
         V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
@@ -478,7 +476,7 @@ each supermesh cell.
         lcols *= orig_block_size
         gcols *= orig_block_size
         size = ((lrows, grows), (lcols, gcols))
-        context = BlockMatrix(mat, orig_block_size, symmetry=symmetry)
+        context = BlockMatrix(mat, orig_block_size, block_scale=block_scale)
         blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
         blockmat.setUp()
         return blockmat
