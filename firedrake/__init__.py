@@ -104,6 +104,7 @@ from firedrake.mg import (  # noqa: F401
 )
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
+from firedrake.output import VTKFile  # noqa: F401
 from firedrake.parameters import (  # noqa: F401
     Parameters, parameters, disable_performance_optimisations
 )
