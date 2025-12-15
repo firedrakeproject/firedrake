@@ -198,7 +198,7 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
             return cache[key]
         except KeyError:
             if mesh.comm.size > 1:
-                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, comm=COMM_SELF)
+                submesh = Submesh(mesh, mesh.topological_dimension, None, ignore_halo=True, reorder=False, comm=COMM_SELF)
             else:
                 submesh = None
             return cache.setdefault(key, submesh)
@@ -220,6 +220,8 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
     form = ctx.a
     bcs = ctx.bcs
 
+    mesh = form.arguments()[0].function_space().mesh()
+    assert not mesh._did_reordering or len(form.coefficients()) == 0
     repl = {arg: arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
             for arg in form.arguments()}
     local_form = replace(form, repl)
