@@ -215,10 +215,6 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
         else:
             return bc.reconstruct(V=V, g=0)
 
-    def local_coefficient(c):
-        V = local_space(c.function_space(), False)
-        return Function(V, val=c.dat.data)
-
     assert Amat.type == "python"
     ctx = Amat.getPythonContext()
     form = ctx.a
@@ -226,7 +222,6 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
 
     repl = {arg: arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
             for arg in form.arguments()}
-    repl.update({c: local_coefficient(c) for c in form.coefficients()})
     local_form = replace(form, repl)
 
     new_mesh = local_form.arguments()[0].function_space().mesh()
