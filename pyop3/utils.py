@@ -190,7 +190,7 @@ class AbstractOrderedSet:
     def __reversed__(self):
         return iter(reversed(self._values))
 
-    def __or__(self, other, /) -> AbstractOrderedSet:
+    def __or__(self, other, /) -> Self:
         assert is_ordered_sequence(other)
         values = list(self._values)
         for item in other:
@@ -198,7 +198,7 @@ class AbstractOrderedSet:
                 values.append(item)
         return type(self)(values)
 
-    def union(self, /, *others) -> AbstractOrderedSet:
+    def union(self, /, *others) -> Self:
         new = self
         for other in others:
             new |= other

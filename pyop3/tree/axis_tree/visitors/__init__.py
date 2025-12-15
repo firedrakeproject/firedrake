@@ -34,8 +34,8 @@ class _DiskCacheKeyGetter(LabelledTreeVisitor):
     @process.register(op3_tree.Axis)
     @LabelledTreeVisitor.postorder
     def _(self, axis: op3_tree.Axis, path: ConcretePathT, /, visited) -> Hashable:
-        # FIXME: We assume that axes are already relabelled in the tree
-        key = [type(axis), axis.label]
+        new_label = self._renamer.add(axis)
+        key = [type(axis), new_label]
         for component in axis.components:
             component_key = (component.label, get_expr_disk_cache_key(component.size, self._renamer))
             key.append(component_key)

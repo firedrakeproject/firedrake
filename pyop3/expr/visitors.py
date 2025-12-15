@@ -1109,7 +1109,7 @@ class BufferCollector(NodeCollector):
         super().__init__()
 
     @functools.singledispatchmethod
-    def process(self, obj: Instruction) -> OrderedSet:
+    def process(self, obj: Any) -> OrderedFrozenSet:
         return super().process(obj)
 
     @process.register(op3_expr.Operator)
