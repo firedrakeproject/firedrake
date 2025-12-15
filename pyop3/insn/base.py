@@ -486,8 +486,12 @@ class FunctionArgument(abc.ABC):
     """Abstract class for types that may be passed to functions."""
 
 
+@utils.frozenrecord()
 class Function:
     """A callable function."""
+
+    code: Any
+    _access_descrs: tuple[Intent, ...]
 
     def __init__(self, loopy_kernel, access_descrs):
         lpy_args = loopy_kernel.default_entrypoint.args
@@ -499,8 +503,27 @@ class Function:
             ):
                 raise ValueError("Reduction operations are only valid for scalars")
 
-        self.code = fix_intents(loopy_kernel, access_descrs)
-        self._access_descrs = access_descrs
+        loopy_kernel = fix_intents(loopy_kernel, access_descrs)
+        access_descrs = tuple(access_descrs)
+
+        object.__setattr__(self, "code", loopy_kernel)
+        object.__setattr__(self, "_access_descrs", access_descrs)
+
+    # unfortunately needed because loopy translation units aren't immediately hashable
+    def __hash__(self) -> int:
+        if not hasattr(self, "_saved_hash"):
+            kb = lp.tools.LoopyKeyBuilder()
+            hash_ = hash((
+                type(self),
+                kb(self.code),
+                self._access_descrs,
+            ))
+            object.__setattr__(self, "_saved_hash", hash_)
+        return self._saved_hash
+
+    # unfortunately needed because loopy translation units aren't immediately hashable
+    def __eq__(self, other, /) -> bool:
+        return type(other) is type(self) and other.code == self.code and other._access_descrs == self._access_descrs
 
     def __call__(self, *args):
         # if not all(isinstance(a, FunctionArgument) for a in args):

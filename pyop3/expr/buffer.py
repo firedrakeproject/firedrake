@@ -219,6 +219,8 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     # {{{ interface impls
 
+    child_attrs = ("layouts",)
+
     buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
@@ -273,6 +275,8 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ interface impls
 
+    child_attrs = ("row_layout", "column_layout")
+
     buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
@@ -312,6 +316,8 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     # }}}
 
     # {{{ interface impls
+
+    child_attrs = ("row_layouts", "column_layouts")
 
     buffer: ClassVar[property] = utils.attr("_buffer")
 

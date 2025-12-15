@@ -37,6 +37,15 @@ meaningful.
 """
 
 
+_nothing = object()
+"""Sentinel value indicating nothing should be done.
+
+This is useful in cases where `None` holds some meaning.
+
+"""
+
+
+
 class UnorderedCollectionException(Pyop3Exception):
     """Exception raised when an ordered collection is required."""
 
@@ -195,7 +204,8 @@ class AbstractOrderedSet:
             new |= other
         return new
 
-
+    def index(self, value, /) -> Any:
+        return self._values.index(value)
 
 
 class OrderedSet(AbstractOrderedSet):
@@ -229,12 +239,14 @@ class OrderedFrozenSet(AbstractOrderedSet):
     def __init__(self, values: collections.abc.Sequence = (), /) -> None:
         self._values = tuple(values)
 
+        assert all(not isinstance(v, OrderedFrozenSet) for v in self._values)
+
     def __hash__(self) -> int:
         return hash((type(self), self._values))
 
 
-def as_tuple(item):
-    if isinstance(item, collections.abc.Sequence):
+def as_tuple(item: Any) -> tuple[Any, ...]:
+    if isinstance(item, collections.abc.Iterable):
         return tuple(item)
     else:
         return (item,)
@@ -361,21 +373,31 @@ def strictly_all(iterable):
     return result
 
 
-def just_one(iterable):
-    iterator = iter(iterable)
+def just_one(iterable: collections.abc.Iterable, key: Hashable = _nothing) -> Any:
+    if isinstance(iterable, collections.abc.Mapping):
+        assert key is not _nothing, "key needed"
+        iterable = dict(iterable)
+        value = iterable.pop(key)
 
-    try:
-        first = next(iterator)
-    except StopIteration:
-        breakpoint()
-        raise ValueError("Empty iterable found")
+        assert not iterable
+        return value
 
-    try:
-        second = next(iterator)
-    except StopIteration:
-        return first
+    else:
+        assert key is _nothing, "only for dicts"
+        iterator = iter(iterable)
 
-    raise ValueError("Too many values")
+        try:
+            first = next(iterator)
+        except StopIteration:
+            breakpoint()
+            raise ValueError("Empty iterable found")
+
+        try:
+            second = next(iterator)
+        except StopIteration:
+            return first
+
+        raise ValueError("Too many values")
 
 
 class MultiStack:
@@ -438,13 +460,6 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])])
     return readonly(strides_[::-1])
 
-
-_nothing = object()
-"""Sentinel value indicating nothing should be done.
-
-This is useful in cases where `None` holds some meaning.
-
-"""
 
 
 def pairwise(iterable, *, final=_nothing):
@@ -867,3 +882,8 @@ def cached_method(*args, **kwargs):
             lambda self: _get_method_cache(self)[func.__qualname__], *args, **kwargs
         )(func)
     return wrapper
+
+
+def pretty_type(obj: Any) -> str:
+    type_ = type(obj)
+    return f"{type_.__module__}.{type_.__name__}"

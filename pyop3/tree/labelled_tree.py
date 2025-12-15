@@ -598,6 +598,21 @@ class LabelledTree:
                 nest[node].append(None)
         return idict(nest)
 
+    @utils.cached_method()
+    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+        trimmed_node_map = {}
+        path_set = set(path.items())
+        for orig_path, node in self.node_map.items():
+            orig_path_set = set(orig_path.items())
+            if path_set <= orig_path_set:
+                trimmed_path = idict(
+                    (axis_label, component_label)
+                    for axis_label, component_label in orig_path.items()
+                    if (axis_label, component_label) not in path.items()
+                )
+                trimmed_node_map[trimmed_path] = node
+        return idict(trimmed_node_map)
+
 
 class MutableLabelledTreeMixin:
     def add_node(self, path: PathT, node: Node) -> MutableLabelledTreeMixin:
@@ -656,21 +671,6 @@ class MutableLabelledTreeMixin:
 
         trimmed_node_map = self._subtree_node_map(path)
         return type(self)(trimmed_node_map)
-
-    @utils.cached_method()
-    def _subtree_node_map(self, path: ConcretePathT) -> idict:
-        trimmed_node_map = {}
-        path_set = set(path.items())
-        for orig_path, node in self.node_map.items():
-            orig_path_set = set(orig_path.items())
-            if path_set <= orig_path_set:
-                trimmed_path = idict(
-                    (axis_label, component_label)
-                    for axis_label, component_label in orig_path.items()
-                    if (axis_label, component_label) not in path.items()
-                )
-                trimmed_node_map[trimmed_path] = node
-        return idict(trimmed_node_map)
 
     def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabelledTreeMixin:
         path = as_path(path)

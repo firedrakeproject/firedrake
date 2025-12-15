@@ -356,7 +356,7 @@ class CompiledCodeExecutor:
 
         # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
         #     breakpoint()
-        #     pyop3.extras.debug.maybe_breakpoint("submesh")
+        pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
 
         if self.comm.size > 1:
@@ -643,11 +643,19 @@ class SolveCallable(LACallable):
 
 
 # TODO: prefer generate_code?
-def compile(expr, compiler_parameters=None):
+def compile(op, compiler_parameters=None):
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
-    loopy_code, buffer_index_map = _compile_static(expr, compiler_parameters)
-    breakpoint()  # need to manage the buffer index map...
-    return CompiledCodeExecutor(loopy_code, sorted_buffers, compiler_parameters, expr.comm)
+    loopy_code, buffer_index_map = _compile_static(op, compiler_parameters)
+
+    # TODO: The handling of nest indices here is very confused
+    sorted_buffers = {}
+    for kernel_arg_name, buffer_info in buffer_index_map.items():
+        buffer_index, nest_indices, intent = buffer_info
+        global_buffer = op.buffers[buffer_index]
+        sorted_buffers[kernel_arg_name] = (BufferRef(global_buffer, nest_indices), intent)
+
+
+    return CompiledCodeExecutor(loopy_code, sorted_buffers, compiler_parameters, op.comm)
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
@@ -737,15 +745,14 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
         entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    debug = op.buffers
-    breakpoint()
-
-    # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
-    sorted_buffers = {}
+    buffer_index_map = {}
     for kernel_arg in entrypoint.args:
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
-        sorted_buffers[kernel_arg.name] = (context.global_buffers[buffer_key], context.global_buffer_intents[buffer_key])
+        buffer_ref = context.global_buffers[buffer_key]
+        buffer_index = op.buffers.index(buffer_ref.buffer)
+        intent = context.global_buffer_intents[buffer_key]
+        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
 
     return translation_unit, buffer_index_map
 
@@ -985,6 +992,8 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
+    # NOTE: This is hidden from the outer expression and so traversal like
+    # op.buffers will miss this. Should be an earlier pass.
     if isinstance(expr, numbers.Number):
         # If we have an expression like
         #
@@ -997,7 +1006,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         ncols = column_axis_tree.local_max_size
         expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
 
-        array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
+        array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True, rank_equal=True))
     else:
         assert isinstance(expr, op3_expr.BufferExpression)
         array_buffer = expr.buffer

@@ -7,6 +7,8 @@ from functools import cached_property
 from typing import Any
 
 from immutabledict import immutabledict as idict
+from pyop3 import utils
+from pyop3.utils import OrderedFrozenSet
 
 
 # maybe implement __record_init__ here?
@@ -47,8 +49,9 @@ class Visitor(abc.ABC):
         self._compress = compress
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
+        self._seen_keys = set()
 
-    # {{{ interface impls
+    # {{{ overrideable interface
 
     def __call__(self, *args, **kwargs):
         """Maybe overload this if you want to set some things up"""
@@ -60,6 +63,34 @@ class Visitor(abc.ABC):
 
     def preprocess_node(self, node) -> tuple[Any, ...]:
         return (node,)
+
+    def process(self, o: Expr, **kwargs) -> Expr:
+        """Process node by type.
+
+        Args:
+            o:
+                UFL expression to start DAG traversal from.
+            **kwargs:
+                Keyword arguments for the ``process`` singledispatchmethod.
+
+        Returns:
+            Processed :py:class:`Expr`.
+        """
+        raise AssertionError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
+
+    @staticmethod
+    def postorder(method):
+        """Postorder decorator.
+
+        It is more natural for users to write a post-order singledispatchmethod
+        whose arguments are ``(self, o, *processed_operands, **kwargs)``,
+        while `DAGTraverser` expects one whose arguments are
+        ``(self, o, **kwargs)``.
+        This decorator takes the former and converts to the latter, processing
+        ``o.ufl_operands`` behind the users.
+
+        """
+        raise NotImplementedError
 
     # }}}
 
@@ -80,6 +111,7 @@ class Visitor(abc.ABC):
         try:
             return self._visited_cache[cache_key]
         except KeyError:
+            self._seen_keys.add(cache_key)
             preprocessed = self.preprocess_node(node)
             result = self.process(*preprocessed, **kwargs)
             # Optionally check if r is in result_cache, a memory optimization
@@ -96,49 +128,36 @@ class Visitor(abc.ABC):
             self._visited_cache[cache_key] = result
             return result
 
-    @functools.singledispatchmethod
-    def process(self, o: Expr, **kwargs) -> Expr:
-        """Process node by type.
-
-        Args:
-            o:
-                UFL expression to start DAG traversal from.
-            **kwargs:
-                Keyword arguments for the ``process`` singledispatchmethod.
-
-        Returns:
-            Processed :py:class:`Expr`.
-        """
-        raise AssertionError(f"Rule not set for {type(o)}")
-
-    @staticmethod
-    def postorder(method):
-        """Postorder decorator.
-
-        It is more natural for users to write a post-order singledispatchmethod
-        whose arguments are ``(self, o, *processed_operands, **kwargs)``,
-        while `DAGTraverser` expects one whose arguments are
-        ``(self, o, **kwargs)``.
-        This decorator takes the former and converts to the latter, processing
-        ``o.ufl_operands`` behind the users.
-
-        """
-        raise NotImplementedError
-
 
 class LabelledTreeVisitor(Visitor):
+    """
+    Notes
+    -----
+    Empty or unit trees get passed `None`.
+
+    """
+
     def __init__(self):
         super().__init__()
 
         # variables that are only valid mid traversal
         self._tree = None
 
+    # {{{ abstract methods
+
+    @property
+    @staticmethod
+    @abc.abstractmethod
+    def EMPTY():
+        pass
+
+    # }}}
+
     # {{{ interface impls
 
     def __call__(self, tree: AxisTree, **kwargs):
         try:
             self._tree = tree
-            # NOTE: what happens when the tree is empty?
             return self._call(idict(), **kwargs)
         finally:
             self._tree = None
@@ -163,7 +182,7 @@ class LabelledTreeVisitor(Visitor):
                 if self._tree.node_map[path_]:
                     visited.append(self._call(path_, **kwargs))
                 else:
-                    visited.append(None)
+                    visited.append(self.EMPTY)
             visited = tuple(visited)
             return method(self, node, path, visited, **kwargs)
         return wrapper
@@ -176,15 +195,24 @@ class NodeVisitor(Visitor):
     @staticmethod
     def postorder(method):
         @functools.wraps(method)
-        def wrapper(self, o, **kwargs):
-            new_children = idict({
-                name: self(child, **kwargs)
-                for name, child in o.children.items()
-            })
-            return method(self, o, new_children, **kwargs)
-
+        def wrapper(self, node, **kwargs):
+            new_children = {}
+            for attr_name, child_attr in node.children.items():
+                if isinstance(child_attr, tuple):
+                    new_children[attr_name] = tuple(
+                        self(item, **kwargs)
+                        for item in child_attr
+                    )
+                elif isinstance(child_attr, idict):
+                    new_children[attr_name] = idict({
+                        key: self(value, **kwargs)
+                        for key, value in child_attr.items()
+                    })
+                else:
+                    new_children[attr_name] = self(child_attr, **kwargs)
+            new_children = idict(new_children)
+            return method(self, node, new_children, **kwargs)
         return wrapper
-
 
 
 class Transformer(NodeVisitor, abc.ABC):
@@ -201,6 +229,7 @@ class Transformer(NodeVisitor, abc.ABC):
             Processed expression.
 
         """
+        raise NotImplementedError("handle tuples etc")
         new_children = idict({
             name: self(child, **kwargs)
             for name, child in o.children.items()
@@ -211,6 +240,13 @@ class Transformer(NodeVisitor, abc.ABC):
             return o.__record_init__(**new_children)
 
 
-# TODO: postorder could merge things in advance...
 class NodeCollector(NodeVisitor, abc.ABC):
-    pass
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /) -> OrderedFrozenSet:
+        return super().process(obj)
+
+    @process.register(tuple)
+    @NodeVisitor.postorder
+    def _(self, tuple_, visited, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet().union(*visited.values())

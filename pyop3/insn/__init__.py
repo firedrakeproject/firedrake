@@ -20,6 +20,7 @@ from .base import (  # noqa: F401
     AbstractAssignment,
     Exscan,
     CalledFunction,
+    StandaloneCalledFunction,
     ConcretizedNonEmptyArrayAssignment,
     NullInstruction,
     assignment_type_as_intent,

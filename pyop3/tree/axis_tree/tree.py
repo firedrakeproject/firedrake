@@ -234,6 +234,10 @@ class _UnitAxisTree(CacheMixin):
 
     nest_indices = ()
 
+    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+        assert not path
+        return idict()
+
     def localize(self):
         return self
 
@@ -241,10 +245,11 @@ class _UnitAxisTree(CacheMixin):
         return self
 
     def add_subtree(self, path: PathT, subtree):
-        assert len(path) == 0
+        assert not path
         return subtree
 
     def add_axis(self, path, axis):
+        assert not path
         return AxisTree(axis)
 
     def with_context(self, *args, **kwargs):
@@ -1075,6 +1080,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             size_expr = self.materialize().subtree(subpath).local_size
 
         size_dat = Dat.empty(axis.linearize(component.label).localize(), dtype=IntType)
+
+
         size_dat.assign(size_expr, eager=True)
 
         sizes = size_dat.buffer.data_ro
@@ -2010,6 +2017,10 @@ class AxisForest(DistributedObject):
     @property
     def local_size(self) -> int:
         return utils.single_valued((tree.local_size for tree in self.trees))
+
+    @property
+    def local_max_size(self) -> int:
+        return utils.single_valued((tree.local_max_size for tree in self.trees))
 
     @property
     def global_size(self) -> int:

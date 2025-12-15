@@ -1047,7 +1047,7 @@ def min_(a, b, /, *, lazy: bool = False) -> op3_expr.Conditional | numbers.Numbe
         return op3_expr.Conditional(op3_expr.LessThan(a, b), a, b)
 
 
-class _DiskCacheKeyGetter(NodeVisitor):
+class DiskCacheKeyGetter(NodeVisitor):
 
     def __init__(self, renamer=None):
         if renamer is None:
@@ -1063,13 +1063,19 @@ class _DiskCacheKeyGetter(NodeVisitor):
     def _(self, obj: ExpressionT, /) -> Hashable:
         return (obj,)
 
+    @process.register(op3_expr.Operator)
+    @NodeCollector.postorder
+    def _(self, op: op3_expr.Operator, visited, /) -> OrderedFrozenSet:
+        return (type(op), visited)
+
+
     @process.register(op3_expr.AxisVar)
     def _(self, axis_var: op3_expr.AxisVar, /) -> Hashable:
         return (type(axis_var), self._renamer.add(axis_var.axis))
 
     @process.register(op3_expr.LoopIndexVar)
     def _(self, loop_var: op3_expr.LoopIndexVar, /) -> Hashable:
-        return (type(loop_var), self._renamer[loop_var.index], self._renamer.add(loop_var.axis))
+        return (type(loop_var), self._renamer[loop_var.loop_index], self._renamer.add(loop_var.axis))
 
     @process.register(op3_expr.ScalarBufferExpression)
     def _(self, scalar: op3_expr.ScalarBufferExpression, /) -> Hashable:
@@ -1078,18 +1084,18 @@ class _DiskCacheKeyGetter(NodeVisitor):
             self._renamer.add(scalar.buffer),
         )
 
-    @process.register(op3_expr.LinearDatBufferExpression)
+    @process.register(op3_expr.BufferExpression)
     @NodeVisitor.postorder
-    def _(self, dat_expr: op3_expr.LinearDatBufferExpression, visited: Mapping, /) -> Hashable:
+    def _(self, expr: op3_expr.BufferExpression, visited: Mapping, /) -> Hashable:
         return (
-            type(dat_expr),
-            self._renamer.add(dat_expr.buffer),
+            type(expr),
+            self._renamer.add(expr.buffer),
             visited,
         )
 
 
 def get_disk_cache_key(expr: ExpressionT, renamer) -> Hashable:
-    return _DiskCacheKeyGetter(renamer)(expr)
+    return DiskCacheKeyGetter(renamer)(expr)
 
 
 class BufferCollector(NodeCollector):
@@ -1108,9 +1114,8 @@ class BufferCollector(NodeCollector):
 
     @process.register(op3_expr.Operator)
     @NodeCollector.postorder
-    def _(self, insn_list: op3_expr.Operator, visited, /) -> OrderedFrozenSet:
-        breakpoint()
-        return utils.reduce("|", visited.values(), OrderedSet())
+    def _(self, op: op3_expr.Operator, visited, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet().union(*visited.values())
 
     @process.register(numbers.Number)
     def _(self, expr: op3_expr.ExpressionT, /) -> OrderedFrozenSet:
@@ -1120,6 +1125,10 @@ class BufferCollector(NodeCollector):
     def _(self, axis_var: op3_expr.AxisVar, /) -> OrderedFrozenSet:
         return self.tree_collector(axis_var.axis.as_tree())
 
+    @process.register(op3_expr.LoopIndexVar)
+    def _(self, loop_var: op3_exprLoopIndexVar, /) -> OrderedFrozenSet:
+        return self.tree_collector(loop_var.axis.as_tree())
+
     @process.register(op3_expr.ScalarBufferExpression)
     def _(self, scalar_expr: op3_expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([scalar_expr.buffer.buffer])
@@ -1127,7 +1136,31 @@ class BufferCollector(NodeCollector):
     @process.register(op3_expr.LinearDatBufferExpression)
     @NodeCollector.postorder
     def _(self, dat_expr: op3_expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([dat_expr.buffer.buffer]) | visited.values()
+        return OrderedFrozenSet([dat_expr.buffer.buffer]).union(*visited.values())
+
+    @process.register(op3_expr.NonlinearDatBufferExpression)
+    @NodeCollector.postorder
+    def _(self, dat_expr: op3_expr.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+        assert len(visited) == 1
+        return OrderedFrozenSet([dat_expr.buffer.buffer]).union(
+            *visited["layouts"].values()
+        )
+
+    @process.register(op3_expr.MatPetscMatBufferExpression)
+    @NodeCollector.postorder
+    def _(self, mat_expr: op3_expr.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
+        assert len(visited) == 2
+        return OrderedFrozenSet([mat_expr.buffer.buffer]).union(
+            visited["row_layout"], visited["column_layout"]
+        )
+
+    @process.register(op3_expr.MatArrayBufferExpression)
+    @NodeCollector.postorder
+    def _(self, mat_expr: op3_expr.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
+        assert len(visited) == 2
+        return OrderedFrozenSet([mat_expr.buffer.buffer]).union(
+            *visited["row_layouts"].values(), *visited["column_layouts"].values()
+        )
 
 
 def collect_buffers(expr: ExpressionT) -> OrderedSet:

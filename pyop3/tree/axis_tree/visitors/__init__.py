@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import functools
 import itertools
+from types import NoneType
+from typing import Any, Hashable
 
 from immutabledict import immutabledict as idict
 
@@ -9,90 +11,90 @@ import pyop3.tree.axis_tree as op3_tree
 from pyop3 import utils
 from pyop3.node import Visitor, LabelledTreeVisitor
 from pyop3.utils import OrderedFrozenSet
-from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
+from pyop3.expr.visitors import BufferCollector as ExprBufferCollector, get_disk_cache_key as get_expr_disk_cache_key
 
 from .layout import compute_layouts  # noqa: F401
 from .size import compute_axis_tree_size, compute_axis_tree_component_size  # noqa: F401
 
 
-# TODO: implement a TreeVisitor class, similar to the other visitor but cannot do certain caches
-# class _DiskCacheKeyGetter(Visitor):
-#     def __init__(self, renamer=None):
-#         if renamer is None:
-#             renamer = Renamer()
-#         self._renamer = renamer
-#         super().__init__()
+class _DiskCacheKeyGetter(LabelledTreeVisitor):
 
+    EMPTY = None
+
+    def __init__(self, renamer=None):
+        if renamer is None:
+            renamer = Renamer()
+        self._renamer = renamer
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, path: ConcretePathT, /) -> Hashable:
+        return super().process(obj)
+
+    @process.register(op3_tree.Axis)
+    @LabelledTreeVisitor.postorder
+    def _(self, axis: op3_tree.Axis, path: ConcretePathT, /, visited) -> Hashable:
+        # FIXME: We assume that axes are already relabelled in the tree
+        key = [type(axis), axis.label]
+        for component in axis.components:
+            component_key = (component.label, get_expr_disk_cache_key(component.size, self._renamer))
+            key.append(component_key)
+        return (tuple(key), visited)
+
+    # FIXME: Maybe not needed any more
+    @process.register(NoneType)  # empty/unit tree
+    def _(self, none: None, path: ConcretePathT, /) -> Hashable:
+        assert not path, "Must be at tree root"
+        return None
 
 def get_disk_cache_key(axis_tree: op3_tree.AxisTree, renamer=None) -> Hashable:
-    if renamer is None:
-        raise NotImplementedError
-    # return _DiskCacheKeyGetter(renamer)(axis_tree)
-    return _get_disk_cache_key(axis_tree, renamer, idict())
-
-
-def _get_disk_cache_key(axis_tree, renamer, path):
-    axis = axis_tree.node_map[path]
-
-    key = [get_axis_key(axis, renamer)]
-
-    for component in axis.components:
-        path_ = path | {axis.label: component.label}
-
-        if axis_tree.node_map[path_]:
-            key.append(_get_disk_cache_key(axis_tree, renamer, path_))
-        else:
-            key.append(())
-
-    return tuple(key)
-
-
-def get_axis_key(axis, renamer):
-    from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
-    # FIXME: We assume that axes are already relabelled in the tree
-    key = [type(axis), axis.label]
-    for component in axis.components:
-        component_key = (component.label, get_expr_disk_cache_key(component.size, renamer))
-        key.append(component_key)
-    return tuple(key)
+    return _DiskCacheKeyGetter(renamer)(axis_tree)
 
 
 class BufferCollector(LabelledTreeVisitor):
 
-    def __init__(self, expr_collector: ExprBufferCollector | None = None) -> None:
+    EMPTY = OrderedFrozenSet()
+
+    def __init__(self, expr_collector: ExprBufferCollector | None = None, *, _internal: bool = True) -> None:
         if expr_collector is None:
             expr_collector = ExprBufferCollector(self)
         self.expr_collector = expr_collector
         super().__init__()
 
+    def __call__(self, axis_tree: op3_tree.AbstractAxisTree):
+        target_buffers = OrderedFrozenSet().union(
+            *(
+                self._maybe_collect_expr(target.expr)
+                for targets in itertools.chain(*axis_tree.targets.values())
+                for target in targets
+            )
+        )
+        return super().__call__(axis_tree) | target_buffers
+
     @functools.singledispatchmethod
-    def process(self, obj: Instruction) -> OrderedSet:
+    def process(self, obj: Any, /, path: ConcretePathT) -> OrderedSet:
         return super().process(obj)
 
     @process.register(op3_tree.Axis)
     @LabelledTreeVisitor.postorder
-    def _(self, axis: op3_tree.Axis, path, /, *visited) -> OrderedFrozenSet:
-        buffers = OrderedFrozenSet().union(
-            *(self.expr_collector(c.size) for c in axis.components),
+    def _(self, axis: op3_tree.Axis, /, path: ConcretePathT, visited: OrderedFrozenSet) -> OrderedFrozenSet:
+        return OrderedFrozenSet().union(
+            *(self._maybe_collect_expr(c.size) for c in axis.components),
+            *visited,
         )
-        return buffers.union(*visited)
+
+    # TODO: is this necessary now that we have EMPTY?
+    @process.register(NoneType)  # empty/unit tree
+    def _(self, none: None, /, path: ConcretePathT) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
+
+    def _maybe_collect_expr(self, expr):
+        # trick to stop recursing
+        if self.expr_collector.get_cache_key(expr) in self.expr_collector._seen_keys:
+            return OrderedFrozenSet()
+        else:
+            return self.expr_collector(expr)
 
 
-# def collect_buffers(axis_tree: AbstractAxisTree) -> OrderedFrozenSet:
-#     return _collect_buffers(axis_tree, idict())
-#
-#
-# def _collect_buffers(axis_tree, path):
-#     axis = axis_tree.node_map[path]
-#
-#     key = [get_axis_key(axis, renamer)]
-#
-#     for component in axis.components:
-#         path_ = path | {axis.label: component.label}
-#
-#         if axis_tree.node_map[path_]:
-#             key.append(_get_disk_cache_key(axis_tree, renamer, path_))
-#         else:
-#             key.append(())
-#
-#     return tuple(key)
+def collect_buffers(axis_tree: AbstractAxisTree) -> OrderedFrozenSet:
+    return BufferCollector()(axis_tree)

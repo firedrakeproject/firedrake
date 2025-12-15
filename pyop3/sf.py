@@ -97,9 +97,19 @@ class AbstractStarForest(DistributedObject, abc.ABC):
         self.broadcast_end(*args)
 
 
-
+@utils.record()
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
+
+    # {{{ instance attrs
+
+    sf: PETSc.SF
+
+    def __post_init__(self):
+        if self.size > 1000:
+            breakpoint()
+
+    # }}}
 
     # {{{ interface impls
 
@@ -120,17 +130,6 @@ class StarForest(AbstractStarForest):
         )
 
     # }}}
-
-    # NOTE: I think 'size' now has to equal the number of roots
-    def __init__(self, sf: PETSc.SF) -> None:
-        # size = utils.strict_int(size)
-
-        # TODO: This check only makes sense for SFs that we make (where ghosts are at the end)
-        # in the general case it isn't true
-        # _check_sf(sf)
-
-        self.sf = sf
-        super().__init__()
 
     @property
     def size(self):

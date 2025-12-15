@@ -23,9 +23,6 @@ def compute_axis_tree_size(axis_tree: AxisTree):
     if axis_tree.is_empty:
         return 0
     else:
-        if axis_tree.root.label == "field":
-            import pyop3
-            pyop3.extras.debug.enable_conditional_breakpoints()
         return _axis_tree_size_rec(axis_tree, idict())
 
 

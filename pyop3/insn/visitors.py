@@ -58,7 +58,7 @@ from pyop3.insn.base import (
     non_null,
     filter_null,
 )
-from pyop3.utils import UniqueNameGenerator, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
+from pyop3.utils import OrderedFrozenSet, UniqueNameGenerator, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
 
 import pyop3.extras.debug
 
@@ -677,7 +677,7 @@ class Renamer:
             return self._store.setdefault(obj, label)
 
 
-class _DiskCacheKeyGetter(NodeVisitor):
+class DiskCacheKeyGetter(NodeVisitor):
 
     def __init__(self):
         self._renamer = Renamer()
@@ -702,9 +702,19 @@ class _DiskCacheKeyGetter(NodeVisitor):
 
         self._renamer.add(loop.index)
         return (
-            type(insn),
+            type(loop),
             get_axis_tree_disk_cache_key(loop.index.iterset, self._renamer),
             *(self(stmt) for stmt in loop.statements),
+        )
+
+    @process.register(op3_insn.StandaloneCalledFunction)
+    def _(self, func: op3_insn.StandaloneCalledFunction) -> Hashable:
+        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
+
+        return (
+            type(func),
+            func.function,
+            *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
         )
 
     # TODO: Could have a nice visiter that checks fields (except where hash=False)
@@ -723,7 +733,7 @@ class _DiskCacheKeyGetter(NodeVisitor):
 
 
 def get_disk_cache_key(insn: Instruction) -> Hashable:
-    return _DiskCacheKeyGetter()(insn)
+    return DiskCacheKeyGetter()(insn)
 
 
 class BufferCollector(NodeCollector):
@@ -742,22 +752,32 @@ class BufferCollector(NodeCollector):
         super().__init__()
 
     @functools.singledispatchmethod
-    def process(self, obj: Instruction) -> OrderedSet:
+    def process(self, obj: Any) -> OrderedSet:
         return super().process(obj)
 
     @process.register(op3_insn.InstructionList)
     @NodeCollector.postorder
     def _(self, insn_list: op3_insn.InstructionList, visited, /) -> OrderedSet:
+        breakpoint()
         return utils.reduce("|", visited.values(), OrderedSet())
 
     @process.register(op3_insn.NullInstruction)
-    def _(self, insn: op3_insn.NullInstruction, /) -> OrderedSet:
-        return OrderedSet()
+    def _(self, insn: op3_insn.NullInstruction, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
 
     @process.register(op3_insn.Loop)
     @NodeCollector.postorder
     def _(self, insn: op3_insn.Loop, visited, /) -> OrderedSet:
-        return utils.reduce("|", self._tree_collector(insn.index.iterset), visited.values())
+        return OrderedFrozenSet().union(
+            self._tree_collector(insn.index.iterset),
+            *visited["statements"],
+        )
+
+    @process.register(op3_insn.StandaloneCalledFunction)
+    def _(self, func: op3_insn.StandaloneCalledFunction, /) -> OrderedSet:
+        return OrderedFrozenSet().union(
+            *(self._expr_collector(arg) for arg in func.arguments)
+        )
 
     @process.register(op3_insn.ConcretizedNonEmptyArrayAssignment)
     def _(self, assignment: op3_insn.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
