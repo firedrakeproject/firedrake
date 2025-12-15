@@ -281,7 +281,8 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
             super().__init__(dim, data, dtype, name)
             if comm is None:
                 warnings.warn("PyOP2.Global has no comm, this is likely to break in parallel!")
-            self.comm = mpi.internal_comm(comm, self)
+                comm = mpi.COMM_WORLD
+            self.comm = comm
 
             # Object versioning setup
             petsc_counter = (comm and self.dtype == PETSc.ScalarType)
@@ -402,7 +403,8 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
         yield self._vec
         if access is not Access.READ:
             data = self._data
-            self.comm.Bcast(data, 0)
+            with mpi.temp_internal_comm(self.comm) as icomm:
+                icomm.Bcast(data, 0)
 
     def increment_dat_version(self):
         VecAccessMixin.increment_dat_version(self)

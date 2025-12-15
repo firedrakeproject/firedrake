@@ -274,7 +274,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
                                                        snes_defaults=self.DEFAULT_SNES_PARAMETERS)
-        super().__init__(solver_parameters, options_prefix)
+        super().__init__(solver_parameters, options_prefix,
+                         default_prefix="firedrake")
         # Now the correct parameters live in self.parameters (via the
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
@@ -397,8 +398,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u_restrict.function_space().mesh()._comm
-        PETSc.garbage_cleanup(comm=comm)
+        comm = self._problem.u_restrict.function_space().mesh().comm
+        PETSc.garbage_cleanup(comm)
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):

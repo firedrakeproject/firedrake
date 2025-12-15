@@ -263,7 +263,7 @@ def _extract_linear_solver_args(*args, **kwargs):
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
-    solver_parameters = kwargs.get("solver_parameters", {})
+    solver_parameters = kwargs.get("solver_parameters", {}) or {}
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)

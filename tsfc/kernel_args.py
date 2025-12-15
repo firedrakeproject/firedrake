@@ -54,6 +54,10 @@ class InteriorFacetKernelArg(KernelArg):
     ...
 
 
+class OrientationsCellKernelArg(KernelArg):
+    ...
+
+
 class OrientationsExteriorFacetKernelArg(KernelArg):
     ...
 

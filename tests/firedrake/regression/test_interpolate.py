@@ -6,6 +6,13 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
+def mat_equals(a, b):
+    """Check that two Matrices are equal."""
+    a = a.petscmat.copy()
+    a.axpy(-1.0, b.petscmat)
+    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
+
+
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))
@@ -523,7 +530,8 @@ def test_interpolate_logical_not():
 
 
 @pytest.mark.parametrize("mode", ("forward", "adjoint"))
-def test_mixed_matrix(mode):
+@pytest.mark.parametrize("mat_type", (None, "nest"))
+def test_mixed_matrix(mode, mat_type):
     nx = 3
     mesh = UnitSquareMesh(nx, nx)
 
@@ -537,11 +545,11 @@ def test_mixed_matrix(mode):
 
     if mode == "forward":
         I = Interpolate(TrialFunction(Z), TestFunction(W.dual()))
-        a = assemble(I)
+        a = assemble(I, mat_type=mat_type)
         assert a.arguments()[0].function_space() == W.dual()
         assert a.arguments()[1].function_space() == Z
         assert a.petscmat.getSize() == (W.dim(), Z.dim())
-        assert a.petscmat.getType() == "nest"
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
 
         u = Function(Z)
         u.subfunctions[0].sub(0).assign(1)
@@ -550,11 +558,11 @@ def test_mixed_matrix(mode):
         result_matfree = assemble(Interpolate(u, TestFunction(W.dual())))
     elif mode == "adjoint":
         I = Interpolate(TestFunction(Z), TrialFunction(W.dual()))
-        a = assemble(I)
+        a = assemble(I, mat_type=mat_type)
         assert a.arguments()[1].function_space() == W.dual()
         assert a.arguments()[0].function_space() == Z
         assert a.petscmat.getSize() == (Z.dim(), W.dim())
-        assert a.petscmat.getType() == "nest"
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
 
         u = Function(W.dual())
         u.subfunctions[0].assign(1)
@@ -584,7 +592,7 @@ def test_interpolator_reuse(family, degree, mode):
         u = Function(V.dual())
         expr = interpolate(TestFunction(V), u)
 
-    I = Interpolator(expr, V)
+    I = get_interpolator(expr)
 
     for k in range(3):
         u.assign(rg.uniform(u.function_space()))
@@ -599,3 +607,119 @@ def test_interpolator_reuse(family, degree, mode):
 
         # Test for correctness
         assert np.allclose(result.dat.data, expected)
+
+
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs[:-1]:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_interpolate_composition(mode):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    V5 = FunctionSpace(mesh, "CG", 5)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    if mode == "forward":
+        u5 = Function(V5).interpolate(sin(x + y))
+        u4 = interpolate(u5, V4)
+        u3 = interpolate(u4, V3)
+        u2 = interpolate(u3, V2)
+        u1 = interpolate(u2, V1)
+
+        assert u1.function_space() == V1
+
+        res = assemble(u1)
+        res2 = assemble(interpolate(sin(x + y), V1))
+        assert np.allclose(res.dat.data_ro, res2.dat.data_ro)
+
+    if mode == "adjoint":
+        u1 = conj(TestFunction(V1)) * dx
+        u2 = interpolate(TestFunction(V2), u1)
+        u3 = interpolate(TestFunction(V3), u2)
+        u4 = interpolate(TestFunction(V4), u3)
+        u5 = interpolate(TestFunction(V5), u4)
+
+        assert u5.function_space() == V5.dual()
+
+        res_adj = assemble(u5)
+        res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
+        assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form():
+    mesh = UnitSquareMesh(5, 5)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    V3_trial = TrialFunction(V3)
+    V2_test = TestFunction(V2)
+    V1_test = TestFunction(V1)
+    V2_dual_trial = TrialFunction(V2.dual())
+
+    two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
+    interp = interpolate(V1_test, two_form)  # V3 x V1 -> R, equiv V3 -> V1^*
+    assert interp.arguments() == (V1_test, V3_trial)
+    res1 = assemble(interp)
+
+    I = interpolate(V1_test, V2_dual_trial)  # V2^* x V1 -> R, equiv V2^* -> V1^*
+    interp2 = action(I, two_form)  # V3 -> V1^*
+    assert interp2.arguments() == (V1_test, V3_trial)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(V3_trial, V1_test) * dx)  # V3 x V1 -> R
+    assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form_mixed():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V = V3 * V4
+    W = V1 * V2
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    q = TestFunction(W)
+
+    form = inner(u, v) * dx  # V x V -> R, equiv V -> V^*
+    interp = interpolate(q, form)  # V -> W^*, equiv V x W -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    I = interpolate(q, TrialFunction(V.dual()))  # V^* x W -> R, equiv V^* -> W^*
+    interp2 = action(I, form)  # V -> W^*
+    assert interp2.arguments() == (q, u)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(u, q) * dx)  # V x W -> R
+    assert mat_equals(res1, res3)

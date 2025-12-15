@@ -1,11 +1,11 @@
-from pyop2 import mpi, op2, utils
+from pyop2 import op2, utils
 from mpi4py import MPI
 import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType, complex_mode
 import firedrake.cython.dmcommon as dmcommon
-
 
 _MPI_types = {}
 
@@ -55,13 +55,16 @@ def _get_dtype(datatype):
         base, combiner, _ = datatype.decode()
         while combiner == "DUP":
             base, combiner, _ = base.decode()
-        if combiner != "CONTIGUOUS":
-            raise RuntimeError("Can only handle contiguous types")
+        # Allow for "NAMED", too, for complex scalar {MAX, MIN}.
+        if not (combiner == "CONTIGUOUS" or (complex_mode and combiner == "NAMED")):
+            raise RuntimeError(
+                f"Can only handle contiguous types or named types for complex scalar: "
+                f"found combiner={combiner}"
+            )
         try:
             tdict = MPI.__TypeDict__
         except AttributeError:
             tdict = MPI._typedict
-
         tdict = dict((v.py2f(), k) for k, v in tdict.items())
         try:
             base = tdict[base.py2f()]
@@ -93,11 +96,10 @@ class Halo(op2.Halo):
     def __init__(self, dm, section, comm):
         super(Halo, self).__init__()
         self.comm = comm
-        self._comm = mpi.internal_comm(comm, self)
         # Use a DM to create the halo SFs
         if MPI.Comm.Compare(comm, dm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
-        self.dm = PETSc.DMShell().create(self._comm)
+        self.dm = PETSc.DMShell().create(self.comm)
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
 
@@ -140,13 +142,16 @@ class Halo(op2.Halo):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
+        complex_type = complex_mode and dat.dtype == ScalarType
         mtype, builtin = _get_mtype(dat)
-        op = {(False, op2.INC): MPI.SUM,
-              (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+        op = {
+            (False, op2.INC): MPI.SUM,
+            (True, op2.INC): MPI.SUM,
+            (False, op2.MIN): _contig_min_op,
+            (True, op2.MIN): _contig_min_op if complex_type else MPI.MIN,
+            (False, op2.MAX): _contig_max_op,
+            (True, op2.MAX): _contig_max_op if complex_type else MPI.MAX,
+        }[(builtin, insert_mode)]
         self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
     @PETSc.Log.EventDecorator()
@@ -154,11 +159,14 @@ class Halo(op2.Halo):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
+        complex_type = complex_mode and dat.dtype == ScalarType
         mtype, builtin = _get_mtype(dat)
-        op = {(False, op2.INC): MPI.SUM,
-              (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+        op = {
+            (False, op2.INC): MPI.SUM,
+            (True, op2.INC): MPI.SUM,
+            (False, op2.MIN): _contig_min_op,
+            (True, op2.MIN): _contig_min_op if complex_type else MPI.MIN,
+            (False, op2.MAX): _contig_max_op,
+            (True, op2.MAX): _contig_max_op if complex_type else MPI.MAX,
+        }[(builtin, insert_mode)]
         self.sf.reduceEnd(mtype, dat._data, dat._data, op)

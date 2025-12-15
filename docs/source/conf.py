@@ -164,16 +164,14 @@ linkcheck_ignore = [
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
     r'https://.*\.baylor\.edu.*',
-    r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
-    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
-    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
-    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds',
+    r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
+    r'https://fluids.leeds.ac.uk/',
 ]
 linkcheck_timeout = 30
 

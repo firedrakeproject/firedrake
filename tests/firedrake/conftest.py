@@ -8,8 +8,10 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc
 from petsctools import get_external_packages
+from pyadjoint.tape import annotate_tape, get_working_tape
+
+from firedrake.petsc import PETSc
 
 
 def _skip_test_dependency(dependency):
@@ -68,6 +70,14 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
+    elif dependency == "vtk":
+        try:
+            import vtk  # noqa: F401
+            del vtk
+            return not skip
+        except ImportError:
+            return skip
+
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
@@ -83,6 +93,8 @@ dependency_skip_markers_and_reasons = (
     ("jax", "skipjax", "JAX is not installed"),
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
+    ("vtk", "skipvtk", "VTK is not installed"),
+
 )
 
 
@@ -117,6 +129,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipslepc: mark as skipped if slepc4py is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipvtk: mark as skipped if vtk is not installed"
     )
     config.addinivalue_line(
         "markers",
@@ -157,9 +173,7 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import annotate_tape, get_working_tape
-
-    def fin():
+    def finalizer():
         # make sure taping is switched off
         assert not annotate_tape()
 
@@ -168,7 +182,7 @@ def check_empty_tape(request):
         if tape is not None:
             assert len(tape.get_blocks()) == 0
 
-    request.addfinalizer(fin)
+    request.addfinalizer(finalizer)
 
 
 class _petsc_raises:

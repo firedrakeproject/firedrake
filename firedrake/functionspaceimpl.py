@@ -13,8 +13,9 @@ import numpy
 import ufl
 import finat.ufl
 
+from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop2 import op2, mpi
+from pyop2 import op2
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
@@ -52,6 +53,9 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
+    if isinstance(element.cell, CellSequence) and \
+       type(element) is not finat.ufl.MixedElement:
+        raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
@@ -104,7 +108,6 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):
@@ -400,6 +403,19 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
+    def broken_space(self):
+        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
+        constructed from this function space's FiniteElement.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        """
+        return type(self).make_function_space(
+            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            name=f"{self.name}_broken" if self.name else None)
+
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,
@@ -565,10 +581,7 @@ class FunctionSpace(object):
         space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
-        # User comm
         self.comm = mesh.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(self.comm, self)
 
         self.set_shared_data()
         self.dof_dset = self.make_dof_dset()
@@ -852,10 +865,31 @@ class FunctionSpace(object):
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
-        If BCs is provided, mask out those dofs which match the BC nodes."""
+        Parameters
+        ----------
+        bcs: [firedrake.bcs.BCBase]
+            If provided, mask out those dofs which match the BC nodes.
+        lgmap: PETSc.LGMap
+            The base local-to-global map, which might be partially masked.
+        mat_type: str
+            The matrix assembly type. This is required as different matrix types
+            handle the LGMap differently for MixedFunctionSpace.
+
+        Note
+        ----
+            For a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace` the returned
+            LGMap will be the scalar one, unless the bcs are imposed on a particular component.
+            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked,
+            unless mat_type == "is".
+
+        Returns
+        -------
+        PETSc.LGMap
+            A local-to-global map with masked BC dofs.
+        """
         # Caching these things is too complicated, since it depends
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
@@ -880,10 +914,16 @@ class FunctionSpace(object):
                 bsize = lgmap.getBlockSize()
                 assert bsize == self.block_size
         else:
-            # MatBlock case, LGMap is already unrolled.
-            indices = lgmap.block_indices.copy()
+            # MatBlock case, the LGMap is implementation dependent
             bsize = lgmap.getBlockSize()
-            unblocked = True
+            assert bsize == self.block_size
+            if mat_type == "is":
+                indices = lgmap.indices.copy()
+                unblocked = False
+            else:
+                # LGMap is already unrolled
+                indices = lgmap.block_indices.copy()
+                unblocked = True
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
@@ -993,7 +1033,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -1034,7 +1074,6 @@ class MixedFunctionSpace(object):
         self._subspaces = {}
         self._mesh = mesh
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1200,7 +1239,7 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -1423,7 +1462,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.block_size, val, valuetype, name, self._comm)
+        return op2.Global(self.block_size, val, valuetype, name, self.comm)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None
@@ -1448,7 +1487,7 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         assert len(bcs) == 0
         return None
 
