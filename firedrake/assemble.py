@@ -838,6 +838,10 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
+            if isinstance(left, ufl.Adjoint) and isinstance(right, ufl.Cofunction) and left.arguments()[-1].function_space() == right.function_space():
+                # Action(Adjoint(A), w*) -> Action(w*, A)
+                return ufl.action(right, left.form())
+
         # -- Case (4) -- #
         if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
             B = expr.form()

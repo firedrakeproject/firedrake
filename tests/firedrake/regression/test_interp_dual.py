@@ -382,18 +382,18 @@ def test_assemble_action_adjoint(V1, V2):
     A = assemble(a)
     assert isinstance(A, MatrixBase)
 
-    # This (currently) explicitly assembles the adjoint of A, then matmults with f
-    expr3 = action(adjoint(A), f)
+    # This doesn't explicitly assemble the adjoint of A, but uses multHermitian
+    expr3 = action(f, A)
     assert isinstance(expr3, Action)
     res3 = assemble(expr3)
     assert isinstance(res3, Cofunction)
     assert res3.function_space() == V1.dual()
     assert np.allclose(res.dat.data, res3.dat.data)
 
-    # This doesn't explicitly assemble the adjoint of A, but uses multHermitian
-    expr4 = action(f, A)
+    # This is simplified into action(f, A) to avoid explicit assembly of adjoint(A)
+    expr4 = action(adjoint(A), f)
     assert isinstance(expr4, Action)
     res4 = assemble(expr4)
     assert isinstance(res4, Cofunction)
     assert res4.function_space() == V1.dual()
-    assert np.allclose(res2.dat.data, res4.dat.data)
+    assert np.allclose(res.dat.data, res4.dat.data)
