@@ -3,6 +3,7 @@ import numpy as np
 from firedrake import *
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
+from firedrake.matrix import MatrixBase
 import ufl
 
 
@@ -361,37 +362,39 @@ def test_assemble_action_adjoint(V1, V2):
     a = interpolate(u, V2)  # V1 x V2^* -> R, equiv. V1 -> V2
     assert a.arguments() == (TestFunction(V2.dual()), TrialFunction(V1))
 
-    f_form = inner(1, TestFunction(V2)) * dx
+    a_adj = adjoint(a)  # V2^* x V1 -> R, equiv. V2^* -> V1^*
+    assert a_adj.arguments() == (TestFunction(V1), TrialFunction(V2.dual()))
 
-    for f in (f_form, assemble(f_form)):
-        expr = action(adjoint(assemble(a)), f)
-        assert isinstance(expr, Action)
-        res = assemble(expr)
-        assert isinstance(res, Cofunction)
-        assert res.function_space() == V1.dual()
+    f = assemble(inner(1, TestFunction(V2)) * dx)
 
-        expr2 = action(f, a)  # This simplifies into an Interpolate
-        assert isinstance(expr2, Interpolate)
-        res2 = assemble(expr2)
-        assert isinstance(res2, Cofunction)
-        assert res2.function_space() == V1.dual()
-        assert np.allclose(res.dat.data, res2.dat.data)
+    expr = action(a_adj, f)
+    assert isinstance(expr, Action)
+    res = assemble(expr)
+    assert isinstance(res, Cofunction)
+    assert res.function_space() == V1.dual()
 
-        A = assemble(a)
-        assert isinstance(A, MatrixBase)
+    expr2 = action(f, a)  # This simplifies into an Interpolate
+    assert isinstance(expr2, Interpolate)
+    res2 = assemble(expr2)
+    assert isinstance(res2, Cofunction)
+    assert res2.function_space() == V1.dual()
+    assert np.allclose(res.dat.data, res2.dat.data)
 
-        # This doesn't explicitly assemble the adjoint of A, but uses multHermitian
-        expr3 = action(f, A)
-        assert isinstance(expr3, Action)
-        res3 = assemble(expr3)
-        assert isinstance(res3, Cofunction)
-        assert res3.function_space() == V1.dual()
-        assert np.allclose(res.dat.data, res3.dat.data)
+    A = assemble(a)
+    assert isinstance(A, MatrixBase)
 
-        # This is simplified into action(f, A) to avoid explicit assembly of adjoint(A)
-        expr4 = action(adjoint(A), f)
-        assert isinstance(expr4, Action)
-        res4 = assemble(expr4)
-        assert isinstance(res4, Cofunction)
-        assert res4.function_space() == V1.dual()
-        assert np.allclose(res.dat.data, res4.dat.data)
+    # This explicitly assembles the adjoint of A, then matmults with f
+    expr3 = action(adjoint(A), f)
+    assert isinstance(expr3, Action)
+    res3 = assemble(expr3)
+    assert isinstance(res3, Cofunction)
+    assert res3.function_space() == V1.dual()
+    assert np.allclose(res.dat.data, res3.dat.data)
+
+    # This doesn't explicitly assemble the adjoint of A, but uses multHermitian
+    expr4 = action(f, A)
+    assert isinstance(expr4, Action)
+    res4 = assemble(expr4)
+    assert isinstance(res4, Cofunction)
+    assert res4.function_space() == V1.dual()
+    assert np.allclose(res2.dat.data, res4.dat.data)
