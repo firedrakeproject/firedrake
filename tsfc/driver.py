@@ -145,6 +145,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     domain_integral_type_map.update(dict.fromkeys(coefficient_meshes, "cell"))
     domain_integral_type_map.update(integral_data.domain_integral_type_map)
 
+    for arg in arguments:
+        if domain_integral_type_map[extract_unique_domain(arg)] is None:
+            raise NotImplementedError("Wrong domains ....")
+
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
@@ -156,13 +160,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
-
-    # Check domains
-    for o in chain(arguments, coefficients):
-        for domain in extract_domains(o):
-            if domain is not None and domain.topology.submesh_ancesters[-1] != mesh.topology.submesh_ancesters[-1]:
-                raise NotImplementedError("Assembly of forms over unrelated meshes is not supported yet. "
-                                          "Try Submesh or cross-mesh interpolation.")
 
     builder = firedrake_interface_loopy.KernelBuilder(
         integral_data_info,
