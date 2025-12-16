@@ -147,7 +147,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
 
     for arg in arguments:
         if domain_integral_type_map[extract_unique_domain(arg)] is None:
-            raise NotImplementedError("Wrong domains ....")
+            raise NotImplementedError("Assembly of forms over unrelated meshes is not supported. "
+                                      "Try using Submeshes or cross-mesh interpolation.")
 
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
