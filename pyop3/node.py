@@ -28,6 +28,10 @@ class Terminal(Node, abc.ABC):
     child_attrs = ()
 
 
+# TODO: Add mixin for stateless transformers...
+# def maybe_singleton():  cached on the mesh (or outermost 'heavy' cache)
+
+
 """Taken from UFL"""
 class Visitor(abc.ABC):
     """Base class for DAG traversers.
@@ -215,7 +219,7 @@ class NodeVisitor(Visitor):
         return wrapper
 
 
-class Transformer(NodeVisitor, abc.ABC):
+class NodeTransformer(NodeVisitor, abc.ABC):
     def reuse_if_untouched(self, o: Expr | BaseForm, **kwargs) -> Expr | BaseForm:
         """Reuse if untouched.
 

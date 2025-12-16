@@ -205,6 +205,7 @@ class LoopyCodegenContext(CodegenContext):
                     and isinstance(buffer.size, numbers.Integral)
                     and buffer.size < CONFIG.max_static_array_size
                 ):
+                    raise NotImplementedError
                     return self.add_temporary(
                         "t",
                         buffer.dtype,

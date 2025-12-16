@@ -193,6 +193,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
             expand_assignments,
             materialize_indirections,
             concretize_layouts,
+            insert_literals,
         )
 
         insn = self
@@ -205,6 +206,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
 
+        insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
         return PreprocessedOperation(insn)
@@ -315,7 +317,6 @@ class Loop(Instruction):
         code = self.compile(compiler_parameters)
 
         # TODO: Move to executor class
-        # TODO: handle interleaving as a compiler_parameter somehow
         if compiler_parameters.interleave_comp_comm:
             raise NotImplementedError
             new_index, (icore, iroot, ileaf) = partition_iterset(
