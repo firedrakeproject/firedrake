@@ -26,14 +26,12 @@ DESCRIPTIONS = {
     "ufl": "UFL: the Unified Form Language",
     "fiat": "FIAT: the Finite Element Automated Tabulator",
     "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
-    "loopy": "loopy: Transformation-Based Generation of High-Performance CPU/GPU Code",
 }
 
 PYPI_PACKAGE_NAMES = {
     "firedrake": "firedrake",
     "ufl": "fenics-ufl",
     "fiat": "firedrake-fiat",
-    "loopy": "loopy",
     "petsc": "petsc4py",
 }
 
@@ -295,11 +293,11 @@ def zenodo_records():
     result = None
     i = 1
     while True:
-        if i > 20:
+        if i > 8000//25:
             raise RuntimeError("More than 8000 uploads on zenodo?")
         response = requests.get(f"{ZENODO_URL}/records", params={"q": 'owners:19586 OR owners:19587',
                                                                  "all_versions": True,
-                                                                 "size": 400,
+                                                                 "size": 25,
                                                                  "sort": "mostrecent",
                                                                  "page": i})
         if response.status_code == 200:
