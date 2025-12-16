@@ -78,26 +78,11 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         if isinstance(val, Cofunction):
             val = val.dat
-<<<<<<< HEAD
         if isinstance(val, op3.Dat):
-=======
-
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self.comm
->>>>>>> origin/main
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-    # debug
-    @property
-    def dat(self):
-        return self._dat
-
-    @dat.setter
-    def dat(self, new):
-        assert isinstance(new, op3.Dat)
-        self._dat = new
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):

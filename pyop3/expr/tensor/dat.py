@@ -194,9 +194,12 @@ class Dat(Tensor):
 
     @classmethod
     def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+        from pyop3 import Scalar
+
         buffer_kwargs = buffer_kwargs or {}
 
-        axes = Axis(array.size)
+        # NOTE: Should this size *always* be a Scalar?
+        axes = Axis(Scalar(array.size))
         buffer = ArrayBuffer(array, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 

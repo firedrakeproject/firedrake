@@ -23,6 +23,8 @@ from .base import (  # noqa: F401
     StandaloneCalledFunction,
     ConcretizedNonEmptyArrayAssignment,
     NullInstruction,
+    NonEmptyTerminal,
+    NonEmptyArrayAssignment,
     assignment_type_as_intent,
     do_loop,
     loop_,

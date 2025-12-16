@@ -866,7 +866,7 @@ class FunctionSpace:
     @cached_property
     def nodes(self) -> op3.Axis:
         scalar_axis_tree = self.layout_axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.local_size
+        num_nodes = scalar_axis_tree.size
         return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
 
     @cached_property

@@ -345,9 +345,9 @@ class AxisComponentRegion:
 @functools.singledispatch
 def _parse_regions(obj: Any) -> AxisComponentSize:
     from pyop3 import Dat, Scalar
-    from pyop3.expr.buffer import LinearDatBufferExpression
+    from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
 
-    if isinstance(obj, (Dat, LinearDatBufferExpression, Scalar)):
+    if isinstance(obj, (Dat, LinearDatBufferExpression, Scalar, ScalarBufferExpression)):
         return (AxisComponentRegion(obj),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")

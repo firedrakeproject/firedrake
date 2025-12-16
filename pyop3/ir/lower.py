@@ -357,7 +357,7 @@ class CompiledCodeExecutor:
 
         # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
         #     breakpoint()
-        pyop3.extras.debug.maybe_breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
 
         if self.comm.size > 1:

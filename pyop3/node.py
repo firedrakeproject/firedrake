@@ -220,7 +220,9 @@ class NodeVisitor(Visitor):
 
 
 class NodeTransformer(NodeVisitor, abc.ABC):
-    def reuse_if_untouched(self, o: Expr | BaseForm, **kwargs) -> Expr | BaseForm:
+
+    @NodeVisitor.postorder
+    def reuse_if_untouched(self, node: Node, visited, **kwargs) -> Node:
         """Reuse if untouched.
 
         Args:
@@ -233,15 +235,13 @@ class NodeTransformer(NodeVisitor, abc.ABC):
             Processed expression.
 
         """
-        raise NotImplementedError("handle tuples etc")
-        new_children = idict({
-            name: self(child, **kwargs)
-            for name, child in o.children.items()
-        })
-        if new_children == o.children:
-            return o
+        if all(
+            getattr(node, attr_name) == attr
+            for attr_name, attr in visited.items()
+        ):
+            return node
         else:
-            return o.__record_init__(**new_children)
+            return node.__record_init__(**visited)
 
 
 class NodeCollector(NodeVisitor, abc.ABC):

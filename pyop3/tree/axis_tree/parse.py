@@ -98,9 +98,9 @@ def _(component: AxisComponent) -> Axis:
 
 @functools.singledispatch
 def as_axis_component(arg: Any) -> AxisComponent:
-    from pyop3 import Dat  # cyclic import
+    from pyop3 import Scalar, Dat  # cyclic import
 
-    if isinstance(arg, Dat):
+    if isinstance(arg, Dat | Scalar):
         return AxisComponent(arg)
     else:
         raise TypeError(f"No handler defined for {type(arg).__name__}")
@@ -111,7 +111,7 @@ def _(component: AxisComponent) -> AxisComponent:
     return component
 
 
-@as_axis_component.register
+@as_axis_component.register(numbers.Integral)
 def _(arg: numbers.Integral) -> AxisComponent:
     return AxisComponent(arg)
 

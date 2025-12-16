@@ -778,7 +778,7 @@ class LiteralInserter(NodeTransformer):
         return super().process(obj)
 
     @process.register(insn_types.Instruction)
-    def _(self, insn: insn_types.Instruction) -> :
+    def _(self, insn: insn_types.Instruction) -> insn_types.Instruction:
         return self.reuse_if_untouched(insn)
 
     @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
