@@ -473,6 +473,7 @@ class CrossMeshInterpolator(Interpolator):
         if bcs:
             raise NotImplementedError("bcs not implemented")
 
+        # TODO check V.finat_element.is_lagrange() once https://github.com/firedrakeproject/fiat/pull/200 is released
         target_element = V.ufl_element()
         if not ((isinstance(target_element, finat.ufl.MixedElement)
                  and all(sub.mapping() == "identity" for sub in target_element.sub_elements))
