@@ -861,7 +861,7 @@ def _build_interpolation_callables(
     # FIXME: for the runtime unknown point set (for cross-mesh
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(target_mesh._comm, expr, to_element, V.ufl_element(),
+    kernel = compile_expression(target_mesh.comm, expr, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters)
 
     local_kernel_args = []

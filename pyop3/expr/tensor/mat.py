@@ -714,7 +714,7 @@ class RowDatPythonMatContext(DatPythonMatContext):
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((self.dat.axes.unindexed.size, None), (None, 1))
+        return ((self.dat.axes.unindexed.owned.local_size, None), (None, 1))
 
 
 class ColumnDatPythonMatContext(DatPythonMatContext):
@@ -729,4 +729,4 @@ class ColumnDatPythonMatContext(DatPythonMatContext):
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((None, 1), (self.dat.axes.unindexed.size, None))
+        return ((None, 1), (self.dat.axes.unindexed.owned.local_size, None))

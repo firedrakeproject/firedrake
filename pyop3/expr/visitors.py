@@ -1060,6 +1060,7 @@ class DiskCacheKeyGetter(NodeVisitor):
         return super().process(obj)
 
     @process.register(numbers.Number)
+    @process.register(op3_expr.NaN)
     def _(self, obj: ExpressionT, /) -> Hashable:
         return (obj,)
 
@@ -1118,6 +1119,7 @@ class BufferCollector(NodeCollector):
         return OrderedFrozenSet().union(*visited.values())
 
     @process.register(numbers.Number)
+    @process.register(op3_expr.NaN)
     def _(self, expr: op3_expr.ExpressionT, /) -> OrderedFrozenSet:
         return OrderedFrozenSet()
 

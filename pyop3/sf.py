@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import dataclasses
 import numbers
 import typing
 from functools import cached_property
@@ -19,13 +20,6 @@ if typing.TYPE_CHECKING:
 
 
 from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
-
-
-# This is so we can more easily distinguish internal and external comms
-# It is still necessary to register weakref finalizers for these (see what
-# we do in Firedrake).
-class Pyop3Comm(MPI.Comm):
-    pass
 
 
 class ParallelAwareObject(abc.ABC):
@@ -104,14 +98,13 @@ class StarForest(AbstractStarForest):
     # {{{ instance attrs
 
     sf: PETSc.SF
-
-    def __post_init__(self):
-        if self.size > 1000:
-            breakpoint()
+    _comm: MPI.Comm
 
     # }}}
 
     # {{{ interface impls
+
+    comm = utils.attr("_comm")
 
     def __hash__(self) -> int:
         return hash((
@@ -146,11 +139,7 @@ class StarForest(AbstractStarForest):
 
         sf = PETSc.SF().create(comm)
         sf.setGraph(size, ilocal, iremote)
-        return cls(sf)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm.tompi4py()
+        return cls(sf, comm)
 
     @cached_property
     def iroot(self):
@@ -257,6 +246,10 @@ class NullStarForest(AbstractStarForest):
 
     def __init__(self, size):
         self.size = size
+        self.__post_init__()
+
+    def __post_init__(self):
+        assert isinstance(self.size, numbers.Integral)
 
     # }}}
 

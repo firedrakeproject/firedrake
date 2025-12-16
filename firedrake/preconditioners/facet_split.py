@@ -1,6 +1,6 @@
 from functools import partial
-from mpi4py import MPI
 import pyop3 as op3
+from pyop3.mpi import MPI, temp_internal_comm
 from finat.ufl import BrokenElement, RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.function import Function
 from firedrake.parloops import pack_tensor
@@ -9,6 +9,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
 import numpy
+
 
 __all__ = ['FacetSplitPC']
 

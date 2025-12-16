@@ -1800,7 +1800,8 @@ class MixedFunctionSpace:
 
         Used when extracting blocks from matrices for solvers."""
         ises = []
-        start = self._comm.exscan(self.axes.owned.local_size) or 0
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            start = icomm.exscan(self.axes.owned.local_size) or 0
         for subspace in self:
             size = subspace.axes.owned.local_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
@@ -2084,7 +2085,7 @@ class RealFunctionSpace(FunctionSpace):
         assert ndofs is not None
 
         dof_axis = op3.Axis(
-            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self._comm, ndofs)),
+            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self.comm, ndofs)),
             "dof"
         )
         constraints = [AxisConstraint(dof_axis)]

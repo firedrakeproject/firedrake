@@ -17,7 +17,7 @@ import numpy as np
 import pyop3 as op3
 import ufl
 from pyop3.cache import serial_cache
-from pyop3 import READ, WRITE, RW, INC
+from pyop3 import READ, WRITE, RW, INC, MIN_WRITE as MIN, MAX_WRITE as MAX
 from pyop3.expr.visitors import evaluate as eval_expr
 from pyop3.utils import readonly
 from ufl.indexed import Indexed

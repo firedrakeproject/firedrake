@@ -317,6 +317,9 @@ class AxisComponentRegion:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
+        if self.size == 50:
+            breakpoint()
+
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):
@@ -341,10 +344,10 @@ class AxisComponentRegion:
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> AxisComponentSize:
-    from pyop3 import Dat
+    from pyop3 import Dat, Scalar
     from pyop3.expr.buffer import LinearDatBufferExpression
 
-    if isinstance(obj, (Dat, LinearDatBufferExpression)):
+    if isinstance(obj, (Dat, LinearDatBufferExpression, Scalar)):
         return (AxisComponentRegion(obj),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
@@ -366,21 +369,6 @@ def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> FixedAxisComponentSize:
     return (AxisComponentRegion(num),)
-
-
-@functools.singledispatch
-def _parse_sf(obj: Any, /) -> AbstractStarForest:
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@_parse_sf.register(AbstractStarForest)
-def _(sf: AbstractStarForest) -> AbstractStarForest:
-    return sf
-
-
-@_parse_sf.register(PETSc.SF)
-def _(petsc_sf: PETSc.SF, /) -> StarForest:
-    return StarForest(petsc_sf)
 
 
 def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarForest) -> tuple[AxisComponentRegion, ...]:
@@ -451,7 +439,6 @@ class AxisComponent(LabelledNodeComponent):
 
         regions = _parse_regions(regions)
         if sf is not None:
-            sf = _parse_sf(sf)
             if any(
                 _region_label_matches(region, label_)
                 for region in regions
@@ -937,7 +924,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             sfs = collect_star_forests(self)
             return concatenate_star_forests(sfs)
         else:
-            return NullStarForest(self.size)
+            return NullStarForest(self.local_size)
 
 
     # @property
@@ -1616,8 +1603,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        # FIXME: parallel!!!
-        if self.local_size == 0:
+        if self.size == 0:
             return slice(0, 0)
 
         # NOTE: The below method might be better...
@@ -1630,20 +1616,26 @@ class IndexedAxisTree(AbstractAxisTree):
             iterset = self.linearize(leaf_path)
             p = iterset.index()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
+            pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro
-
         indices = np.unique(np.sort(indices))
 
-        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
+        # print(indices, self.local_size)
+        # breakpoint()
+
+        # debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
+        if len(indices) > 0:
+            assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")
         slice_ = None
         n = len(indices)
 
-        assert n > 0
-        if n == 1:
+        if n == 0:
+            return slice(0, 0)
+        elif n == 1:
             start = indices[0]
             return slice(start, start+1)
         else:
@@ -2003,16 +1995,13 @@ class AxisForest(DistributedObject):
     def restrict_nest(self, index):
         return type(self)((tree.restrict_nest(index) for tree in self.trees))
 
-    # def prune(self):
-    #     return type(self)((tree.prune() for tree in self.trees))
-    #
-    # @property
-    # def regionless(self):
-    #     return type(self)((tree.regionless for tree in self.trees))
-
     @property
     def size(self):
         return self.trees[0].size
+
+    @property
+    def sf(self) -> AbstractStarForest:
+        return utils.single_valued((tree.sf for tree in self.trees))
 
     @property
     def local_size(self) -> int:

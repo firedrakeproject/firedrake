@@ -632,6 +632,8 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     DEFAULT_PREFIX = "petscmat"
 
     dtype = ScalarType
+    constant = False
+    rank_equal = False
 
     @property
     @abc.abstractmethod
