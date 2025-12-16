@@ -36,10 +36,11 @@ class FacetSplitPC(PCBase):
         key = (V, W)
         if key not in self._index_cache:
             indices = get_restriction_indices(V, W)
-            if V._comm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
-                self._index_cache[key] = None
-            else:
-                self._index_cache[key] = indices
+            with temp_internal_comm(V.comm) as icomm:
+                if icomm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
+                    self._index_cache[key] = None
+                else:
+                    self._index_cache[key] = indices
         return self._index_cache[key]
 
     def initialize(self, pc):

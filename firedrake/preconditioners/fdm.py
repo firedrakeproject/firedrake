@@ -1231,7 +1231,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
 
-        matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = cache_generate_code(kernel, V.comm)
         matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
 
         ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))

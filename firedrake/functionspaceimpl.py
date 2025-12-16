@@ -135,7 +135,6 @@ class WithGeometryBase:
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):
@@ -474,6 +473,19 @@ class WithGeometryBase:
             new = cls.create(new, mesh)
         return new
 
+    def broken_space(self):
+        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
+        constructed from this function space's FiniteElement.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        """
+        return type(self).make_function_space(
+            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            name=f"{self.name}_broken" if self.name else None)
+
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,
@@ -646,11 +658,7 @@ class FunctionSpace:
 
         self.name = name
         r"""The (optional) descriptive name for this space."""
-
-        # User comm
         self.comm = mesh.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(self.comm, self)
 
         self.element = element
         self.finat_element = create_element(element)
@@ -1612,7 +1620,6 @@ class MixedFunctionSpace:
         self._mesh = mesh
 
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -2167,40 +2174,6 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
-
-    # def set_shared_data(self):
-    #     pass
-
-    # def make_dof_dset(self):
-    #     raise NotImplementedError
-    #     return op2.GlobalDataSet(self.make_dat())
-
-    # def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-    #     return None
-    #
-    # def cell_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no cell node map."
-    #     return None
-    #
-    # def interior_facet_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no interior facet node map."
-    #     return None
-    #
-    # def exterior_facet_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no exterior facet node map."
-    #     return None
-    #
-    # def bottom_nodes(self):
-    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
-    #     return None
-    #
-    # def top_nodes(self):
-    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
-    #     return None
-    #
-    # def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-    #     assert len(bcs) == 0
-    #     return None
 
 
 @dataclass

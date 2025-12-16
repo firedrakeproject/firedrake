@@ -19,6 +19,9 @@ from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
+__all__ = ["Cofunction", "RieszMap"]
+
+
 class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
 
@@ -68,16 +71,20 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         # User comm
         self.comm = V.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
         if isinstance(val, Cofunction):
             val = val.dat
+<<<<<<< HEAD
         if isinstance(val, op3.Dat):
+=======
+
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+            assert val.comm == self.comm
+>>>>>>> origin/main
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())

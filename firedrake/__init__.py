@@ -3,6 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
+# TODO RELEASE set to ">=3.25"
 PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
@@ -45,8 +46,8 @@ if _is_logging:
     del atexit
 del petsc
 
-from ufl import *
-from finat.ufl import *
+from ufl import *  # noqa: F401
+from finat.ufl import *  # noqa: F401
 
 from pyop3.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
@@ -159,20 +160,24 @@ from firedrake.external_operators import (  # noqa: F401
 )
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 
-from firedrake.logging import *
+from firedrake.logging import (  # noqa: F401
+    set_level, set_log_handlers, set_log_level, DEBUG, INFO,
+    WARNING, ERROR, CRITICAL, log, debug, info, warning, error,
+    critical, info_red, info_green, info_blue, RED, GREEN, BLUE
+)
+from firedrake.matrix import (  # noqa: F401
+    MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
+)
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot, File  # noqa: F401
-# Once `File` is deprecated update the above line removing `File` and add
-#   from firedrake._deprecation import output
-#   sys.modules["firedrake.output"] = output
-from firedrake.output import *
+from firedrake._deprecation import plot  # noqa: F401
 import sys
 sys.modules["firedrake.plot"] = plot
-from firedrake.plot import *
+from firedrake.plot import *  # noqa: F401
 
 del sys
 

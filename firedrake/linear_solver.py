@@ -2,7 +2,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-from pyop3.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
 __all__ = ["LinearSolver"]
@@ -55,7 +54,6 @@ class LinearSolver(LinearVariationalSolver):
 
         self.A = A
         self.comm = A.comm
-        self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
         self.ksp = self.snes.ksp
