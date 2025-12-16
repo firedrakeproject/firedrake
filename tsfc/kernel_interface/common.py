@@ -59,6 +59,8 @@ class KernelBuilderBase(KernelInterface):
         domain = extract_unique_domain(ufl_coefficient)
         if ufl_coefficient.ufl_element().family() == 'Real':
             return kernel_arg
+        elif domain not in self._domain_integral_type_map:
+            return kernel_arg
         elif not self._domain_integral_type_map[domain].startswith("interior_facet"):
             return kernel_arg
         else:
@@ -504,19 +506,19 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
     domain = extract_unique_domain(coefficient)
-    integral_type = domain_integral_type_map[domain]
-    if integral_type is None:
+    if domain not in domain_integral_type_map:
         # This means that this coefficient does not exist in the DAG,
         # so corresponding gem expression will never be needed.
-        expression = None
-    elif integral_type.startswith("interior_facet"):
+        return None 
+    integral_type = domain_integral_type_map[domain]
+
+    if integral_type.startswith("interior_facet"):
         varexp = gem.Variable(name, (2 * size,))
         plus = gem.view(varexp, slice(size))
         minus = gem.view(varexp, slice(size, 2 * size))
-        expression = (gem.reshape(plus, shape), gem.reshape(minus, shape))
+        return (gem.reshape(plus, shape), gem.reshape(minus, shape))
     else:
-        expression = gem.reshape(gem.Variable(name, (size,)), shape)
-    return expression
+        return gem.reshape(gem.Variable(name, (size,)), shape)
 
 
 def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagonal=False):
