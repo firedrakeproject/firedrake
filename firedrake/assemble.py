@@ -32,6 +32,7 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from pyop2.utils import cached_property
+from ufl.algorithms.analysis import extract_arguments
 
 
 __all__ = "assemble",
@@ -838,7 +839,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
-            if isinstance(left, ufl.Adjoint) and isinstance(right, ufl.Cofunction) and left.arguments()[-1].function_space() == right.function_space():
+            if isinstance(left, ufl.Adjoint) and len(extract_arguments(right)) == 1:
                 # Action(Adjoint(A), w*) -> Action(w*, A)
                 return ufl.action(right, left.form())
 
