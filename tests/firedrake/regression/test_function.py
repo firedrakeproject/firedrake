@@ -81,22 +81,22 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 
 def test_mismatching_rank_interpolation(V):
     f = Function(V)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
     VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VVV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant((1, 2)))
 
 
 def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         f.interpolate(Constant([1] * (VV.value_shape[0] + 1)))
 
 

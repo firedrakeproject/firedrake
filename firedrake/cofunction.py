@@ -3,7 +3,7 @@ import numpy as np
 import ufl
 
 from ufl.form import BaseForm
-from pyop2 import op2, mpi
+from pyop2 import op2
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from finat.ufl import MixedElement
 import firedrake.assemble
@@ -68,10 +68,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         # User comm
         self.comm = V.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
@@ -79,7 +77,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             val = val.dat
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -171,7 +169,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
@@ -343,7 +341,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         Parameters
         ----------
         expression
-            A dual UFL expression to interpolate.
+            A UFL BaseForm to adjoint interpolate.
         ad_block_tag
             An optional string for tagging the resulting assemble
             block on the Pyadjoint tape.
@@ -356,9 +354,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         v, = self.arguments()
-        interp = interpolation.Interpolate(v, expression, **kwargs)
+        interp = interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
@@ -438,6 +436,8 @@ class RieszMap:
         variational problem that solves for the Riesz map.
     restrict: bool
         If `True`, use restricted function spaces in the Riesz map solver.
+    constant_jacobian : bool
+        Whether the matrix associated with the map is constant.
     """
 
     def __init__(self, function_space_or_inner_product=None,
@@ -542,3 +542,10 @@ class RieszMap:
                 f"Unable to ascertain if {value} is primal or dual."
             )
         return output
+
+    @property
+    def constant_jacobian(self) -> bool:
+        """Whether the matrix associated with the map is constant.
+        """
+
+        return self._constant_jacobian

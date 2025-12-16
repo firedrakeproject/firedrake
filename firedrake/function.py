@@ -73,15 +73,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         # User comm
         self.comm = function_space.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -382,9 +380,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         firedrake.function.Function
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V, **kwargs)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -403,7 +401,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
@@ -563,8 +561,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
+        coord = np.asarray(coord, dtype=utils.ScalarType)
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
-        return evaluator.evaluate(self)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze(axis=0)
+        return result
 
     def at(self, arg, *args, **kwargs):
         warnings.warn(
@@ -633,9 +635,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = self._comm.bcast(arg, root=0)
-        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            root_arg = icomm.bcast(arg, root=0)
+            same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+            diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -715,7 +718,7 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -827,7 +830,7 @@ class PointEvaluator:
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
-        result = f_at_points_io.dat.data_ro
+        result = f_at_points_io.dat.data_ro.copy()
 
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:

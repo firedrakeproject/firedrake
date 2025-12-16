@@ -1,12 +1,14 @@
 from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
-from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
+from finat.ufl import BrokenElement, RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
 import numpy
+
+from pyop2.mpi import temp_internal_comm
 
 __all__ = ['FacetSplitPC']
 
@@ -33,10 +35,11 @@ class FacetSplitPC(PCBase):
         key = (V, W)
         if key not in self._index_cache:
             indices = get_restriction_indices(V, W)
-            if V._comm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
-                self._index_cache[key] = None
-            else:
-                self._index_cache[key] = indices
+            with temp_internal_comm(V.comm) as icomm:
+                if icomm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
+                    self._index_cache[key] = None
+                else:
+                    self._index_cache[key] = indices
         return self._index_cache[key]
 
     def initialize(self, pc):
@@ -209,7 +212,9 @@ def restrict(ele, restriction_domain):
     if isinstance(ele, VectorElement):
         return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
     elif isinstance(ele, TensorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmetry)
+    elif restriction_domain == "broken":
+        return BrokenElement(ele)
     else:
         return RestrictedElement(ele, restriction_domain)
 
@@ -242,7 +247,7 @@ def restricted_dofs(celem, felem):
     cdofs = celem.entity_dofs()
     fdofs = felem.entity_dofs()
     for dim in sorted(cdofs):
-        for entity in cdofs[dim]:
+        for entity in sorted(cdofs[dim]):
             ndofs = len(cdofs[dim][entity])
             indices[cdofs[dim][entity]] = fdofs[dim][entity][:ndofs]
     return indices
@@ -251,6 +256,9 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
+    if V.cell_node_map() is W.cell_node_map():
+        return numpy.arange(V.dof_dset.layout_vec.getSizes()[0], dtype=PETSc.IntType)
+
     vdat = V.make_dat(val=numpy.arange(V.dof_count, dtype=PETSc.IntType))
     wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
     wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)

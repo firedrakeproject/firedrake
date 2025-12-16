@@ -23,6 +23,7 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -364,7 +365,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                                     sub_mat_type=self._sub_mat_type,
+                                     options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -611,17 +614,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # Get the target space
-            V = v.function_space().dual()
-
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            if rank == 1 and isinstance(tensor, firedrake.Function):
-                V = tensor
-            interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
-            # Assembly
-            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
+            interpolator = get_interpolator(expr)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -861,6 +855,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
+
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+            form, operand = expr.argument_slots()
+            vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
+            expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
+            return ufl.action(expr, form)
         return expr
 
     @staticmethod
@@ -1165,13 +1168,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):
@@ -1324,12 +1327,12 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
                for arg in arguments
                for V in arg.function_space()):
             mat_type = "nest"
-    if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
+    if mat_type not in {"matfree", "aij", "baij", "nest", "dense", "is"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in {"aij", "baij"}:
-        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
+    if sub_mat_type not in {"aij", "baij", "is"}:
+        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
 
@@ -1373,6 +1376,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                             sub_mat_type=self._sub_mat_type,
                              options_prefix=self._options_prefix,
                              fc_params=self._form_compiler_params)
 
@@ -1490,8 +1494,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
+            if op2tensor.handle.getType() == "is":
+                # Flag the entire matrix as assembled before indexing the diagonal block
+                op2tensor.handle.assemble()
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
-
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.
@@ -2067,16 +2073,18 @@ class ParloopBuilder:
                 row_bcs, col_bcs = self._filter_bcs(i, j)
                 # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                mat_type = self._tensor.handle.getType()
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
                 return ((rlgmap, clgmap),)
             else:
                 lgmaps = []
                 for i, j in self.get_indicess():
                     row_bcs, col_bcs = self._filter_bcs(i, j)
                     rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
-                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                    mat_type = self._tensor[i, j].handle.getType()
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
                     lgmaps.append((rlgmap, clgmap))
                 return tuple(lgmaps)
         else:

@@ -3,6 +3,7 @@ import numpy as np
 
 import ufl
 from firedrake import *
+from firedrake.matrix import MatrixBase
 
 
 @pytest.fixture(scope='module')
@@ -104,7 +105,7 @@ def test_assemble(V, f):
     assert isinstance(jac, MatrixBase)
 
     # Assemble the exact Jacobian, i.e. the interpolation matrix: `Interpolate(dexpr(u,v,w)/du, V)`
-    jac_exact = assemble(Interpolate(derivative(expr(u, v, w), u), V))
+    jac_exact = assemble(interpolate(derivative(expr(u, v, w), u), V))
     np.allclose(jac.petscmat[:, :], jac_exact.petscmat[:, :], rtol=1e-14)
 
     # -- dNdu(u, v, w; δu, v*) (TLM) -- #
