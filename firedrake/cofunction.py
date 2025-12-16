@@ -82,9 +82,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-        if isinstance(function_space, Cofunction):
-            self.dat.copy(function_space.dat)
-
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
