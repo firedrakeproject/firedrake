@@ -1107,17 +1107,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
-
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domains = extract_domains(o)
-            for domain in domains:
-                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
