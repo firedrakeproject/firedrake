@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 import numpy as np
 from functools import partial
-from ufl.algorithms.ad import expand_derivatives
 
 
 @pytest.fixture(params=["interval", "tri", "quad", "tet"])
