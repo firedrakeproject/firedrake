@@ -140,8 +140,8 @@ def test_multi_domain_solve():
 
     u_exact_expr1 = sin(pi * x1) * sin(pi * y1)
     u_exact_expr2 = x2 * y2 * (1 - x2) * (1 - y2)
-    f1 = expand_derivatives(-div(grad(u_exact_expr1)))
-    f2 = expand_derivatives(-div(grad(u_exact_expr2)))
+    f1 = -div(grad(u_exact_expr1))
+    f2 = -div(grad(u_exact_expr2))
 
     L = (
         inner(f1, v1)*dx(domain=mesh1)
