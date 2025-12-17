@@ -568,7 +568,7 @@ class CheckpointFile(object):
         tmesh = mesh.topology
         if mesh.extruded:
             # -- Save mesh topology --
-            base_tmesh = mesh._base_mesh.topology
+            base_tmesh = mesh.topology._base_mesh
             self._save_mesh_topology(base_tmesh)
             if tmesh.name not in self.require_group(self._path_to_topologies()):
                 # The tmesh (an ExtrudedMeshTopology) is treated as if it was a first class topology object. It
@@ -620,8 +620,9 @@ class CheckpointFile(object):
                 # The followings are conceptually redundant, but needed.
                 path = os.path.join(self._path_to_mesh(tmesh.name, mesh.name), PREFIX_EXTRUDED)
                 self.require_group(path)
-                self.save_mesh(mesh._base_mesh)
-                self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
+                if mesh._base_mesh:
+                    self.save_mesh(mesh._base_mesh)
+                    self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", mesh._base_mesh.name)
         else:
             # -- Save mesh topology --
             self._save_mesh_topology(tmesh)
@@ -1090,8 +1091,12 @@ class CheckpointFile(object):
                 mesh.radial_coordinates = Function(V_radial_coord, val=radial_coordinates, name=radial_coord_function_name)
             # The followings are conceptually redundant, but needed.
             path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
-            base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
+            try:
+                base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
+            except KeyError:
+                pass
+            else:
+                mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
             # -- Load mesh topology --
             if topology is None:
