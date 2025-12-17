@@ -169,7 +169,7 @@ class AbstractOrderedSet:
         return f"{type(self).__name__}({self._values!r})"
 
     def __str__(self) -> str:
-        return f"{{{', '.join(self._values)}}}"
+        return f"{{{', '.join(map(str, self._values))}}}"
 
     def __len__(self) -> int:
         return len(self._values)
@@ -238,8 +238,6 @@ class OrderedFrozenSet(AbstractOrderedSet):
 
     def __init__(self, values: collections.abc.Sequence = (), /) -> None:
         self._values = tuple(values)
-
-        assert all(not isinstance(v, OrderedFrozenSet) for v in self._values)
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
@@ -659,8 +657,9 @@ def _make_record(**kwargs):
 
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     changed_attrs = {}
+    valid_attr_names = frozenset(f.name for f in dataclasses.fields(self))
     for attr_name, attr in attrs.items():
-        assert attr_name in self.__dataclass_fields__
+        assert attr_name in valid_attr_names, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
         try:
             if getattr(self, attr_name) != attr:
                 changed_attrs[attr_name] = attr

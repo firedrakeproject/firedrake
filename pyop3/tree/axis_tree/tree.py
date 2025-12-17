@@ -1616,7 +1616,6 @@ class IndexedAxisTree(AbstractAxisTree):
             iterset = self.linearize(leaf_path)
             p = iterset.index()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
-            pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro
         indices = np.unique(np.sort(indices))

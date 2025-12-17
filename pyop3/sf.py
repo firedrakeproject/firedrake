@@ -277,6 +277,9 @@ class NullStarForest(AbstractStarForest):
 
     # }}}
 
+    def __repr__(self, /) -> str:
+        return f"NullStarForest({self.size})"
+
     # TODO: This leads to some very unclear semantics. Basically there are
     # subtle differences between having a null star forest and an SF that is
     # 'None' and sometimes we want to treat them as equivalent and other

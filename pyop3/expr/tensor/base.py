@@ -117,11 +117,6 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
             self.assign(self//other, eager=True)
         return self
 
-    # @property
-    # @utils.deprecated("internal_comm")
-    # def comm(self) -> MPI.Comm:
-    #     return self.buffer.comm
-
     @property
     def dtype(self) -> np.dtype:
         return self.buffer.dtype

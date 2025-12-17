@@ -9,17 +9,19 @@ import numbers
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import numpy as np
 from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
+from pyop3.expr.buffer import MatArrayBufferExpression
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
-from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
+from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, BufferRef
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 import pyop3.insn as insn_types
@@ -777,15 +779,35 @@ class LiteralInserter(NodeTransformer):
     def process(self, obj: Any) -> insn_types.Instruction:
         return super().process(obj)
 
-    @process.register(insn_types.Instruction)
+    @process.register(insn_types.Loop)
+    @process.register(insn_types.StandaloneCalledFunction)
     def _(self, insn: insn_types.Instruction) -> insn_types.Instruction:
         return self.reuse_if_untouched(insn)
 
-    @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
-    def _(self, assignment: insn_types.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
-        return assignment.__record_init__(
-            expression=expr_visitors.insert_literals(assignment.expression),
-        )
+    @process.register(insn_types.NonEmptyArrayAssignment)
+    def _(self, assignment: insn_types.NonEmptyArrayAssignment, /) -> insn_types.NonEmptyArrayAssignment:
+        # NOTE: This is not robust to if we have expressions that are not just ints, or
+        # if the mat is on the rhs
+        if (
+            isinstance(assignment.assignee, MatPetscMatBufferExpression)
+            and isinstance(assignment.expression, numbers.Number)
+        ):
+            # If we have an expression like
+            #
+            #     mat[f(p), f(p)] <- 666
+            #
+            # then we have to convert `666` into an appropriately sized temporary
+            # for Mat{Get,Set}Values to work.
+            row_axis_tree, column_axis_tree = assignment.axis_trees
+            nrows = row_axis_tree.local_max_size
+            ncols = column_axis_tree.local_max_size
+            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.buffer.dtype)
+
+            new_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
+            new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
+            return assignment.__record_init__(_expression=new_expression)
+        else:
+            return assignment
 
 
 def insert_literals(insn: insn_types.Instruction) -> insn_types.Instruction:

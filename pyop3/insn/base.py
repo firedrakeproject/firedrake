@@ -247,8 +247,9 @@ class PreprocessedOperation:
     def comm(self) -> MPI.Comm:
         return self.root_insn.comm
 
-    @cached_property
-    def buffers(self) -> OrderedSet:
+    # @cached_property
+    @property  # UNDO ME!!! debugging
+    def buffers(self) -> OrderedFrozenSet:
         """The buffers (global data) that are present in the operation."""
         from pyop3.insn.visitors import collect_buffers
 
@@ -867,11 +868,11 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = utils.attr("_assignee")
-    expression: ClassVar[property] = utils.attr("_expression")
-    axis_trees: ClassVar[property] = utils.attr("_axis_trees")
-    assignment_type: ClassVar[property] = utils.attr("_assignment_type")
-    comm: ClassVar[property] = utils.attr("_comm")
+    assignee = utils.attr("_assignee")
+    expression = utils.attr("_expression")
+    axis_trees = utils.attr("_axis_trees")
+    assignment_type = utils.attr("_assignment_type")
+    comm = utils.attr("_comm")
 
     # }}}
 
@@ -900,11 +901,11 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
     # {{{ Interface impls
 
-    assignee: ClassVar[property] = property(lambda self: self._assignee)
-    expression: ClassVar[property] = property(lambda self: self._expression)
-    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
-    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
-    comm: ClassVar[property] = utils.attr("_comm")
+    assignee: ClassVar = utils.attr("_assignee")
+    expression: ClassVar = utils.attr("_expression")
+    assignment_type: ClassVar = utils.attr("_assignment_type")
+    axis_trees: ClassVar = utils.attr("_axis_trees")
+    comm: ClassVar = utils.attr("_comm")
 
     # }}}
 

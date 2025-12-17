@@ -53,7 +53,7 @@ class Visitor(abc.ABC):
         self._compress = compress
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
-        self._seen_keys = set()
+        self._seen_nodes = set()
 
     # {{{ overrideable interface
 
@@ -111,11 +111,12 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
+        self._seen_nodes.add(node)
+
         cache_key = self.get_cache_key(node, **kwargs)
         try:
             return self._visited_cache[cache_key]
         except KeyError:
-            self._seen_keys.add(cache_key)
             preprocessed = self.preprocess_node(node)
             result = self.process(*preprocessed, **kwargs)
             # Optionally check if r is in result_cache, a memory optimization
@@ -131,6 +132,14 @@ class Visitor(abc.ABC):
             # Store result in cache
             self._visited_cache[cache_key] = result
             return result
+
+    def _safe_call(self, node, default=None, **kwargs):
+        # doesnt really work
+        return self(node, **kwargs)
+        if node in self._seen_nodes:
+            return default
+        else:
+            return self(node, **kwargs)
 
 
 class LabelledTreeVisitor(Visitor):

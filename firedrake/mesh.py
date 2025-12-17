@@ -2566,11 +2566,11 @@ class ExtrudedMeshTopology(MeshTopology):
         npoints = base_mesh_axis.component.local_size * (2*n_extr_cells+1)
 
         base_point_sf = base_mesh_axis.component.sf
-        section = PETSc.Section().create(comm=base_point_sf.internal_comm)
+        section = PETSc.Section().create(comm=self._base_mesh.comm)
         section.setChart(0, base_point_sf.size)
         for pt in range(base_point_sf.size):
             section.setDof(pt, 2*n_extr_cells+1)
-        point_sf = op3.StarForest(op3.sf.create_petsc_section_sf(base_point_sf.sf, section), npoints)
+        point_sf = op3.StarForest(op3.sf.create_petsc_section_sf(base_point_sf.sf, section), self._base_mesh.comm)
 
         return op3.Axis(
             [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],
@@ -3145,8 +3145,7 @@ class ExtrudedMeshTopology(MeshTopology):
             target_dim = map_dim
 
             # Discard any parallel information, the maps are purely local
-            outer_axis_component = just_one(c for c in self.points.root.components if c.label == dim)
-            outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
+            outer_axis = self.points.root.linearize(dim).localize()
 
             # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
             # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
