@@ -2530,7 +2530,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
-        base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
+        # base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
         # base_dm.removeLabel("exterior_facets")
         # base_dm.removeLabel("interior_facets")
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)

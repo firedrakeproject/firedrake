@@ -1643,67 +1643,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             mat.assemble()
 
             p = V.nodal_axes[bc.node_set].index()
-            # if index is not Ellipsis:
-            #     p = (index, V.nodal_axes[bc.node_set].index()
-            # assignee = mat[index, index].with_axes(spaces[0].nodal_axes[index], spaces[1].nodal_axes[index])[p, p]
-            # op3.extras.debug.enable_conditional_breakpoints()
-            # assignee = mat.w\ith_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[index, index][p, p]
-            assignee1 = mat
-            assignee2 = assignee1[index, index]
-            assignee3 = assignee2[p, p]
-            assignee = assignee3
-
+            assignee = mat[index, index][p, p]
             # If setting a block then use an identity matrix
             size = utils.single_valued((
-                axes.size for axes in {assignee.row_axes, assignee.caxes}
+                axes.size for axes in {assignee.row_axes, assignee.column_axes}
             ))
             expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
-            expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
+            expr_buffer = op3.ArrayBuffer(expr_data, constant=True, rank_equal=True)
             expression = op3.Mat(
                 assignee.row_axes.materialize(),
-                assignee.caxes.materialize(),
+                assignee.column_axes.materialize(),
                 buffer=expr_buffer,
             )
 
-            op3.do_loop(
-                p, assignee.assign(expression)
+            op3.loop(
+                p, assignee.assign(expression), eager=True
             )
-
-            # # If we constrain points of different dimension (e.g. vertices
-            # # and edges) then the assigned identity may have different sizes.
-            # # To resolve this we loop over each dimension in turn.
-            # for context, index_trees in op3.as_index_forest(p).items():
-            #     index_tree = utils.just_one(index_trees)
-            #
-            #     # dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            #     # index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
-            #     #
-            #     if component is not None:
-            #         breakpoint()
-            #     #     component_slice = op3.ScalarIndex("dim0", "XXX", component)
-            #     #     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
-            #
-            #     # breakpoint()
-            #     assignee = mat[index, index][index_tree, index_tree]
-            #
-            #     # if assignee.axes.size == 0:
-            #     #     continue
-            #
-            #     # If setting a block then use an identity matrix
-            #     size = utils.single_valued((
-            #         axes.size for axes in {assignee.raxes, assignee.caxes}
-            #     ))
-            #     expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
-            #     expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
-            #     expression = op3.Mat(
-            #         assignee.raxes.materialize(),
-            #         assignee.caxes.materialize(),
-            #         buffer=expr_buffer,
-            #     )
-            #
-            #     op3.do_loop(
-            #         p.with_context(context), assignee.assign(expression)
-            #     )
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
