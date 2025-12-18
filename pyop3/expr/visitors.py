@@ -60,17 +60,17 @@ def _(num, /, **kwargs) -> Any:
 @_evaluate.register(expr_types.AxisVar)
 def _(axis_var: expr_types.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
-        return axis_vars[axis_var.axis_label]
+        return axis_vars[axis_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'{axis_var.axis_label}' not found in 'axis_vars'")
+        raise MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
 
 
 @_evaluate.register(expr_types.LoopIndexVar)
 def _(loop_var: expr_types.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
     try:
-        return loop_indices[loop_var.loop_id][loop_var.axis_label]
+        return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'({loop_var.loop_id}, {loop_var.axis_label})' not found in 'loop_indices'")
+        raise MissingVariableException(f"'({loop_var.loopindex.id}, {loop_var.axis.label})' not found in 'loop_indices'")
 
 
 @_evaluate.register
@@ -128,7 +128,7 @@ def _(cond: expr_types.Conditional, /, **kwargs) -> Any:
     if _evaluate(cond.predicate, **kwargs):
         return _evaluate(cond.if_true, **kwargs)
     else:
-        return _evaluate(cond.if_true, **kwargs)
+        return _evaluate(cond.if_false, **kwargs)
 
 
 @_evaluate.register(expr_types.Dat)

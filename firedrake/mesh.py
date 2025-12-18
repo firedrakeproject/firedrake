@@ -3995,7 +3995,7 @@ values from f.)"""
                   'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = self._old_to_new_cell_numbering_is.indices
+        column_list = V.cell_node_list.reshape(-1)
 
         def reshape_coords(_coords):
             return _coords.dat.data_ro_with_halos.reshape((-1, gdim))

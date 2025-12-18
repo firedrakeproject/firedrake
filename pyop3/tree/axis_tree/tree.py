@@ -317,9 +317,6 @@ class AxisComponentRegion:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
-        if self.size == 50:
-            breakpoint()
-
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
         elif isinstance(self.size, Scalar | ScalarBufferExpression):
@@ -335,10 +332,11 @@ class AxisComponentRegion:
 
     @property
     def local_size(self):
-        from pyop3.expr import ScalarBufferExpression
-        if isinstance(self.size, ScalarBufferExpression):
-            return self.size.value
-        else:
+        from pyop3 import evaluate
+
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
             return self.size
 
 
@@ -507,12 +505,11 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def local_size(self) -> Any:
-        from pyop3 import Scalar
-        from pyop3.expr import ScalarBufferExpression
+        from pyop3 import evaluate
 
-        if isinstance(self.size, Scalar | ScalarBufferExpression):
-            return self.size.value
-        else:
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
             return self.size
 
     @cached_property
@@ -1030,12 +1027,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def local_size(self):
-        from pyop3 import Scalar
-        from pyop3.expr import ScalarBufferExpression
+        from pyop3 import evaluate
 
-        if isinstance(self.size, Scalar | ScalarBufferExpression):
-            return self.size.value
-        else:
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
             return self.size
 
     @cached_property
