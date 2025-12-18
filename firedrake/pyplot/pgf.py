@@ -249,7 +249,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
     f.comm.Barrier()
     os.remove(filename_rank)
     if print_latex_example:
-        with coords.dat.vec_ro as vec:
+        with coords.vec_ro as vec:
             arg_coordslim = ""
             for d in range(dim):
                 _, cmax = vec.strideMax(d)

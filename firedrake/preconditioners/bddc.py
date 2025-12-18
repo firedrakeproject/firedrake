@@ -9,7 +9,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFu
 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from ufl import H1, H2, inner, dx, JacobianDeterminant
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 import gem
 import numpy
 

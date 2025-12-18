@@ -23,10 +23,10 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
-from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
-from pyop2.caching import memory_and_disk_cache
+from pyop3.pyop2_utils import get_petsc_dir
+from pyop3.mpi import COMM_WORLD
+from pyop3.ir.lower import SolveCallable, INVCallable
+from pyop3.cache import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -169,10 +169,14 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     loopy_merged = loopy.register_callable(loopy_merged, INVCallable.name, INVCallable())
     loopy_merged = loopy.register_callable(loopy_merged, SolveCallable.name, SolveCallable())
 
-    loopykernel = tsfc_interface.as_pyop2_local_kernel(loopy_merged, name, len(arguments),
-                                                       include_dirs=BLASLAPACK_INCLUDE.split(),
-                                                       ldargs=BLASLAPACK_LIB.split(),
-                                                       events=events+(slate_loopy_event,))
+    # set default_entrypoint
+    loopy_merged = loopy_merged.with_entrypoints(name)
+
+    # loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, name, len(arguments),
+    #                                                    include_dirs=BLASLAPACK_INCLUDE.split(),
+    #                                                    ldargs=BLASLAPACK_LIB.split(),
+    #                                                    events=events+(slate_loopy_event,))
+    loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, len(arguments))
 
     # map the coefficients in the order that PyOP2 needs
     orig_coeffs = orig_expr.coefficients()

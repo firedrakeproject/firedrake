@@ -391,12 +391,12 @@ class Interpolation(object):
         self.manager = manager
 
     def mult(self, mat, x, y, inc=False):
-        with self.cprimal.dat.vec_wo as v:
+        with self.cprimal.vec_wo as v:
             x.copy(v)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
             bc.zero(self.fprimal)
-        with self.fprimal.dat.vec_ro as v:
+        with self.fprimal.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -410,12 +410,12 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
     def multTranspose(self, mat, x, y, inc=False):
-        with self.fdual.dat.vec_wo as v:
+        with self.fdual.vec_wo as v:
             x.copy(v)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
             bc.zero(self.cdual)
-        with self.cdual.dat.vec_ro as v:
+        with self.cdual.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
             else:
@@ -437,12 +437,12 @@ class Injection(object):
         self.manager = manager
 
     def mult(self, mat, x, y):
-        with self.ffn.dat.vec_wo as v:
+        with self.ffn.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
-        with self.cfn.dat.vec_ro as v:
+        with self.cfn.vec_ro as v:
             v.copy(y)
 
 
@@ -453,8 +453,8 @@ def create_interpolation(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_f.dof_dset.layout_vec.getSizes()
-    col_size = V_c.dof_dset.layout_vec.getSizes()
+    row_size = V_f.template_vec.getSizes()
+    col_size = V_c.template_vec.getSizes()
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
@@ -482,8 +482,8 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_c.dof_dset.layout_vec.getSizes()
-    col_size = V_f.dof_dset.layout_vec.getSizes()
+    row_size = V_c.template_vec.getSizes()
+    col_size = V_f.template_vec.getSizes()
 
     if (V_c.ufl_element().family() == "Real"
             and V_f.ufl_element().family() == "Real"):

@@ -4,7 +4,8 @@ import pytest
 from firedrake import *
 
 
-def run_test():
+@pytest.mark.parallel([1, 3])
+def test_interior_facet_solve():
     mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
     U = VectorFunctionSpace(mesh, 'DG', 1)
@@ -24,17 +25,8 @@ def run_test():
 
     solve(F == 0, sol)
 
-    assert np.allclose(sol.dat[0].data, [1., 0.])
-    assert np.allclose(sol.dat[1].data, 0.0)
-
-
-def test_interior_facet_solve():
-    run_test()
-
-
-@pytest.mark.parallel
-def test_interior_facet_solve_parallel():
-    run_test()
+    assert np.allclose(sol.dat[0].data_ro.reshape((-1, 2)), [1., 0.])
+    assert np.allclose(sol.dat[1].data_ro, 0.0)
 
 
 def test_interior_facet_vfs_horiz_rhs():
@@ -44,10 +36,10 @@ def test_interior_facet_vfs_horiz_rhs():
     v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(conj(v), n)*dS).dat.data
+    temp = assemble(jump(conj(v), n)*dS).dat.data_ro
 
-    assert np.all(temp[:, 0] == 0.0)
-    assert not np.all(temp[:, 1] == 0.0)
+    assert np.all(temp[::2] == 0.0)
+    assert not np.all(temp[1::2] == 0.0)
 
 
 def test_interior_facet_vfs_horiz_lhs():
@@ -98,8 +90,8 @@ def test_interior_facet_vfs_vert_rhs():
 
     temp = assemble(jump(conj(v), n)*dS).dat.data
 
-    assert not np.all(temp[:, 0] == 0.0)
-    assert np.all(temp[:, 1] == 0.0)
+    assert not np.all(temp[::2] == 0.0)
+    assert np.all(temp[1::2] == 0.0)
 
 
 def test_interior_facet_vfs_vert_lhs():
