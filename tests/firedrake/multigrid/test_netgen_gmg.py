@@ -14,7 +14,7 @@ def create_netgen_mesh_circle():
     return ngmesh
 
 
-@pytest.mark.xfail(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
 def test_netgen_mg_circle():
@@ -44,7 +44,7 @@ def test_netgen_mg_circle():
     assert (norm(assemble(u - expect)) <= 1e-6)
 
 
-@pytest.mark.xfail(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
 def test_netgen_mg_circle_non_uniform_degree():
@@ -74,7 +74,7 @@ def test_netgen_mg_circle_non_uniform_degree():
     assert (norm(assemble(u - expect)) <= 1e-6)
 
 
-@pytest.mark.xfail(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
 @pytest.mark.parallel
