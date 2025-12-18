@@ -8,8 +8,17 @@ import numpy.typing as npt
 from petsc4py import PETSc
 from scipy.spatial.distance import cdist
 
-import netgen.meshing as ngm
-from netgen.meshing import MeshingParameters
+import firedrake as fd
+
+# Netgen and ngsPETSc are not available when the documentation is getting built
+# because they do not have ARM wheels.
+try:
+    import netgen.meshing as ngm
+    from netgen.meshing import MeshingParameters
+    from ngsPETSc import MeshMapping
+except ImportError:
+    pass
+
 try:
     import ngsolve as ngs
 except ImportError:
@@ -18,9 +27,6 @@ except ImportError:
         class comp:
             "dummy class"
             Mesh = type(None)
-from ngsPETSc import MeshMapping
-
-import firedrake as fd
 
 
 @PETSc.Log.EventDecorator()
@@ -58,12 +64,10 @@ def find_permutation(points_a: npt.NDArray[np.inexact], points_b: npt.NDArray[np
 
 
 def splitToQuads(plex, dim, comm):
-    '''
-    This method splits a Netgen mesh to quads, using a PETSc transform.
-    TODO: Improve support quad meshing.
-        @pef  Get netgen to make a quad-dominant mesh, and then only split the triangles.
-              Current implementation will make for poor-quality meshes.
-    '''
+    """Split a Netgen mesh into quads using a PETSc transform."""
+    # TODO: Improve support quad meshing.
+    # @pef  Get netgen to make a quad-dominant mesh, and then only split the triangles.
+    #       Current implementation will make for poor-quality meshes.
     if dim == 2:
         transform = PETSc.DMPlexTransform().create(comm=comm)
         transform.setType(PETSc.DMPlexTransformType.REFINETOBOX)

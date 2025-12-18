@@ -1,16 +1,23 @@
+import time
+from fractions import Fraction
+
+import numpy as np
+import ufl
+from packaging.version import Version
+from petsc4py import PETSc
+
 import firedrake as fd
 from firedrake.cython import mgimpl as impl, dmcommon
 from firedrake import dmhooks
 from firedrake.logging import logger
-import ufl
 
-from fractions import Fraction
-import time
-import numpy as np
-from petsc4py import PETSc
-from netgen.meshing import MeshingParameters
-from ngsPETSc.plex import MeshMapping
-from packaging.version import Version
+# Netgen and ngsPETSc are not available when the documentation is getting built
+# because they do not have ARM wheels.
+try:
+    from netgen.meshing import MeshingParameters
+    from ngsPETSc.plex import MeshMapping
+except ImportError:
+    pass
 
 
 def trim_util(T):
@@ -207,23 +214,24 @@ refinementTypes = {"uniform": (uniformRefinementRoutine, uniformMapRoutine),
 
 
 def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
-    '''
-    This function creates a Firedrake mesh hierarchy from Netgen/NGSolve meshes.
+    """Create a Firedrake mesh hierarchy from Netgen/NGSolve meshes.
 
     :arg mesh: the Netgen/NGSolve mesh
     :arg levs: the number of levels in the hierarchy
     :arg flags: either a bool or a dictionary containing options for Netgen.
-    If not False the hierachy is constructed using ngsPETSc, if None hierarchy
-    constructed in a standard manner. Netgen flags includes:
-        -degree, either an integer denoting the degree of curvature of all levels of
-        the mesh or a list of levs+1 integers denoting the degree of curvature of
-        each level of the mesh.
-        -tol, geometric tolerance adopted in snapToNetgenDMPlex.
-        -refinement_type, the refinment type to be used: uniform (default), Alfeld
+        If not False the hierachy is constructed using ngsPETSc, if None hierarchy
+        constructed in a standard manner. Netgen flags includes:
+
+            - degree, either an integer denoting the degree of curvature of all levels of
+              the mesh or a list of levs+1 integers denoting the degree of curvature of
+              each level of the mesh.
+            - tol, geometric tolerance adopted in snapToNetgenDMPlex.
+            - refinement_type, the refinment type to be used: uniform (default), Alfeld
     :kwarg distribution_parameters: a dict of options controlling mesh distribution.
         If ``None``, use the same distribution parameters as were used to distribute
         the coarse mesh, otherwise, these options override the default.
-    '''
+
+    """
     if mesh.geometric_dimension > 3:
         raise NotImplementedError("Netgen hierachies are only implemented for 2D and 3D meshes.")
     logger.info(f"Creating a Netgen hierarchy with {levs} levels.")

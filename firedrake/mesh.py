@@ -2971,16 +2971,15 @@ values from f.)"""
         return self
 
     def refine_marked_elements(self, mark, netgen_flags=None):
-        '''
-        This method is used to refine a mesh based on a marking function
-        which is a Firedrake DG0 function.
+        """Refine a mesh using a DG0 marking function.
 
         :arg mark: the marking function which is a Firedrake DG0 function.
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
+
         It includes the option:
             - refine_faces, which is a boolean specifying if you want to refine faces.
 
-        '''
+        """
         import firedrake as fd
 
         if netgen_flags is None:
