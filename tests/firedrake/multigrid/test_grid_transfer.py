@@ -66,10 +66,7 @@ def shape(request):
 
 @pytest.fixture(params=["injection", "restriction", "prolongation"])
 def transfer_type(request, hierarchy):
-    if not hierarchy.nested and request.param == "injection":
-        return pytest.mark.xfail(reason="Supermesh projections not implemented yet")(request.param)
-    else:
-        return request.param
+    return request.param
 
 
 @pytest.fixture
@@ -167,19 +164,35 @@ def run_restriction(hierarchy, shape, space, degrees):
             assert numpy.allclose(fine_functional, coarse_functional)
 
 
-def test_grid_transfer(hierarchy, shape, space, degrees, transfer_type):
-    if not hierarchy.nested and transfer_type == "injection":
+def run_transfer(mh, shp, family, deg, transfer_op):
+    if not mh.nested and mh.refinements_per_level > 1:
         pytest.skip("Not implemented")
-    if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
+    if transfer_op == "injection":
+        if not mh.nested:
+            pytest.skip("Supermesh projections not implemented yet")
+        if family in {"DG", "DQ"} and complex_mode:
             with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, shape, space, degrees)
+                run_injection(mh, shp, family, deg)
         else:
-            run_injection(hierarchy, shape, space, degrees)
-    elif transfer_type == "restriction":
-        run_restriction(hierarchy, shape, space, degrees)
-    elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, shape, space, degrees)
+            run_injection(mh, shp, family, deg)
+    elif transfer_op == "restriction":
+        run_restriction(mh, shp, family, deg)
+    elif transfer_op == "prolongation":
+        run_prolongation(mh, shp, family, deg)
+    else:
+        raise ValueError(f"Invalid transfer {transfer_op}")
+
+
+def test_grid_transfer(hierarchy, shape, space, degrees, transfer_type):
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_grid_transfer_parallel(hierarchy, transfer_type):
+    space = "CG"
+    degrees = (1, 2, 3)
+    shape = "scalar"
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
 
 
 @pytest.mark.parallel([1, 2])
@@ -191,35 +204,18 @@ def test_grid_transfer_symmetric(transfer_type):
     space = "Lagrange"
     degrees = (1,)
     shape = "symmetric-tensor"
-    if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, shape, space, degrees)
-        else:
-            run_injection(hierarchy, shape, space, degrees)
-    elif transfer_type == "restriction":
-        run_restriction(hierarchy, shape, space, degrees)
-    elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, shape, space, degrees)
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_grid_transfer_parallel(hierarchy, transfer_type):
-    space = "CG"
-    degrees = (1, 2, 3)
+@pytest.mark.parametrize("transfer_type", ["prolongation", "restriction", "injection"])
+def test_grid_transfer_KMV(transfer_type):
+    base = UnitSquareMesh(3, 3)
+    hierarchy = MeshHierarchy(base, 1)
+
+    space = "KMV"
+    degrees = (2, 5)
     shape = "scalar"
-    if not hierarchy.nested and hierarchy.refinements_per_level > 1:
-        pytest.skip("Not implemented")
-    if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, shape, space, degrees)
-        else:
-            run_injection(hierarchy, shape, space, degrees)
-    elif transfer_type == "restriction":
-        run_restriction(hierarchy, shape, space, degrees)
-    elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, shape, space, degrees)
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
 
 
 @pytest.fixture(params=["interval-interval",
@@ -283,16 +279,7 @@ def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
     shape = "scalar"
     if not deformed_hierarchy.nested and deformed_transfer_type == "injection":
         pytest.skip("Not implemented")
-    if deformed_transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(deformed_hierarchy, shape, space, degrees[:1])
-        else:
-            run_injection(deformed_hierarchy, shape, space, degrees[:1])
-    elif deformed_transfer_type == "restriction":
-        run_restriction(deformed_hierarchy, shape, space, degrees)
-    elif deformed_transfer_type == "prolongation":
-        run_prolongation(deformed_hierarchy, shape, space, degrees)
+    run_transfer(deformed_hierarchy, shape, space, degrees[:1], deformed_transfer_type)
 
 
 @pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"], scope="module")
