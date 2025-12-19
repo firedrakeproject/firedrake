@@ -726,20 +726,8 @@ class SameMeshInterpolator(Interpolator):
         # We need to split the target space V and generate separate kernels
         if self.rank == 2:
             expressions = {(0,): self.ufl_interpolate}
-        elif isinstance(self.dual_arg, Coargument):
-            # Split in the coargument
-            expressions = dict(split_form(self.ufl_interpolate))
         else:
-            assert isinstance(self.dual_arg, Cofunction)
-            # Split in the cofunction: split_form can only split in the coargument
-            # Replace the cofunction with a coargument to construct the Jacobian
-            interp = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
-            # Split the Jacobian into blocks
-            interp_split = dict(split_form(interp))
-            # Split the cofunction
-            dual_split = dict(split_form(self.dual_arg))
-            # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
+            expressions = dict(split_form(self.ufl_interpolate))
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
@@ -1649,14 +1637,6 @@ class MixedInterpolator(Interpolator):
         # See https://github.com/firedrakeproject/firedrake/issues/4668
         space_equals = lambda V1, V2: V1 == V2 and V1.parent == V2.parent and V1.index == V2.index
 
-        # We need a Coargument in order to split the Interpolate
-        needs_action = not any(isinstance(a, Coargument) for a in self.interpolate_args)
-        if needs_action:
-            # Split the dual argument
-            dual_split = dict(split_form(self.dual_arg))
-            # Create the Jacobian to be split into blocks
-            self.ufl_interpolate = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
-
         # Get sub-interpolators and sub-bcs for each block
         Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
         for indices, form in split_form(self.ufl_interpolate):
@@ -1667,9 +1647,6 @@ class MixedInterpolator(Interpolator):
             for space, index in zip(spaces, indices):
                 subspace = space.sub(index)
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
-            if needs_action:
-                # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[-1:]])
             Isub[indices] = (get_interpolator(form), sub_bcs)
 
         return Isub
