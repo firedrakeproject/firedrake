@@ -419,6 +419,7 @@ class CrossMeshInterpolator(Interpolator):
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
         self.target_mesh = self.target_mesh.unique()
+        self.source_mesh = self.source_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -610,6 +611,7 @@ class SameMeshInterpolator(Interpolator):
     def __init__(self, expr):
         super().__init__(expr)
         self.target_mesh = self.target_mesh.unique()
+        self.source_mesh = self.source_mesh.unique()
         subset = self.subset
         if subset is None:
             target = self.target_mesh.topology
