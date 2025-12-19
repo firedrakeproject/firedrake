@@ -1,6 +1,8 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
+from firedrake.mesh import Mesh, plex_from_cell_list
+from firedrake.formmanipulation import split_form
 import numpy as np
 import pytest
 from ufl import product
@@ -614,8 +616,8 @@ def test_line_integral():
     # Create a 1D line mesh in 2D from (0, 0) to (1, 1) with 1 cell
     cells = np.asarray([[0, 1]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line)
     V_line = FunctionSpace(line, "CG", 2)
     f_line = Function(V_line).interpolate(x * y)
@@ -624,8 +626,8 @@ def test_line_integral():
     # Create a 1D line around the unit square (2D) with 4 cells
     cells = np.asarray([[0, 1], [1, 2], [2, 3], [3, 0]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line_square = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line_square = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line_square)
     V_line_square = FunctionSpace(line_square, "CG", 2)
     f_line_square = Function(V_line_square).interpolate(x * y)
@@ -751,3 +753,40 @@ def test_interpolate_cross_mesh_interval(periodic):
     f_dest = Function(V_dest).interpolate(f_src)
     x_dest, = SpatialCoordinate(m_dest)
     assert abs(assemble((f_dest - (-(x_dest - .5) ** 2)) ** 2 * dx)) < 1.e-16
+
+
+def test_mixed_interpolator_cross_mesh():
+    # Tests assembly of mixed interpolator across meshes
+    mesh1 = UnitSquareMesh(4, 4)
+    mesh2 = UnitSquareMesh(3, 3, quadrilateral=True)
+    mesh3 = UnitDiskMesh(2)
+    mesh4 = UnitTriangleMesh(3)
+    V1 = FunctionSpace(mesh1, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 2)
+    V3 = FunctionSpace(mesh3, "CG", 3)
+    V4 = FunctionSpace(mesh4, "CG", 4)
+
+    W = V1 * V2
+    U = V3 * V4
+
+    w = TrialFunction(W)
+    w0, w1 = split(w)
+    expr = as_vector([w0 + w1, w0 + w1])
+    mixed_interp = interpolate(expr, U, allow_missing_dofs=True)  # Interpolating from W to U
+
+    # The block matrix structure is
+    # | V1 -> V3   V2 -> V3 |
+    # | V1 -> V4   V2 -> V4 |
+
+    res = assemble(mixed_interp, mat_type="nest", sub_mat_type="aij")
+    assert isinstance(res, AssembledMatrix)
+    assert res.petscmat.type == "nest"
+
+    split_interp = dict(split_form(mixed_interp))
+
+    for i in range(2):
+        for j in range(2):
+            interp_ij = split_interp[(i, j)]
+            assert isinstance(interp_ij, Interpolate)
+            res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
+            assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
