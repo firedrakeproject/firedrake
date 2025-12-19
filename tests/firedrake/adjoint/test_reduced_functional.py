@@ -307,6 +307,6 @@ def test_ad_dot(riesz_representation):
     dJhat = Jhat.derivative(apply_riesz=True)
 
     h = Function(V)
-    h.dat.data[:] = rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
     dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
     assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9
