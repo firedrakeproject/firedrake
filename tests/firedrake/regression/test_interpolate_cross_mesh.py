@@ -49,14 +49,7 @@ def make_high_order(m_low_order, degree):
         "unitsquare_vfs",
         "unitsquare_tfs",
         "unitsquare_N1curl_source",
-        pytest.param(
-            "unitsquare_SminusDiv_destination",
-            marks=pytest.mark.xfail(
-                # CalledProcessError is so the parallel tests correctly xfail
-                raises=(subprocess.CalledProcessError, NotImplementedError),
-                reason="Can only interpolate into spaces with point evaluation nodes",
-            ),
-        ),
+        "unitsquare_SminusDiv_destination",
         "unitsquare_Regge_source",
         # This test fails in complex mode
         pytest.param("spheresphere", marks=pytest.mark.skipcomplex),
@@ -438,10 +431,9 @@ def test_interpolate_cross_mesh_not_point_eval():
     atol = 1e-8  # default
     # This might not make much mathematical sense, but it should test if we get
     # the not implemented error for non-point evaluation nodes!
-    with pytest.raises(NotImplementedError):
-        interpolate_function(
-            m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
-        )
+    interpolate_function(
+        m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
+    )
 
 
 def interpolate_function(
