@@ -206,7 +206,7 @@ class Interpolator(abc.ABC):
         # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
         self.target_mesh = self.target_space.mesh()
         """The domain we are interpolating into."""
-        self.source_mesh = extract_unique_domain(operand) or self.target_mesh
+        self.source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False) or self.target_mesh
         """The domain we are interpolating from."""
 
         # Interpolation options
@@ -434,6 +434,7 @@ class CrossMeshInterpolator(Interpolator):
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
         self.target_mesh = self.target_mesh.unique()
+        self.source_mesh = self.source_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -616,6 +617,7 @@ class SameMeshInterpolator(Interpolator):
     def __init__(self, expr):
         super().__init__(expr)
         self.target_mesh = self.target_mesh.unique()
+        self.source_mesh = self.source_mesh.unique()
         subset = self.subset
         if subset is None:
             target = self.target_mesh.topology
@@ -1697,7 +1699,7 @@ class MixedInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
+        sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
