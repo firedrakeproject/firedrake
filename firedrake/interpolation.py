@@ -1693,7 +1693,7 @@ class MixedInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
+        sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
