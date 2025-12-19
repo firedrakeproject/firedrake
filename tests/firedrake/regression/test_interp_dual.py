@@ -3,7 +3,6 @@ import numpy as np
 from firedrake import *
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
-from firedrake.matrix import MatrixBase
 import ufl
 
 
