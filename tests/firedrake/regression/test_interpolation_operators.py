@@ -5,6 +5,7 @@ from firedrake.interpolation import (
 )
 from firedrake.matrix import ImplicitMatrix, Matrix
 import pytest
+import numpy as np
 
 
 def params():
@@ -45,6 +46,7 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
     elif mode == "adjoint":
         v1 = TestFunction(V1)
         exact = assemble(inner(1, sum(v1) if value_shape == "vector" else v1) * dx)
+        forward_interp = interpolate(TrialFunction(V1), V2)  # V1 x V2^* -> R
         interp = interpolate(TestFunction(V1), TrialFunction(V2.dual()))  # V2^* x V1 -> R
         v2 = TestFunction(V2)
         f = inner(1, sum(v2) if value_shape == "vector" else v2) * dx
@@ -65,6 +67,11 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
 
     res = assemble(action(I_mat, f))
     assert np.allclose(res.dat.data, exact.dat.data)
+
+    if mode == "adjoint":
+        forward_I_mat = assemble(forward_interp, mat_type=mat_type)
+        res2 = assemble(action(adjoint(forward_I_mat), f))
+        assert np.allclose(res2.dat.data, exact.dat.data)
 
     with pytest.raises(NotImplementedError):
         # MatNest only implemented for interpolation between MixedFunctionSpaces
