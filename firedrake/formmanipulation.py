@@ -263,7 +263,7 @@ def split_form(form, diagonal=False):
     if isinstance(form, Interpolate) and not args:
         dual_arg, _ = form.argument_slots()
         args = dual_arg.arguments()
-    
+
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     rank = len(shape)
