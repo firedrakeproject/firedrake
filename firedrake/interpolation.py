@@ -422,17 +422,6 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.access = op2.WRITE
 
-        # TODO check V.finat_element.is_lagrange() once https://github.com/firedrakeproject/fiat/pull/200 is released
-        target_element = self.target_space.ufl_element()
-        if not ((isinstance(target_element, MixedElement)
-                 and all(sub.mapping() == "identity" for sub in target_element.sub_elements))
-                or target_element.mapping() == "identity"):
-            # Identity mapping between reference cell and physical coordinates
-            # implies point evaluation nodes.
-            raise NotImplementedError(
-                "Can only cross-mesh interpolate into spaces with point evaluation nodes."
-            )
-
         if self.allow_missing_dofs:
             self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
         else:
