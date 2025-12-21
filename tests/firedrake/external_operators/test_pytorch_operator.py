@@ -111,6 +111,41 @@ def test_forward(u, nn):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
+def test_forward_mixed(V, nn):
+
+    W = V * V
+    u = Function(W)
+    u1, u2 = u.subfunctions
+    x, y = SpatialCoordinate(V.mesh())
+    u1.interpolate(sin(pi * x) * sin(pi * y))
+    u2.interpolate(sin(2 * pi * x) * sin(2 * pi * y))
+
+    # Set PytorchOperator
+    n = W.dim()
+    model = Linear(n, n)
+
+    N = ml_operator(model, function_space=W)(u)
+    # Get model
+    model = N.model
+
+    # Assemble NeuralNet
+    assembled_N = assemble(N)
+
+    assert isinstance(assembled_N, Function)
+
+    # Convert from Firedrake to PyTorch
+    x_P = to_torch(u)
+    # Forward pass
+    y_P = model(x_P)
+    # Convert from PyTorch to Firedrake
+    y_F = from_torch(y_P, u.function_space())
+
+    # Check
+    assert np.allclose(y_F.dat.data_ro, assembled_N.dat.data_ro)
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_jvp(u, nn, rg):
     # Set PytorchOperator
     N = nn(u)
