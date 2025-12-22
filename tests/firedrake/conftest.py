@@ -8,8 +8,10 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc
 from petsctools import get_external_packages
+from pyadjoint.tape import annotate_tape, get_working_tape
+
+from firedrake.petsc import PETSc
 
 
 def _skip_test_dependency(dependency):
@@ -171,9 +173,7 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import annotate_tape, get_working_tape
-
-    def fin():
+    def finalizer():
         # make sure taping is switched off
         assert not annotate_tape()
 
@@ -182,7 +182,7 @@ def check_empty_tape(request):
         if tape is not None:
             assert len(tape.get_blocks()) == 0
 
-    request.addfinalizer(fin)
+    request.addfinalizer(finalizer)
 
 
 class _petsc_raises:

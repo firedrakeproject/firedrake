@@ -1263,7 +1263,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 nodes = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2)).reshape(dimension + 1, -1)
     else:
         nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    section = PETSc.Section().create(comm=mesh._comm)
+    section = PETSc.Section().create(comm=mesh.comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
 
@@ -3819,7 +3819,8 @@ def submesh_create(PETSc.DM dm,
                    PetscInt subdim,
                    label_name,
                    PetscInt label_value,
-                   PetscBool ignore_label_halo):
+                   PetscBool ignore_label_halo,
+                   comm=None):
     """Create submesh.
 
     Parameters
@@ -3834,12 +3835,12 @@ def submesh_create(PETSc.DM dm,
         Value in the label
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
 
     """
     cdef:
-        PETSc.DM subdm = PETSc.DMPlex()
         PETSc.DMLabel label, temp_label
-        PETSc.SF ownership_transfer_sf = PETSc.SF()
         char *temp_label_name = <char *>"firedrake_submesh_temp_label"
         PetscInt pStart, pEnd, p, i, stratum_size
         PETSc.PetscIS stratum_is = NULL
@@ -3863,7 +3864,11 @@ def submesh_create(PETSc.DM dm,
         CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
         CHKERR(ISDestroy(&stratum_is))
     # Make submesh using temp_label.
-    CHKERR(DMPlexFilter(dm.dm, temp_label.dmlabel, label_value, ignore_label_halo, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
+    subdm, ownership_transfer_sf = dm.filter(label=temp_label,
+                                             value=label_value,
+                                             ignoreHalo=ignore_label_halo,
+                                             sanitizeSubMesh=PETSC_TRUE,
+                                             comm=comm)
     # Destroy temp_label.
     dm.removeLabel(temp_label_name)
     subdm.removeLabel(temp_label_name)
@@ -3901,7 +3906,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         DMLabel lbl_core, lbl_owned, lbl_ghost
         PetscBool has
 
-    if dm.comm.size == 1:
+    if subdm.comm.size == 1:
         return
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))

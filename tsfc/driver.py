@@ -135,20 +135,33 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
             if coeff in form_data.coefficient_split:
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
+
     mesh = integral_data.domain
     all_meshes = extract_domains(form_data.original_form)
     domain_number = all_meshes.index(mesh)
+    coefficient_meshes = chain.from_iterable(map(extract_domains, coefficients))
+
+    domain_integral_type_map = dict.fromkeys(all_meshes, None)
+    domain_integral_type_map.update(dict.fromkeys(coefficient_meshes, "cell"))
+    domain_integral_type_map.update(integral_data.domain_integral_type_map)
+
+    for arg in arguments:
+        if domain_integral_type_map[extract_unique_domain(arg)] is None:
+            raise NotImplementedError("Assembly of forms over unrelated meshes is not supported. "
+                                      "Try using Submeshes or cross-mesh interpolation.")
+
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
-        domain_integral_type_map={mesh: integral_data.domain_integral_type_map[mesh] if mesh in integral_data.domain_integral_type_map else None for mesh in all_meshes},
+        domain_integral_type_map=domain_integral_type_map,
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
+
     builder = firedrake_interface_loopy.KernelBuilder(
         integral_data_info,
         scalar_type,

@@ -503,6 +503,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
+                elif isinstance(rhs, matrix.MatrixBase):
+                    # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                    petsc_mat = rhs.petscmat
+                    (_, col) = rhs.arguments()
+                    res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                    with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.multHermitian(v_vec, res_vec)
+                    return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             else:
@@ -615,7 +623,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             interpolator = get_interpolator(expr)
-            return interpolator.assemble(tensor=tensor, bcs=bcs)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -830,6 +838,12 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
+            # Action(Adjoint(A), w*) -> Action(w*, A)
+            if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
+                # TODO: ufl.action(Coefficient, Form) currently fails. When it is fixed, we can remove the
+                # `not isinstance(right, firedrake.Function)` check.
+                return ufl.action(right, left.form())
+
         # -- Case (4) -- #
         if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
             B = expr.form()
@@ -855,6 +869,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
+
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+            form, operand = expr.argument_slots()
+            vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
+            expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
+            return ufl.action(expr, form)
         return expr
 
     @staticmethod
@@ -1084,17 +1107,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
-
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domains = extract_domains(o)
-            for domain in domains:
-                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
@@ -1159,13 +1171,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):
