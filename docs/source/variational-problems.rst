@@ -180,7 +180,7 @@ family such as ``"Raviart-Thomas"``. Secondly, you may use the
 family, which gives a vector-valued space where each component is
 identical to the appropriate scalar-valued
 :py:class:`~.FunctionSpace`.  Thirdly, you can create a
-:py:class:`~ufl.classes.VectorElement` directly (which is itself
+:py:class:`~finat.ufl.mixedelement.VectorElement` directly (which is itself
 *vector-valued* and pass that to the :py:func:`~.FunctionSpace`
 constructor).
 
@@ -275,8 +275,10 @@ Firedrake supports the use of the following finite elements.
     :file: element_list.csv
 
 In addition, the
-:py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
+:py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
 operator can be used to create product elements on extruded meshes.
+
+.. _element_variants:
 
 Element variants
 ~~~~~~~~~~~~~~~~
@@ -288,15 +290,49 @@ For discontinuous elements these are the Gauss-Legendre points, and for
 continuous elements these are the Gauss-Lobatto-Legendre points.
 For CG and DG spaces on simplices, Firedrake offers both equispaced points and
 the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
-`recursivenodes`_ module. These are selected by passing `variant="equispaced"`
-or `variant="spectral"` to the :py:class:`~ufl.classes.FiniteElement` or
+`recursivenodes`_ module. These are selected by passing ``variant="equispaced"``
+or ``variant="spectral"`` to the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
 :py:func:`~.FunctionSpace` constructors. For example:
 
 .. code-block:: python3
 
     fe = FiniteElement("RTCE", quadrilateral, 2, variant="equispaced")
 
-The default is the spectral variant.
+For CG and DG spaces, and most tensor-product elements, the default is ``variant="spectral"``.
+
+Integral-type degrees of freedom are also available through ``variant="integral"``. These
+enable orthogonal bases for DG on any cell type:
+
+.. code-block:: python3
+
+    V = FunctionSpace(mesh, "DG", 1, variant="integral")
+
+In this case, the degrees of freedom are integral moments against a basis of polynomials,
+which need to be computed with a quadrature rule. The degree of accuracy of the quadrature
+can be increased also through the variant option. For instance, ``variant="integral(4)"``
+will use a quadrature that exactly evaluates the degrees of freedom on polynomials of
+4 degrees higher than that of the space.
+Furthermore, the quadrature rule can be specified via the ``"quad_scheme"`` keyword argument.
+For more details, see the manual section on :ref:`quadrature rules <element_quad_scheme>`.
+
+Integral-type degrees of freedom are useful to nearly preserve curl-free or
+divergence-free functions when interpolating into the finite element space.
+H(curl) and H(div) elements, such as Nédélec, Brezzi-Douglas-Marini, and Raviart-Thomas,
+have ``variant="integral"`` as default. These elements also support ``variant="point"``,
+where the degrees of freedom are vector components evaluated at equispaced points.
+
+Macroelements can be constructed by splitting each cell into subcells and tiling
+the element on each subcell, without refining the mesh. For example,
+the continuous Lagrange space where each simplex is subdivided
+by connecting each of its vertices to the barycenter is constructed as
+
+.. code-block:: python3
+
+    V = FunctionSpace(mesh, "CG", 1, variant="alfeld")
+
+The space P1-iso-P2 may be similarly constructed with ``variant="iso(2)"``.
+Macroelements also support integral-type degrees of freedom,
+for example ``variant="alfeld,integral(2)"``.
 
 
 Expressing a variational problem
@@ -685,7 +721,7 @@ More complicated forms
 
 UFL is a fully-fledged language for expressing variational problems,
 and hence has operators for all appropriate vector calculus operations
-along with special support for discontinuous galerkin methods in the
+along with special support for discontinuous Galerkin methods in the
 form of symbolic expressions for facet averages and jumps.  For an
 introduction to these concepts we refer the user to the `UFL manual
 <UFL_package_>`_ as well as the :ref:`Firedrake tutorials
