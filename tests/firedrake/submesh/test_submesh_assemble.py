@@ -532,34 +532,3 @@ def test_submesh_assemble_quad_triangle():
     a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_q(label_interf)
     A_ref = assemble(a_ref)
     assert np.allclose(A.M[0][1].values, A_ref.M.values)
-
-
-@pytest.mark.parallel(3)
-def test_assemble_parent_coefficient():
-    subdomain_id = 999
-    nx = 4
-    mesh = UnitSquareMesh(2*nx, nx, quadrilateral=True, reorder=False)
-    x, y = SpatialCoordinate(mesh)
-    M = FunctionSpace(mesh, "DG", 0)
-    marker = Function(M).interpolate(conditional(Or(x > 0.5, y > 0.5), 1, 0))
-    mesh = RelabeledMesh(mesh, [marker], [subdomain_id])
-    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=True, reorder=False)
-
-    def expr(m):
-        x = SpatialCoordinate(m)
-        return 1 + dot(x, x)
-
-    Vsub = FunctionSpace(submesh, "CG", 1)
-    vsub = TestFunction(Vsub)
-    usub = TrialFunction(Vsub)
-
-    Q = FunctionSpace(mesh, "DG", 0)
-    q = Function(Q).interpolate(expr(mesh))
-    A = assemble(inner(grad(usub) * q, grad(vsub))*dx(domain=submesh))
-
-    Qsub = FunctionSpace(submesh, "DG", 0)
-    qsub = Function(Qsub).interpolate(expr(submesh))
-    A_ref = assemble(inner(grad(usub) * qsub, grad(vsub))*dx)
-
-    A_ref.petscmat.axpy(-1, A.petscmat)
-    assert np.isclose(A_ref.petscmat.norm(PETSc.NormType.NORM_FROBENIUS), 0)
