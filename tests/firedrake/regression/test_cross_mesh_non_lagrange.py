@@ -35,19 +35,21 @@ def make_quadrature_space(V):
                         ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 1), ("GLS", 2),
                         ("GLS", 3), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
                         ids=lambda x: f"{x[0]}_{x[1]}")
-def V_target(request):
+def V(request):
     element, degree = request.param
     mesh = UnitSquareMesh(3, 3)
     return FunctionSpace(mesh, element, degree)
 
+# V_source -> Q -> V_target
+# V_target^* -> Q^* -> V_source^*
 
-def test_cross_mesh_oneform(V_target):
+def test_cross_mesh_oneform(V):
     mesh1 = UnitSquareMesh(5, 5)
-    mesh2 = V_target.mesh()
+    mesh2 = V.mesh()
     x, y = SpatialCoordinate(mesh1)
     x1, y1 = SpatialCoordinate(mesh2)
 
-    shape = V_target.ufl_function_space().value_shape
+    shape = V.ufl_function_space().value_shape
     if len(shape) == 1:
         fs_type = partial(VectorFunctionSpace, dim=shape[0])
         expr1 = as_vector([x, y])
@@ -63,16 +65,48 @@ def test_cross_mesh_oneform(V_target):
     f_source = Function(V_source).interpolate(expr1)
 
     # Make intermediate Quadrature space on target mesh
-    Q_target = make_quadrature_space(V_target)
+    Q_target = make_quadrature_space(V)
 
     # Interp V_source -> Q
     I1 = interpolate(f_source, Q_target)
     f_quadrature = assemble(I1)
 
     # Interp Q -> V_target
-    I2 = interpolate(f_quadrature, V_target)
+    I2 = interpolate(f_quadrature, V)
     f_target = assemble(I2)
 
-    f_direct = Function(V_target).interpolate(expr2)
+    f_direct = Function(V).interpolate(expr2)
 
     assert np.allclose(f_target.dat.data_ro, f_direct.dat.data_ro)
+
+
+def test_cross_mesh_oneform_adjoint(V):
+    # Can already do Lagrange -> RT adjoint
+    # V^* -> Q^* -> V_target^*
+    mesh1 = UnitSquareMesh(7, 7)
+    x1 = SpatialCoordinate(mesh1)
+    V_target = fs_shape(V)(mesh1, "CG", 2)
+
+    mesh2 = V.mesh()
+    x2 = SpatialCoordinate(mesh2)
+
+    oneform_V = inner(x2, TestFunction(V)) * dx
+
+    Q_target = make_quadrature_space(V)
+
+    # Interp V^* -> Q^*
+    I1_adj = interpolate(TestFunction(Q_target), oneform_V)
+    cofunc_Q = assemble(I1_adj)
+
+    # Interp Q^* -> V_target^*
+    I2_adj = interpolate(TestFunction(V_target), cofunc_Q)
+    cofunc_V = assemble(I2_adj)
+
+    # cofunc_V = assemble(interpolate(TestFunction(V_target), oneform_target))  # V^* -> V_target^*
+
+    cofunc_V_direct = assemble(inner(x1, TestFunction(V_target)) * dx)
+
+    assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_cross_mesh_oneform_adjoint[RT_1]"])
