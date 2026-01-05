@@ -210,7 +210,7 @@ class NodeVisitor(Visitor):
         @functools.wraps(method)
         def wrapper(self, node, **kwargs):
             new_children = {}
-            for attr_name, child_attr in node.children.items():
+            for attr_name, child_attr in self.children(node).items():
                 if isinstance(child_attr, tuple):
                     new_children[attr_name] = tuple(
                         self(item, **kwargs)
@@ -226,6 +226,14 @@ class NodeVisitor(Visitor):
             new_children = idict(new_children)
             return method(self, node, new_children, **kwargs)
         return wrapper
+
+    @functools.singledispatchmethod
+    def children(self, node, /):
+        raise TypeError(f"{utils.pretty_type(node)} not recognised")
+
+    @children.register(Node)
+    def _(self, node, /):
+        return node.children
 
 
 class NodeTransformer(NodeVisitor, abc.ABC):

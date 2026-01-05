@@ -8,6 +8,7 @@ from immutabledict import immutabledict as idict
 from typing import ClassVar
 
 from pyop3 import utils
+from pyop3.node import NodeVisitor
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import BufferRef, AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
@@ -162,9 +163,9 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        from pyop3.expr.visitors import get_shape
+        from pyop3.expr.visitors import check_valid_layout
 
-        assert utils.just_one(get_shape(self.layout)).is_linear
+        check_valid_layout(self.layout)
 
     # }}}
 
@@ -212,8 +213,12 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     layouts: idict
 
     def __post_init__(self) -> None:
+        from pyop3.expr.visitors import check_valid_layout
+
         assert isinstance(self._buffer, BufferRef)
         assert isinstance(self.layouts, idict)
+        for l in self.layouts.values():
+            check_valid_layout(l)
 
     # }}}
 
