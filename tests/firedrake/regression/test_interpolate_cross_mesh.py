@@ -187,8 +187,8 @@ def parameters(request):
         expr_dest = 2 * SpatialCoordinate(m_dest)
         expected = 2 * coords
         V_src = VectorFunctionSpace(m_src, "CG", 2)
-        V_dest = FunctionSpace(m_dest, "SminusDiv", 2)  # Not point evaluation nodes
-        V_dest_2 = FunctionSpace(m_dest, "SminusCurl", 2)  # Not point evaluation nodes
+        V_dest = FunctionSpace(m_dest, "RT", 2)  # Not point evaluation nodes
+        V_dest_2 = FunctionSpace(m_dest, "N1Curl", 2)  # Not point evaluation nodes
     elif request.param == "unitsquare_Regge_source":
         m_src, m_dest, coords = unitsquaresetup()
         expr_src = outer(SpatialCoordinate(m_src), SpatialCoordinate(m_src))
