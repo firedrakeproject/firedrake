@@ -18,7 +18,7 @@ __all__ = ["LinearEigenproblem",
 class LinearEigenproblem:
     """Generalised linear eigenvalue problem.
 
-    The problem has the form, find `u`, `λ` such that::
+    The problem has the form, find ``u``, ``λ`` such that::
 
         A(u, v) = λM(u, v)    ∀ v ∈ V
 
