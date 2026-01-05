@@ -26,7 +26,7 @@ also be possible to join the tutorial using the cloud. Installing `Paraview <htt
 Registration
 ------------
 
-Registration of £25 covers tea, coffee, and biscuits. Registration will open presently.
+Registration of £25 covers tea, coffee, and biscuits. `Registration is now open on the Oxford online store <https://www.oxforduniversitystores.co.uk/product-catalogue/mathematical-institute/events/solving-partial-differential-equations-with-firedrake>`__.
 
 
 Where and when
