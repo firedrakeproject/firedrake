@@ -505,6 +505,8 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          : # UNDO ME
+          pip install 'flit_core<4'
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean
