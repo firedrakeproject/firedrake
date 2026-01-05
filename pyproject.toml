@@ -82,7 +82,7 @@ docs = [
   "sphinxcontrib-bibtex",
   "sphinxcontrib-jquery",
   "sphinxcontrib-svg2pdfconverter",
-  "sphinxcontrib-youtube",
+  "sphinxcontrib-youtube @ git+https://github.com/connorjward/youtube@connorjward/fix-color",
   "sphinx-copybutton",
   "vtk",  # needed to resolve API
 ]
