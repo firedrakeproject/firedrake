@@ -1,3 +1,6 @@
+"""
+This file was copied from ngsPETSc.
+"""
 import time
 from fractions import Fraction
 

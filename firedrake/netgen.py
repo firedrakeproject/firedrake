@@ -1,5 +1,7 @@
 '''
 This module contains all the functions related to wrapping NGSolve meshes to Firedrake
+
+This file was copied from ngsPETSc.
 '''
 import numpy as np
 import numpy.typing as npt
