@@ -1321,7 +1321,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         np.ndarray nodes
         np.ndarray layer_extents
         np.ndarray points
-        bint variable, extruded, on_base_
+        bint extruded, on_base_
         PETSc.SF point_sf
         PetscInt nleaves
         const PetscInt *ilocal = NULL
@@ -1330,16 +1330,12 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     dm = mesh.topology_dm
     if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
-    variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
     extruded_periodic = mesh.cell_set._extruded_periodic
     on_base_ = on_base
     dimension = get_topological_dimension(dm)
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
-    if variable:
-        layer_extents = mesh.layer_extents
-        nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    elif extruded:
+    if extruded:
         if on_base:
             nodes = sum(nodes_per_entity[:, i] for i in range(2)).reshape(dimension + 1, -1)
         else:
@@ -1357,113 +1353,108 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         raise NotImplementedError()
         # renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
     else:
-        renumbering = mesh._dm_renumbering
+        renumbering = mesh._new_to_old_point_renumbering
 
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     for i in range(dimension + 1):
         get_depth_stratum(dm.dm, i, &pStart, &pEnd) # gets all points at dim i
-        if not variable:
-            ndof = nodes[i, 0]
+        ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
-            if variable:
-                if on_base_:
-                    ndof = nodes[i, 1]
-                else:
-                    layers = layer_extents[p, 1] - layer_extents[p, 0]
-                    ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
 
-    if boundary_set and extruded and variable:
-        raise NotImplementedError("Not implemented for variable layer extrusion")
-    if boundary_set:
-        # Handle "bottom" and "top" first.
-        if "bottom" in boundary_set and "top" in boundary_set:
-            factor = 2
-        elif "bottom" in boundary_set or "top" in boundary_set:
-            factor = 1
-        else:
-            factor = 0
-        if factor > 0:
-            for i in range(dimension + 1):
-                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
-                dof = nodes_per_entity[i, 0]
-                for p in range(pStart, pEnd):
-                    CHKERR(PetscSectionSetConstraintDof(section.sec, p, factor * dof))
-        # Potentially overwrite ds_t and dS_t constrained DoFs set in the {"bottom", "top"} cases.
-        for marker in boundary_set:
-            if marker in ["bottom", "top"]:
-                continue
-            elif marker == "on_boundary":
-                label = "exterior_facets"
-                marker = 1
-            else:
-                label = FACE_SETS_LABEL
-            n = dm.getStratumSize(label, marker)
-            if n == 0:
-                continue
-            points = dm.getStratumIS(label, marker).indices
-            for i in range(n):
-                p = points[i]
-                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
-    section.setUp()
-    if boundary_set:
-        # have to loop again as we need to call section.setUp() first
-        CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
-        CHKERR(PetscMalloc1(dof, &dof_array))
-        for i in range(dof):
-            dof_array[i] = -1
-        if "bottom" in boundary_set or "top" in boundary_set:
-            for i in range(dimension + 1):
-                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
-                if pEnd == pStart:
-                    continue
-                dof = nodes_per_entity[i, 0]
-                j = 0
-                if "bottom" in boundary_set:
-                    for k in range(dof):
-                        dof_array[j] = k
-                        j += 1
-                if "top" in boundary_set:
-                    offset_top = (nodes_per_entity[i, 0] + nodes_per_entity[i, 1]) * (mesh.layers - 1)
-                    for k in range(dof):
-                        dof_array[j] = offset_top + k
-                        j += 1
-                for p in range(pStart, pEnd):
-                    # Potentially set wrong values for ds_t and dS_t constrained DoFs here,
-                    # but we will overwrite them in the below.
-                    CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-        for marker in boundary_set:
-            if marker in ["bottom", "top"]:
-                continue
-            elif marker == "on_boundary":
-                label = "exterior_facets"
-                marker = 1
-            else:
-                label = FACE_SETS_LABEL
-            n = dm.getStratumSize(label, marker)
-            if n == 0:
-                continue
-            points = dm.getStratumIS(label, marker).indices
-            for i in range(n):
-                p = points[i]
-                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                for j in range(dof):
-                    dof_array[j] = j
-                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-        CHKERR(PetscFree(dof_array))
-    constrained_nodes = 0
-    get_chart(dm.dm, &pStart, &pEnd)
-    point_sf = dm.getPointSF()
-    CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
-    for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
-        constrained_nodes += dof
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
-        constrained_nodes -= dof
-    return section, constrained_nodes
+    raise NotImplementedError
+
+    # if boundary_set and extruded and variable:
+    #     raise NotImplementedError("Not implemented for variable layer extrusion")
+    # if boundary_set:
+    #     # Handle "bottom" and "top" first.
+    #     if "bottom" in boundary_set and "top" in boundary_set:
+    #         factor = 2
+    #     elif "bottom" in boundary_set or "top" in boundary_set:
+    #         factor = 1
+    #     else:
+    #         factor = 0
+    #     if factor > 0:
+    #         for i in range(dimension + 1):
+    #             get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+    #             dof = nodes_per_entity[i, 0]
+    #             for p in range(pStart, pEnd):
+    #                 CHKERR(PetscSectionSetConstraintDof(section.sec, p, factor * dof))
+    #     # Potentially overwrite ds_t and dS_t constrained DoFs set in the {"bottom", "top"} cases.
+    #     for marker in boundary_set:
+    #         if marker in ["bottom", "top"]:
+    #             continue
+    #         elif marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #         n = dm.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         points = dm.getStratumIS(label, marker).indices
+    #         for i in range(n):
+    #             p = points[i]
+    #             CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+    #             CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
+    # section.setUp()
+    # if boundary_set:
+    #     # have to loop again as we need to call section.setUp() first
+    #     CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
+    #     CHKERR(PetscMalloc1(dof, &dof_array))
+    #     for i in range(dof):
+    #         dof_array[i] = -1
+    #     if "bottom" in boundary_set or "top" in boundary_set:
+    #         for i in range(dimension + 1):
+    #             get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+    #             if pEnd == pStart:
+    #                 continue
+    #             dof = nodes_per_entity[i, 0]
+    #             j = 0
+    #             if "bottom" in boundary_set:
+    #                 for k in range(dof):
+    #                     dof_array[j] = k
+    #                     j += 1
+    #             if "top" in boundary_set:
+    #                 offset_top = (nodes_per_entity[i, 0] + nodes_per_entity[i, 1]) * (mesh.layers - 1)
+    #                 for k in range(dof):
+    #                     dof_array[j] = offset_top + k
+    #                     j += 1
+    #             for p in range(pStart, pEnd):
+    #                 # Potentially set wrong values for ds_t and dS_t constrained DoFs here,
+    #                 # but we will overwrite them in the below.
+    #                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+    #     for marker in boundary_set:
+    #         if marker in ["bottom", "top"]:
+    #             continue
+    #         elif marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #         n = dm.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         points = dm.getStratumIS(label, marker).indices
+    #         for i in range(n):
+    #             p = points[i]
+    #             CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+    #             for j in range(dof):
+    #                 dof_array[j] = j
+    #             CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+    #     CHKERR(PetscFree(dof_array))
+    # constrained_nodes = 0
+    # get_chart(dm.dm, &pStart, &pEnd)
+    # point_sf = dm.getPointSF()
+    # CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
+    # for p in range(pStart, pEnd):
+    #     CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
+    #     constrained_nodes += dof
+    # for i in range(nleaves):
+    #     p = ilocal[i] if ilocal else i
+    #     CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
+    #     constrained_nodes -= dof
+    # return section, constrained_nodes
 
 
 @cython.boundscheck(False)
@@ -1660,7 +1651,7 @@ def get_facet_nodes(mesh, np.ndarray cell_nodes, label,
     CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
     CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
 
     facet = 0
@@ -1690,7 +1681,7 @@ def get_facet_nodes(mesh, np.ndarray cell_nodes, label,
             facet += 1
 
     CHKERR(DMLabelDestroyIndex(clabel))
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     return facet_nodes
 
 
@@ -2078,18 +2069,18 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
     if isinstance(dm, PETSc.DMPlex):
         if not dm.getCoordinatesLocalized():
-            # Use CG coordiantes.
+            # Use CG coordinates
             dm_sec = dm.getCoordinateSection()
-            dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
+            dm_coords = dm.getCoordinatesLocal().array_r.reshape(shape)
             coords = np.empty_like(dm_coords)
             for v in range(vStart, vEnd):
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
                 CHKERR(PetscSectionGetOffset(dm_sec.sec, v, &dm_offset))
-                dm_offset = dm_offset//dim
                 for i in range(dim):
-                    coords[offset, i] = dm_coords[dm_offset, i]
+                    coords[offset//dim, i] = dm_coords[dm_offset//dim, i]
         else:
-            # Use DG coordiantes.
+            raise NotImplementedError("dim stuff")
+            # Use DG coordinates
             get_height_stratum(dm.dm, 0, &cStart, &cEnd)
             dim = dm.getCoordinateDim()
             ndofs, perm, perm_offsets = _get_firedrake_plex_permutation_dg_transitive_closure(dm)
@@ -4297,3 +4288,11 @@ def renumber_map_fixed(
             else:
                 map_data_renum[src_pt_renum_c, j_c] = -1
     return utils.readonly(map_data_renum)
+
+
+# TODO: petsc4py
+def is_on_comm(is_: PETSc.IS, comm: MPI.Comm, *, copy=True) -> PETSc.IS:
+    new_is: PETSc.IS = PETSc.IS()
+    copy_mode: PetscCopyMode = PETSC_COPY_VALUES if copy else PETSC_USE_POINTER
+    CHKERR(ISOnComm(is_.iset, comm.ob_mpi, copy_mode, &new_is.iset))
+    return new_is

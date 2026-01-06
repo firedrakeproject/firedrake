@@ -239,6 +239,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        assert self.sf.size == self.size
         if self.rank_equal:
             assert self.constant
         if self.ordered:
@@ -729,8 +730,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
                 mat_context = RowDatPythonMatContext.from_spec(row_axes, column_axes)
             else:
                 mat_context = ColumnDatPythonMatContext.from_spec(row_axes, column_axes)
-            mat = PETSc.Mat().createPython(mat_context.sizes, comm=mat_context.comm)
-            mat.setPythonContext(mat_context)
+            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR

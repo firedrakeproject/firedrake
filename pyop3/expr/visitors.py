@@ -37,6 +37,17 @@ if typing.TYPE_CHECKING:
     LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
 
 
+class ExpressionVisitor(NodeVisitor):
+
+    @functools.singledispatchmethod
+    def children(self, node, /):
+        return super().children(node)
+
+    @children.register(numbers.Number)
+    def _(self, node, /):
+        return idict()
+
+
 def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
     if axis_vars is None:
         axis_vars = {}
@@ -696,15 +707,17 @@ def _(buffer_expr: expr_types.LinearDatBufferExpression, layouts, key):
 
 @concretize_materialized_tensor_indirections.register(expr_types.NonlinearDatBufferExpression)
 def _(buffer_expr: expr_types.NonlinearDatBufferExpression, layouts, key):
-    new_layouts = idict({
-        leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
-        for leaf_path in buffer_expr.layouts.keys()
-    })
+    new_layouts = {}
+    for leaf_path in buffer_expr.layouts.keys():
+        layout = layouts[key + ((buffer_expr, leaf_path),)]
+        new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
+    new_layouts = idict(new_layouts)
     return buffer_expr.__record_init__(layouts=new_layouts)
 
 
 @concretize_materialized_tensor_indirections.register(expr_types.MatPetscMatBufferExpression)
 def _(mat_expr: expr_types.MatPetscMatBufferExpression, /, layouts, key) -> expr_types.MatPetscMatBufferExpression:
+    # TODO: linearise the layouts here like we do for dats (but with no path)
     row_layout = layouts[key + ((mat_expr, 0),)]
     column_layout = layouts[key + ((mat_expr, 1),)]
     return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
@@ -713,6 +726,7 @@ def _(mat_expr: expr_types.MatPetscMatBufferExpression, /, layouts, key) -> expr
 # Should be very similar to dat case
 @concretize_materialized_tensor_indirections.register(expr_types.MatArrayBufferExpression)
 def _(buffer_expr: expr_types.MatArrayBufferExpression, /, layouts, key):
+    # TODO: linearise the layouts here like we do for dats
     new_buffer_layoutss = []
     buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
     for i, buffer_layouts in enumerate(buffer_layoutss):
@@ -845,7 +859,8 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat) -> expr_ty
             newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
-    if composite_dat.axis_tree.is_linear:
+    # if composite_dat.axis_tree.is_linear:
+    if False:
         layout = newlayouts[axes.leaf_path]
         assert not isinstance(layout, expr_types.NaN)
         materialized_expr = expr_types.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
@@ -1048,7 +1063,7 @@ def min_(a, b, /, *, lazy: bool = False) -> expr_types.Conditional | numbers.Num
         return expr_types.Conditional(expr_types.LessThan(a, b), a, b)
 
 
-class DiskCacheKeyGetter(NodeVisitor):
+class DiskCacheKeyGetter(ExpressionVisitor):
 
     def __init__(self, renamer=None, tree_getter=None):
         if renamer is None:  # TODO: unsure about this
@@ -1086,7 +1101,7 @@ class DiskCacheKeyGetter(NodeVisitor):
         )
 
     @process.register(expr_types.BufferExpression)
-    @NodeVisitor.postorder
+    @ExpressionVisitor.postorder
     def _(self, expr: expr_types.BufferExpression, visited: Mapping, /) -> Hashable:
         return (
             type(expr),
@@ -1236,3 +1251,70 @@ def collect_buffers(expr: ExpressionT) -> OrderedFrozenSet:
 #
 # def insert_literals(expr: ExpressionT) -> ExpressionT:
 #     return LiteralInserter()(expr)
+
+
+class LinearLayoutChecker(ExpressionVisitor):
+    """Make sure that nonlinear things do not appear in layouts."""
+
+    @functools.singledispatchmethod
+    def process(self, obj: ExpressionT, /) -> bool:
+        raise TypeError(f"invalid layout, got {type(obj).__name__}")
+
+    @process.register(numbers.Number)
+    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
+    @process.register(expr_types.Operator)
+    @process.register(expr_types.LinearDatBufferExpression)
+    @process.register(expr_types.ScalarBufferExpression)
+    @process.register(expr_types.CompositeDat)
+    @process.register(expr_types.AxisVar)
+    @process.register(expr_types.LoopIndexVar)
+    @ExpressionVisitor.postorder
+    def _(self, obj: ExpressionT, visited, /) -> None:
+        pass
+
+
+def check_valid_layout(expr: ExpressionT) -> bool:
+    LinearLayoutChecker()(expr)
+
+
+class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
+
+    @functools.singledispatchmethod
+    def process(self, obj: ExpressionT, /, **kwargs) -> ExpressionT:
+        return super().process(obj, **kwargs)
+
+    @process.register(numbers.Number)
+    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
+    @process.register(expr_types.Operator)
+    @process.register(expr_types.AxisVar)
+    @process.register(expr_types.LoopIndexVar)
+    @process.register(expr_types.ScalarBufferExpression)
+    @process.register(expr_types.LinearDatBufferExpression)
+    def _(self, expr: ExpressionT, /, **kwargs) -> ExpressionT:
+        return self.reuse_if_untouched(expr, **kwargs)
+
+    @process.register(expr_types.NonlinearDatBufferExpression)
+    @ExpressionVisitor.postorder
+    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
+        # this nasty code tries to find the best candidate layout looking at 'path', bearing
+        # in mind that the path might only be a partial match... is there a nicer approach? not sure there is
+        # consider expression: dat1[i] + dat2[j]
+        # the full path is i and j, but each component only 'sees' one of these.
+        best = None
+        duplicates = False
+        for path_, layout in dat_expr.layouts.items():
+            if path_.items() <= path.items():
+                if best is None:
+                    best = path_
+                else:
+                    if len(path_) == len(best):
+                        duplicates = True
+                    else:
+                        best = path_
+                        duplicates = False
+        assert best is not None
+        return expr_types.LinearDatBufferExpression(dat_expr.buffer, dat_expr.layouts[best])
+
+
+def linearize_expr(expr: ExpressionT, path) -> ExpressionT:
+    return ExpressionLinearizer()(expr, path=path)

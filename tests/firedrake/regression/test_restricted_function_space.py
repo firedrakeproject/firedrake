@@ -236,7 +236,7 @@ def test_poisson_mixed_restricted_spaces(i, j):
     assert errornorm(w.subfunctions[1], w2.subfunctions[1]) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_restricted_function_space_extrusion_basics():
     #
     #                  rank 0                 rank 1
@@ -250,7 +250,7 @@ def test_restricted_function_space_extrusion_basics():
     #            +-------+-------+      +-------+-------+
     #            2   0  (3) (1) (4)    (4) (1)  2   0   3    () = ghost
     #
-    #  mesh._dm_renumbering:
+    #  mesh._new_to_old_point_renumbering:
     #
     #            [0, 2, 3, 1, 4]        [0, 3, 2, 1, 4]
     #

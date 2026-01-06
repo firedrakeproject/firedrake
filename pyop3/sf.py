@@ -307,15 +307,13 @@ def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 
 
     """
     if comm.rank == root:
-        nroots = size
         # there are no leaves on the root process
         ilocal = np.empty(0, dtype=np.int32)
         iremote = np.empty(0, dtype=np.int32)
     else:
-        nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
         iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
-    return StarForest.from_graph(nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
 
 
 def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
