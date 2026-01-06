@@ -238,7 +238,7 @@ class ExprAssembler(object):
             if isinstance(expr, ufl.algebra.Sum):
                 a, b = [assemble(e) for e in expr.ufl_operands]
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
-                if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
+                if not all(isinstance(op, matrix.MatrixBase) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
                 return assemble(ufl.FormSum((a, 1), (b, 1)), tensor=tensor)
             elif isinstance(expr, ufl.algebra.Product):
@@ -365,9 +365,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                                     sub_mat_type=self._sub_mat_type,
-                                     options_prefix=self._options_prefix)
+                op2mat = op2.Mat(sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type, dtype=ScalarType)
+                return matrix.Matrix(self._form, op2mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -634,8 +633,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
     def assembled_matrix(self, expr, bcs, petscmat):
-        return matrix.AssembledMatrix(expr.arguments(), bcs, petscmat,
-                                      options_prefix=self._options_prefix)
+        return matrix.AssembledMatrix(expr.arguments(), petscmat, bcs=bcs, options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
@@ -1381,10 +1379,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._mat_type,
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
-        return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             sub_mat_type=self._sub_mat_type,
-                             options_prefix=self._options_prefix,
-                             fc_params=self._form_compiler_params)
+        op2mat = op2.Mat(
+            sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+            dtype=ScalarType
+        )
+        return matrix.Matrix(self._form, op2mat, bcs=self._bcs,
+                             fc_params=self._form_compiler_params,
+                             options_prefix=self._options_prefix)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
@@ -1583,10 +1584,17 @@ class MatrixFreeAssembler(FormAssembler):
         self._appctx = appctx
 
     def allocate(self):
-        return matrix.ImplicitMatrix(self._form, self._bcs,
-                                     fc_params=self._form_compiler_params,
-                                     options_prefix=self._options_prefix,
-                                     appctx=self._appctx or {})
+        from firedrake.matrix_free.operators import ImplicitMatrixContext
+        ctx = ImplicitMatrixContext(
+            self._form, row_bcs=self._bcs, col_bcs=self._bcs,
+            fc_params=self._form_compiler_params,
+            appctx=self._appctx
+        )
+        return matrix.ImplicitMatrix(
+            self._form, ctx, self._bcs,
+            fc_params=self._form_compiler_params,
+            options_prefix=self._options_prefix
+        )
 
     def assemble(self, tensor=None, current_state=None):
         if tensor is None:
