@@ -172,7 +172,7 @@ def _solve_varproblem(*args, **kwargs):
     else:
         # Create nonlinear variational problem
         if eq.rhs != 0:
-            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
+            raise ValueError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
                                                  restrict=restrict)
