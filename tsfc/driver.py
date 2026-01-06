@@ -143,18 +143,12 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         raise NotImplementedError("Assembly of forms over unrelated meshes is not supported. "
                                   "Try using Submeshes or cross-mesh interpolation.")
 
-    coefficient_meshes = set(chain.from_iterable(map(extract_domains, coefficients)))
-    if any(d not in integral_data.domain_integral_type_map for d in coefficient_meshes):
-        raise ValueError("Coefficient domain not found in integral. Possibly, the form contains coefficients "
-                         "on different meshes and requires measure intersection, for example: "
-                         'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
-
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
-        domain_integral_type_map={mesh: integral_data.domain_integral_type_map[mesh] if mesh in integral_data.domain_integral_type_map else None for mesh in all_meshes},
+        domain_integral_type_map={mesh: integral_data.domain_integral_type_map.get(mesh, None) for mesh in all_meshes},
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
