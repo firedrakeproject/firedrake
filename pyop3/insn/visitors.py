@@ -26,7 +26,6 @@ from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, BufferRef
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 import pyop3.insn as insn_types
-# TODO: remove all these in favour of op3_insn
 from pyop3.insn.base import (
     INC,
     READ,
@@ -488,11 +487,9 @@ MAX_COST_CONSIDERATION_FACTOR = 5
 
 
 @PETSc.Log.EventDecorator()
+@memory_cache(heavy=True, get_comm=lambda insn, **kwargs: insn.comm)
 def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
-    # try setting a 'global' cache here
-    # TODO: formalise this.
-    mycache = {}
-
+    breakpoint()  # how often do i hit this? and why can't I reuse the result more?
     expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
     if not expr_candidates:
