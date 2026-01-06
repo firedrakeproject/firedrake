@@ -22,7 +22,6 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
-from firedrake.matrix import MatrixBase
 import firedrake.variational_solver as vs
 from firedrake.function import Function
 from firedrake.adjoint_utils import annotate_solve
