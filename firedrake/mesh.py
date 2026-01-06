@@ -2973,6 +2973,9 @@ values from f.)"""
     def refine_marked_elements(self, mark, netgen_flags=None):
         """Refine a mesh using a DG0 marking function.
 
+        This method requires that the mesh has been constructed from a
+        netgen mesh.
+
         :arg mark: the marking function which is a Firedrake DG0 function.
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
 
@@ -2981,6 +2984,8 @@ values from f.)"""
 
         """
         import firedrake as fd
+
+        utils.check_netgen_installed()
 
         if netgen_flags is None:
             netgen_flags = {}
@@ -3019,8 +3024,10 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, location_tol=1e-1, cg_field=False):
-        '''
-        This method returns a curved mesh as a Firedrake function.
+        '''Return a function containing the curved coordinates of the mesh.
+
+        This method requires that the mesh has been constructed from a
+        netgen mesh.
 
         :arg order: the order of the curved mesh.
         :arg permutation_tol: tolerance used to construct the permutation of the reference element.
@@ -3030,6 +3037,9 @@ values from f.)"""
 
         '''
         import firedrake as fd
+
+        utils.check_netgen_installed()
+
         from firedrake.netgen import find_permutation
 
         # Check if the mesh is a surface mesh or two dimensional mesh

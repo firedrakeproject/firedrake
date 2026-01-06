@@ -1,7 +1,5 @@
 '''
 This module contains all the functions related to wrapping NGSolve meshes to Firedrake
-We adopt the same docstring conventions as the Firedrake project, since this part of
-the package will only be used in combination with Firedrake.
 '''
 import numpy as np
 import numpy.typing as npt
