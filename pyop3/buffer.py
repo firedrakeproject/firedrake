@@ -239,6 +239,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        assert self.sf.size == self.size
         if self.rank_equal:
             assert self.constant
         if self.ordered:

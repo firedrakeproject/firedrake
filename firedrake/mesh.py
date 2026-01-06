@@ -502,7 +502,6 @@ class AbstractMeshTopology(abc.ABC):
     @property
     @utils.deprecated("_new_to_old_point_renumbering")
     def _dm_renumbering(self):
-        breakpoint()  # undo when instances found
         return self._new_to_old_point_renumbering
 
     @property
@@ -1240,7 +1239,7 @@ class AbstractMeshTopology(abc.ABC):
             a boundary condition is specified on.
         :returns: a new PETSc Section.
         """
-        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size, boundary_set=boundary_set)
+        return dmcommon.create_section(self, nodes_per_entity, on_base=real_tensorproduct, block_size=block_size)
 
     # delete?
     def node_classes(self, nodes_per_entity, real_tensorproduct=False):
@@ -3395,7 +3394,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             parent = self._parent_mesh.topology_dm
             cell_id_name = swarm.getCellDMActive().getCellID()
             swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-            parent_renum = self._parent_mesh._dm_renumbering.getIndices()
+            parent_renum = self._parent_mesh._new_to_old_point_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))

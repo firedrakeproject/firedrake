@@ -150,6 +150,7 @@ cdef extern from "petscis.h" nogil:
     PetscErrorCode ISIntersect(PETSc.PetscIS,PETSc.PetscIS,PETSc.PetscIS*)
     PetscErrorCode ISGeneralFilter(PETSc.PetscIS,PetscInt,PetscInt)
     PetscErrorCode ISDestroy(PETSc.PetscIS*)
+    PetscErrorCode ISOnComm(PETSc.PetscIS,MPI.MPI_Comm,PetscCopyMode,PETSc.PetscIS*)
 
 cdef extern from "petscsf.h" nogil:
     struct PetscSFNode_:

@@ -797,7 +797,7 @@ class FunctionSpace:
             else:
                 new_pt = old_pt
 
-            ndofs = self.local_section.getDof(old_pt)
+            ndofs = self.local_section.getDof(old_pt) // self.block_size
 
             if new_pt not in constrained_points:
                 num_unconstrained_dofs[new_pt] = ndofs
@@ -1055,12 +1055,12 @@ class FunctionSpace:
             stratum_ranges = {
             }
             for dim in range(dm.getDimension()+1):
-                ndofs = entity_dofs[dim]
+                ndofs = entity_dofs[dim] * self.block_size
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
             stratum_ranges = {0: (0, dm.getLocalSize())}
-            ndofs = entity_dofs[0]
+            ndofs = entity_dofs[0] * self.block_size
             for pt in range(dm.getLocalSize()):
                 section.setDof(pt, ndofs)
         else:
@@ -1073,10 +1073,10 @@ class FunctionSpace:
                 base_dim = base_dim_label.getValue(pt)
                 if base_dim == dim:
                     # vertex
-                    ndofs = entity_dofs[base_dim, 0]
+                    ndofs = entity_dofs[base_dim, 0] * self.block_size
                 else:
                     # edge
-                    ndofs = entity_dofs[base_dim, 1]
+                    ndofs = entity_dofs[base_dim, 1] * self.block_size
                 section.setDof(pt, ndofs)
 
         if self._ufl_function_space.ufl_element().family() == "Real":

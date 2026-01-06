@@ -506,7 +506,7 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
         CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
@@ -521,7 +521,7 @@ def entity_layers(mesh, height, label=None):
             layers[offset, 1] = layer_extents[point, 3]
             offset += 1
 
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers
