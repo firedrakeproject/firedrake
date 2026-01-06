@@ -290,7 +290,7 @@ class SupermeshProjector(ProjectorBase):
 
     @property
     def rhs(self):
-        with self.source.dat.vec_ro as u, self.residual.dat.vec_wo as v:
+        with self.source.vec_ro as u, self.residual.vec_wo as v:
             self.mixed_mass.mult(u, v)
         return self.residual
 

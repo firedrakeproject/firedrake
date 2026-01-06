@@ -4,35 +4,39 @@ from functools import cached_property
 import rtree
 import sys
 import ufl
+import warnings
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
+from pyadjoint import annotate_tape
 import cachetools
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
-from pyrsistent import freeze
 from immutabledict import immutabledict as idict
+from functools import partial
+from typing import Tuple
+from mpi4py import MPI
 
-from pyop2 import mpi, MPI
-from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
+from pyop3.mpi import internal_comm
 
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-from firedrake.cofunction import Cofunction
+from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
-from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import parse_component_indices
+from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -57,8 +61,8 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat` or
-            :class:`~.Vector`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
+            providing initial values (optional).
             This :class:`Function` will share data with the provided
             value.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -74,16 +78,14 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm, self)
+        self._comm = internal_comm(function_space.comm, self)
         self._function_space = function_space
         self.uid = utils._new_uid(self._comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
-            val = val.dat
         if isinstance(val, op3.Dat):
+            # assert val.comm == self._comm  # FIXME
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -114,13 +116,14 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if isinstance(self.function_space(), MixedFunctionSpace):
+            # NOTE: This is quite tricky for fieldsplit. Previously the fields would
+            # be renumbered when split, but now we retain the labels in the dat but
+            # not the function space.
             subfuncs = []
-            for i in range(len(self.function_space())):
-                # a guess, might not work
-                # subspace = self.function_space().sub(i, weak=False)
-                subspace = self.function_space().sub(i, weak=True)
-                subdat = self.dat[subspace.index]
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
+                subspace = self.function_space().sub(i)
+                subdat = self.dat[component.label]
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -146,28 +149,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             components[ix] = component
         return utils.readonly(components)
 
-        if self.function_space().rank == 0:
-            return (self,)
-        else:
-            if self.function_space().value_size == 1:
-                return (CoordinatelessFunction(self.function_space().sub(0, weak=False), val=self.dat,
-                                               name=f"view[0]({self.name()})"),)
-            else:
-                components = []
-                for i, j in enumerate(np.ndindex(self.function_space().shape)):
-                    indices = op3.IndexTree.from_iterable((
-                        op3.ScalarIndex(f"dim{i_}", "XXX", j_)
-                        for i_, j_ in enumerate(j)
-                    ))
-                    subdat = self.dat[indices]
-                    component = CoordinatelessFunction(
-                        self.function_space().sub(i, weak=False),
-                        val=subdat,
-                        name=f"view[{i}]({self.name()})"
-                    )
-                    components.append(component)
-                return tuple(components)
-
     @PETSc.Log.EventDecorator()
     def sub(self, i):
         r"""Extract the ith sub :class:`Function` of this :class:`Function`.
@@ -183,10 +164,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
         return data[i]
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -323,10 +300,9 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        if len(self.function_space()) > 1:
+        if isinstance(self.function_space().topological, MixedFunctionSpace):
             return tuple(
-                # type(self)(self.function_space().sub(i, weak=False), val)
-                type(self)(self.function_space().sub(i, weak=True), val)  # a guess, might not work
+                type(self)(self.function_space().sub(i, weak=True), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)
@@ -387,48 +363,32 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         return self._function_space
 
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
-
     @PETSc.Log.EventDecorator()
-    def interpolate(
-        self,
-        expression,
-        subset=Ellipsis,
-        allow_missing_dofs=False,
-        default_missing_val=None,
-        ad_block_tag=None
-    ):
-        r"""Interpolate an expression onto this :class:`Function`.
+    def interpolate(self,
+                    expression: ufl.classes.Expr,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: a UFL expression to interpolate
-        :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-            interpolation over. Cannot, at present, be used when interpolating
-            across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-        :kwarg allow_missing_dofs: For interpolation across meshes: allow
-            degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-            defined on the source mesh. For example, where nodes are point
-            evaluations, points in the target mesh that are not in the source mesh.
-            When ``False`` this raises a ``ValueError`` should this occur. When
-            ``True`` the corresponding values are set to zero or to the value
-            ``default_missing_val`` if given. Ignored if interpolating within the
-            same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-            :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-            it is created).
-        :kwarg default_missing_val: For interpolation across meshes: the optional
-            value to assign to DoFs in the target mesh that are outside the source
-            mesh. If this is not set then zero is used. Ignored if interpolating
-            within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
-            the Pyadjoint tape.
-        :returns: this :class:`Function` object"""
-        from firedrake import interpolation, assemble
+        Parameters
+        ----------
+        expression
+            A UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see `firedrake.interpolation.interpolate`.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`
+        """
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V,
-                                           subset=subset,
-                                           allow_missing_dofs=allow_missing_dofs,
-                                           default_missing_val=default_missing_val)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -447,84 +407,85 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            Expression to be assigned.
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        allow_missing_dofs : bool
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Function` s on the same :class:`.WithGeometry` as the
+        assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
         both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+        expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+        should be used.
 
-        .. note::
-
-            Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
-            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
-            should be used.
         """
         from firedrake.assign import Assigner, parse_subset
 
         subset = parse_subset(subset)
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-            try:
-                self.dat.data_wo[...] = expr
-            except (DataTypeError, DataValueError) as e:
-                raise ValueError(e)
+            self.dat.data_wo[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
-        """Return the Riesz representation of this :class:`Function` with respect to the given Riesz map.
+        """Return the Riesz representation of this :class:`Function`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by taking the action
-        of ``M`` on ``self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        taking the action of ``M`` on ``self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable which applies the Riesz map.
 
         Returns
         -------
         firedrake.cofunction.Cofunction
-            Riesz representation of this :class:`Function` with respect to the given Riesz map.
+            Riesz representation of this :class:`Function` with respect to the
+            given Riesz map.
         """
-        from firedrake.ufl_expr import action
-        from firedrake.assemble import assemble
+        if not callable(riesz_map):
+            riesz_map = RieszMap(self.function_space(), riesz_map)
 
-        V = self.function_space()
-        if riesz_map == "l2":
-            return Cofunction(V.dual(), val=self.dat)
-
-        elif riesz_map in ("L2", "H1"):
-            a = self._define_riesz_map_form(riesz_map, V)
-            return assemble(action(a, self))
-
-        elif callable(riesz_map):
-            return riesz_map(self)
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_map)
+        return riesz_map(self)
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
@@ -573,10 +534,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        # c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
-        c_function.f = self.dat.buffer.data_rw.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f_offset = op3.evaluate(self.dat.axes.subst_layouts()[idict({mesh.topology.name: mesh.cell_label})], {mesh.topology.name: 0})
         return c_function
 
     @property
@@ -602,10 +561,22 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        return self.at(coord)
+        coord = np.asarray(coord, dtype=utils.ScalarType)
+        evaluator = PointEvaluator(self.function_space().mesh(), coord)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze(axis=0)
+        return result
+
+    def at(self, arg, *args, **kwargs):
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
+        return self._at(arg, *args, **kwargs)
 
     @PETSc.Log.EventDecorator()
-    def at(self, arg, *args, **kwargs):
+    def _at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
         :arg arg: The point to locate.
@@ -636,20 +607,24 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         tolerance = kwargs.get('tolerance', None)
         mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
         else:
-            mesh.tolerance = tolerance
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        if tolerance is None:
+            tolerance = mesh_unique.tolerance
+        else:
+            mesh_unique.tolerance = tolerance
 
-        # Handle f.at(0.3)
+        # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        if mesh.variable_layers:
+        if mesh_unique.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -685,7 +660,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         for i, p in enumerate(points):
             try:
                 if mixed:
-                    l_result.append((i, tuple(f.at(p) for f in subfunctions)))
+                    l_result.append((i, tuple(f._at(p) for f in subfunctions)))
                 else:
                     p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
@@ -749,7 +724,126 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
+
+
+class PointEvaluator:
+    r"""Convenience class for evaluating a :class:`Function` at a set of points."""
+
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
+                 missing_points_behaviour: str = "error", redundant: bool = True) -> None:
+        r"""
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            The mesh on which to embed the points.
+        points : numpy.ndarray | list
+            Array or list of points to evaluate at.
+        tolerance : float | None
+            Tolerance to use when checking if a point is in a cell.
+            If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
+        missing_points_behaviour : str
+            Behaviour when a point is not found in the mesh. Options are:
+            "error": raise a :class:`~.VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
+            "warn": warn if a point is not found in the mesh, but continue.
+            "ignore": ignore points not found in the mesh.
+        redundant : bool
+            If True, only the points given to the constructor on rank 0 are evaluated, and the result is broadcast to all ranks.
+            If False, each rank evaluates the points it has been given. False is useful if you are inputting
+            external data that is already distributed across ranks. Default is True.
+        """
+        self.points = np.asarray(points, dtype=utils.ScalarType)
+        if not self.points.shape:
+            self.points = self.points.reshape(-1)
+        gdim = mesh.geometric_dimension
+        if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
+            raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
+        self.points = self.points.reshape(-1, gdim)
+
+        self.mesh = mesh
+
+        self.redundant = redundant
+        self.missing_points_behaviour = missing_points_behaviour
+        self.tolerance = tolerance
+        self.vom = VertexOnlyMesh(
+            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
+            redundant=redundant, tolerance=tolerance
+        )
+
+    def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
+        r"""Evaluate the given :class:`Function`.
+        Points that were not found in the mesh will be evaluated to np.nan.
+
+        Parameters
+        ----------
+        function :
+            The :class:`Function` to evaluate.
+
+        Returns
+        -------
+        numpy.ndarray | Tuple[numpy.ndarray, ...]
+            A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
+            has shape ``(len(points),)``. If the function is vector-valued with shape ``(n,)``, the Numpy array has shape
+            ``(len(points), n)``. If the function is tensor-valued with shape ``(n, m)``, the Numpy array has shape
+            ``(len(points), n, m)``. If the function is a mixed function, a tuple of Numpy arrays is returned,
+            one for each subfunction.
+
+
+        .. warning::
+
+            This method returns a numpy array and hence isn't taped for use with firedrake-adjoint.
+            If you want to use point evaluation with the adjoint, create a :func:`~.VertexOnlyMesh`
+            as described in the manual.
+        """
+        from firedrake import assemble, interpolate
+        if not isinstance(function, Function):
+            raise TypeError(f"Expected a Function, got {type(function).__name__}")
+        if annotate_tape():
+            raise RuntimeError("PointEvaluator.evaluate cannot be used when annotating. "
+                               "If you want to use point evaluation with the adjoint, "
+                               "create a VertexOnlyMesh as described in the manual.")
+        if function.function_space().ufl_element().family() == "Real":
+            return function.dat.data_ro
+
+        function_mesh = function.function_space().mesh().unique()
+        if function_mesh is not self.mesh:
+            raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
+        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
+            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
+            self.mesh = function_mesh
+        if tol_changed := self.mesh.tolerance != self.tolerance:
+            self.tolerance = self.mesh.tolerance
+        if coord_changed or tol_changed:
+            self.vom = VertexOnlyMesh(
+                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+                redundant=self.redundant, tolerance=self.tolerance
+            )
+
+        subfunctions = function.subfunctions
+        if len(subfunctions) > 1:
+            return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
+
+        shape = function.ufl_function_space().value_shape
+        if len(shape) == 0:
+            fs = FunctionSpace
+        elif len(shape) == 1:
+            fs = partial(VectorFunctionSpace, dim=shape[0])
+        else:
+            fs = partial(TensorFunctionSpace, shape=shape)
+
+        P0DG = fs(self.vom, "DG", 0)
+        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+        f_at_points = assemble(interpolate(function, P0DG))
+        f_at_points_io = Function(P0DG_io).assign(np.nan)
+        f_at_points_io.interpolate(f_at_points)
+        result = f_at_points_io.dat.data_ro.copy()
+
+        # If redundant, all points are now on rank 0, so we broadcast the result
+        if self.redundant and self.mesh.comm.size > 1:
+            if self.mesh.comm.rank != 0:
+                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+            self.mesh.comm.Bcast(result)
+        return result
 
 
 @PETSc.Log.EventDecorator()
@@ -758,9 +852,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     given Firedrake :class:`Function`."""
     from os import path
     from firedrake.pointeval_utils import compile_element
-    from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
-    from pyop2.parloop import generate_single_cell_wrapper
+    from pyop3 import compile as compilation
+    from pyop3.pyop2_utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)

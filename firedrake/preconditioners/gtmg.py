@@ -1,10 +1,10 @@
 """Non-nested multigrid preconditioner"""
 
-from firedrake_citations import Citations
+import petsctools
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.parameters import parameters
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.solving_utils import _SNESContext
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 import firedrake.dmhooks as dmhooks
@@ -67,7 +67,7 @@ class GTMGPC(PCBase):
         """
         from firedrake.assemble import assemble, get_assembler
 
-        Citations().register("Gopalakrishnan2009")
+        petsctools.cite("Gopalakrishnan2009")
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -155,7 +155,7 @@ class GTMGPC(PCBase):
             # Create interpolation matrix from coarse space to fine space
             fine_space = ctx.J.arguments()[0].function_space()
             coarse_test, coarse_trial = coarse_operator.arguments()
-            interp = assemble(Interpolate(coarse_trial, fine_space))
+            interp = assemble(interpolate(coarse_trial, fine_space))
             interp_petscmat = interp.petscmat
         restr_petscmat = appctx.get("restriction_matrix", None)
 

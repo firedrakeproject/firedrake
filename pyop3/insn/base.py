@@ -21,14 +21,12 @@ import pytools
 from cachetools import cachedmethod
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import PMap, pmap
 
 from pyop3 import utils
 from pyop3.tree.axis_tree import AxisTree
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
 from pyop3.sf import DistributedObject
-from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
@@ -63,8 +61,6 @@ READ = Intent.READ
 WRITE = Intent.WRITE
 RW = Intent.RW
 INC = Intent.INC
-
-# NOTE: I dont think that these are needed any more. Just RW access?
 MIN_RW = Intent.MIN_RW
 MIN_WRITE = Intent.MIN_WRITE
 MAX_RW = Intent.MAX_RW
@@ -73,6 +69,7 @@ MAX_WRITE = Intent.MAX_WRITE
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
+
     # {{{ optimisation options
 
     compress_indirection_maps: bool = False
@@ -87,13 +84,11 @@ class CompilerParameters:
 
     # }}}
 
-    # Debugging options
+    # {{{ debugging options
 
     attach_debugger: bool = False
 
-    def __post_init__(self):
-        if self.attach_debugger and not config["debug"]:
-            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
+    # }}}
 
 
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
@@ -368,10 +363,6 @@ class Loop(Instruction):
         return self.index.iterset.comm
 
     @cached_property
-    def datamap(self) -> PMap:
-        return self.index.datamap | merge_dicts(s.datamap for s in self.statements)
-
-    @cached_property
     def function_arguments(self) -> tuple:
         args = {}  # ordered
         for stmt in self.statements:
@@ -530,6 +521,12 @@ class Function:
     @property
     def name(self):
         return self.code.default_entrypoint.name
+
+    @property
+    def num_flops(self) -> int:
+        import pyop3.extras.debug
+        pyop3.extras.debug.warn_todo("Function.num_flops isn't implemented, returning 666 for now")
+        return 666
 
 
 class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
@@ -732,6 +729,35 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
+# @utils.frozenrecord()
+# class AssignmentShape:
+#     """
+#     This class is necessary to encapsulate more complex assignments. Examples
+#     include:
+#
+#         dat1[i] = dat2[j]
+#         mat[i, j] = dat1[i] + dat2[j]
+#
+#     Ah, this latter case demonstrates that this isn't quite right... the expression
+#     takes bits of the first axis tree and bits of the second.
+#
+#     Also, it would be extremely confusing to have
+#
+#         dat1[i] = dat1[j]
+#
+#     with 2 axis trees. Maybe we need loops in most cases...
+#
+#     """
+#     axis_trees: tuple[AxisTree, ...]
+#     assignee_axis_trees: tuple[AxisTree | None, ...]
+#     expression_axis_trees: tuple[AxisTree | None, ...]
+#
+#     def __post_init__(self) -> None:
+#         assert utils.single_valued(
+#             map(len, [self.axis_trees, self.assignee_axis_trees, self.expression_axis_trees])
+#         )
+
+
 # TODO: not sure need to specify 'array' here
 @utils.frozenrecord()
 class ArrayAssignment(AbstractAssignment):
@@ -748,6 +774,10 @@ class ArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
 
     # }}}
 
@@ -760,6 +790,21 @@ class ArrayAssignment(AbstractAssignment):
     @property
     def user_comm(self) -> MPI.Comm:
         return utils.common_comm([self.assignee, self.expression], "user_comm", allow_undefined=True) or MPI.COMM_SELF
+
+    # NOTE: Wrong type here...
+    @property
+    def shape(self) -> tuple[AxisTree, ...]:
+        from pyop3.expr.visitors import get_shape
+
+        # The shape of the assignment is simply the shape of the assignee, nothing else
+        # makes sense. For more complex things loops should be used.
+        axis_trees = []
+        for axis_obj in get_shape(self.assignee):
+            if isinstance(axis_obj, AxisForest):
+                # just take the first
+                axis_obj = axis_obj.trees[0]
+            axis_trees.append(axis_obj)
+        return tuple(axis_trees)
 
     # }}}
 
@@ -785,6 +830,10 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 
@@ -818,6 +867,10 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 

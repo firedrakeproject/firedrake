@@ -2,7 +2,6 @@ import textwrap
 import numpy
 import string
 from fractions import Fraction
-from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
@@ -32,6 +31,8 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
+from tsfc.ufl_utils import apply_mapping, simplify_abs
+
 from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
@@ -53,13 +54,13 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     code = {
         "geometric_dimension": gdim,
-        "topological_dimension": cell.topological_dimension(),
+        "topological_dimension": cell.topological_dimension,
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(cell.topological_dimension()),
-        "X_isub_dX": X_isub_dX(cell.topological_dimension()),
+        "dX_norm_square": dX_norm_square(cell.topological_dimension),
+        "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
     }
 
@@ -115,37 +116,44 @@ def compile_element(expression, dual_space=None, parameters=None,
     # # Collect required coefficients
 
     try:
+        # Forward interpolation: expression has a coefficient
         arg, = extract_coefficients(expression)
         argument_multiindices = ()
         coefficient = True
-        if expression.ufl_shape:
-            tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
-        else:
-            tensor_indices = ()
     except ValueError:
+        # Adjoint interpolation: expression has an argument
         arg, = extract_arguments(expression)
         finat_elem = create_element(arg.ufl_element())
-        argument_multiindices = (finat_elem.get_indices(), )
-        argument_multiindex, = argument_multiindices
-        value_shape = finat_elem.value_shape
+        argument_multiindex = finat_elem.get_indices()
+        argument_multiindices = (argument_multiindex, )
+        coefficient = False
+
+    # Map into reference values
+    domain = extract_unique_domain(expression)
+    expression = apply_mapping(expression, arg.ufl_element(), domain)
+    value_shape = expression.ufl_shape
+
+    # Get indices for the output tensor
+    if coefficient:
+        tensor_indices = tuple(gem.Index() for s in value_shape)
+    else:
         if value_shape:
             tensor_indices = argument_multiindex[-len(value_shape):]
         else:
             tensor_indices = ()
-        coefficient = False
 
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
-    domain = extract_unique_domain(expression)
+    builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     # Translate to GEM
     cell = domain.ufl_cell()
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -153,7 +161,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression, complex_mode)
+    expression = simplify_abs(expression, complex_mode)
 
     # Translate UFL -> GEM
     if coefficient:
@@ -179,7 +187,6 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            value_shape = dual_space.value_shape
             if value_shape:
                 var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
@@ -221,7 +228,7 @@ def prolong_kernel(expression):
         assert hierarchy._meshes[int(idx)].extruded
     V = expression.function_space()
     key = (("prolong",)
-           + V.value_shape
+           + (V.block_size,)
            + entity_dofs_key(V.finat_element.complex.get_topology())
            + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -284,7 +291,7 @@ def prolong_kernel(expression):
            "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
            "Xc_cell_inc": coords_element.space_dimension(),
            "coarse_cell_inc": element.space_dimension(),
-           "tdim": mesh.topological_dimension()})
+           "tdim": mesh.topological_dimension})
 
     # Now build a pyop3 'Function' wrapping this
     loopy_kernel = lp.make_kernel(
@@ -320,7 +327,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.value_shape
+           + (Vf.block_size,)
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -386,7 +393,7 @@ def restrict_kernel(Vf, Vc):
            "Xc_cell_inc": coords_element.space_dimension(),
            "coarse_cell_inc": element.space_dimension(),
            "spacedim": element.cell.get_spatial_dimension(),
-           "tdim": mesh.topological_dimension()})
+           "tdim": mesh.topological_dimension})
 
     # Now build a pyop3 'Function' wrapping this
     loopy_kernel = lp.make_kernel(
@@ -424,7 +431,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.value_shape
+           + (Vf.block_size,)
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -490,7 +497,7 @@ def inject_kernel(Vf, Vc):
         "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
         "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
         "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-        "tdim": Vc.mesh().topological_dimension(),
+        "tdim": Vc.mesh().topological_dimension,
         "ncandidate": ncandidate,
         "Rdim": numpy.prod(Vf.value_shape),
         "Xf_cell_inc": coords_element.space_dimension(),
@@ -571,6 +578,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
+    macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
+    macro_builder._entity_ids = {Vf.mesh(): (0,)}
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -585,12 +594,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
     parameters = default_parameters()
-    integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     integral_type="cell",
                      integration_dim=integration_dim,
-                     entity_ids=entity_ids,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"])
@@ -609,26 +616,26 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
+                                domain_integral_type_map={Vc.mesh(): "cell"},
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
                                 coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
-    coarse_builder.set_coordinates(Vc.mesh())
+    coarse_builder.set_coordinates([Vc.mesh()])
+    coarse_builder.set_entity_numbers([Vc.mesh()])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
 
-    integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
     quadrature_rule = make_quadrature(Vce.cell, 0)
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      integral_type="cell",
                       integration_dim=integration_dim,
-                      entity_ids=entity_ids,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
                       scalar_type=parameters["scalar_type"])
@@ -660,7 +667,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # Coarse basis function evaluated at fine quadrature points
     phi_c = fem.fiat_to_ufl(Vce.point_evaluation(0, X_a, (Vce.cell.get_dimension(), 0)), 0)
 
-    tensor_indices = tuple(gem.Index(extent=d) for d in f.ufl_shape)
+    index_shape = f.ufl_element().reference_value_shape
+    tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
     fexpr = gem.Indexed(fexpr, tensor_indices)
@@ -773,9 +781,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+
+    # return op2.Kernel(
+    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+    #     headers=Ainv.headers, events=Ainv.events)
+    kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
+    return op3.Function(kernel, kernel_intents)
+
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

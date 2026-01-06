@@ -70,8 +70,8 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "vtk":
         try:
-            from firedrake.output import VTKFile  # noqa: F401
-            del VTKFile
+            import vtk  # noqa: F401
+            del vtk
             return not skip
         except ImportError:
             return skip
@@ -91,7 +91,8 @@ dependency_skip_markers_and_reasons = (
     ("jax", "skipjax", "JAX is not installed"),
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
-    ("vtk", "skipvtk", "VTK is not installed")
+    ("vtk", "skipvtk", "VTK is not installed"),
+
 )
 
 

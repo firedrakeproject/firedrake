@@ -1,9 +1,69 @@
 # Dockerfile for a plain Firedrake suitable for testing Firedrake components and applications
+# Firedrake is installed as a system package so doesn't require activating a venv.
+#
+# Three types of build are available:
+# 1. A "release" build for a specific version (e.g. 2025.4.2).
+# 2. A "release" build with the "release" branch at the latest commit.
+# 3. A "developer" build with the "main" branch at the latest commit
+#
+# A release build will install:
+#  - Firedrake in editable mode from the specified release tag or branch.
+#  - PETSc and SLEPc from the corresponding release (specified by firedrake-configure).
+# A developer build will install:
+#  - Firedrake in editable mode from the main branch.
+#  - PETSc and SLEPc from the main branch.
+#  - Python dependencies in editable mode that firedrake/main requires the latest main branch for (pyadjoint, ufl, etc).
+#
+# The two main command line arguments are:
+#
+# ARCH:
+#     The `--arch` argument to firedrake-configure, e.g. default, complex
+#
+# BRANCH:
+#     Whether to build a release version of Firedrake.
+#     Options:
+#      - "release"        Build from the latest release branch.
+#      - <release tag>    Build a specific release (e.g. 2025.4.2).
+#      - "main"           Build a developer install from the latest main branch.
+#
+# Extra apt packages and PETSc configure arguments can also be
+# provided with the following command line arguments:
+#
+# APT_EXTRA_PACKAGES:
+#     Extra packages to pass to `apt install`
+#
+# PETSC_EXTRA_ARGS:
+#     Extra arguments to pass to PETSc's `configure` script
+#
+# Example usage for a specific firedrake release with complex scalars:
+#  $ docker build \
+#     --file=Dockerfile.vanilla \
+#     --tag=firedrake:2025.4.2-complex \
+#     --build-arg ARCH=complex \
+#     --build-arg BRANCH=2025.4.2
+#
+# Example usage for building from firedrake main with real scalars, ml installed with PETSc, and valgrind installed with apt:
+#  $ docker build \
+#     --file=Dockerfile.vanilla \
+#     --tag=firedrake:main-latest \
+#     --build-arg ARCH=default \
+#     --build-arg BRANCH=main \
+#     --build-arg PETSC_EXTRA_ARGS="--download-ml" \
+#     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
-FROM ubuntu:latest
+FROM ubuntu:24.04
 
 # Firedrake arch to build
 ARG ARCH="default"
+
+# Is this a release build?
+ARG BRANCH="release"
+
+# Extra system packages
+ARG APT_EXTRA_PACKAGES=
+
+# Extra PETSc configuration options
+ARG PETSC_EXTRA_ARGS=
 
 # Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -18,49 +78,95 @@ ENV TZ=Europe/London
 
 # Install 'parallel' because it is needed by 'firedrake-run-split-tests'
 RUN apt-get update \
-    && apt-get -y install curl parallel python3 python3-pip python3-venv sudo \
+    && apt-get -y install curl parallel python3 python3-pip python3-venv sudo graphviz graphviz-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Allow pip to install into system package locations without prompting
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
-# Download firedrake-configure
-RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
+# Where to download firedrake-configure from
+RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/${BRANCH}/scripts/firedrake-configure
 
 # Install system dependencies
 RUN apt-get update \
     && apt-get -y install \
         $(python3 /opt/firedrake-configure --arch $ARCH --show-system-packages) \
+        ${APT_EXTRA_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
 # OpenMPI will complain if mpiexec is invoked as root unless these are set
 ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
-# Install PETSc. We set the compiler optimisation flags manually here to
-# remove the default of '-march=native -mtune=native' which is not suitable for Docker images.
-RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git /opt/petsc \
+# Install PETSc.
+# 1. Clone the release tag of PETSc if we're installing a Firedrake release.
+# 2. We set the compiler optimisation flags manually here to remove the default
+#    of '-march=native -mtune=native' which is not suitable for Docker images.
+# 3. Remove non-essential files to reduce container size (keep SLEPc for slepc4py).
+RUN if [ "${BRANCH}" != "main" ]; then \
+        CLONE_ARGS="--branch $(python3 /opt/firedrake-configure --show-petsc-version)"; \
+    fi; \
+    git clone --depth 1 ${CLONE_ARGS} https://gitlab.com/petsc/petsc.git /opt/petsc \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc \
-    && make \
-    && make check \
-    && rm -rf ./**/externalpackages \
-    && rm -rf ./src/docs \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc ${PETSC_EXTRA_ARGS} \
+    && make; \
+    if [ $? -eq 1 ]; then \
+        cat configure.log; \
+        exit; \
+    fi; \
+    make check || exit; \
+    for pkg in $(ls ./arch-firedrake-${ARCH}/externalpackages/); do \
+      if [ "${pkg}" != "git.slepc" ]; then \
+        rm -rf  ./arch-firedrake-${ARCH}/${pkg} || exit; \
+      fi; \
+    done; \
+    rm -rf ./src/docs \
     && rm -f ./src/**/tutorials/output/* \
     && rm -f ./src/**/tests/output/* \
     && cd - || exit
 
 ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
+ENV SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 ENV HDF5_MPI=ON
 ENV CC=mpicc CXX=mpicxx
-ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
+ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 # Install Firedrake
-RUN pip install -U pip \
-    && git clone https://github.com/firedrakeproject/firedrake.git /opt/firedrake --branch release \
-    && pip install --verbose --no-binary h5py --editable /opt/firedrake --group /opt/firedrake/pyproject.toml:docker
+# - petsc4py and slepc4py are installed from source in PETSc repo.
+# - slepc4py is installed without build isolation so it links against
+#     the correct petsc4py version.
+# - Firedrake main branch requires main/master branch of some upstream
+#     packages. These are installed in editable mode.
+#     The order these are installed is important, e.g. FIAT must be installed
+#     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
+RUN git clone --branch ${BRANCH} \
+      https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
+   && pip cache purge \
+   && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
+   && pip install --verbose -r /opt/firedrake/requirements-build.txt \
+   && pip install --verbose --no-build-isolation \
+      ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
+   && pip install --verbose --no-binary h5py --no-build-isolation \
+      --editable '/opt/firedrake[docker]' || exit; \
+   if [ ${BRANCH} == "main" ]; then \
+      for pkg in \
+         "git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad" \
+         "git+https://github.com/firedrakeproject/fiat.git#egg=firedrake-fiat" \
+         "git+https://github.com/FEniCS/ufl.git#egg=fenics-ufl" \
+         ; do \
+            pip install --verbose  --src /opt --editable ${pkg} || exit; \
+        done; \
+    fi
+
+# Force '-mtune=generic' for JIT-ed code
+ENV PYOP2_CFLAGS=$CFLAGS
+
+# Run the smoke tests.
+RUN cd /opt/firedrake/ \
+    && firedrake-check --mpiexec 'mpiexec --oversubscribe -n' \
+    && firedrake-clean

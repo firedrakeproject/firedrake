@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import freeze
 
 import pyop3 as op3
 from pyop3.axtree.parallel import grow_dof_sf

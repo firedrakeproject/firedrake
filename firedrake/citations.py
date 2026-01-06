@@ -1,0 +1,322 @@
+import petsctools
+
+
+petsctools.add_citation("Rathgeber2016", """
+@Article{Rathgeber2016,
+  author =       {Florian Rathgeber and David A. Ham and Lawrence
+                  Mitchell and Michael Lange and Fabio Luporini and
+                  Andrew T. T. McRae and Gheorghe-Teodor Bercea and
+                  Graham R. Markall and Paul H. J. Kelly},
+  title =        {Firedrake: automating the finite element method by
+                  composing abstractions},
+  journal =      {ACM Trans. Math. Softw.},
+  year =         2016,
+  volume =       {43},
+  number =       {3},
+  year =         {2016},
+  issn =         {0098-3500},
+  pages =        {24:1--24:27},
+  doi =          {10.1145/2998441},
+  archiveprefix ={arXiv},
+  eprint =       {1501.01809},
+  url =          {http://arxiv.org/abs/1501.01809}
+}
+""")
+
+petsctools.add_citation("McRae2016", """
+@Article{McRae2016,
+  author =       {Andrew T. T. McRae and Gheorghe-Teodor Bercea and
+                  Lawrence Mitchell and David A. Ham and Colin
+                  J. Cotter},
+  title =        {Automated generation and symbolic manipulation of
+                  tensor product finite elements},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2016,
+  volume =       38,
+  number =       5,
+  pages =        {S25--S47},
+  doi =          {10.1137/15M1021167},
+  archiveprefix ={arXiv},
+  eprint =       {1411.2940},
+  primaryclass = {math.NA},
+  url =          {http://arxiv.org/abs/1411.2940}
+}
+""")
+
+petsctools.add_citation("Homolya2016", """
+@Article{Homolya2016,
+  author =       {Mikl\'os Homolya and David A. Ham},
+  title =        {A parallel edge orientation algorithm for
+                  quadrilateral meshes},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2016,
+  volume =       38,
+  number =       5,
+  pages =        {S48--S61},
+  doi =          {10.1137/15M1021325},
+  archiveprefix ={arXiv},
+  eprint =       {1505.03357},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1505.03357}
+}
+""")
+
+petsctools.add_citation("Luporini2015", """
+@Article{Luporini2015,
+  author =       {Fabio Luporini and Ana Lucia Varbanescu and Florian
+                  Rathgeber and Gheorghe-Teodor Bercea and
+                  J. Ramanujam and David A. Ham and Paul H. J. Kelly},
+  title =        {Cross-Loop Optimization of Arithmetic Intensity for
+                  Finite Element Local Assembly},
+  journal =      {ACM Transactions on Architecture and Code
+                  Optimization},
+  year =         2015,
+  volume =       11,
+  number =       4,
+  pages =        {57:1--57:25},
+  url =          {http://doi.acm.org/10.1145/2687415},
+  doi =          {10.1145/2687415},
+}
+""")
+
+petsctools.add_citation("Bercea2016", """
+@Article{Bercea2016,
+  author =       {Gheorghe{-}Teodor Bercea and Andrew T. T. McRae and
+                  David A. Ham and Lawrence Mitchell and Florian
+                  Rathgeber and Luigi Nardi and Fabio Luporini and
+                  Paul H. J. Kelly},
+  title =        {A structure-exploiting numbering algorithm for
+                  finite elements on extruded meshes, and its
+                  performance evaluation in Firedrake},
+  journal =      {Geoscientific Model Development},
+  year =         2016,
+  volume =       9,
+  number =       10,
+  pages =        {3803--3815},
+  doi =          {10.5194/gmd-9-3803-2016},
+  archiveprefix ={arXiv},
+  eprint =       {1604.05937},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1604.05937}
+}
+""")
+
+petsctools.add_citation("Mitchell2016", """
+@Article{Mitchell2016,
+  author =       {Lawrence Mitchell and Eike Hermann M\"uller},
+  title =        {High level implementation of geometric multigrid
+                  solvers for finite element problems: applications in
+                  atmospheric modelling},
+  journal =      {Journal of Computational Physics},
+  year =         2016,
+  volume =       327,
+  pages =        {1--18},
+  doi =          {10.1016/j.jcp.2016.09.037},
+  archiveprefix ={arXiv},
+  eprint =       {1605.00492},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1605.00492}
+}
+""")
+
+petsctools.add_citation("Kirby2017", """
+@Article{Kirby2017,
+  author =       {Robert C. Kirby and Lawrence Mitchell},
+  title =        {{Solver composition across the PDE/linear algebra
+                  barrier}},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2018,
+  volume =       40,
+  number =       1,
+  pages =        {C76-C98},
+  doi =          {10.1137/17M1133208},
+  archiveprefix ={arXiv},
+  eprint =       {1706.01346},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1706.01346}
+}
+""")
+
+petsctools.add_citation("Gibson2018", """
+@Misc{Gibson2018,
+  author =       {Thomas H. Gibson and Lawrence Mitchell and David
+                  A. Ham and Colin J. Cotter},
+  title =        {{A domain-specific language for the hybridization
+                  and static condensation of finite element methods}},
+  year =         2018,
+  archiveprefix ={arXiv},
+  eprint =       {1802.00303},
+  primaryclass = {cs.MS},
+  url =          {https://arxiv.org/abs/1802.00303}
+}
+""")
+
+petsctools.add_citation("Kolev2009", """
+@Misc{Kolev2009,
+  author =       {Kolev, Tzanio V and Vassilevski, Panayot S},
+  title =        {{Parallel auxiliary space AMG for H (curl) problems}},
+  journal =      {Journal of Computational Mathematics},
+  year =         2009,
+  volume =       27,
+  number =       5,
+  pages =        {604--623},
+  url =          {https://www.jstor.org/stable/43693530}
+}
+""")
+
+petsctools.add_citation("Hiptmair1998", """
+@Misc{Hiptmair1998,
+  author =       {Hiptmair, Ralf},
+  title =        {{Multigrid Method for Maxwell's Equations}},
+  journal =      {SIAM Journal on Numerical Analysis},
+  volume =       {36},
+  number =       {1},
+  pages =        {204-225},
+  year =         {1998},
+  doi =          {10.1137/S0036142997326203},
+  url =          {https://doi.org/10.1137/S0036142997326203},
+}
+""")
+
+petsctools.add_citation("Gopalakrishnan2009", """
+@article{Gopalakrishnan2009,
+  author    = {Jayadeep Gopalakrishnan and Shuguang Tan},
+  doi       = {10.1002/nla.636},
+  journal   = {Numerical Linear Algebra with Applications},
+  month     = {sep},
+  number    = {9},
+  pages     = {689--714},
+  publisher = {Wiley},
+  title     = {A convergent multigrid cycle for the hybridized mixed method},
+  url       = {https://doi.org/10.1002/nla.636},
+  volume    = {16},
+  year      = {2009}
+}
+""")
+
+petsctools.add_citation("nixonhill2023consistent", """
+@article{nixonhill2023consistent,
+  author        = {Nixon-Hill, R. W. and Shapero, D. and Cotter, C. J. and Ham, D. A.},
+  doi           = {10.5194/gmd-17-5369-2024},
+  journal       = {Geoscientific Model Development},
+  number        = {13},
+  pages         = {5369--5386},
+  title         = {Consistent point data assimilation in Firedrake and Icepack},
+  url           = {https://gmd.copernicus.org/articles/17/5369/2024/},
+  volume        = {17},
+  year          = {2024}
+}
+""")
+
+petsctools.add_citation("FiredrakeUserManual", """
+@manual{FiredrakeUserManual,
+  author        = {David A. Ham and Paul H. J. Kelly and Lawrence
+Mitchell and Colin J. Cotter and Robert C. Kirby and Koki Sagiyama and
+Nacime Bouziani and Sophia Vorderwuelbecke and Thomas J. Gregory and
+Jack Betteridge and Daniel R. Shapero and Reuben W. Nixon-Hill and
+Connor J. Ward and Patrick E. Farrell and Pablo D. Brubeck and India
+Marsden and Thomas H. Gibson and Miklós Homolya and Tianjiao Sun and
+Andrew T. T. McRae and Fabio Luporini and Alastair Gregory and
+Michael Lange and Simon W. Funke and Florian Rathgeber and
+Gheorghe-Teodor Bercea and Graham R. Markall},
+  doi           = {10.25561/104839},
+  edition       = {First edition},
+  month         = {5},
+  organization  = {Imperial College London and University of Oxford and
+Baylor University and University of Washington},
+  title         = {Firedrake User Manual},
+  year          = {2023}
+}
+""")
+
+petsctools.add_citation("Bouziani2021", """
+@article{Bouziani2021,
+  title={Escaping the abstraction: a foreign function interface for the {Unified} {Form} {Language} {[UFL]}},
+  author={Bouziani, Nacime and Ham, David A},
+  journal = {{Differentiable} {Programming} {Workshop} at {NeurIPS} 2021},
+  url = {http://arxiv.org/abs/2111.00945},
+  note = {arXiv: 2111.00945},
+  year={2021}
+}
+""")
+
+petsctools.add_citation("Bouziani2023", """
+@inproceedings{Bouziani2023,
+ title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
+ author = {Bouziani, Nacime and Ham, David A.},
+ booktitle = {{ICLR} 2023 {Workshop} on {Physics} for {Machine} {Learning}},
+ year = {2023},
+ doi = {10.48550/arXiv.2303.06871}
+}
+""")
+
+
+petsctools.add_citation("Bouziani2024", """
+@article{Bouziani2024,
+  title = {Differentiable programming across the {PDE} and {Machine} {Learning} barrier},
+  author = {Bouziani, Nacime and Ham, David A. and Farsi, Ado},
+  journal = {arXiv preprint arXiv:2409.06085},
+  eprint = {2409.06085},
+  url = {https://arxiv.org/abs/2409.06085},
+  year = {2024}
+}
+""")
+
+petsctools.add_citation("Betteridge2024", """
+@article{Betteridge2024,
+  doi = {10.21105/joss.07359},
+  url = {https://doi.org/10.21105/joss.07359},
+  year = {2024},
+  publisher = {The Open Journal},
+  volume = {9},
+  number = {104},
+  pages = {7359},
+  author = {Jack Betteridge and Patrick E. Farrell and Matthias Hochsteger
+            and Christopher Lackner and Joachim Schöberl and Stefano Zampini
+            and Umberto Zerbinati},
+  title = {ngsPETSc: A coupling between NETGEN/NGSolve and PETSc},
+  journal = {Journal of Open Source Software} }
+""")
+
+petsctools.add_citation("Brubeck2022", """
+@article{Brubeck2022,
+  author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
+  doi           = {10.1137/21M1444187},
+  journal       = {SIAM J. Sci. Comput.},
+  number        = {5},
+  pages         = {A2991-A3017},
+  title         = {A scalable and robust vertex-star relaxation for high-order {FEM}},
+  volume        = {44},
+  year          = {2022}
+}
+""")
+
+petsctools.add_citation("Brubeck2024", """
+@article{Brubeck2024,
+  author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
+  doi           = {10.1137/22M1537370},
+  journal       = {SIAM J. Sci. Comput.},
+  number        = {3},
+  pages         = {A1549-A1573},
+  title         = {{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
+  volume        = {46},
+  year          = {2024}
+}
+""")
+
+petsctools.add_citation("Farrell2015", """
+@Article{Farrell2015,
+  author =       {Patrick E. Farrell and \'Asgeir Birkisson and Simon W. Funke},
+  title =        {{Deflation techniques for finding distinct solutions of nonlinear partial differential equations}},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2015,
+  volume =       37,
+  number =       4,
+  pages =        {A2026--A2045},
+  doi =          {10.1137/140984798},
+  archiveprefix ={arXiv},
+  eprint =       {1410.5620},
+  primaryclass = {math.NA},
+  url =          {http://arxiv.org/abs/1410.5620}
+}
+""")

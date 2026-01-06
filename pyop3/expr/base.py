@@ -507,8 +507,8 @@ class AxisVar(Terminal):
 class NaN(Terminal):
     # {{{ interface impls
 
-    shape = UNIT_AXIS_TREE
-    loop_axes = ()
+    shape = (UNIT_AXIS_TREE,)
+    loop_axes = idict()
 
     _full_str = "NaN"
 
@@ -621,7 +621,10 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
     shape = utils.just_one(get_shape(expr))
 
     if shape is UNIT_AXIS_TREE:
-        axis_tree = loop_tree
+        if loop_tree:
+            axis_tree = loop_tree
+        else:
+            axis_tree = UNIT_AXIS_TREE
     else:
         # Replace any references to the loop indices
         new_node_map = {}

@@ -1,27 +1,28 @@
+from functools import cached_property
 import numpy as np
 import finat
 import ufl
 
 import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
-from pyop2 import mpi
+from pyop3 import mpi
 from ufl.form import BaseForm
 from finat.ufl import MixedElement
 
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake import utils, vector, ufl_expr
+from firedrake import utils, ufl_expr
 from firedrake.utils import ScalarType
-from firedrake.adjoint_utils.function import FunctionMixin
+from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
-class Cofunction(ufl.Cofunction, FunctionMixin):
+class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
-    Like Functions, cofunctions are
-    represented as sums of basis functions:
+
+    Like Functions, cofunctions are represented as sums of basis functions:
 
     .. math::
 
@@ -37,7 +38,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     """
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_init
+    @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  count=None):
         r"""
@@ -52,9 +53,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :param dtype: optional data type for this :class:`Cofunction`
                (defaults to ``ScalarType``).
         """
-
-        # debugging
-        self._dat = None
 
         V = function_space
         if isinstance(V, Cofunction):
@@ -80,14 +78,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(val, Cofunction):
             val = val.dat
         if isinstance(val, op3.Dat):
-            # FIXME
-            # assert val.comm == self._comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-        if isinstance(function_space, Cofunction):
-            self.dat.copy(function_space.dat)
 
     # debug
     @property
@@ -119,15 +112,15 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         self._coefficients = (self,)
 
     @utils.cached_property
-    @FunctionMixin._ad_annotate_subfunctions
+    @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for i in range(len(self.function_space())):
-                subspace = self.function_space().sub(i, weak=True)
-                subdat = self.dat[subspace.index]
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
+                subspace = self.function_space().sub(i)
+                subdat = self.dat[component.label]
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -138,46 +131,20 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self,)
-        else:
-            if len(self.function_space().shape) > 1:
-                # This all gets a lot easier if one could insert slices *above*
-                # the relevant indices. Then we could just index with a ScalarIndex.
-                # Instead we have to construct the whole IndexTree and for simplicity
-                # this is disabled for tensor things.
-                raise NotImplementedError
-
-            root_axis = self.dat.axes.root
-            root_index = op3.Slice(
-                root_axis.label,
-                [op3.AffineSliceComponent(c.label) for c in root_axis.components],
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                val=self.dat[indices],
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
-            root_index_tree = op3.IndexTree(root_index)
-            subtree = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
-            for component in root_index.component_labels:
-                root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
-
-            subfuncs = []
-            # This flattens any tensor shape, which pyop3 can now do "properly"
-            for i, j in enumerate(np.ndindex(self.function_space().shape)):
-
-                # just one-tuple supported for now
-                j, = j
-
-                indices = root_index_tree
-                subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
-                for leaf in root_index_tree.leaves:
-                    indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
-
-                subfunc = type(self)(
-                    self.function_space().sub(i, weak=False),
-                    # val=self.dat[indices],
-                    val=self.dat.getitem(indices, strict=True),
-                    name=f"view[{i}]({self.name()})"
-                )
-                subfuncs.append(subfunc)
-            return tuple(subfuncs)
+            components[ix] = component
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -223,38 +190,54 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @utils.known_pyop2_safe
-    def assign(self, expr, subset=None, expr_from_assemble=False):
-        r"""Set the :class:`Cofunction` value to the pointwise value of
-        expr. expr may only contain :class:`Cofunction`\s on the same
-        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+    def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        expr : ufl.form.BaseForm
+            Expression to be assigned.
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed cofunction.
+        expr_from_assemble : bool
+            Flag indicating whether the expression results from an assemble operation
+            performed within the current method. Required for the `CofunctionAssignBlock`.
+        allow_missing_dofs : bool
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Cofunction` s on the same :class:`.FiredrakeDualSpace` as the
+        assignee :class:`Cofunction` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-        both Cofunctions on the same :class:`.FunctionSpace` then::
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
+        both Cofunctions on the same :class:`.FiredrakeDualSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Cofunction`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``.
 
-        The `expr_from_assemble` optional argument indicates whether the
-        expression results from an assemble operation performed within the
-        current method. `expr_from_assemble` is required for the
-        `CofunctionAssignBlock`.
         """
         from firedrake.assign import Assigner, parse_subset
 
         subset = parse_subset(subset)
 
         expr = ufl.as_ufl(expr)
-        if isinstance(expr, ufl.classes.Zero):
+        if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
                 self.dat[subset].zero(eager=True)
             return self
@@ -268,6 +251,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                 self.block_variable = self.create_block_variable()
                 self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
                     expr.block_variable)
+                # We set CofunctionAssignBlock(..., rhs_from_assemble=True)
+                # so that we do not annotate the recursive call to assign
+                # within Cofunction.assign(BaseForm, subset=...).
+                # But we currently do not implement annotation for subset != None.
                 get_working_tape().add_block(
                     CofunctionAssignBlock(
                         self, expr, rhs_from_assemble=expr_from_assemble)
@@ -279,59 +266,63 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             rhs = expr.dat[subset]
             lhs.assign(rhs, eager=True)
             return self
-        elif isinstance(expr, BaseForm):
+        elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
             # BaseForm object. If annotation is enabled, the following
             # operation will result in an assemble block on the Pyadjoint tape.
-            assembled_expr = firedrake.assemble(expr)
-            return self.assign(
-                assembled_expr, subset=subset,
-                expr_from_assemble=True)
+            if subset is None:
+                return firedrake.assemble(expr, tensor=self)
+            else:
+                assembled_expr = firedrake.assemble(expr)
+                return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
-    def riesz_representation(self, riesz_map='L2', **solver_options):
-        """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+    def riesz_representation(self, riesz_map='L2', *, bcs=None,
+                             solver_options=None,
+                             form_compiler_parameters=None):
+        """Return the Riesz representation of this :class:`Cofunction`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by solving
-        the linear system ``Mx = self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        solving the linear system ``Mx = self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
-        solver_options : dict
-                         Solver options to pass to the linear solver:
-                            - solver_parameters: optional solver parameters.
-                            - nullspace: an optional :class:`.VectorSpaceBasis` (or :class:`.MixedVectorSpaceBasis`)
-                                         spanning the null space of the operator.
-                            - transpose_nullspace: as for the nullspace, but used to make the right hand side consistent.
-                            - near_nullspace: as for the nullspace, but used to add the near nullspace.
-                            - options_prefix: an optional prefix used to distinguish PETSc options.
-                                              If not provided a unique prefix will be created.
-                                              Use this option if you want to pass options to the solver from the command line
-                                              in addition to through the ``solver_parameters`` dict.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable.
+        bcs: DirichletBC or list of DirichletBC
+            Boundary conditions to apply to the Riesz map.
+        solver_options: dict
+            A dictionary of PETSc options to be passed to the solver.
+        form_compiler_parameters: dict
+            A dictionary of form compiler parameters to be passed to the
+            variational problem that solves for the Riesz map.
 
         Returns
         -------
         firedrake.function.Function
-            Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
+            Riesz representation of this :class:`Cofunction` with respect to
+            the given Riesz map.
         """
-        return self._ad_convert_riesz(self, options={"function_space": self.function_space().dual(),
-                                                     "riesz_representation": riesz_map,
-                                                     "solver_options": solver_options})
+        if not callable(riesz_map):
+            riesz_map = RieszMap(
+                self.function_space(), riesz_map, bcs=bcs,
+                solver_parameters=solver_options,
+                form_compiler_parameters=form_compiler_parameters
+            )
 
-    @FunctionMixin._ad_annotate_iadd
-    @utils.known_pyop2_safe
+        return riesz_map(self)
+
+    @CofunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
             self.dat += expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
             expr.function_space() == self.function_space():
             self.dat.data_wo[...] += expr.dat.data_ro
@@ -339,15 +330,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_isub
-    @utils.known_pyop2_safe
+    @CofunctionMixin._ad_annotate_isub
     def __isub__(self, expr):
 
         if np.isscalar(expr):
             self.dat -= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -356,33 +344,45 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
         return NotImplemented
 
-    @FunctionMixin._ad_annotate_imul
+    @CofunctionMixin._ad_annotate_imul
     def __imul__(self, expr):
 
         if np.isscalar(expr):
             self.dat *= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
             return self
         return NotImplemented
 
-    def interpolate(self, expression):
-        r"""Interpolate an expression onto this :class:`Cofunction`.
+    @PETSc.Log.EventDecorator()
+    def interpolate(self,
+                    expression: ufl.BaseForm,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate a dual expression onto this :class:`Cofunction`.
 
-        :param expression: a UFL expression to interpolate
-        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
-        from firedrake import interpolation
-        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
-        return firedrake.assemble(interp, tensor=self)
+        Parameters
+        ----------
+        expression
+            A UFL BaseForm to adjoint interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see `firedrake.interpolation.interpolate`.
 
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this
-        :class:`Cofunction`"""
-        return vector.Vector(self)
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+        """
+        from firedrake import interpolate, assemble
+        v, = self.arguments()
+        interp = interpolate(v, expression, **kwargs)
+        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
     def cell_set(self):
@@ -448,3 +448,141 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     def vec_rw(self):
         return self.dat.vec_rw(bsize=self.function_space().block_size)
 
+
+class RieszMap:
+    """Return a map between dual and primal function spaces.
+
+    A `RieszMap` can be called on a `Cofunction` in the appropriate space to
+    yield the `Function` which is the Riesz representer under the given inner
+    product. Conversely, it can be called on a `Function` to apply the given
+    inner product and return a `Cofunction`.
+
+    Parameters
+    ----------
+    function_space_or_inner_product: FunctionSpace or ufl.Form
+        The space from which to map, or a bilinear form defining an inner
+        product.
+    sobolev_space: str or ufl.sobolevspace.SobolevSpace.
+        Used to determine the inner product.
+    bcs: DirichletBC or list of DirichletBC
+        Boundary conditions to apply to the Riesz map.
+    solver_parameters: dict
+        A dictionary of PETSc options to be passed to the solver.
+    form_compiler_parameters: dict
+        A dictionary of form compiler parameters to be passed to the
+        variational problem that solves for the Riesz map.
+    restrict: bool
+        If `True`, use restricted function spaces in the Riesz map solver.
+    constant_jacobian : bool
+        Whether the matrix associated with the map is constant.
+    """
+
+    def __init__(self, function_space_or_inner_product=None,
+                 sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
+                 form_compiler_parameters=None, restrict=True,
+                 constant_jacobian=False):
+        if isinstance(function_space_or_inner_product, ufl.Form):
+            args = ufl.algorithms.extract_arguments(
+                function_space_or_inner_product
+            )
+            if len(args) != 2:
+                raise ValueError(f"inner_product has arity {len(args)}, "
+                                 "should be 2.")
+            function_space = args[0].function_space()
+            inner_product = function_space_or_inner_product
+        else:
+            function_space = function_space_or_inner_product
+            if hasattr(function_space, "function_space"):
+                function_space = function_space.function_space()
+            if ufl.duals.is_dual(function_space):
+                function_space = function_space.dual()
+
+            if str(sobolev_space) == "l2":
+                inner_product = "l2"
+            else:
+                from firedrake import TrialFunction, TestFunction
+                u = TrialFunction(function_space)
+                v = TestFunction(function_space)
+                inner_product = RieszMap._inner_product_form(
+                    sobolev_space, u, v
+                )
+
+        self._function_space = function_space
+        self._inner_product = inner_product
+        self._bcs = bcs
+        self._solver_parameters = solver_parameters or {}
+        self._form_compiler_parameters = form_compiler_parameters or {}
+        self._restrict = restrict
+        self._constant_jacobian = constant_jacobian
+
+    @staticmethod
+    def _inner_product_form(sobolev_space, u, v):
+        from firedrake import inner, dx, grad
+        inner_products = {
+            "L2": lambda u, v: inner(u, v)*dx,
+            "H1": lambda u, v: inner(u, v)*dx + inner(grad(u), grad(v))*dx
+        }
+        try:
+            return inner_products[str(sobolev_space)](u, v)
+        except KeyError:
+            raise ValueError("No inner product defined for Sobolev space "
+                             f"{sobolev_space}.")
+
+    @cached_property
+    def _solver(self):
+        from firedrake import (LinearVariationalSolver,
+                               LinearVariationalProblem, Function, Cofunction)
+        rhs = Cofunction(self._function_space.dual())
+        soln = Function(self._function_space)
+        lvp = LinearVariationalProblem(
+            self._inner_product, rhs, soln, bcs=self._bcs,
+            restrict=self._restrict,
+            constant_jacobian=self._constant_jacobian,
+            form_compiler_parameters=self._form_compiler_parameters)
+        solver = LinearVariationalSolver(
+            lvp, solver_parameters=self._solver_parameters
+        )
+        return solver.solve, rhs, soln
+
+    def __call__(self, value):
+        """Return the Riesz representer of a Function or Cofunction."""
+        from firedrake import Function, Cofunction
+
+        if ufl.duals.is_dual(value):
+            if value.function_space().dual() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
+            output = Function(self._function_space)
+
+            if self._inner_product == "l2":
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data_ro[:]
+            else:
+                solve, rhs, soln = self._solver
+                rhs.assign(value)
+                solve()
+                output = Function(self._function_space)
+                output.assign(soln)
+        elif ufl.duals.is_primal(value):
+            if value.function_space() != self._function_space:
+                raise ValueError("Function space mismatch in RieszMap.")
+
+            if self._inner_product == "l2":
+                output = Cofunction(self._function_space.dual())
+                for o, c in zip(output.subfunctions, value.subfunctions):
+                    o.dat.data[:] = c.dat.data_ro[:]
+            else:
+                output = firedrake.assemble(
+                    firedrake.action(self._inner_product, value)
+                )
+        else:
+            raise ValueError(
+                f"Unable to ascertain if {value} is primal or dual."
+            )
+        return output
+
+    @property
+    def constant_jacobian(self) -> bool:
+        """Whether the matrix associated with the map is constant.
+        """
+
+        return self._constant_jacobian

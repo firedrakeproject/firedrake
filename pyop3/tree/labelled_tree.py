@@ -5,6 +5,7 @@ import collections
 import functools
 import itertools
 import operator
+import typing
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence, Mapping
 from functools import cached_property
@@ -14,7 +15,6 @@ from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
 from types import GeneratorType
 
 from pyop3.exceptions import Pyop3Exception
-import pyrsistent
 import pytools
 
 from pyop3 import utils
@@ -37,15 +37,8 @@ from pyop3.utils import (
 )
 
 
-LabelT = Hashable
-NodeLabelT = Hashable
-ComponentLabelT = Hashable
-ComponentRegionLabelT = Hashable
-ComponentT = ComponentLabelT  # | ComponentT
-PathT = Mapping[NodeLabelT, ComponentLabelT]
-ConcretePathT = idict[NodeLabelT, ComponentLabelT]
-
-# ParentT = tuple[PathT, ComponentT] | PathT | | None
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
 
 class NodeNotFoundException(Exception):
@@ -71,8 +64,6 @@ class Node(pytools.ImmutableRecord):
         pytools.ImmutableRecord.__init__(self)
 
 
-NodeMapT = Mapping[PathT, Node | None]
-ConcreteNodeMapT = idict[ConcretePathT, Node | None]
 
 
 

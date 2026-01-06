@@ -212,7 +212,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
     V = f.function_space()
     elem = V.ufl_element()
     mesh = V.ufl_domain()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     if dim not in (2, 3):
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:
@@ -249,7 +249,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
     f.comm.Barrier()
     os.remove(filename_rank)
     if print_latex_example:
-        with coords.dat.vec_ro as vec:
+        with coords.vec_ro as vec:
             arg_coordslim = ""
             for d in range(dim):
                 _, cmax = vec.strideMax(d)

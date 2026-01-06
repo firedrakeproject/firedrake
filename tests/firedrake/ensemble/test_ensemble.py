@@ -1,10 +1,7 @@
 from firedrake import *
-from pyop2.mpi import MPI
+from pyop3.mpi import MPI
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
-
-from operator import mul
-from functools import reduce
 
 
 max_ncpts = 2
@@ -60,7 +57,7 @@ def W(request, mesh):
     if COMM_WORLD.size == 1:
         return
     V = FunctionSpace(mesh, "CG", 1)
-    return reduce(mul, [V for _ in range(request.param)])
+    return MixedFunctionSpace([V for _ in range(request.param)])
 
 
 # initialise unique function on each rank
@@ -82,13 +79,8 @@ def urank_sum(ensemble, mesh, W):
     return u
 
 
+@pytest.mark.parallel([1, 3])
 def test_comm_manager():
-    with pytest.raises(ValueError):
-        Ensemble(COMM_WORLD, 2)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_comm_manager_parallel():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)
 
@@ -155,7 +147,7 @@ def test_comm_manager_allreduce(blocking):
     f4 = Function(V4)
     f5 = Function(V5)
 
-    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+    with f4.vec_ro as v4, f5.vec_ro as v5:
         parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
@@ -198,11 +190,11 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
         msg=f"{error=:.5f}"
     )
 
-    # check that u_reduce dat vector is still synchronised
+    # check that u_reduce.vector is still synchronised
     spatial_rank = ensemble.comm.rank
 
     states = zeros(ensemble.comm.size, dtype=int)
-    with u_reduce.dat.vec as v:
+    with u_reduce.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
     parallel_assert(len(set(states)) == 1)
@@ -255,7 +247,7 @@ def test_comm_manager_reduce(blocking):
     f4 = Function(V4)
     f5 = Function(V5)
 
-    with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
+    with f4.vec_ro as v4, f5.vec_ro as v5:
         parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):

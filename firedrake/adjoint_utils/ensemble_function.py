@@ -31,7 +31,7 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
-        with m.vec_ro() as gvec:
+        with m.vec_ro as gvec:
             lvec = PETSc.Vec().createSeq(gvec.size,
                                          comm=PETSc.COMM_SELF)
             PETSc.Scatter().toAll(gvec).scatter(
@@ -40,7 +40,7 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        with dst.vec_wo() as vec:
+        with dst.vec_wo as vec:
             begin, end = vec.owner_range
             vec.array[:] = src[offset + begin: offset + end]
             offset += vec.size
@@ -54,6 +54,13 @@ class EnsembleFunctionMixin(OverloadedType):
 
     def _ad_convert_riesz(self, value, options=None):
         raise NotImplementedError
+
+    def _ad_init_zero(self, dual=False):
+        from firedrake import EnsembleFunction, EnsembleCofunction
+        if dual:
+            return EnsembleCofunction(self.function_space().dual())
+        else:
+            return EnsembleFunction(self.function_space())
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():

@@ -8,23 +8,27 @@ from __future__ import annotations
 import collections
 import dataclasses
 import functools
+import numbers
 import warnings
-from collections import OrderedDict
+import operator
+from collections import OrderedDict, defaultdict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, reduce
 from immutabledict import immutabledict as idict
 from typing import Optional
+from mpi4py import MPI
 
 import finat.ufl
 import numpy
 import pyop3 as op3
 import ufl
-from pyop2 import op2, mpi
+from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
 
+from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
@@ -32,6 +36,7 @@ from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.cython import extrusion_numbering as extnum
 from firedrake.functionspacedata import create_element
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology
+from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
@@ -65,6 +70,9 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
+    if isinstance(element.cell, CellSequence) and \
+       type(element) is not finat.ufl.MixedElement:
+        raise ValueError("MixedElement modifier must be outermost")
     if element.cell.cellname == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
@@ -87,7 +95,7 @@ def check_element(element, top=True):
 
 
 @functools.lru_cache()
-def flatten_entity_dofs(element):
+def _num_entity_dofs(element):
     ndofs = {}
     for entity_key, entities in element.entity_dofs().items():
         ndofs[entity_key] = utils.single_valued(map(len, entities.values()))
@@ -118,27 +126,37 @@ class WithGeometryBase:
     node_label = "nodes"
 
     def __init__(self, mesh, element, component=None, cargo=None):
+        if type(element) is finat.ufl.MixedElement:
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
         assert component is None or isinstance(component, tuple)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
-
         super().__init__(mesh, element, label=cargo.topological._label or "")
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
-        self.extruded = mesh.extruded
 
     @classmethod
-    def create(cls, function_space, mesh):
+    def create(cls, function_space, mesh, parent=None):
         """Create a :class:`WithGeometry`.
 
-        :arg function_space: The topological function space to attach
-            geometry to.
-        :arg mesh: The mesh with geometric information to use.
+        Parameters
+        ----------
+        function_space : FunctionSpace or MixedFunctionSpace
+            Topological function space to attach geometry to.
+        mesh : MeshGeometry
+            Mesh with geometric information to use.
+        parent : WithGeometry
+            Parent geometric function space if exists.
+
         """
+        if isinstance(function_space, MixedFunctionSpace):
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
         function_space = function_space.topological
-        assert mesh.topology is function_space.mesh()
-        assert mesh.topology is not mesh
+        assert mesh.topology == function_space.mesh()
+        assert mesh.topology != mesh
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
 
@@ -146,7 +164,8 @@ class WithGeometryBase:
         component = function_space.component
 
         if function_space.parent is not None:
-            parent = cls.create(function_space.parent, mesh)
+            if parent is None:
+                raise ValueError("Must pass parent if function_space.parent is not None")
         else:
             parent = None
 
@@ -163,6 +182,7 @@ class WithGeometryBase:
 
     @parent.setter
     def parent(self, val):
+        breakpoint()
         self.cargo.parent = val
 
     @property
@@ -176,14 +196,19 @@ class WithGeometryBase:
     @utils.cached_property
     def strong_subspaces(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.strong_subspaces)
+        return tuple(type(self).create(subspace, mesh, parent=self)
+                     for mesh, subspace in zip(self.mesh(), self.topological.strong_subspaces, strict=True))
 
     @utils.cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.subspaces)
+        if isinstance(self.topological, MixedFunctionSpace):
+            return tuple(
+                type(self).create(subspace, mesh, parent=self)
+                for mesh, subspace in zip(self.mesh(), self.topological.subspaces, strict=True)
+            )
+        else:
+            return (self, )
 
     @property
     def subfunctions(self):
@@ -217,7 +242,7 @@ class WithGeometryBase:
     def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh())
+            components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh(), parent=self)
         return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
@@ -345,7 +370,7 @@ class WithGeometryBase:
             return False
         try:
             return self.topological == other.topological and \
-                self.mesh() is other.mesh()
+                self.mesh() == other.mesh()
         except AttributeError:
             return False
 
@@ -429,8 +454,7 @@ class WithGeometryBase:
            with provided markers (both interior and exterior)."""
         _, sub_domain, boundary_set = key
         if sub_domain not in {"on_boundary", "top", "bottom"}:
-            valid = set(self._mesh.interior_facets.unique_markers)
-            valid |= set(self._mesh.exterior_facets.unique_markers)
+            valid = set(self._mesh.facet_markers)
             invalid = set(sub_domain) - valid
             if invalid:
                 raise LookupError(f"BC construction got invalid markers {invalid}. "
@@ -446,9 +470,17 @@ class WithGeometryBase:
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
-            spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
-            new = MixedFunctionSpace(spaces, name=name, **kwargs)
+            if isinstance(mesh, MeshGeometry):
+                mesh = MeshSequenceGeometry([mesh for _ in element.sub_elements])
+                topology = mesh.topology
+            else:
+                if not isinstance(mesh, MeshSequenceGeometry):
+                    raise TypeError(f"mesh must be MeshSequenceGeometry: got {mesh}")
+            spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
+            new = MixedFunctionSpace(spaces, topology, name=name)
         else:
+            if isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
             check_element(element)
             if element.family() == "Real":
@@ -461,17 +493,36 @@ class WithGeometryBase:
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, name=None, **kwargs):
-        r"""Reconstruct this :class:`.WithGeometryBase` .
+    def reconstruct(
+        self,
+        mesh: MeshGeometry | None = None,
+        element: finat.ufl.FiniteElement | None = None,
+        name: str | None = None,
+        **kwargs,
+    ) -> "WithGeometryBase":
+        """Return a new function space with modified fields.
 
-        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
-        :kwarg name: the new name (defaults to None)
-        :returns: the new function space of the same class as ``self``.
+        Parameters
+        ----------
+        mesh :
+            The mesh (defaults to same mesh).
+        element :
+            The finite element (defaults to same element).
+        name :
+            The name (defaults to `None`).
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        For details see `finat.ufl.finiteelement.FiniteElement.reconstruct`.
+
         """
+        from firedrake.bcs import restricted_function_space
         V_parent = self
+
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
@@ -486,13 +537,21 @@ class WithGeometryBase:
 
         if mesh is None:
             mesh = V_parent.mesh()
+        if element is None:
+            element = V_parent.ufl_element()
 
-        element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
+        # Reconstruct the parent space
         V = type(self).make_function_space(mesh, element, name=name)
+
+        # Deal with RestrictedFunctionSpace
+        boundary_sets = [V_.boundary_set for V_ in V_parent]
+        if any(boundary_sets):
+            V = restricted_function_space(V, boundary_sets)
+
         for i in reversed(indices):
             V = V.sub(i)
         return V
@@ -506,7 +565,8 @@ class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
                                            cargo=cargo)
 
     def dual(self):
-        return FiredrakeDualSpace.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return FiredrakeDualSpace.create(self.topological, self.mesh(), parent=parent)
 
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
@@ -517,7 +577,8 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
                                                  cargo=cargo)
 
     def dual(self):
-        return WithGeometry.create(self.topological, self.mesh())
+        parent = None if self.parent is None else self.parent.dual()
+        return WithGeometry.create(self.topological, self.mesh(), parent=parent)
 
 
 @dataclass(frozen=True)
@@ -569,9 +630,6 @@ class FunctionSpace:
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
-        if layout is None:
-            layout = ()
-
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -621,7 +679,15 @@ class FunctionSpace:
         real_tensor_product = is_real_tensor_product_element(self.finat_element)
         key = (nodes_per_entity, real_tensor_product, self.shape)
 
+        if layout is None:
+            # NOTE: Indicates bad inheritance
+            if isinstance(self, RealFunctionSpace):
+                layout = ("dof",)
+            else:
+                layout = ("mesh", "dof") + tuple(f"dim{i}" for i in range(self.rank))
+
         self.layout = layout
+        self.extruded = isinstance(mesh, ExtrudedMeshTopology)
 
     @cached_property
     def offset(self):
@@ -698,9 +764,7 @@ class FunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        retval = layout_from_spec(self.layout, self.axis_constraints)
-        retval.subst_layouts()  # debugging
-        return retval
+        return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
@@ -738,21 +802,20 @@ class FunctionSpace:
 
         num_unconstrained_dofs = numpy.empty(num_points, dtype=IntType)
         num_constrained_dofs = numpy.empty_like(num_unconstrained_dofs)
-        for pt in range(mesh_axis.local_size):
-            if self._mesh._dm_renumbering:
-                pt_renum = self._mesh._dm_renumbering.indices[pt]
+        for old_pt in range(mesh_axis.local_size):
+            if self._mesh._is_renumbered:
+                new_pt = self._mesh._old_to_new_point_renumbering.indices[old_pt]
             else:
-                pt_renum = pt
+                new_pt = old_pt
 
-            # TODO: Don't use the section here?
-            ndofs = self.local_section.getDof(pt_renum)
+            ndofs = self.local_section.getDof(old_pt)
 
-            if pt_renum not in constrained_points:
-                num_unconstrained_dofs[pt] = ndofs
-                num_constrained_dofs[pt] = 0
+            if new_pt not in constrained_points:
+                num_unconstrained_dofs[new_pt] = ndofs
+                num_constrained_dofs[new_pt] = 0
             else:
-                num_unconstrained_dofs[pt] = 0
-                num_constrained_dofs[pt] = ndofs
+                num_unconstrained_dofs[new_pt] = 0
+                num_constrained_dofs[new_pt] = ndofs
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
@@ -812,16 +875,23 @@ class FunctionSpace:
         return self.layout_axes[index_tree]
 
     @cached_property
-    def nodal_axes(self) -> op3.IndexedAxisTree:
-        # NOTE: This might be a good candidate for axis forests so we could have
-        # V.axes and index it with node things or mesh things
-        scalar_axis_tree = self.plex_axes.blocked(self.shape)
+    def nodes(self) -> op3.Axis:
+        scalar_axis_tree = self.layout_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.local_size
+        return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
 
-        node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        node_axis = self.nodes
+        num_nodes = node_axis.local_size
         axis_tree = op3.AxisTree(node_axis)
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
+
+
+        assert axis_tree.sf == self.layout_axes.sf
+        # assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
+        # assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
@@ -842,11 +912,11 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because they mappings will be compressed during compilation.
-        import pyop3.extras.debug
+        import pyop3
         pyop3.extras.debug.warn_todo("Cythonize")
 
-        node_point_map_array = numpy.empty(num_nodes, dtype=IntType)
-        node_dof_map_array = numpy.empty_like(node_point_map_array)
+        node_point_map_array = numpy.full(num_nodes, -1, dtype=IntType)
+        node_dof_map_array = numpy.full_like(node_point_map_array, -1)
 
         dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
         ndofs = dof_axis.component.size.buffer.buffer.data_ro
@@ -857,6 +927,8 @@ class FunctionSpace:
                 node_point_map_array[node] = point
                 node_dof_map_array[node] = dof
                 node += 1
+
+        assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
         node_point_map_dat = op3.Dat(node_axis, data=node_point_map_array)
         node_dof_map_dat = op3.Dat(node_axis, data=node_dof_map_array)
@@ -908,9 +980,7 @@ class FunctionSpace:
         if not isinstance(other, FunctionSpace):
             return False
         # FIXME: Think harder about equality
-            # don't think I need to include this. This comes from the UFL element
-            # self.dof_dset is other.dof_dset and \
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.ufl_element() == other.ufl_element() and \
             self.component == other.component
 
@@ -925,13 +995,13 @@ class FunctionSpace:
         return self.parent
 
     @property
-    def block_shape(self) -> tuple[int, ...]:
+    def block_shape(self) -> tuple[IntType, ...]:
         return self.shape
 
     @property
-    def block_size(self) -> int:
+    def block_size(self) -> IntType:
         """The total number of degrees of freedom at each function space node."""
-        return numpy.prod(self.shape, dtype=int)
+        return numpy.prod(self.shape, dtype=IntType)
 
     @utils.cached_property
     def dm(self):
@@ -949,7 +1019,7 @@ class FunctionSpace:
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF())
         # Remember the function space so we can get from DM back to FunctionSpace.
-        # dmhooks.set_function_space(dm, self)
+        dmhooks.set_function_space(dm, self)
         return dm
 
     @utils.cached_property
@@ -963,90 +1033,72 @@ class FunctionSpace:
         vec.setUp()
         return vec
 
-    @utils.cached_property
+    @cached_property
+    @utils.deprecated("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        ises = []
-        nlocal_rows = 0
-        # FIXME will not work for mixed
-        if len(self) > 1:
-            raise NotImplementedError
-        # for dset in self:
-            # nlocal_rows += dset.size * dset.cdim
-        nlocal_rows += self.axes.local_size
-        offset = self.comm.scan(nlocal_rows)
-        offset -= nlocal_rows
+        return self.field_ises
 
-        # for dset in self:
-        #     nrows = dset.size * dset.cdim
-        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-        #                                    comm=self.comm)
-        #     iset.setBlockSize(dset.cdim)
-        #     ises.append(iset)
-        #     offset += nrows
-        nrows = self.axes.local_size
-        iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-                                       comm=self.comm)
-        iset.setBlockSize(self.block_size)
-        ises.append(iset)
-        offset += nrows
-        return tuple(ises)
+    @cached_property
+    def field_ises(self) -> tuple[PETSc.IS]:
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
 
-    @utils.cached_property
-    def _local_ises(self):
-        iset = PETSc.IS().createStride(
-            self.axes.size, first=0, step=1, comm=mpi.COMM_SELF
-        )
-        iset.setBlockSize(self.value_size)
-        return (iset,)
+        Used when extracting blocks from matrices for solvers."""
+        size = self.axes.owned.local_size
+        start = self.comm.exscan(size) or 0
+        is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
+        is_.setBlockSize(self.block_size)
+        return (is_,)
+
+    @cached_property
+    def local_ises(self) -> tuple[PETSc.IS]:
+        is_ = PETSc.IS().createStride(self.axes.local_size, comm=MPI.COMM_SELF)
+        is_.setBlockSize(self.block_size)
+        return (is_,)
 
     # TODO: cythonize
     @utils.cached_property
     def local_section(self):
+        dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
-        if self._mesh._dm_renumbering is not None:
-            section.setPermutation(self._mesh._dm_renumbering)
+        section.setChart(0, self._mesh.num_points)
 
-        entity_dofs = flatten_entity_dofs(self.finat_element)
+        if self._mesh._new_to_old_point_renumbering is not None:
+            section.setPermutation(self._mesh._new_to_old_point_renumbering)
+
+        entity_dofs = _num_entity_dofs(self.finat_element)
 
         if type(self._mesh.topology) is MeshTopology:
-            dm = self._mesh.topology_dm
-            section.setChart(*dm.getChart())
-
+            stratum_ranges = {
+            }
             for dim in range(dm.getDimension()+1):
                 ndofs = entity_dofs[dim]
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
-            # NOTE: The interfaces nearly match so this can follow dmplex now
-            dm = self._mesh.topology_dm
-            section.setChart(0, dm.getLocalSize())
-
+            stratum_ranges = {0: (0, dm.getLocalSize())}
             ndofs = entity_dofs[0]
-            for pt in range(0, dm.getLocalSize()):
+            for pt in range(dm.getLocalSize()):
                 section.setDof(pt, ndofs)
         else:
-            assert type(self._mesh.topology) is ExtrudedMeshTopology
-            base_dm = self._mesh._base_mesh.topology_dm
-            nlayers = self._mesh.layers - 1
+            assert self.extruded
 
-            section.setChart(0, self._mesh._base_mesh.num_points * (2*nlayers+1))
-
-            for base_dim in range(base_dm.getDimension()+1):
-                for base_pt in range(*base_dm.getDepthStratum(base_dim)):
-                    for col_pt in range(2*nlayers+1):
-                        pt = base_pt * (2*nlayers+1) + col_pt
-
-                        if col_pt % 2 == 0:
-                            # a 'vertex'
-                            ndofs = entity_dofs[(base_dim, 0)]
-                        else:
-                            # an 'edge'
-                            ndofs = entity_dofs[(base_dim, 1)]
-                        section.setDof(pt, ndofs)
+            dim_label = dm.getLabel("depth")
+            base_dim_label = dm.getLabel("base_dim")
+            for pt in range(*dm.getChart()):
+                dim = dim_label.getValue(pt)
+                base_dim = base_dim_label.getValue(pt)
+                if base_dim == dim:
+                    # vertex
+                    ndofs = entity_dofs[base_dim, 0]
+                else:
+                    # edge
+                    ndofs = entity_dofs[base_dim, 1]
+                section.setDof(pt, ndofs)
 
         if self._ufl_function_space.ufl_element().family() == "Real":
             p_start, p_end = section.getChart()
@@ -1057,10 +1109,34 @@ class FunctionSpace:
 
         return section
 
+    @utils.cached_property
+    def cell_node_map(self) -> op3.Map:
+        try:
+            cells_axis, node_axis = self.cell_node_dat.axes.nodes
+        except:
+            breakpoint()
+        return op3.Map(
+            {
+                idict({cells_axis.label: cells_axis.component.label}): [
+                    [op3.TabulatedMapComponent("nodes", None, self.cell_node_dat)]
+                ],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=node_axis.label
+        )
+
     # IMPORTANT: This is only for the subspace - if addressing a subfunction with this an offset is needed
     @utils.cached_property
-    def cell_node_list(self):
+    def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
+        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        if self.extruded:
+            return nodes[::self.mesh().layers-1]
+        else:
+            return nodes
+
+    @cached_property
+    def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
         from firedrake.parloops import transform_packed_cell_closure_dat
@@ -1072,15 +1148,33 @@ class FunctionSpace:
         indices_dat = op3.Dat(indices_axes, data=indices_array)
 
         cell_index = self._mesh.cells.owned.iter()
-        # need to hide shape information here (hence the empty tuple)
-        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], self, cell_index)
+
+        scalar_space = self
+        if self.shape:
+            scalar_space = self.sub(0)
+
+        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], scalar_space, cell_index)
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
-        map_dat = op3.Dat.empty(map_axes, dtype=IntType)
-
+        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
 
-        return map_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        # now reshape things because we want to have 2 axes: cells and nodes
+        ncells = mesh.cells.owned.local_size
+        arity = map_axes.local_size // ncells
+        cells_axis = map_axes.root
+        node_axis = op3.Axis(arity)
+        map_axes = op3.AxisTree.from_iterable([cells_axis, node_axis])
+        map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
+
+        return map_dat
+
+    @cached_property
+    def extr_cell_node_list(self):
+        assert self.extruded
+        if self.mesh().variable_layers:
+            raise NotImplementedError
+        return self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
 
     @utils.cached_property
     def topological(self):
@@ -1214,7 +1308,8 @@ class FunctionSpace:
         """Return a map from cells to cell closures."""
         return self.mesh()._fiat_closure(cell)
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+    # NOTE: This shouldn't ever really be used, doesn't do the right permutations..
+    def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
 
         Parameters
@@ -1234,32 +1329,48 @@ class FunctionSpace:
             Entity node map.
 
         """
-        if source_mesh is self.mesh():
-            target_integral_type = source_integral_type
+        mesh = self.mesh()
+        if iteration_spec.mesh.topology is mesh.topology:
+            composed_map = None
+            target_integral_type = iteration_spec.integral_type
+        elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
+            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
         else:
-            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+            # No shared topology, must be using a vertex-only mesh
+            composed_map = mesh.cell_parent_cell_map(iteration_spec.loop_index)
+            target_integral_type = "cell"
+
         if target_integral_type == "cell":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet_top":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet_bottom":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "interior_facet_horiz":
-            self_map = self.cell_node_map()
+            def self_map(index):
+                return self.mesh().closure(index)
         elif target_integral_type == "exterior_facet":
-            self_map = self.exterior_facet_node_map()
+            def self_map(index):
+                return self.mesh().closure(self.mesh().support(index))
         elif target_integral_type == "exterior_facet_vert":
-            self_map = self.exterior_facet_node_map()
+            def self_map(index):
+                return mesh.closure(mesh.support(index))
         elif target_integral_type == "interior_facet":
-            self_map = self.interior_facet_node_map()
+            def self_map(index):
+                return mesh.closure(mesh.support(index))
         elif target_integral_type == "interior_facet_vert":
+            raise NotImplementedError
             self_map = self.interior_facet_node_map()
         else:
             raise ValueError(f"Unknown integral_type: {target_integral_type}")
-        if source_mesh is self.mesh():
-            return self_map
+
+        if not composed_map:
+            return self_map(iteration_spec.loop_index)
         else:
-            return op2.ComposedMap(self_map, composed_map)
+            return self_map(composed_map)
 
     # def cell_node_map(self):
     #     r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -1337,7 +1448,7 @@ class FunctionSpace:
         """
         V = self # fixme
         _, sub_domain, boundary_set = key
-        cell_node_list = V.cell_node_list  # ah, now for the whole thing...
+        cell_node_list = V.cell_node_list
         offset = V.offset
         if mesh.variable_layers:
             return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
@@ -1357,77 +1468,6 @@ class FunctionSpace:
             if sub_domain == "top":
                 nodes = nodes + offset[mask]*(mesh.layers - 2)
             return numpy.unique(nodes)
-
-    @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, mat_spec) -> PETSc.LGMap:
-        """Return a map from process-local to global DoF numbering.
-
-        # update this#
-
-        Parameters
-        ----------
-        bcs
-            Optional iterable of boundary conditions. If provided these DoFs
-            are masked out (set to -1) in the returned map.
-
-        Returns
-        -------
-        PETSc.LGMap
-            The local-to-global mapping.
-
-        """
-        lgmap = mat_spec.lgmap  # perhaps get from the buffer
-        block_shape = mat_spec.block_shape
-
-        if not bcs:
-            return lgmap
-
-        for bc in bcs:
-            fs = bc.function_space()
-            while fs.component is not None and fs.parent is not None:
-                fs = fs.parent
-            if fs.topological != self.topological:
-                raise RuntimeError("Dirichlet BC defined on a different function space")
-
-        unblocked = any(bc.function_space().component is not None for bc in bcs)
-        if unblocked:
-            indices = lgmap.indices
-            block_shape = ()
-        else:
-            indices = lgmap.block_indices
-
-        # Set constrained values in the lgmap to -1
-        # indices = axes.lgmap(block_shape=block_shape).indices
-        blocked_axes = self.nodal_axes.blocked(block_shape)
-        # indices_dat = op3.Dat(blocked_axes.materialize(), data=indices)
-        indices_dat = op3.Dat(blocked_axes, data=indices)
-        for bc in bcs:
-            # p = self._mesh.points[bc.node_set].index()
-
-            # index_forest = {}
-            if bc.function_space().component != None:
-                breakpoint()
-            # for ctx, index_tree in op3.as_index_forest(p).items():
-            #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-            #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
-            #
-            #     if component is not None:
-            #         assert unblocked
-            #         component_slice = op3.ScalarIndex("dim0", "XXX", component)
-            #         index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
-            #
-            #     index_forest[ctx] = index_tree
-
-            # TODO: can this just be 'p'?
-            # op3.do_loop(
-            #     p, idat[index_forest].assign(-1, eager=False)
-            # )
-            # op3.do_loop(p, idat[p].assign(-1))
-            op3.do_loop(p := blocked_axes[bc.node_set].index(), indices_dat[p].assign(-1))
-
-        indices = indices_dat.buffer._data
-        bsize = numpy.prod(block_shape, dtype=int)
-        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
@@ -1496,8 +1536,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(map(str, self.boundary_set))))
+        self.name = name or function_space.name
 
     # def set_shared_data(self):
     #     sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
@@ -1539,7 +1578,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.layout_axes, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -1583,7 +1622,13 @@ class MixedFunctionSpace:
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None, *, layout=None):
+    def __init__(self, spaces, mesh, name=None, *, layout=None):
+        super(MixedFunctionSpace, self).__init__()
+        if not isinstance(mesh, MeshSequenceTopology):
+            raise TypeError(f"mesh must be MeshSequenceTopology: got {mesh}")
+        if len(mesh) != len(spaces):
+            raise RuntimeError(f"len(mesh) ({len(mesh)}) != len(spaces) ({len(spaces)})")
+
         # If any of 'spaces' is an indexed function space (i.e. from an already
         # mixed space) then recover the original space to use here.
         orig_spaces = []
@@ -1603,7 +1648,6 @@ class MixedFunctionSpace:
                              for i, s in enumerate(spaces))
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
-        mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
                                                      finat.ufl.MixedElement(*[s.ufl_element() for s in spaces]))
         self.name = name or "_".join(str(s.name) for s in spaces)
@@ -1801,8 +1845,8 @@ class MixedFunctionSpace:
         return ()
 
     @property
-    def block_size(self) -> int:
-        return 1
+    def block_size(self) -> IntType:
+        return IntType.type(1)
 
     @utils.cached_property
     def node_count(self):
@@ -1811,7 +1855,7 @@ class MixedFunctionSpace:
         composed."""
         return tuple(fs.node_count for fs in self._spaces)
 
-    @utils.cached_property
+    @cached_property
     def dof_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -1822,53 +1866,52 @@ class MixedFunctionSpace:
         r"""The global number of degrees of freedom for this function space.
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
-        return self.dof_dset.layout_vec.getSize()
+        return self.template_vec.getSize()
 
-    @utils.cached_property
-    def field_ises(self):
+    @cached_property
+    def field_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        return self._ises  # the same???
-        # ises = []
-        # nlocal_rows = 0
-        # for dset in self:
-        #     nlocal_rows += dset.layout_vec.local_size
-        # offset = self.comm.scan(nlocal_rows)
-        # offset -= nlocal_rows
-        # for dset in self:
-        #     nrows = dset.layout_vec.local_size
-        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
-        #                                    comm=self.comm)
-        #     iset.setBlockSize(dset.cdim)
-        #     ises.append(iset)
-        #     offset += nrows
-        # return tuple(ises)
+        ises = []
+        start = self._comm.exscan(self.axes.owned.local_size) or 0
+        for subspace in self:
+            size = subspace.axes.owned.local_size
+            is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
+            is_.setBlockSize(subspace.block_size)
+            ises.append(is_)
+            start += size
+        return tuple(ises)
 
+    @property
+    @utils.deprecated("field_ises")
+    def _ises(self):
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-        r"""Return entity node map rebased on ``source_mesh``.
-
-        Parameters
-        ----------
-        source_mesh : MeshTopology
-            Source (base) mesh topology.
-        source_integral_type : str
-            Integral type on source_mesh.
-        source_subdomain_id : int
-            Subdomain ID on source_mesh.
-        source_all_integer_subdomain_ids : dict
-            All integer subdomain ids on source_mesh.
-
-        Returns
-        -------
-        pyop2.types.map.MixedMap
-            Entity node map.
+        Used when extracting blocks from matrices for solvers.
 
         """
-        return op2.MixedMap(s.entity_node_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
-                            for s in self._spaces)
+        return self.field_ises
+
+    @cached_property
+    def local_ises(self) -> tuple[PETSc.IS, ...]:
+        """A list of PETSc ISes defining the local indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers.
+
+        """
+        ises = []
+        start = 0
+        for subspace in self:
+            size = subspace.axes.local_size
+            is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
+            is_.setBlockSize(subspace.block_size)
+            ises.append(is_)
+            start += size
+        return tuple(ises)
 
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
@@ -1889,7 +1932,7 @@ class MixedFunctionSpace:
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs):
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -1920,61 +1963,27 @@ class MixedFunctionSpace:
         from firedrake.mg.utils import get_level
 
         dm = PETSc.DMShell().create(comm=self.comm)
+        # Not implemented for mixed function spaces...
         # dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
-        _, level = get_level(self.mesh())
+        # TODO: Think harder about which mesh should be used
+        _, level = get_level(self.mesh()[0])
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
-    # this is now the same as for the non-mixed case
-    @utils.cached_property
+    # NOTE: this is the same as for the non-mixed case, should rejig types
+    @cached_property
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this function space."""
-        if self.comm.size > 1:
-            raise NotImplementedError
         vec = PETSc.Vec().create(comm=self.comm)
-        vec.setSizes((self.axes.owned.size, self.axes.global_size), bsize=1)
+        vec.setSizes(
+            (self.layout_axes.owned.local_size, self.layout_axes.global_size),
+            bsize=self.block_size,
+        )
         vec.setUp()
         return vec
 
-    # this is very nearly the same as for the non-mixed case
-    @utils.cached_property
-    def _ises(self):
-        """A list of PETSc ISes defining the global indices for each set in
-        the DataSet.
-
-        Used when extracting blocks from matrices for solvers.
-
-        """
-        return self._collect_ises(local=False)
-
-    @utils.cached_property
-    def _local_ises(self):
-        """A list of PETSc ISes defining the local indices for each set in
-        the DataSet.
-
-        Used when extracting blocks from matrices for solvers.
-
-        """
-        return self._collect_ises(local=True)
-
-    def _collect_ises(self, *, local):
-        if local:
-            size = self.axes.size
-            start = 0
-        else:
-            size = self.axes.owned.size
-            start = self.comm.exscan(size) or 0
-
-        ises = []
-        for i, subspace in enumerate(self._spaces):
-            nrows = self.axes[i].size if local else self.axes[i].owned.size
-            iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
-            iset.setBlockSize(subspace.value_size)
-            ises.append(iset)
-            start += nrows
-        return tuple(ises)
-
+    # FIXME: This loses information for proxy spaces
     def collapse(self):
         return type(self)([V_ for V_ in self], self.mesh())
 
@@ -2017,18 +2026,6 @@ class ProxyFunctionSpace(FunctionSpace):
              self.index,
              self.component)
 
-    # TODO: This is awful, but I use it here to make the issue explicit
-    weak = True
-    """The extent to which this proxy function space relate to the original space.
-
-    If `True` then we are dealing with a subspace that we can freely create Dats with.
-    If `False` then we have a proper indexed axis tree that references the larger space.
-
-    The main implication of this is what ``function_space.unindexed`` returns. Is it
-    the full space or the indexed space?
-
-    """
-
     identifier = None
     r"""An optional identifier, for debugging purposes."""
 
@@ -2043,55 +2040,6 @@ class ProxyFunctionSpace(FunctionSpace):
         if self.no_dats:
             raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
-
-    @cached_property
-    def plex_axes(self):
-        if not self.weak:
-            return self.parent.plex_axes[self._slice]
-
-        trimmed = self.parent.plex_axes[self._slice]
-        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
-        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
-
-        return op3.IndexedAxisTree(
-            trimmed.node_map,
-            unindexed=trimmed_unindexed,
-            targets=trimmed_targets,
-        )
-
-    @cached_property
-    def nodal_axes(self):
-        if not self.weak:
-            return self.parent.nodal_axes[self._slice]
-
-        trimmed = self.parent.nodal_axes[self._slice]
-        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
-        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
-
-        return op3.IndexedAxisTree(
-            trimmed.node_map,
-            unindexed=trimmed_unindexed,
-            targets=trimmed_targets,
-        )
-
-    @cached_property
-    def _trimmed_axis_labels(self) -> frozenset:
-        if self.identifier == "indexed":
-            return frozenset({"field"})
-        else:
-            assert self.identifier == "component"
-            return frozenset({f"dim{dim}" for dim, _ in enumerate(self.component)})
-
-    @cached_property
-    def _slice(self):
-        if self.identifier == "indexed":
-            return op3.ScalarIndex("field", self.index, 0)
-        else:
-            assert self.identifier == "component"
-            return tuple(
-                op3.ScalarIndex(f"dim{dim}", "XXX", index)
-                for dim, index in enumerate(self.component)
-            )
 
 
 class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
@@ -2162,7 +2110,6 @@ def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
-    new.weak = weak
 
     return new
 
@@ -2185,8 +2132,6 @@ def ComponentFunctionSpace(parent, component, *, weak: bool = True):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-    new.weak = weak
-
     return new
 
 
@@ -2206,7 +2151,7 @@ class RealFunctionSpace(FunctionSpace):
         # Get the number of DoFs per cell, it is illegal to have DoFs on
         # other entities.
         ndofs = None
-        for dim, dim_ndofs in flatten_entity_dofs(self.finat_element).items():
+        for dim, dim_ndofs in _num_entity_dofs(self.finat_element).items():
             if dim == self.mesh().cell_label:
                 ndofs = dim_ndofs
             else:
@@ -2357,7 +2302,7 @@ class RealFunctionSpace(FunctionSpace):
         if not isinstance(other, RealFunctionSpace):
             return False
         # FIXME: Think harder about equality
-        return self.mesh() is other.mesh() and \
+        return self.mesh() == other.mesh() and \
             self.ufl_element() == other.ufl_element()
 
     def __ne__(self, other):
@@ -2366,39 +2311,39 @@ class RealFunctionSpace(FunctionSpace):
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    def set_shared_data(self):
-        pass
+    # def set_shared_data(self):
+    #     pass
 
-    def make_dof_dset(self):
-        raise NotImplementedError
-        return op2.GlobalDataSet(self.make_dat())
+    # def make_dof_dset(self):
+    #     raise NotImplementedError
+    #     return op2.GlobalDataSet(self.make_dat())
 
-    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-        return None
-
-    def cell_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no cell node map."
-        return None
-
-    def interior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no interior facet node map."
-        return None
-
-    def exterior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no exterior facet node map."
-        return None
-
-    def bottom_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def top_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def local_to_global_map(self, bcs, lgmap=None):
-        assert len(bcs) == 0
-        return None
+    # def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+    #     return None
+    #
+    # def cell_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no cell node map."
+    #     return None
+    #
+    # def interior_facet_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no interior facet node map."
+    #     return None
+    #
+    # def exterior_facet_node_map(self, bcs=None):
+    #     ":class:`RealFunctionSpace` objects have no exterior facet node map."
+    #     return None
+    #
+    # def bottom_nodes(self):
+    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
+    #     return None
+    #
+    # def top_nodes(self):
+    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
+    #     return None
+    #
+    # def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    #     assert len(bcs) == 0
+    #     return None
 
 
 @dataclass
@@ -2456,15 +2401,18 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
         if axis_spec not in candidate_axis_specs
     )
 
-    if axis_specs:
+    if axis_specs:  # are there any remaining axes to attach?
         axis_nest = {selected_axis: []}
         if len(layout_spec) > 1:
             # 'sub_layout_specs' can either be flat (e.g. '["axis1", "axis2"]')
             # or nested (e.g. '[["axis1", ["axis2"]], ["axis3"]]'). If the former
             # then the spec is broadcasted to all components. Otherwise we assume
             # that the spec is per-component.
+            # Using the example from above, '["axis1", "axis2"]' gets exploded to
+            # [["axis1", "axis2"], ["axis1", "axis2"]] (assuming there are two
+            # components for the current axis).
             if isinstance(layout_spec[1], str):  # flat case
-                sub_layout_specs = [layout_spec[1]] * len(selected_axis.components)
+                sub_layout_specs = [layout_spec[1:]] * len(selected_axis.components)
             else:  # nested
                 assert len(layout_spec) == 2
                 sub_layout_specs = layout_spec[1]
@@ -2504,7 +2452,7 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
 
         return idict(axis_nest)
     else:
-        assert not sub_layout_specs, "More layout information provided than available axes"
+        assert not layout_spec[1:], "More layout information provided than available axes"
         return selected_axis
 
 
@@ -2535,7 +2483,7 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
 
 def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequence[AxisConstraint]]) -> tuple[AxisConstraint]:
     # start by collecting like axes
-    axis_info = collections.defaultdict(dict)
+    axis_info: defaultdict[op3.Axis, dict[op3.ComponentLabelT, idict]] = defaultdict(dict)
     for root_component, constraints in zip(root_axis.components, axis_constraintss, strict=True):
         for constraint in constraints:
             axis_info[constraint.axis][root_component.label] = constraint.within_axes
@@ -2547,10 +2495,14 @@ def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequ
     #
     # * Consider the "dof" axis for a mixed space with identical subspaces:
     #
-    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}
+    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}}
     #
-    #   The constraints are identical for all components and so do not need to
-    #   be specialised. The final constraint is thus:
+    #   Here this is saying that 'dof_axis' exists under root components 0 and 1
+    #   and each time must satisfy the constraint of having '{"mesh": None}'
+    #   above them.
+    #
+    #   Since the constraints are identical for all components they do not need
+    #   to be specialised. The final constraint is thus:
     #
     #     AxisConstraint(dof_axis, {"mesh": None})
     #
@@ -2639,3 +2591,50 @@ def entity_permutations_key(entity_permutations):
         key.append(tuple(sub_key))
     key = tuple(key)
     return key
+
+
+# TODO: make return type and arg consistent
+def mask_lgmap(lgmap: LGMap, bcs, idxs=()) -> PETSc.LGMap:
+    """Return a map from process-local to global DoF numbering.
+
+    # update this#
+
+    Parameters
+    ----------
+    bcs
+        Optional iterable of boundary conditions. If provided these DoFs
+        are masked out (set to -1) in the returned map.
+
+    Returns
+    -------
+    PETSc.LGMap
+        The local-to-global mapping.
+
+    """
+    if not bcs:
+        return lgmap.as_petsc_lgmap()
+
+    # Set constrained values in the lgmap to -1
+
+    unblocked = any(bc.function_space().component is not None for bc in bcs)
+    if unblocked:
+        indices = lgmap.unblocked_indices
+        axes = lgmap.axes
+        block_size = 1
+    else:
+        indices = lgmap.indices
+        axes = lgmap.axes.blocked(lgmap.block_shape)
+        block_size = lgmap.block_size
+
+    indices = indices.copy()
+    dat = op3.Dat(axes, data=indices)
+    for bc in bcs:
+        if unblocked:
+            component = bc.function_space().component
+            if component is None:
+                component = Ellipsis
+            dat[*idxs][bc.node_set, *component].assign(-1, eager=True)
+        else:
+            dat[*idxs][bc.node_set].assign(-1, eager=True)
+
+    return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)

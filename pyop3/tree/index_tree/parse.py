@@ -10,12 +10,12 @@ from typing import Any
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.dtypes import IntType
 from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
-from pyop3.exceptions import Pyop3Exception
-from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
-from pyop3.tree.labelled_tree import ConcretePathT
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
+from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 import pyop3.extras.debug
@@ -81,26 +81,20 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
                     index_tree = complete_index_tree(index_tree, axes)
                     debug_assert(lambda: _index_tree_completely_indexes_axes(index_tree, axes))
 
-            if found_match:
-                # Each of the index trees in a forest are considered
-                # 'equivalent' in that they represent semantically
-                # equivalent operations, differing only in the axes that
-                # they target. For example, the loop index
-                #
-                #     p = axis[::2].iter()
-                #
-                # will target *both* the unindexed `axis`, as well as the
-                # intermediate indexed axis `axis[::2]`. There are therefore
-                # two index trees in play.
-                #
-                # For maps I think that it is possible for us to have clashes
-                # in the target axes (e.g. points -> points and cells -> points).
-                # If we ever hit this we will need to think a bit.
-                raise NotImplementedError(
-                    "Found multiple matching index trees, I thought this "
-                    "day might come eventually"
-                )
-
+            # Each of the index trees in a forest are considered
+            # 'equivalent' in that they represent semantically
+            # equivalent operations, differing only in the axes that
+            # they target. For example, the loop index
+            #
+            #     p = axis[::2].iter()
+            #
+            # will target *both* the unindexed `axis`, as well as the
+            # intermediate indexed axis `axis[::2]`. There are therefore
+            # multiple index trees in play.
+            #
+            # For maps it is possible for us to have clashes in the target axes
+            # (e.g. cells -> vertices and owned cells -> vertices).
+            # If we ever hit this we will need to think a bit.
             matched_forest.append(index_tree)
             found_match = True
 
@@ -162,6 +156,7 @@ def _(called_map: CalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
+@collect_loop_contexts.register(UnparsedSlice)
 def _(index: Any, /) -> OrderedSet:
     return OrderedSet()
 
@@ -190,8 +185,8 @@ def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
     return tuple(IndexTree(cf_index) for cf_index in cf_indices)
 
 
-@_as_index_forest.register(Sequence)
-def _(seq: Sequence, /, axes, loop_context) -> tuple[IndexTree]:
+@_as_index_forest.register(tuple)
+def _(seq: tuple, /, axes, loop_context) -> tuple[IndexTree]:
     # The indices can contain a mixture of 'true' indices (i.e. subclasses of
     # `Index`) and 'sugar' indices (e.g. integers, strings and slices). The former
     # may be used in any order since they declare the axes they target whereas
@@ -241,9 +236,11 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
 
 
 @_as_index_forest.register(slice)
+@_as_index_forest.register(list)
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 @_as_index_forest.register(Dat)
+@_as_index_forest.register(UnparsedSlice)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
     desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
@@ -254,20 +251,34 @@ def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@_desugar_index.register(UnparsedSlice)
+def _(unparsed: UnparsedSlice, /, *, axes, path) -> Index:
+    return _desugar_index(unparsed.wrappee, axes=axes, path=path)
+
+
 @_desugar_index.register(numbers.Integral)
-def _(int_: numbers.Integral, /, *, axes, path) -> Index:
+def _(num: numbers.Integral, /, *, axes, path) -> Index:
     if path is None:
-        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
-    axis = axes.node_map[path]
-    if len(axis.components) > 1:  # match on component label
-        component = just_one(c for c in axis.components if c.label == int_)
+        raise RuntimeError("Cannot parse integers here due to ambiguity")
+
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
+    # single-component axis - return a scalar index
+    if len(axis.components) == 1 and axis.component.label is None:
+        component = just_one(axis.components)
+        index = ScalarIndex(axis.label, component.label, num)
+
+    # match on component label
+    else:
+        component = just_one(c for c in axis.components if c.label == num)
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
             index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
-    else:  # single-component axis - return a scalar index
-        component = just_one(axis.components)
-        index = ScalarIndex(axis.label, component.label, int_)
+
     return index
 
 
@@ -275,17 +286,31 @@ def _(int_: numbers.Integral, /, *, axes, path) -> Index:
 def _(slice_: slice, /, *, axes, path) -> Slice:
     if path is None:
         raise RuntimeError("Cannot parse Python slices here due to ambiguity")
-    axis = axes.node_map[path]
+    slice_is_full = slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}
+
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
     if len(axis.components) == 1:
+        if slice_is_full:
+            return Slice(
+                axis.label,
+                [AffineSliceComponent(axis.component.label, label=axis.component.label)],
+                label=axis.label,
+            )
+        else:
+            return Slice(
+                axis.label,
+                [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
+            )
+    elif slice_is_full:
+        # just take everything, keep the labels around (for now, eventually want a special type for this)
         return Slice(
             axis.label,
-            [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
-        )
-    elif slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}:
-        # just take everything
-        return Slice(
-            axis.label,
-            [AffineSliceComponent(component.label) for component in axis.components]
+            [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
+            label=axis.label,
         )
     else:
         # badindexexception?
@@ -295,6 +320,29 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
 
+
+@_desugar_index.register(list)
+def _(list_: list, /, *, axes, path) -> Slice:
+    if path is None:
+        raise RuntimeError("Cannot parse a list here due to ambiguity")
+
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
+    if len(axis.components) == 1:
+        dat = Dat.from_sequence(list_, IntType)
+        return _desugar_index(dat, axes=axes, path=path)
+    else:
+        return Slice(
+            axis.label,
+            [
+                AffineSliceComponent(component_label, label=component_label)
+                for component_label in list_
+            ],
+            label=axis.label,
+        )
 
 @_desugar_index.register(Dat)
 def _(dat: Dat, /, *, axes, path) -> Slice:
@@ -314,6 +362,7 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
         )
 
 @_desugar_index.register(str)
+@_desugar_index.register(tuple)
 def _(label: str, /, *, axes, path) -> Index:
     # take a full slice of a component with a matching label
     axis = axes.node_map[path]
@@ -459,7 +508,8 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 
 @_as_context_free_indices.register(slice)
 @_as_context_free_indices.register(numbers.Integral)
-def _(obj: slice, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
+@_as_context_free_indices.register(UnparsedSlice)
+def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
     return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 
@@ -528,28 +578,17 @@ def _(called_map, /, loop_context, **kwargs):
         # then we want to end up with
         #
         #   {
-        #     x -> [[a]],
-        #     y -> [[a]],
+        #     x -> [[a]],  # (should be [a], need a type to capture the extra brackets)
+        #     y -> [[a]],  # (should be [a])
         #   }
         #   and
         #   {
         #     x -> [[b, c]],
         #     y -> [[a]],
         #   }
-        #    etc
+        #   etc
         #
         # In effect for a concrete set of inputs having a concrete set of outputs
-        #
-        # Note that this gets more complicated in cases like
-        #
-        #   { x -> [[a]], y -> [[a]] }
-        #
-        # where we assume x and y to be "equivalent".
-        # because if two equivalent input paths map to the same output then they can
-        # be considered equivalent in the final axis tree.
-        #
-        # This is later work.
-
         possibilities = []
         for equivalent_input_paths in cf_index.leaf_target_paths:
             found = False
@@ -558,13 +597,12 @@ def _(called_map, /, loop_context, **kwargs):
                     found = True
                     for output_spec in called_map.connectivity[input_path]:
                         possibilities.append((input_path, output_spec))
+            if not found:
+                breakpoint()
             assert found, "must be at least one matching path"
 
-        if len(possibilities) > 1:
-            # list(itertools.product(possibilities))
-            raise NotImplementedError("Need to think about taking the product of these")
-        else:
-            input_path, output_spec = just_one(possibilities)
+        for input_path, output_spec in possibilities:
+            # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
             restricted_connectivity = {input_path: (output_spec,)}
             restricted_map = Map(restricted_connectivity, called_map.name)(cf_index)
             cf_maps.append(restricted_map)

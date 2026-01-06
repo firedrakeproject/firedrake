@@ -56,7 +56,7 @@ def mesh(request):
 @pytest.mark.parametrize('op', (interp, proj, proj_bc, h1_proj, h1_proj_bc))
 def test_projection_scalar_monomial(op, mesh, degree, variant):
     if degree == 'd':
-        degree = mesh.geometric_dimension()
+        degree = mesh.geometric_dimension
     V = FunctionSpace(mesh, "CG", degree=degree, variant=variant)
     u = Function(V)
     x = SpatialCoordinate(mesh)
@@ -78,7 +78,7 @@ def mesh_sizes(mh):
     for msh in mh:
         DG0 = FunctionSpace(msh, "DG", 0)
         h = Function(DG0).interpolate(CellDiameter(msh))
-        with h.dat.vec as hvec:
+        with h.vec as hvec:
             _, maxh = hvec.max()
         mesh_size.append(maxh)
     return mesh_size

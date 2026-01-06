@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop3.mpi import COMM_WORLD, internal_comm
 
 from firedrake import function
 from firedrake.logging import warning
@@ -16,8 +16,7 @@ class VectorSpaceBasis(object):
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Vector`\s or :class:`.Function`\s
-         spanning the space.
+    :arg vecs: a list of :class:`.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -46,7 +45,7 @@ class VectorSpaceBasis(object):
             self._vecs = tuple(vecs)
         petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 petsc_vecs.append(v_)
         self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
@@ -109,7 +108,7 @@ class VectorSpaceBasis(object):
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec as v:
+        with b.vec as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -261,7 +260,7 @@ class MixedVectorSpaceBasis(object):
 
         self._petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
         # orthonormalize:

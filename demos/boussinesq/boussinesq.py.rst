@@ -176,12 +176,6 @@ implements a boundary condition that fixes a field at a single point. ::
        @functools.cached_property
        def nodes(self):
            V = self.function_space()
-           if V.mesh().ufl_coordinate_element().degree() != 1:
-               # Ensure a P1 mesh
-               coordinates = V.mesh().coordinates
-               P1 = coordinates.function_space().reconstruct(degree=1)
-               P1_mesh = Mesh(Function(P1).interpolate(coordinates))
-               V = V.reconstruct(mesh=P1_mesh)
 
            point = [tuple(self.sub_domain)]
            vom = VertexOnlyMesh(V.mesh(), point)
@@ -190,8 +184,8 @@ implements a boundary condition that fixes a field at a single point. ::
 
            # Take the basis function with the largest abs value at bc_point
            v = TestFunction(V)
-           F = assemble(Interpolate(inner(v, v), Fvom))
-           with F.dat.vec as Fvec:
+           F = assemble(interpolate(inner(v, v), Fvom))
+           with F.vec_ro as Fvec:
                max_index, _ = Fvec.max()
            nodes = V.dof_dset.lgmap.applyInverse([max_index])
            nodes = nodes[nodes >= 0]

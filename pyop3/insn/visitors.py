@@ -6,6 +6,7 @@ import functools
 from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
+from os import access
 from re import I
 from typing import Any
 
@@ -16,9 +17,9 @@ import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
 from pyop3.expr.tensor.base import TensorTransform, InPlaceTensorTransform, OutOfPlaceTensorTransform
-from pyop3.tree.axis_tree import AxisTree
+from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 from pyop3.expr.visitors import (
@@ -265,15 +266,11 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Dat.null(arg.axes.materialize().regionless, dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.raxes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
-                    # This is currently necessary because some local kernels
-                    # (interpolation) actually increment values instead of setting
-                    # them directly. This should ideally be addressed.
-                    gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
                 elif intent == RW:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))
@@ -337,16 +334,19 @@ def _(scalar: Scalar) -> bool:
 def _(dat: Dat) -> bool:
     # This is overly restrictive since we could pass something contiguous like
     # dat[i0, :] directly to a local kernel
-    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
+    return not (isinstance(dat.buffer, ConcreteBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
 
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes) and not has_materialized_temporaries(mat))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.caxes) and not has_materialized_temporaries(mat))
 
 
-def _layouts_match(axis_tree) -> bool:
-    return axis_tree.leaf_subst_layouts == axis_tree.unindexed.leaf_subst_layouts
+def _layouts_match(axes: AxisTreeT) -> bool:
+    if isinstance(axes, AxisForest):
+        return utils.strictly_all(map(_layouts_match, axes.trees))
+    else:
+        return axes.leaf_subst_layouts == axes.unindexed.leaf_subst_layouts
 
 
 @functools.singledispatch
@@ -397,35 +397,33 @@ def _(called_func: CalledFunction, /) -> InstructionList:
     for func_arg, intent in zip(
         called_func.arguments, called_func.function._access_descrs, strict=True
     ):
-        access_type = _intent_as_access_type(intent)
-
-        bare_func_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(func_arg, access_type)
-        arg_pack_insns = list(arg_pack_insns)
-        arg_unpack_insns = list(arg_unpack_insns)
+        arg_pack_insns = []
+        arg_unpack_insns = []
 
         # function calls need materialised arrays
-        if _requires_pack_unpack(bare_func_arg):
-            local_tensor = bare_func_arg.materialize()
+        # FIXME: INC'd globals with transforms (ie parents) have to be materialised
+        if _requires_pack_unpack(func_arg):
+            local_tensor = func_arg.materialize()
 
             if intent == READ:
-                arg_pack_insns.append(local_tensor.assign(bare_func_arg))
+                arg_pack_insns.append(local_tensor.assign(func_arg))
             elif intent == WRITE:
                 # This is currently necessary because some local kernels
                 # (interpolation) actually increment values instead of setting
                 # them directly. This should ideally be addressed.
                 arg_pack_insns.append(local_tensor.assign(0))
-                arg_unpack_insns.insert(0, bare_func_arg.assign(local_tensor))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
             elif intent == RW:
-                arg_pack_insns.append(local_tensor.assign(bare_func_arg))
-                arg_unpack_insns.insert(0, bare_func_arg.assign(local_tensor))
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
             else:
                 assert intent == INC
                 arg_pack_insns.append(local_tensor.assign(0))
-                arg_unpack_insns.insert(0, bare_func_arg.iassign(local_tensor))
+                arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
         else:
-            materialized_arg = LinearDatBufferExpression(bare_func_arg.buffer, 0)
+            materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
 
         bare_func_args.append(materialized_arg)
         pack_insns.extend(arg_pack_insns)
@@ -437,73 +435,98 @@ def _(called_func: CalledFunction, /) -> InstructionList:
 
 @expand_assignments.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> InstructionList:
-    # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
-    # like
+    # This function is complete magic and deserves some serious exposition:
     #
-    #     mat[f(p), f(p)] <- t0
+    # To begin with, consider the assignment:
     #
-    # we don't want to expand it into
+    #     x <- y
     #
-    #     t1 <- t0
-    #     mat[f(p), f(p)] <- t1
-    # if assignment.is_mat_access:
-    #     raise NotImplementedError("think")
-    #     return InstructionList([assignment])
-
-    bare_expression, extra_input_insns, _ = _expand_reshapes(
+    # where 'y' is a dat with a parent. Having a parent means that 'y' is
+    # the result of a transformation applied to another dat. When we generate
+    # code for this assignment we therefore need to traverse the hierarchy of
+    # transformations and emit something like:
+    #
+    #     t <- Y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     x <- u
+    #
+    # where 'Y' is the global data structure at the top of the parent hierarchy.
+    #
+    # To make this happen, in this function we 'expand' the expression 'y',
+    # giving us back 'u' and the sequence of transformation instructions.
+    #
+    # Now let's imagine what happens for 'x <- y' where the assignee ('x') is
+    # the transformed object. We thus want to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X <- u
+    #
+    # where 'X' is the global data at the top of the parent hierarchy for 'x'.
+    # Expanding the assignee will return 't' and the subsequent transformations.
+    #
+    # Lastly, if we consider incrementing, instead of assigning (i.e. 'x += y'),
+    # then some changes are needed. We need to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X += u
+    #
+    # Note that the final instruction is where the increment takes place.
+    bare_expression, expression_transform_insns = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
     )
 
-    # NOTE: This might have broken things, be careful (30/09/25)
-    # if assignment.assignment_type == AssignmentType.WRITE:
-    #     assignee_access_type = ArrayAccessType.WRITE
-    # else:
-    #     assert assignment.assignment_type == AssignmentType.INC
-    #     assignee_access_type = ArrayAccessType.INC
+    if assignment.assignment_type == AssignmentType.WRITE:
+        access_type = ArrayAccessType.WRITE
+    else:
+        assert assignment.assignment_type == AssignmentType.INC
+        access_type = ArrayAccessType.INC
 
-    bare_assignee, _, extra_output_insns = _expand_reshapes(
-        assignment.assignee, ArrayAccessType.WRITE
+    bare_assignee, assignee_transform_insns = _expand_reshapes(
+        assignment.assignee, access_type
     )
+    bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
 
     if bare_assignee == assignment.assignee:
         # no extra assignments
         bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
     else:
-        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type="write")
+        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type=AssignmentType.WRITE)
 
-    return maybe_enlist((*extra_input_insns, bare_assignment, *reversed(extra_output_insns)))
+    return maybe_enlist((*expression_transform_insns, bare_assignment, *assignee_transform_insns))
 
 
-# TODO: better word than "mode"? And use an enum.
 @functools.singledispatch
-def _expand_reshapes(expr: Any, /, mode):
+def _expand_reshapes(expr: Any, /, *args, **kwargs):
     raise TypeError(f"No handler provided for {type(expr).__name__}")
 
 
 @_expand_reshapes.register
 def _(op: expr_types.UnaryOperator, /, access_type):
-    bare_a, pack_insns, unpack_insns = _expand_reshapes(op.a, access_type)
-    return (type(op)(bare_a), pack_insns, unpack_insns)
+    bare_a, unpack_insns = _expand_reshapes(op.a, access_type)
+    return (type(op)(bare_a), unpack_insns)
 
 
 @_expand_reshapes.register
 def _(op: expr_types.BinaryOperator, /, access_type):
-    bare_a, a_pack_insns, a_unpack_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_pack_insns, b_unpack_insns = _expand_reshapes(op.b, access_type)
-    return (type(op)(bare_a, bare_b), a_pack_insns+b_pack_insns, a_unpack_insns+b_unpack_insns)
+    bare_a, a_unpack_insns = _expand_reshapes(op.a, access_type)
+    bare_b, b_unpack_insns = _expand_reshapes(op.b, access_type)
+    return (type(op)(bare_a, bare_b), a_unpack_insns+b_unpack_insns)
 
 
 @_expand_reshapes.register
 def _(op: expr_types.TernaryOperator, /, access_type):
     bare_operands = []
-    pack_insns = []
     unpack_insns = []
     for operand in op.operands:
-        bare_operand, operand_pack_insns, operand_unpack_insns = _expand_reshapes(operand, access_type)
+        bare_operand, operand_unpack_insns = _expand_reshapes(operand, access_type)
         bare_operands.append(bare_operand)
-        pack_insns.extend(operand_pack_insns)
         unpack_insns.extend(operand_unpack_insns)
-    return (type(op)(*bare_operands), tuple(pack_insns), tuple(unpack_insns))
+    return (type(op)(*bare_operands), tuple(unpack_insns))
 
 
 @_expand_reshapes.register(numbers.Number)
@@ -512,76 +535,18 @@ def _(op: expr_types.TernaryOperator, /, access_type):
 @_expand_reshapes.register(BufferExpression)
 @_expand_reshapes.register(expr_types.NaN)
 def _(var, /, access_type):
-    return (var, (), ())
+    return (var, ())
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
 @_expand_reshapes.register(Tensor)
 def _(array: Tensor, /, access_type):
-    """
-    Example:
-
-    Consider:
-
-        kernel(dat[?])  # INC
-
-    into
-
-        t0 <- 0
-        kernel(t0)
-        f(t0)  # in-place
-        t1 <- g(t0)  # out-of-place
-        dat[?] += t1
-    """
-    if not array.parent:
-        return array, (), ()
-
-    pack_insns = []
-    unpack_insns = []
-
-    # Mumble, INC accesses are inherently incompatible with transforms because
-    # transforms imply R/W accesses.
-    #
-    # e.g. consider 'kernel' with INC access and a global. The following won't work
-    # because the transformation won't only be over the single contribution.
-    #
-    #   kernel(glob)
-    #   f(glob)  # in-place transform
-    #
-    # vs
-    #
-    #   kernel(t0)
-    #   f(t0)
-    #   glob += t0
-    #
-    # which is safe to do.
-    #
-    # As a consequence it means that INC accesses with transforms must always be
-    # expanded to have temporaries.
-    #
-    # N.B. I am fairly confident that this is right but I haven't quite got it
-    # straight in my head exactly why.
-    if access_type == ArrayAccessType.INC:
-        transformed_temporary, local_output_tensor, global_tensor = _materialize_untransformed_tensor(array)
-
-        bare_temporary = transformed_temporary.__record_init__(_parent=None)
-        pack_insns.insert(0, bare_temporary.zero())
-
-        unpack_insns.append(global_tensor.iassign(local_output_tensor))
-
-        array = transformed_temporary
-        access_type = ArrayAccessType.WRITE
-
     if access_type == ArrayAccessType.READ:
-        insns = _expand_transforms_in(array)
-        pack_insns.extend(insns)
+        return _expand_transforms_in(array)
     else:
-        assert access_type == ArrayAccessType.WRITE
-        insns = _expand_transforms_out(array)
-        unpack_insns = [*insns, *unpack_insns]
-
-    bare_array = array.__record_init__(_parent=None)
-    return bare_array, tuple(pack_insns), tuple(unpack_insns)
+        # assert access_type == ArrayAccessType.WRITE
+        # return _expand_transforms_out(array, access_type)
+        return _expand_transforms_out(array, access_type)
 
 
 def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
@@ -608,21 +573,28 @@ def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ..
         bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
 
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            if isinstance(bare_current_tensor, Dat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            elif isinstance(bare_current_tensor, Mat):
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.raxes.materialize(), bare_parent_tensor.caxes.materialize())
+            else:
+                raise NotImplementedError
             current_pack_insns = (
                 bare_current_tensor_reshaped.assign(bare_parent_tensor),
                 *current_tensor.parent.transform_in(bare_current_tensor),
-            )
+                )
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
             current_pack_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
 
         pack_insns = (*pack_insns, *current_pack_insns)
         current_tensor = parent_tensor
-    return pack_insns
+
+    # for inputs return the first tensor (it's the local one)
+    return tensor.__record_init__(_parent=None), pack_insns
 
 
-def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
+def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[Instruction, ...]]:
     """
     I.e.
 
@@ -670,18 +642,35 @@ def _expand_transforms_out(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, .
         # TODO: This materialisation is not actually needed if we don't index
         # the tensor.
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-            current_unpack_insns = (
+            if isinstance(bare_current_tensor, Dat):
+                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.axes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+            elif isinstance(bare_current_tensor, Mat):
+                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.raxes.materialize(), bare_current_tensor.caxes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.row_axes.materialize(), bare_parent_tensor.column_axes.materialize())
+            else:
+                raise NotImplementedError
+            # NOTE: It seems a bit weird to have an assignment given that this is 'inplace'
+            current_unpack_insns = [
                 *current_tensor.parent.transform_out(bare_current_tensor),
-                bare_parent_tensor.assign(bare_current_tensor_reshaped),
-            )
+            ]
+
+            # at the end of the traversal, maybe emit an INC
+            if not parent_tensor.parent and access_type == ArrayAccessType.INC:
+                current_unpack_insns.append(bare_parent_tensor.iassign(bare_current_tensor_reshaped))
+            else:
+                current_unpack_insns.append(bare_parent_tensor.assign(bare_current_tensor_reshaped))
         else:
             assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
             current_unpack_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
 
         unpack_insns = (*current_unpack_insns, *unpack_insns)
         current_tensor = parent_tensor
-    return unpack_insns
+
+    # for inputs return the last tensor (it's the global one)
+    # return current_tensor, unpack_insns
+    # no, don't
+    return tensor.__record_init__(_parent=None), unpack_insns
 
 
 def has_materialized_temporaries(tensor: Tensor) -> bool:
@@ -691,36 +680,6 @@ def has_materialized_temporaries(tensor: Tensor) -> bool:
         else:
             tensor = tensor.parent.untransformed
     return False
-
-
-def _materialize_untransformed_tensor(tensor: Tensor) -> tuple[Tensor, Tensor]:
-    """
-    I.e.
-
-    * given 'T' implying:
-
-        kernel(T, ...)
-        ...
-        f'(T)        # in-place transform
-        U <- g'(T)   # out-of-place transform
-        dat += U
-
-    * want to materialise U and return U and dat
-
-    This effectively means we have to look at all the parents and return the top-most, we also
-    need to swap out 'parent'
-
-    """
-    if isinstance(tensor.parent, TensorTransform):
-        new_parent_tensor, root_temp, root = _materialize_untransformed_tensor(tensor.parent.untransformed)
-        new_parent = tensor.parent.__record_init__(untransformed=new_parent_tensor)
-        return tensor.__record_init__(_parent=new_parent), root_temp, root
-    elif tensor.parent: 
-        raise NotImplementedError("TODO: MATs with parents that aren't transforms")
-    else:
-        U = tensor.materialize()
-        return U, U, tensor
-
 
 
 @functools.singledispatch
@@ -762,39 +721,10 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 @concretize_layouts.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
-    # Determine the overall shape of the assignment by merging the shapes of the
-    # arguments. This allows for assignments with mismatching indices like:
-    #
-    #     dat1[i, j] = dat2[j]
-    axis_trees = []
-    axis_trees_per_arg = tuple(
-        trees
-        for trees in map(get_shape, assignment.arguments)
-        if trees is not None
-    )
+    assignee = concretize_expression_layouts(assignment.assignee, assignment.shape)
+    expression = concretize_expression_layouts(assignment.expression, assignment.shape)
 
-    # We can get a mismatch here if we are assigning a scalar (single tree
-    # shape) to a matrix (double tree shape). We should probably be stricter
-    # here (e.g. by asserting it has to be a scalar).
-    # FIXME: I think actually the assignee should just prescribe this.
-    axis_trees_per_arg = (axis_trees_per_arg[0],)
-    for arg_axis_trees in zip_longest(*axis_trees_per_arg):
-        merged_axis_tree = merge_axis_trees(arg_axis_trees)
-
-        # drop zero-sized bits
-        pruned_axis_tree = merged_axis_tree.prune()
-
-        if not pruned_axis_tree:
-            # the assignment is zero-sized
-            return NullInstruction()
-
-        axis_trees.append(pruned_axis_tree)
-    axis_trees = tuple(axis_trees)
-
-    assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
-    expression = concretize_expression_layouts(assignment.expression, axis_trees)
-
-    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type, comm=assignment.internal_comm)
+    return NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.internal_comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 5

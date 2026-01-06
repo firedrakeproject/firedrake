@@ -3,22 +3,22 @@ from __future__ import annotations
 import functools
 import itertools
 import numbers
+import typing
 from collections.abc import Iterable, Mapping
 from functools import partial
 from typing import Any, Callable
 
 import numpy as np
 from immutabledict import immutabledict as idict
-from pyop2.caching import scoped_cache
+from pyop3.cache import scoped_cache
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
 # TODO: just namespace these
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, AxisLabelT, MissingVariableException
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -27,9 +27,11 @@ from pyop3.insn.base import loop_
 from .base import ExpressionT, conditional, loopified_shape
 from .tensor import Dat
 
+if typing.TYPE_CHECKING:
+    from pyop3.tree.axis_tree import AxisLabelT
 
-AxisVarMapT = Mapping[AxisLabelT, int]
-LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
+    AxisVarMapT = Mapping[AxisLabelT, int]
+    LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
 
 
 def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
@@ -52,7 +54,7 @@ def _(num, /, **kwargs) -> Any:
     return num
 
 
-@_evaluate.register
+@_evaluate.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis_label]
@@ -60,7 +62,7 @@ def _(axis_var: op3_expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any
         raise MissingVariableException(f"'{axis_var.axis_label}' not found in 'axis_vars'")
 
 
-@_evaluate.register
+@_evaluate.register(op3_expr.LoopIndexVar)
 def _(loop_var: op3_expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_id][loop_var.axis_label]
@@ -131,6 +133,11 @@ def _(dat: op3_expr.Dat, /, **kwargs) -> Any:
     return _evaluate(dat.concretize(), **kwargs)
 
 
+@_evaluate.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, **kwargs):
+    return expr.buffer.buffer.data_ro_with_halos.item()
+
+
 @_evaluate.register
 def _(dat_expr: op3_expr.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
@@ -196,7 +203,7 @@ def _(mat: op3_expr.Mat, /) -> OrderedSet:
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
 
-    for cs_axes in {mat.raxes, mat.caxes}:
+    for cs_axes in {mat.row_axes, mat.caxes}:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
@@ -238,123 +245,101 @@ def _(array: op3_expr.Tensor, /, loop_context):
     return array.with_context(loop_context)
 
 
-@functools.singledispatch
-def _relabel_axes(obj: Any, suffix: str) -> AbstractAxisTree:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@_relabel_axes.register(AxisTree)
-def _(axes: AxisTree, suffix: str) -> AxisTree:
-    relabelled_node_map = _relabel_node_map(axes.node_map, suffix)
-    return AxisTree(relabelled_node_map)
-
-
-@_relabel_axes.register(IndexedAxisTree)
-def _(axes: IndexedAxisTree, suffix: str) -> IndexedAxisTree:
-    relabelled_node_map = _relabel_node_map(axes.node_map, suffix)
-
-    # I think that I can leave unindexed the same here and just tweak the target expressions
-    relabelled_targetss = tuple(
-        _relabel_targets(targets, suffix)
-        for targets in axes.targets
-    )
-    return IndexedAxisTree(relabelled_node_map, unindexed=axes.unindexed, targets=relabelled_targetss)
-
-
-def _relabel_node_map(node_map: Mapping, suffix: str) -> PMap:
-    relabelled_node_map = {}
-    for parent, children in node_map.items():
-        relabelled_children = []
-        for child in children:
-            if child:
-                relabelled_child = child.copy(label=child.label+suffix)
-                relabelled_children.append(relabelled_child)
-            else:
-                relabelled_children.append(None)
-        relabelled_node_map[parent] = tuple(relabelled_children)
-    return pmap(relabelled_node_map)
-
-
-# NOTE: This only relabels the expressions. The target path is unchanged because I think that that is fine here
-def _relabel_targets(targets: Mapping, suffix: str) -> PMap:
-    relabelled_targets = {}
-    for axis_key, (path, exprs) in targets.items():
-        relabelled_exprs = {
-            axis_label: relabel(expr, suffix) for axis_label, expr in exprs.items()
-        }
-        relabelled_targets[axis_key] = (path, relabelled_exprs)
-    return pmap(relabelled_targets)
+def replace_terminals(obj: Any, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
+    new_obj = _replace_terminals(obj, replace_map)
+    if assert_modified:
+        assert new_obj != obj
+    return new_obj
 
 
 # TODO: make this a nice generic traversal
 @functools.singledispatch
-def replace_terminals(obj: Any, /, replace_map) -> ExpressionT:
+def _replace_terminals(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@replace_terminals.register(op3_expr.Terminal)
+@_replace_terminals.register(op3_expr.Terminal)
 def _(terminal: op3_expr.Terminal, /, replace_map) -> ExpressionT:
     return replace_map.get(terminal.terminal_key, terminal)
 
 
-@replace_terminals.register(numbers.Number)
-@replace_terminals.register(bool)
-@replace_terminals.register(np.bool)
+@_replace_terminals.register(numbers.Number)
+@_replace_terminals.register(bool)
+@_replace_terminals.register(np.bool)
 def _(var: ExpressionT, /, replace_map) -> ExpressionT:
     return var
 
 
 # I don't like doing this.
-@replace_terminals.register(op3_expr.Dat)
+@_replace_terminals.register(op3_expr.Dat)
 def _(dat: op3_expr.Dat, /, replace_map):
-    return replace_terminals(dat.concretize(), replace_map)
+    return _replace_terminals(dat.concretize(), replace_map)
 
 
-@replace_terminals.register(op3_expr.LinearDatBufferExpression)
+@_replace_terminals.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, replace_map):
+    return replace_map.get(expr, expr)
+
+
+@_replace_terminals.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, replace_map) -> op3_expr.LinearDatBufferExpression:
-    new_layout = replace_terminals(expr.layout, replace_map)
+    new_layout = _replace_terminals(expr.layout, replace_map)
     return expr.__record_init__(layout=new_layout)
 
 
-@replace_terminals.register(op3_expr.BinaryOperator)
+@_replace_terminals.register(op3_expr.BinaryOperator)
 def _(op: op3_expr.BinaryOperator, /, replace_map) -> op3_expr.BinaryOperator:
-    return type(op)(replace_terminals(op.a, replace_map), replace_terminals(op.b, replace_map))
+    return type(op)(_replace_terminals(op.a, replace_map), _replace_terminals(op.b, replace_map))
 
 
-@replace_terminals.register
+@_replace_terminals.register
 def _(cond: op3_expr.Conditional, /, replace_map) -> op3_expr.Conditional:
-    return type(cond)(replace_terminals(cond.predicate, replace_map), replace_terminals(cond.if_true, replace_map), replace_terminals(cond.if_false, replace_map))
+    return type(cond)(_replace_terminals(cond.predicate, replace_map), _replace_terminals(cond.if_true, replace_map), _replace_terminals(cond.if_false, replace_map))
 
 
-@replace_terminals.register
+@_replace_terminals.register
 def _(neg: op3_expr.Neg, /, replace_map) -> op3_expr.Neg:
-    return type(neg)(replace_terminals(neg.a, replace_map))
+    return type(neg)(_replace_terminals(neg.a, replace_map))
+
+
+def replace(obj: ExpressionT, /, replace_map, *, assert_modified: bool = False) -> ExpressionT:
+    new = _replace(obj, replace_map)
+    if assert_modified:
+        # TODO: could be another exception type
+        assert new != obj
+    return new
 
 
 @functools.singledispatch
-def replace(obj: Any, /, replace_map) -> ExpressionT:
+def _replace(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@replace.register(op3_expr.AxisVar)
-@replace.register(op3_expr.LoopIndexVar)
+@_replace.register(op3_expr.AxisVar)
+@_replace.register(op3_expr.LoopIndexVar)
 def _(var: Any, /, replace_map) -> ExpressionT:
     return replace_map.get(var, var)
 
 
-@replace.register(op3_expr.NaN)
-@replace.register(numbers.Number)
+@_replace.register(op3_expr.NaN)
+@_replace.register(numbers.Number)
 def _(num: numbers.Number, /, replace_map) -> numbers.Number:
     return num
 
 
 # I don't like doing this.
-@replace.register(op3_expr.Dat)
+@_replace.register(op3_expr.Dat)
 def _(dat: op3_expr.Dat, /, replace_map):
-    return replace(dat.concretize(), replace_map)
+    return _replace(dat.concretize(), replace_map)
 
 
-@replace.register(op3_expr.LinearDatBufferExpression)
+@_replace.register(op3_expr.ScalarBufferExpression)
+def _(expr: op3_expr.ScalarBufferExpression, /, replace_map):
+    # TODO: Can have a flag that determines the replacement order (pre/post)
+    return replace_map.get(expr, expr)
+
+
+@_replace.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     try:
@@ -363,14 +348,14 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, replace_map):
         pass
 
     # reuse if untouched
-    updated_layout = replace(expr.layout, replace_map)
+    updated_layout = _replace(expr.layout, replace_map)
     if updated_layout == expr.layout:
         return expr
     else:
         return expr.__record_init__(layout=updated_layout)
 
 
-@replace.register(op3_expr.CompositeDat)
+@_replace.register(op3_expr.CompositeDat)
 def _(dat: op3_expr.CompositeDat, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     try:
@@ -379,11 +364,11 @@ def _(dat: op3_expr.CompositeDat, /, replace_map):
         pass
 
     raise AssertionError("Not sure about this here...")
-    replaced_layout = replace(dat.layout, replace_map)
+    replaced_layout = _replace(dat.layout, replace_map)
     return dat.reconstruct(layout=replaced_layout)
 
 
-@replace.register(op3_expr.Operator)
+@_replace.register(op3_expr.Operator)
 def _(op: op3_expr.Operator, /, replace_map) -> op3_expr.Operator:
     try:
         return replace_map[op]
@@ -391,7 +376,7 @@ def _(op: op3_expr.Operator, /, replace_map) -> op3_expr.Operator:
         pass
 
     # reuse if untouched
-    updated_operands = tuple(replace(operand, replace_map=replace_map) for operand in op.operands)
+    updated_operands = tuple(_replace(operand, replace_map=replace_map) for operand in op.operands)
     if updated_operands == op.operands:
         return op
     else:
@@ -423,31 +408,34 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 
 @concretize_layouts.register(Scalar)
 def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.ScalarBufferExpression:
-    assert not axis_trees
-    return op3_expr.ScalarBufferExpression(scalar.buffer)
+    if axis_trees:
+        import pyop3
+        pyop3.extras.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
+    return op3_expr.ScalarBufferExpression(BufferRef(scalar.buffer))
 
 
 @concretize_layouts.register(op3_expr.Dat)
 def _(dat: op3_expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.DatBufferExpression:
     if dat.buffer.is_nested:
         raise NotImplementedError("TODO")
-    if dat.axes.is_linear:
-        layout = just_one(dat.axes.leaf_subst_layouts.values())
-        assert get_loop_axes(layout) == dat.loop_axes
+    axis_tree = utils.just_one(axis_trees)
+    dat_axes = matching_axis_tree(dat.axes, axis_tree)
+    if dat_axes.is_linear:
+        layout = just_one(dat_axes.leaf_subst_layouts.values())
         expr = op3_expr.LinearDatBufferExpression(BufferRef(dat.buffer), layout)
     else:
-        expr = op3_expr.NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts)
+        expr = op3_expr.NonlinearDatBufferExpression(BufferRef(dat.buffer), dat_axes.leaf_subst_layouts)
     return concretize_layouts(expr, axis_trees)
 
 
 @concretize_layouts.register(op3_expr.Mat)
 def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.BufferExpression:
     nest_indices = ()
-    row_axes = mat.raxes
-    column_axes = mat.caxes
+    row_axes = matching_axis_tree(mat.row_axes, axis_trees[0])
+    column_axes = matching_axis_tree(mat.column_axes, axis_trees[1])
     if mat.buffer.is_nested:
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
-            raise NotImplemented
+            raise NotImplementedError
 
         row_index = utils.just_one(row_axes.nest_indices)
         column_index = utils.just_one(column_axes.nest_indices)
@@ -469,8 +457,8 @@ def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Buf
     return concretize_layouts(mat_expr, axis_trees)
 
 
-@concretize_layouts.register(op3_expr.LinearBufferExpression)
-def _(dat_expr: op3_expr.LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.LinearBufferExpression:
+@concretize_layouts.register(op3_expr.BufferExpression)
+def _(dat_expr: op3_expr.BufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.BufferExpression:
     # Nothing to do here. If we drop any zero-sized tree branches then the
     # whole thing goes away and we won't hit this.
     return dat_expr
@@ -695,6 +683,11 @@ def _(op: op3_expr.Operator, /, *args, **kwargs) -> idict:
 @concretize_materialized_tensor_indirections.register(op3_expr.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
+
+
+@concretize_materialized_tensor_indirections.register(op3_expr.ScalarBufferExpression)
+def _(buffer_expr: op3_expr.ScalarBufferExpression, layouts, key):
+    return buffer_expr
 
 
 @concretize_materialized_tensor_indirections.register(op3_expr.LinearDatBufferExpression)

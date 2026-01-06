@@ -1,5 +1,6 @@
 import pytest
 import numpy
+import warnings
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
 from firedrake.utils import complex_mode
@@ -131,3 +132,73 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
 
     else:
         raise ValueError(f"Unrecognized action {action}")
+
+
+@pytest.mark.parametrize("family, degree, shape, coefficient", [
+    ("CG", 1, "scalar", "repeated"),
+    ("CG", 1, "scalar", "mixed"),
+    ("CG", 1, "scalar", "bcs"),
+    ("CG", 1, "vector", "bcs"),
+    ("R", 0, "scalar", "repeated"),
+])
+def test_cached_transfer(family, degree, shape, coefficient):
+    # Test that we can properly reuse transfers within solve
+    sp = {
+        "mat_type": "matfree",
+        "pc_type": "mg",
+        "mg_levels_pc_type": "none",
+        "mg_coarse_pc_type": "none",
+    }
+
+    base = UnitSquareMesh(1, 1)
+    hierarchy = MeshHierarchy(base, 3)
+    mesh = hierarchy[-1]
+
+    if shape == "scalar":
+        V = FunctionSpace(mesh, family, degree)
+    elif shape == "vector":
+        V = VectorFunctionSpace(mesh, family, degree)
+    else:
+        raise ValueError(f"Unrecognized shape {shape}")
+    u = Function(V)
+
+    bcs = None
+    if coefficient == "mixed":
+        R = FunctionSpace(mesh, "R", 0)
+        R2 = R * R
+        c = Function(R2).assign(1)
+        c1 = c.subfunctions[0]
+        c2 = c[1]
+    elif coefficient == "repeated":
+        R1 = FunctionSpace(mesh, "R", 0)
+        R2 = FunctionSpace(mesh, "R", 0)
+        c1 = Function(R1).assign(1)
+        c2 = Function(R2).assign(1)
+    elif coefficient == "bcs":
+        c1 = 1
+        c2 = 1
+        R = FunctionSpace(mesh, "R", 0)
+        R2 = R * R
+        g = Function(R2).assign(1)
+        bcs = [DirichletBC(V.sub(0), g[0], (1, 2)), DirichletBC(V.sub(0), g[1], (3, 4))]
+    else:
+        raise ValueError(f"Unrecognized coefficient type {coefficient}")
+
+    f = as_tensor(numpy.ones(u.ufl_shape)) if u.ufl_shape else 1
+
+    F = inner(u - f, (c1 + c2)*TestFunction(V)) * dx
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+
+    transfer = TransferManager()
+    solver.set_transfer_manager(transfer)
+
+    # This test will fail if we raise this warning
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        solver.solve()
+
+    ctx = solver._ctx
+    while ctx:
+        assert ctx.transfer_manager is transfer
+        ctx = ctx._coarse

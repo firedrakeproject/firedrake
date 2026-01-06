@@ -5,8 +5,7 @@ import islpy as isl
 
 import finat
 import pyop3 as op3
-from pyop2 import op2
-from pyop2.caching import serial_cache
+from pyop3.cache import serial_cache
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from finat.element_factory import create_element
@@ -69,6 +68,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     layer_height = op3.Dat.from_array(layer_height)
 
     if kernel is not None:
+        raise NotImplementedError
         op2.ParLoop(kernel,
                     ext_coords.cell_set,
                     ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
@@ -147,7 +147,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension()
+        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension
         if tdim not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % extract_unique_domain(base_coords).ufl_cell())
         # tdim == 1:
@@ -230,7 +230,13 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     extr_mesh = ext_coords.function_space().mesh()
     base_mesh = extr_mesh._base_mesh
-    iterset = extr_mesh.cells.owned
+
+    from firedrake.parloops import pack_tensor
+    from firedrake.mesh import get_iteration_spec
+
+    iter_spec = get_iteration_spec(extr_mesh, "cell")
+
+    iterset = iter_spec.iterset
 
     # trick to pass the right layer through to the local kernel
     # TODO: make this a mesh attribute
@@ -239,23 +245,16 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
 
-    from firedrake.parloops import pack_tensor
 
     op3.do_loop(
-        p := iterset.index(),
+        p := iter_spec.loop_index,
         kernel(
-            pack_tensor(ext_coords, p, "cell"),
+            pack_tensor(ext_coords, iter_spec),
             base_coords.dat[extr_mesh.base_mesh_closure(p)],
             layer_height,
             my_layer_dat[p]
         ),
     )
-    # op2.ParLoop(kernel,
-    #             ext_coords.cell_set,
-    #             ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-    #             base_coords.dat(op2.READ, base_coords.cell_node_map()),
-    #             layer_height(op2.READ),
-    #             pass_layer_arg=True).compute()
 
 
 def flat_entity_dofs(entity_dofs):
