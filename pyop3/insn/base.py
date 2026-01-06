@@ -247,8 +247,7 @@ class PreprocessedOperation:
     def comm(self) -> MPI.Comm:
         return self.root_insn.comm
 
-    # @cached_property
-    @property  # UNDO ME!!! debugging
+    @cached_property
     def buffers(self) -> OrderedFrozenSet:
         """The buffers (global data) that are present in the operation."""
         from pyop3.insn.visitors import collect_buffers

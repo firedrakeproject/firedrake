@@ -390,6 +390,8 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # {{{ interface impls
 
+    child_attrs = ("a", "b", "c")
+
     @property
     def operands(self) -> tuple[ExpressionT, ExpressionT, ExpressionT]:
         return (self.a, self.b, self.c)
@@ -419,6 +421,15 @@ class Conditional(TernaryOperator):
     @property
     def if_false(self) -> ExpressionT:
         return self.c
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
 
 
 def conditional(predicate, if_true, if_false):

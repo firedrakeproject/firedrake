@@ -356,7 +356,7 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
         #     breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
@@ -1032,6 +1032,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     # which is what Mat{Get,Set}Values() needs.
     layout_exprs = []
     for layout in [mat.row_layout, mat.column_layout]:
+        # FIXME: this isn't happening for some boundary conditions, composite dats should probably always be nonlinear so they dont throw away info
         assert isinstance(layout, NonlinearDatBufferExpression)
         subst_sublayout = layout.layouts[idict()]
         subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)

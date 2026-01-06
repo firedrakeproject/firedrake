@@ -154,52 +154,6 @@ class ImplicitPackUnpackExpander(NodeTransformer):
         # I think this is fine...
         return assignment
 
-        # # same as for CalledFunction
-        # gathers = []
-        # # NOTE: scatters are executed in LIFO order
-        # scatters = []
-        # arguments = []
-        #
-        # # lazy coding, tidy up
-        # if isinstance(assignment, ReplaceAssignment):
-        #     access = WRITE
-        # else:
-        #     assert isinstance(assignment, AddAssignment)
-        #     access = INC
-        # for arg, intent in [
-        #     (assignment.assignee, access),
-        #     (assignment.expression, READ),
-        # ]:
-        #     if isinstance(arg, numbers.Number):
-        #         arguments.append(arg)
-        #         continue
-        #
-        #     # emit function calls for PetscMat
-        #     if isinstance(arg, Mat):
-        #         axes = AxisTree(arg.axes.node_map)
-        #         new_arg = Dat(
-        #             axes,
-        #             data=NullBuffer(arg.dtype),  # does this need a size?
-        #             prefix="t",
-        #         )
-        #
-        #         if intent == READ:
-        #             gathers.append(PetscMatLoad(arg, new_arg))
-        #         elif intent == WRITE:
-        #             scatters.insert(0, PetscMatStore(arg, new_arg))
-        #         elif intent == RW:
-        #             gathers.append(PetscMatLoad(arg, new_arg))
-        #             scatters.insert(0, PetscMatStore(arg, new_arg))
-        #         else:
-        #             assert intent == INC
-        #             scatters.insert(0, PetscMatAdd(arg, new_arg))
-        #
-        #         arguments.append(new_arg)
-        #     else:
-        #         arguments.append(arg)
-        #
-        # return maybe_enlist((*gathers, assignment.with_arguments(arguments), *scatters))
-
     @_apply.register
     def _(self, terminal: insn_types.CalledFunction):
         gathers = []

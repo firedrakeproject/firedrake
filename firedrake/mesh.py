@@ -2529,7 +2529,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
-        base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
+        # base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
         # base_dm.removeLabel("exterior_facets")
         # base_dm.removeLabel("interior_facets")
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
@@ -3994,7 +3994,7 @@ values from f.)"""
                   'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = self._old_to_new_cell_numbering_is.indices
+        column_list = V.cell_node_list.reshape(-1)
 
         def reshape_coords(_coords):
             return _coords.dat.data_ro_with_halos.reshape((-1, gdim))

@@ -1941,7 +1941,6 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     indexed_regions = []
     loc = 0
     offset = start
-    breakpoint()
     for region in regions:
         lower_bound = loc
         upper_bound = loc + region.size

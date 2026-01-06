@@ -1108,7 +1108,7 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
-        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.local_size, -1))
         if self.extruded:
             return nodes[::self.mesh().layers-1]
         else:
@@ -1123,7 +1123,7 @@ class FunctionSpace:
         mesh = self.mesh()
 
         indices_axes = self.axes.blocked(self.shape)
-        indices_array = numpy.arange(indices_axes.size, dtype=IntType)
+        indices_array = numpy.arange(indices_axes.local_size, dtype=IntType)
         indices_dat = op3.Dat(indices_axes, data=indices_array)
 
         cell_index = self._mesh.cells.owned.iter()
@@ -1272,7 +1272,6 @@ class FunctionSpace:
         """Return a map from cells to cell closures."""
         return self.mesh()._fiat_closure(cell)
 
-    # NOTE: This shouldn't ever really be used, doesn't do the right permutations..
     def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
 
@@ -1301,7 +1300,7 @@ class FunctionSpace:
             composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
         else:
             # No shared topology, must be using a vertex-only mesh
-            composed_map = mesh.cell_parent_cell_map(iteration_spec.loop_index)
+            composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
             target_integral_type = "cell"
 
         if target_integral_type == "cell":

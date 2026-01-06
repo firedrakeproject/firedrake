@@ -1028,7 +1028,7 @@ def _build_interpolation_callables(
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                coefficients.append(target_mesh.reference_coordinates)
+                local_kernel_args.append(pack_tensor(target_mesh.reference_coordinates, iter_spec))
 
     if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
