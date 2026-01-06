@@ -406,11 +406,12 @@ def test_exact_refinement():
     )
 
 
-def test_interpolate_unitsquare_tfs_shape():
+@pytest.mark.parametrize("shape,symmetry", [((1, 2, 3), None), ((3, 3), True)])
+def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     m_src = UnitSquareMesh(2, 3)
     m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
-    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=(1, 2, 3))
-    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=(1, 2, 3))
+    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=shape, symmetry=symmetry)
+    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=shape, symmetry=symmetry)
     f_src = Function(V_src)
     assemble(interpolate(f_src, V_dest))
 
