@@ -138,7 +138,7 @@ def solve(*args, **kwargs):
 
     assert len(args) > 0
     # Call variational problem solver if we get an equation
-    if isinstance(args[0], ufl.classes.Equation):
+    if isinstance(args[0], ufl.Equation):
         _solve_varproblem(*args, **kwargs)
     else:
         # Solve pre-assembled system
@@ -165,7 +165,7 @@ def _solve_varproblem(*args, **kwargs):
     appctx = kwargs.get("appctx", {})
     if not isinstance(eq.lhs, ufl.BaseForm):
         raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
-    
+
     if len(eq.lhs.arguments()) == 2:
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
