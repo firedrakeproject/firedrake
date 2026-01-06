@@ -14,6 +14,7 @@ from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
+from pyop3.cache import memory_cache
 from pyop3.expr.buffer import MatArrayBufferExpression
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
@@ -719,18 +720,23 @@ def get_disk_cache_key(insn: insn_types.Instruction) -> Hashable:
 
 class BufferCollector(NodeCollector):
 
-    def __init__(self):
+    def __init__(self, comm):
         from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
         from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
 
-        expr_collector = ExprBufferCollector()
-        tree_collector = TreeBufferCollector()
+        expr_collector = ExprBufferCollector.maybe_singleton(comm)
+        tree_collector = TreeBufferCollector.maybe_singleton(comm)
         expr_collector.tree_collector = tree_collector
         tree_collector.expr_collector = expr_collector
 
         self._expr_collector = expr_collector
         self._tree_collector = tree_collector
         super().__init__()
+
+    @classmethod
+    @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls(comm)
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:
@@ -770,7 +776,7 @@ class BufferCollector(NodeCollector):
 
 
 def collect_buffers(insn: insn_types.Instruction) -> OrderedFrozenSet:
-    return BufferCollector()(insn)
+    return BufferCollector.maybe_singleton(insn.comm)(insn)
 
 
 class LiteralInserter(NodeTransformer):

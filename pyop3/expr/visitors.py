@@ -11,13 +11,14 @@ from typing import Any, Callable, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
+from petsc4py import PETSc
+
+from pyop3.cache import memory_cache
 from pyop3.config import CONFIG
-from pyop3.cache import scoped_cache
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from petsc4py import PETSc
 
 from pyop3 import utils
 # TODO: just namespace these
@@ -1138,6 +1139,11 @@ class BufferCollector(NodeCollector):
     def __init__(self, tree_collector: TreeBufferCollector | None = None):
         self._lazy_tree_collector = tree_collector
         super().__init__()
+
+    @classmethod
+    @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls()
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:

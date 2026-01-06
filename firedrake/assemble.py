@@ -37,7 +37,7 @@ from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
-from pyop3.cache import active_scoped_cache
+from pyop3.cache import heavy_cache
 
 
 __all__ = "assemble",
@@ -1059,11 +1059,8 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         mesh = self._form.ufl_domains()[0]
-        with active_scoped_cache(mesh._cache):  # NOTE: This doesn't really do anything
-            # debug
+        with heavy_cache(mesh):
             pyop3_compiler_parameters = {"optimize": True}
-            # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-            # pyop3_compiler_parameters = {"optimize": False}
             pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
             if tensor is None:

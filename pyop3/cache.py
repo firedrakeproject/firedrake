@@ -417,6 +417,18 @@ class DEFAULT_CACHE(dict):
     pass
 
 
+class NullCache:
+    def get(self, key, default=None):
+        return default
+
+    def setdefault(self, key, value):
+        return value
+
+
+
+NULL_CACHE = NullCache()
+
+
 # Example of how to instrument and use different default caches:
 # from functools import partial
 # EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
@@ -434,6 +446,7 @@ def parallel_cache(
     get_comm: Callable = default_get_comm,
     make_cache: Callable[[], Mapping] = lambda: DEFAULT_CACHE(),
     bcast=False,
+    heavy: bool = False,
 ):
     """Parallel cache decorator.
 
@@ -453,6 +466,11 @@ def parallel_cache(
         to the others. If `False` then values are generated on all ranks.
         This option can only be `True` if the operation can be executed in
         serial; else it will deadlock.
+    heavy :
+        Do the objects stored in the cache have a large memory footprint? If
+        yes then this cache is only used when a 'heavy' cache is set (see the
+        `heavy_cache` context manager) and the lifetime of the objects in the
+        cache are tied to the lifetime of the cache.
 
     """
     # Store a unique integer for each 'parallel_cache' decorator so we can
@@ -470,13 +488,26 @@ def parallel_cache(
             # when the wrapper exits
 
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                # Get the right cache from the comm
-                comm_caches = get_comm_caches(comm)
-                try:
-                    cache = comm_caches[cache_id]
-                except KeyError:
-                    cache = comm_caches.setdefault(cache_id, make_cache())
-                    _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                if heavy and _heavy_cache is None:
+                    cache = NULL_CACHE
+                    value = CACHE_MISS
+                else:
+                    # Get the right cache from the comm
+                    comm_caches = get_comm_caches(comm)
+                    try:
+                        cache = comm_caches[cache_id]
+                    except KeyError:
+                        cache = make_cache()
+                        if heavy:
+                            assert not isinstance(cache, DictLikeDiskAccess), "Disk caches cannot be heavy"
+                            # The lifetime of the cache must be tied to the
+                            # heavy cache object, so the comm should only hold
+                            # a weakref.
+                            _heavy_cache[cache_id] = cache
+                            comm_caches[cache_id] = weakref.proxy(cache)
+                        else:
+                            comm_caches[cache_id] = cache
+                        _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
                 key = hashkey(*args, **kwargs)
                 value = get_cache_entry(comm, cache, key)
@@ -519,12 +550,12 @@ def parallel_cache(
                     ):
                         raise ValueError("Cache hit on some ranks but missed on others")
 
-            if value is CACHE_MISS:
-                if bcast:
-                    value = func(*args, **kwargs) if comm.rank == 0 else None
-                    value = comm.bcast(value, root=0)
-                else:
-                    value = func(*args, **kwargs)
+                if value is CACHE_MISS:
+                    if bcast:
+                        value = func(*args, **kwargs) if comm.rank == 0 else None
+                        value = comm.bcast(value, root=0)
+                    else:
+                        value = func(*args, **kwargs)
 
             return cache.setdefault(key, value)
         return wrapper
@@ -557,76 +588,20 @@ def memory_and_disk_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
     return decorator
 
 
-# I *think* that we are fine to not worry about comms here because we can
-# be confident about collectiveness.
-_active_scoped_cache = None
+_heavy_cache = None
 
 
-class active_scoped_cache:
-    def __init__(self, cache):
-        self._cache = cache
+@contextlib.contextmanager
+def heavy_cache(obj: Any) -> None:
+    global _heavy_cache
 
-    def __enter__(self):
-        global _active_scoped_cache
+    if _heavy_cache is not None:
+        debug("A heavy cache has already been set, not overwriting it")
+        return
 
-        if _active_scoped_cache is None:
-            _active_scoped_cache = self._cache
-            self._set_cache = True
-        else:
-            self._set_cache = False
+    if not hasattr(obj, "_pyop3_heavy_cache"):
+        obj._pyop3_heavy_cache = {}
 
-    def __exit__(self, *exc):
-        global _active_scoped_cache
-
-        if self._set_cache:
-            _active_scoped_cache = None
-
-
-def scoped_cache(*args, **kwargs):
-    """Cache decorator for 'heavy' objects.
-
-    Unlike the other cache decorators this cache is scoped to another object
-    and will be cleaned up with that object.
-
-    If a cache scope has not been set with `active_scoped_cache` then no
-    caching happens.
-
-    """
-    return cachetools.cached(cache=_active_scoped_cache, **kwargs)
-
-
-# HEAVY_CACHE_COMM_KEYVAL = MPI.Comm.Create_keyval()
-#
-#
-# def scoped_cache(*args, **kwargs):
-#     """Cache decorator for 'heavy' objects.
-#
-#     Unlike the other cache decorators this cache is scoped to another object
-#     and will be cleaned up with that object.
-#
-#     If a cache scope has not been set with `active_scoped_cache` then no
-#     caching happens.
-#
-#     """
-#     return memory_cache(*args, **kwargs, scoped=True)
-#
-#
-# class active_scoped_cache:
-#     """
-#     """
-#     def __init__(self, lifetime_obj):
-#         self._lifetime_obj = lifetime_obj
-#
-#     def __enter__(self):
-#         with temp_internal_comm(self._lifetime_obj.comm) as comm:
-#             # only overwrite if no object exists yet
-#             if comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL) is None:
-#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, self._lifetime_obj)
-#                 self._set = True
-#             else:
-#                 self._set = False
-#
-#     def __exit__(self, *exc):
-#         if self._set:
-#             with temp_internal_comm(self._lifetime_obj.comm) as comm:
-#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, None)
+    _heavy_cache = obj._pyop3_heavy_cache
+    yield
+    _heavy_cache = None

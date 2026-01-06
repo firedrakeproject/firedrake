@@ -27,7 +27,7 @@ from mpi4py import MPI
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
-from pyop3.cache import active_scoped_cache, cached_on, CacheMixin
+from pyop3.cache import cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
@@ -1383,8 +1383,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         """Initialise the multi-axis by computing the layout functions."""
         from .visitors import compute_layouts
 
-        with active_scoped_cache(self):
-            return compute_layouts(self)
+        return compute_layouts(self)
 
     @cached_property
     def _buffer_slice(self) -> slice:
