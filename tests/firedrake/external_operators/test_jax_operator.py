@@ -118,7 +118,7 @@ def test_forward(u, nn):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.skiptorch  # Skip if PyTorch is not installed
+@pytest.mark.skipjax  # Skip if JAX is not installed
 def test_forward_mixed(V, nn):
 
     W = V * V
