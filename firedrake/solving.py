@@ -164,7 +164,7 @@ def _solve_varproblem(*args, **kwargs):
     form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
-    if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
+    if isinstance(eq.lhs, ufl.BaseForm) and len(eq.lhs.arguments()) == 2:
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
