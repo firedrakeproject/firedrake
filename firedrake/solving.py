@@ -163,7 +163,10 @@ def _solve_varproblem(*args, **kwargs):
     form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
-    if isinstance(eq.lhs, ufl.BaseForm) and len(eq.lhs.arguments()) == 2:
+    if not isinstance(eq.lhs, ufl.BaseForm):
+        raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
+    
+    if len(eq.lhs.arguments()) == 2:
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
@@ -172,7 +175,7 @@ def _solve_varproblem(*args, **kwargs):
     else:
         # Create nonlinear variational problem
         if eq.rhs != 0:
-            raise ValueError(f"Only '0' support on RHS of nonlinear Equation, not {eq.rhs}")
+            raise ValueError(f"RHS of nonlinear Equation must be `0`, not {eq.rhs}")
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
                                                  restrict=restrict)
