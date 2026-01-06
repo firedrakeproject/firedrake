@@ -3,7 +3,7 @@ from functools import partial
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.facet_split import restrict, get_restriction_indices
+from firedrake.preconditioners.facet_split import get_restriction_indices
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
@@ -242,7 +242,7 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
 
 
 def get_restricted_dofs(V, domain):
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), domain))
+    W = FunctionSpace(V.mesh(), V.ufl_element()[domain])
     indices = get_restriction_indices(V, W)
     indices = V.dof_dset.lgmap.apply(indices)
     return PETSc.IS().createGeneral(indices, comm=V.comm)

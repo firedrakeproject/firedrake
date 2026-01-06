@@ -16,6 +16,9 @@ from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
+__all__ = ["Cofunction", "RieszMap"]
+
+
 class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
 
@@ -78,9 +81,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-        if isinstance(function_space, Cofunction):
-            self.dat.copy(function_space.dat)
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):

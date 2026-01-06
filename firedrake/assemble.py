@@ -503,6 +503,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
+                elif isinstance(rhs, matrix.MatrixBase):
+                    # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                    petsc_mat = rhs.petscmat
+                    (_, col) = rhs.arguments()
+                    res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                    with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.multHermitian(v_vec, res_vec)
+                    return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             else:
@@ -830,6 +838,12 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
+            # Action(Adjoint(A), w*) -> Action(w*, A)
+            if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
+                # TODO: ufl.action(Coefficient, Form) currently fails. When it is fixed, we can remove the
+                # `not isinstance(right, firedrake.Function)` check.
+                return ufl.action(right, left.form())
+
         # -- Case (4) -- #
         if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
             B = expr.form()
@@ -1093,17 +1107,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
-
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domains = extract_domains(o)
-            for domain in domains:
-                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
@@ -1252,6 +1255,9 @@ class OneFormAssembler(ParloopFormAssembler):
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
+            if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
+                # form is empty, do nothing
+                return
             OneFormAssembler(bc.f, bcs=bc.bcs,
                              form_compiler_parameters=self._form_compiler_params,
                              needs_zeroing=False,

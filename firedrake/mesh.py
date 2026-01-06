@@ -2361,6 +2361,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
         self.variable_layers = self.extruded and topology.variable_layers
+        self._base_mesh = None  # this is set by extruded meshes in a later step
 
         # initialise the mesh cargo
         self.ufl_cargo().init(coordinates)
@@ -2937,9 +2938,7 @@ values from f.)"""
         self._cell_orientations = cell_orientations.topological
 
     def __getattr__(self, name):
-        val = getattr(self._topology, name)
-        setattr(self, name, val)
-        return val
+        return getattr(self._topology, name)
 
     def __dir__(self):
         current = super(MeshGeometry, self).__dir__()
