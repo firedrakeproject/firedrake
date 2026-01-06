@@ -148,7 +148,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
         afile.save_function(fB)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize('cell_family_degree', [
     ("triangle_small", "P", 1),
     ("triangle_small", "P", 6),

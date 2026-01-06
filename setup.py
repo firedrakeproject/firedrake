@@ -244,6 +244,7 @@ FIREDRAKE_CHECK_FILES = (
     "tests/firedrake/regression/test_nullspace.py",
     "tests/firedrake/regression/test_dg_advection.py",
     "tests/firedrake/regression/test_interpolate_cross_mesh.py",
+    "tests/firedrake/output/test_io_function.py",
 )
 
 

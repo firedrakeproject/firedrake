@@ -454,7 +454,11 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.access = op3.WRITE
 
-        if self.target_space.ufl_element().mapping() != "identity":
+        # TODO check V.finat_element.is_lagrange() once https://github.com/firedrakeproject/fiat/pull/200 is released
+        target_element = self.target_space.ufl_element()
+        if not ((isinstance(target_element, MixedElement)
+                 and all(sub.mapping() == "identity" for sub in target_element.sub_elements))
+                or target_element.mapping() == "identity"):
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes.
             raise NotImplementedError(
@@ -523,7 +527,8 @@ class CrossMeshInterpolator(Interpolator):
         elif len(shape) == 1:
             fs_type = partial(VectorFunctionSpace, dim=shape[0])
         else:
-            fs_type = partial(TensorFunctionSpace, shape=shape)
+            symmetry = self.target_space.ufl_element().symmetry()
+            fs_type = partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
         # Get expression for point evaluation at the dest_node_coords
         P0DG_vom = fs_type(vom, "DG", 0)
