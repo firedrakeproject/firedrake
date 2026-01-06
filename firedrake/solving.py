@@ -138,7 +138,7 @@ def solve(*args, **kwargs):
 
     assert len(args) > 0
     # Call variational problem solver if we get an equation
-    if isinstance(args[0], ufl.Equation):
+    if isinstance(args[0], ufl.classes.Equation):
         _solve_varproblem(*args, **kwargs)
     else:
         # Solve pre-assembled system
