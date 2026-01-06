@@ -1260,18 +1260,16 @@ class LinearLayoutChecker(ExpressionVisitor):
     def process(self, obj: ExpressionT, /) -> bool:
         raise TypeError(f"invalid layout, got {type(obj).__name__}")
 
+    @process.register(numbers.Number)
+    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
     @process.register(expr_types.Operator)
     @process.register(expr_types.LinearDatBufferExpression)
     @process.register(expr_types.ScalarBufferExpression)
     @process.register(expr_types.CompositeDat)
-    @ExpressionVisitor.postorder
-    def _(self, obj: ExpressionT, visited, /) -> None:
-        pass
-
-    @process.register(numbers.Number)
     @process.register(expr_types.AxisVar)
     @process.register(expr_types.LoopIndexVar)
-    def _(self, obj: ExpressionT, /) -> None:
+    @ExpressionVisitor.postorder
+    def _(self, obj: ExpressionT, visited, /) -> None:
         pass
 
 
@@ -1285,8 +1283,9 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
     def process(self, obj: ExpressionT, /, **kwargs) -> ExpressionT:
         return super().process(obj, **kwargs)
 
-    @process.register(expr_types.Operator)
     @process.register(numbers.Number)
+    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
+    @process.register(expr_types.Operator)
     @process.register(expr_types.AxisVar)
     @process.register(expr_types.LoopIndexVar)
     @process.register(expr_types.ScalarBufferExpression)

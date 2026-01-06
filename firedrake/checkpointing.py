@@ -899,7 +899,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None, timestepping_info={}):
+    def save_function(self, f, idx=None, name=None, timestepping_info=None):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -913,6 +913,9 @@ class CheckpointFile(object):
             such as time, timestepping that can be stored along a function for
             each index.
         """
+        if timestepping_info is None:
+            timestepping_info = {}
+
         V = f.function_space()
         if name:
             g = Function(V, val=f.dat, name=name)
@@ -1201,9 +1204,7 @@ class CheckpointFile(object):
         self.viewer.popFormat()
         # These labels are distribution dependent.
         # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
+        plex.removeLabel("firedrake_is_ghost")
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self.comm)
@@ -1319,12 +1320,12 @@ class CheckpointFile(object):
             V = self._load_function_space(mesh, V_name)
             base_path = self._path_to_mixed_function(mesh.name, V_name, name)
             fsub_list = []
+            dat = V.make_dat()
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 fsub_name = self.get_attr(path, PREFIX + "_function")
                 fsub = self.load_function(mesh, fsub_name, idx=idx)
-                fsub_list.append(fsub)
-            dat = op2.MixedDat(fsub.dat for fsub in fsub_list)
+                dat[i].assign(fsub.dat, eager=True)
             return Function(V, val=dat, name=name)
         elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
             # Load function space
