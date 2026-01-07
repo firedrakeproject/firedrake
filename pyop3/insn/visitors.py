@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import abc
-<<<<<<< HEAD
 from ctypes import Array
-=======
 import collections
 >>>>>>> connorjward/pyop3
 import functools
