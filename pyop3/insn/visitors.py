@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 from ctypes import Array
 import collections
->>>>>>> connorjward/pyop3
 import functools
 import itertools
 from itertools import zip_longest
@@ -116,12 +115,6 @@ class LoopContextExpander(InstructionTransformer):
     @process.register(insn_types.Exscan)  # for now assume we are fine
     def _(self, insn: insn_types.Instruction, /, **kwargs) -> insn_types.Instruction:
         return self.reuse_if_untouched(insn)
-
-@_expand_loop_contexts_rec.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
-    assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
-    expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
-    return assignment.__record_init__(_assignee=assignee, _expression=expression)
 
 
 # NOTE: This is a bad name for this transformation. 'expand_multi_component_loops'?
@@ -322,8 +315,8 @@ def _intent_as_access_type(intent):
 
 
 
-@expand_assignments.register(CalledFunction)
-def _(called_func: CalledFunction, /) -> InstructionList:
+@expand_assignments.register(insn_types.CalledFunction)
+def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
     bare_func_args = []
     pack_insns = []
     unpack_insns = []
@@ -363,7 +356,7 @@ def _(called_func: CalledFunction, /) -> InstructionList:
         pack_insns.extend(arg_pack_insns)
         unpack_insns.extend(arg_unpack_insns)
 
-    bare_called_func = StandaloneCalledFunction(called_func.function, bare_func_args)
+    bare_called_func = insn_types.StandaloneCalledFunction(called_func.function, bare_func_args)
     return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
 
 
@@ -416,7 +409,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #     raise NotImplementedError("think")
     #     return op3_insn.InstructionList([assignment])
 
-    bare_expression, extra_input_insns = _expand_reshapes(
+    bare_expression, expression_transform_insns = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
     )
 
