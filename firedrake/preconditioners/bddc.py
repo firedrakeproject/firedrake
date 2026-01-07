@@ -175,13 +175,18 @@ class BDDCPC(PCBase):
 
 
 class BrokenDirichletBC(DirichletBC):
-    def __init__(self, V, g, nodes):
-        self._nodes = nodes
-        super().__init__(V, g, nodes)
+    def __init__(self, bc):
+        self.bc = bc
+        V = bc.function_space().broken_space()
+        g = bc._original_arg
+        super().__init__(V, g, bc.sub_domain)
 
     @cached_property
     def nodes(self):
-        return self._nodes
+        u = Function(self.bc.function_space())
+        self.bc.set(u, 1)
+        u = broken_function(u.function_space(), val=u.dat)
+        return numpy.flatnonzero(u.dat.data)
 
 
 def create_matis(Amat, local_mat_type, cellwise=False):
@@ -214,14 +219,19 @@ def create_matis(Amat, local_mat_type, cellwise=False):
                               extra_domain_integral_type_map=extra_domain_integral_type_map)
 
     def local_bc(bc, cellwise):
-        u = Function(bc.function_space())
-        bc.set(u, 1)
+        V = bc.function_space()
+        Vsub = local_space(V, False)
+        sub_domain = list(bc.sub_domain)
+        if "on_boundary" in sub_domain:
+            valid_markers = set(V.mesh().unique().exterior_facets.unique_markers)
+            valid_markers &= set(Vsub.mesh().unique().exterior_facets.unique_markers)
+            sub_domain.extend(valid_markers)
+            sub_domain.remove("on_boundary")
+
+        bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
         if cellwise:
-            u = broken_function(u.function_space(), val=u.dat)
-        Vsub = local_space(bc.function_space(), cellwise)
-        usub = Function(Vsub).assign(u)
-        nodes = numpy.flatnonzero(usub.dat.data)
-        return BrokenDirichletBC(Vsub, 0, nodes)
+            bc = BrokenDirichletBC(bc)
+        return bc
 
     def local_to_global_map(V, cellwise):
         u = Function(V)
@@ -241,8 +251,8 @@ def create_matis(Amat, local_mat_type, cellwise=False):
 
     local_form = replace(form, {arg: local_argument(arg, cellwise) for arg in form.arguments()})
     local_form = Form(list(map(local_integral, local_form.integrals())))
-
     local_bcs = tuple(map(local_bc, bcs, repeat(cellwise)))
+
     assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
     tensor = assembler.assemble()
 
