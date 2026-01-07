@@ -531,7 +531,7 @@ class Dat(Tensor):
 
     def materialize(self) -> Dat:
         """Return a new "unindexed" array with the same shape."""
-        return type(self).null(self.axes.materialize().regionless, dtype=self.dtype, prefix="t")
+        return type(self).null(self.axes.materialize().localize(), dtype=self.dtype, prefix="t")
 
     def reshape(self, axes: AxisTree) -> Dat:
         """Return a reshaped view of the `Dat`.
@@ -594,5 +594,4 @@ class CompositeDat(Terminal):
 
     # }}}
 
-    dtype = IntType
-
+    dtpe = IntType

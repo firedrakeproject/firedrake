@@ -48,13 +48,14 @@ from functools import wraps
 from tempfile import mkstemp
 from typing import Any, Callable, Hashable
 
+from petsc4py import PETSc
+
+from pyop3 import utils
 from pyop3.config import CONFIG
 from pyop3.log import debug
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
-import pytools
-from petsc4py import PETSc
 
 
 _CACHE_CIDX = count()
@@ -143,7 +144,7 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
     if (
         CONFIG.spmd_strict
-        and not pytools.is_single_valued(comm.allgather(key))
+        and not utils.is_single_valued(comm.allgather(key))
     ):
         raise ValueError(
             f"Cache keys differ between ranks. On rank {comm.rank} got:\n{key}"
@@ -417,18 +418,6 @@ class DEFAULT_CACHE(dict):
     pass
 
 
-class NullCache:
-    def get(self, key, default=None):
-        return default
-
-    def setdefault(self, key, value):
-        return value
-
-
-
-NULL_CACHE = NullCache()
-
-
 # Example of how to instrument and use different default caches:
 # from functools import partial
 # EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
@@ -488,8 +477,8 @@ def parallel_cache(
             # when the wrapper exits
 
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                if heavy and _heavy_cache is None:
-                    cache = NULL_CACHE
+                if heavy and len(_heavy_caches) == 0:
+                    cache = utils.AlwaysEmptyDict()
                     value = CACHE_MISS
                 else:
                     # Get the right cache from the comm
@@ -503,7 +492,8 @@ def parallel_cache(
                             # The lifetime of the cache must be tied to the
                             # heavy cache object, so the comm should only hold
                             # a weakref.
-                            _heavy_cache[cache_id] = cache
+                            for heavy_cache in _heavy_caches.values():
+                                heavy_cache[cache_id] = cache
                             comm_caches[cache_id] = weakref.proxy(cache)
                         else:
                             comm_caches[cache_id] = cache
@@ -544,7 +534,7 @@ def parallel_cache(
                     # on their contents.
                     if (
                         CONFIG.spmd_strict
-                        and not pytools.is_single_valued(
+                        and not utils.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
                     ):
@@ -588,20 +578,9 @@ def memory_and_disk_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
     return decorator
 
 
-_heavy_cache = None
+_heavy_caches = weakref.WeakKeyDictionary()
 
 
-@contextlib.contextmanager
-def heavy_cache(obj: Any) -> None:
-    global _heavy_cache
-
-    if _heavy_cache is not None:
-        debug("A heavy cache has already been set, not overwriting it")
-        return
-
-    if not hasattr(obj, "_pyop3_heavy_cache"):
-        obj._pyop3_heavy_cache = {}
-
-    _heavy_cache = obj._pyop3_heavy_cache
-    yield
-    _heavy_cache = None
+def register_heavy_cache(obj: Any) -> None:
+    assert obj not in _heavy_caches
+    _heavy_caches[obj] = {}

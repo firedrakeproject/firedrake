@@ -140,6 +140,17 @@ class ValueMismatchException(Pyop3Exception):
     pass
 
 
+class AlwaysEmptyDict(dict):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def __setitem__(self, key, value, /) -> None:
+        pass
+
+    def setdefault(self, key, default=None, /):
+        return default
+
+
 class StrictlyUniqueDict(dict):
     """A dictionary where overwriting entries will raise an error."""
     def __setitem__(self, key, value, /) -> None:

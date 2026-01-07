@@ -4291,6 +4291,7 @@ def renumber_map_fixed(
 
 
 # TODO: petsc4py
+# NOTE: copy=False doesnt appear to work
 def is_on_comm(is_: PETSc.IS, comm: MPI.Comm, *, copy=True) -> PETSc.IS:
     new_is: PETSc.IS = PETSc.IS()
     copy_mode: PetscCopyMode = PETSC_COPY_VALUES if copy else PETSC_USE_POINTER

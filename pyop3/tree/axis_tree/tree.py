@@ -21,6 +21,7 @@ from itertools import chain
 from types import NoneType
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
 
+import cachetools
 import numpy as np
 from cachetools import cachedmethod
 from mpi4py import MPI
@@ -787,6 +788,12 @@ class EquivalentAxisTargetSet(tuple):
     pass
 
 
+def _getitem_cache_key(self, indices, *, strict=False) -> Hashable:
+    if isinstance(indices, list):
+        indices = tuple(indices)
+    return cachetools.keys.methodkey(self, indices, strict=strict)
+
+
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
 
     # {{{ abstract methods
@@ -837,17 +844,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self.getitem(indices, strict=False)
 
     # TODO: Cache this function.
+    @utils.cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.tree.index_tree.parse import as_index_forests
         from pyop3.tree.index_tree import index_axes
 
         if utils.is_ellipsis_type(indices):
             return self
-
-
-        # key = (indices, strict)
-        # if key in self._cache:
-        #     return self._cache[key]
 
         index_forests = as_index_forests(indices, axes=self, strict=strict)
 

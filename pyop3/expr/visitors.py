@@ -802,11 +802,17 @@ def _(dat, /) -> frozenset:
     return frozenset({dat})
 
 
-def materialize_composite_dat(composite_dat: expr_types.CompositeDat) -> expr_types.LinearDatBufferExpression:
-    axes = composite_dat.axis_tree
+mycount = 0
+debug = {}
 
-    # if mytree.size == 0:
-    #     return None
+@memory_cache(heavy=True)
+def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.Comm) -> expr_types.LinearDatBufferExpression:
+    # debugging
+    global mycount
+    mycount += 1
+    # print(f"MISS {mycount}", flush=True)
+
+    axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
     assert not big_tree._all_region_labels
@@ -867,6 +873,12 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat) -> expr_ty
         materialized_expr = expr_types.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+
+    # key = tuple(assignee.buffer.data)
+    # if key in debug:
+    #     breakpoint()  # hey, I found something
+    # else:
+    #     debug[key] = composite_dat
 
     return materialized_expr
 

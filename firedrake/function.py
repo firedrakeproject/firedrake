@@ -1,7 +1,6 @@
 import textwrap
 import numpy as np
 from functools import cached_property
-from pyop3.cache import heavy_cache
 import rtree
 import sys
 import ufl
@@ -452,15 +451,13 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         subset = parse_subset(subset)
 
-        # TODO: decorator?
-        with heavy_cache(self.function_space().mesh()):
-            if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-                self.dat.data_wo[...] = expr
-            elif expr == 0:
-                self.dat[subset].zero(eager=True)
-            else:
-                from firedrake.assign import Assigner
-                Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+        if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
+            self.dat.data_wo[...] = expr
+        elif expr == 0:
+            self.dat[subset].zero(eager=True)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):

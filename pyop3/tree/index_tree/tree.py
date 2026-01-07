@@ -495,11 +495,8 @@ class Slice(Index):
         return merge_dicts([s.datamap for s in self.components])
 
 
-# class DuplicateIndexException(Pyop3Exception):
-#     pass
-
-
-class Map(pytools.ImmutableRecord):
+@utils.frozenrecord()
+class Map:
     """
 
     Parameters
@@ -558,23 +555,21 @@ class Map(pytools.ImmutableRecord):
 
     """
 
-    fields = {"connectivity", "name"}
+    connectivity: idict
+    name: str  # should delete this
 
+    # a class var
     counter = 0
 
     def __init__(self, connectivity, name=None) -> None:
-        # if not has_unique_entries(k for m in maps for k in m.connectivity.keys()):
-        #     raise DuplicateIndexException("The keys for each map given to the multi-map may not clash")
-
-        super().__init__()
-        self.connectivity = idict(connectivity)
+        object.__setattr__(self, "connectivity", utils.freeze(connectivity))
 
         # TODO delete entirely
         if name is None:
             # lazy unique name
             name = f"_Map_{self.counter}"
             self.counter += 1
-        self.name = name
+        object.__setattr__(self, "name", name)
 
     def __call__(self, index):
         # If the input index is context-free then we should return something context-free
@@ -1174,7 +1169,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     if subset_loop_axes:
                         raise NotImplementedError
                     subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
-                    indices = materialize_composite_dat(subset_expr).buffer.buffer.data_ro
+                    indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)

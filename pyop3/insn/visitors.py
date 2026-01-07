@@ -441,9 +441,7 @@ MAX_COST_CONSIDERATION_FACTOR = 5
 
 
 @PETSc.Log.EventDecorator()
-@memory_cache(heavy=True, get_comm=lambda insn, **kwargs: insn.comm)
 def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
-    breakpoint()  # how often do i hit this? and why can't I reuse the result more?
     expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
     if not expr_candidates:
@@ -503,7 +501,7 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
     # Materialise any symbolic (composite) dats
     composite_dats = frozenset.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
-        comp_dat: expr_visitors.materialize_composite_dat(comp_dat)
+        comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
     best_candidate = {
