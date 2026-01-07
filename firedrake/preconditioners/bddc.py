@@ -9,7 +9,7 @@ from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative, unghosted_lgmap
+from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.utils import cached_property
@@ -74,8 +74,7 @@ class BDDCPC(PCBase):
         if P.type == "python":
             # Reconstruct P as MatIS
             cellwise = opts.getBool("cellwise", False)
-            lgmap = unghosted_lgmap(V, V.dof_dset.lgmap, allow_repeated=cellwise)
-            P, assembleP = create_matis(P, lgmap, lgmap, "aij", cellwise=cellwise)
+            P, assembleP = create_matis(P, "aij", cellwise=cellwise)
             assemblers.append(assembleP)
 
         if P.type != "is":
@@ -83,7 +82,7 @@ class BDDCPC(PCBase):
 
         if A.type == "python" and matfree:
             # Reconstruct A as MatIS
-            A, assembleA = create_matis(A, *P.getLGMap(), "matfree", cellwise=P.getISAllowRepeated())
+            A, assembleA = create_matis(A, "matfree", cellwise=P.getISAllowRepeated())
             assemblers.append(assembleA)
         bddcpc.setOperators(A, P)
         self.assemblers = assemblers
@@ -176,19 +175,16 @@ class BDDCPC(PCBase):
 
 
 class BrokenDirichletBC(DirichletBC):
-    def __init__(self, V, g, bc):
-        self.bc = bc
-        super().__init__(V, g, bc.sub_domain)
+    def __init__(self, V, g, nodes):
+        self._nodes = nodes
+        super().__init__(V, g, nodes)
 
     @cached_property
     def nodes(self):
-        u = Function(self.bc.function_space())
-        self.bc.set(u, 1)
-        u_broken = broken_function(u.function_space(), val=u.dat)
-        return numpy.flatnonzero(u_broken.dat.data_ro)
+        return self._nodes
 
 
-def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
+def create_matis(Amat, local_mat_type, cellwise=False):
     from firedrake.assemble import get_assembler
 
     def local_mesh(mesh):
@@ -208,30 +204,50 @@ def create_matis(Amat, rmap, cmap, local_mat_type, cellwise=False):
         element = BrokenElement(V.ufl_element()) if cellwise else None
         return V.reconstruct(mesh=mesh, element=element)
 
+    def local_argument(arg, cellwise):
+        return arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
+
+    def local_integral(it):
+        extra_domain_integral_type_map = dict(it.extra_domain_integral_type_map())
+        extra_domain_integral_type_map[it.ufl_domain()] = it.integral_type()
+        return it.reconstruct(domain=local_mesh(it.ufl_domain()),
+                              extra_domain_integral_type_map=extra_domain_integral_type_map)
+
     def local_bc(bc, cellwise):
-        V = local_space(bc.function_space(), cellwise)
+        u = Function(bc.function_space())
+        bc.set(u, 1)
         if cellwise:
-            return BrokenDirichletBC(V, 0, bc)
-        else:
-            return bc.reconstruct(V=V, g=0)
+            u = broken_function(u.function_space(), val=u.dat)
+        Vsub = local_space(bc.function_space(), cellwise)
+        usub = Function(Vsub).assign(u)
+        nodes = numpy.flatnonzero(usub.dat.data)
+        return BrokenDirichletBC(Vsub, 0, nodes)
+
+    def local_to_global_map(V, cellwise):
+        u = Function(V)
+        u.dat.data_wo[:] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+
+        Vsub = local_space(V, False)
+        usub = Function(Vsub).assign(u)
+        if cellwise:
+            usub = broken_function(usub.function_space(), val=usub.dat)
+        indices = usub.dat.data_ro.astype(PETSc.IntType)
+        return PETSc.LGMap().create(indices, comm=V.comm)
 
     assert Amat.type == "python"
     ctx = Amat.getPythonContext()
     form = ctx.a
     bcs = ctx.bcs
 
-    mesh = form.arguments()[0].function_space().mesh()
-    assert not mesh._did_reordering or len(form.coefficients()) == 0
-    repl = {arg: arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
-            for arg in form.arguments()}
-    local_form = replace(form, repl)
-
-    new_mesh = local_form.arguments()[0].function_space().mesh()
-    local_form = Form([it.reconstruct(domain=new_mesh) for it in local_form.integrals()])
+    local_form = replace(form, {arg: local_argument(arg, cellwise) for arg in form.arguments()})
+    local_form = Form(list(map(local_integral, local_form.integrals())))
 
     local_bcs = tuple(map(local_bc, bcs, repeat(cellwise)))
     assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
     tensor = assembler.assemble()
+
+    rmap = local_to_global_map(form.arguments()[0].function_space(), cellwise)
+    cmap = local_to_global_map(form.arguments()[1].function_space(), cellwise)
 
     Amatis = PETSc.Mat().createIS(Amat.getSizes(), comm=Amat.getComm())
     Amatis.setISAllowRepeated(cellwise)
