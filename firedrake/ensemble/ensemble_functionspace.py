@@ -2,12 +2,10 @@ from functools import cached_property
 from typing import Collection
 
 from ufl.duals import is_primal, is_dual
-from pyop3.mpi import internal_comm, MPI
+from pyop3.mpi import MPI
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
-
-__all__ = ("EnsembleFunctionSpace", "EnsembleDualSpace")
 
 
 def _is_primal_or_dual(local_spaces, ensemble):
@@ -83,13 +81,16 @@ class EnsembleFunctionSpaceBase:
     will return an instance of :class:`EnsembleDualSpace`.
 
     This class does not carry UFL symbolic information, unlike a
-    :class:`~firedrake.functionspaceimpl.FunctionSpace`. UFL expressions can only be defined locally
-    on each ensemble member using a :class:`~firedrake.functionspaceimpl.FunctionSpace` from
+    :class:`~firedrake.functionspace.FunctionSpace`. UFL expressions can only be defined locally
+    on each ensemble member using a :class:`~firedrake.functionspace.FunctionSpace` from
     `EnsembleFunctionSpace.local_spaces`.
 
-    See also:
-    - Primal ensemble objects: :class:`EnsembleFunctionSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleFunction`.
-    - Dual ensemble objects: :class:`EnsembleDualSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`.
+    See Also
+    --------
+    EnsembleFunctionSpace
+    EnsembleDualSpace
+    .ensemble_function.EnsembleFunction
+    .ensemble_function.EnsembleCofunction
     """
     def __init__(self, local_spaces: Collection, ensemble: Ensemble):
         meshes = set(V.mesh().unique() for V in local_spaces)
@@ -106,11 +107,6 @@ class EnsembleFunctionSpaceBase:
         # EnsembleFunctions/Cofunctions, we'll create (possibly mixed)
         # subfunctions that view the correct subfunctions of this big space.
         self._full_local_space = MixedFunctionSpace(self.local_spaces)
-
-        # ensemble._comm is congruent with ensemble.global_comm not ensemble.comm
-        # because obj._comm is used for garbage collection, so it needs to be the
-        # communicator that the ensemble objects are collective over.
-        self._comm = internal_comm(ensemble._comm, self)
 
     @property
     def ensemble(self):
@@ -143,7 +139,7 @@ class EnsembleFunctionSpaceBase:
         return self._local_spaces
 
     def mesh(self):
-        """The :class:`~firedrake.Mesh` on the local ensemble.comm.
+        """The :class:`~firedrake.mesh.Mesh` on the local ensemble.comm.
         """
         return self._mesh
 
@@ -156,7 +152,7 @@ class EnsembleFunctionSpaceBase:
 
     @cached_property
     def nlocal_spaces(self):
-        """The total number of subspaces across all ensemble ranks.
+        """The number of subspaces on this ensemble rank.
         """
         return len(self.local_spaces)
 
@@ -184,6 +180,12 @@ class EnsembleFunctionSpaceBase:
         """
         return self.ensemble_comm.allreduce(self.nlocal_comm_dofs)
 
+    @cached_property
+    def global_spaces_offset(self):
+        """Index of the first local subspace in the global mixed space.
+        """
+        return self.ensemble.ensemble_comm.exscan(self.nlocal_spaces) or 0
+
     def _component_indices(self, i):
         """
         Return the indices into the local mixed function storage
@@ -194,14 +196,18 @@ class EnsembleFunctionSpaceBase:
 
     def create_vec(self):
         """Return a PETSc Vec on the ``Ensemble.global_comm`` with the same layout
-        as a :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunction`
-        or :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleCofunction`
+        as an :class:`~firedrake.ensemble.ensemble_function.EnsembleFunction`
+        or :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`
         in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
-        vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))
+        vec.setSizes((self.nlocal_rank_dofs, self.nglobal_dofs))
         vec.setUp()
         return vec
+
+    @cached_property
+    def layout_vec(self):
+        return self.create_vec()
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):

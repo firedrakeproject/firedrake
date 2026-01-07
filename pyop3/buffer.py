@@ -164,7 +164,7 @@ class NullBuffer(AbstractArrayBuffer):
     is_nested: ClassVar[bool] = False
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return MPI.COMM_SELF
 
     # }}}
@@ -206,6 +206,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     sf: StarForest
     _name: str
     _constant: bool
+    _rank_equal: bool
     _ordered: bool
 
     _max_value: np.number | None = None
@@ -217,22 +218,32 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
-        if ordered:
-            utils.debug_assert(lambda: (data == np.sort(data)).all())
+
+        if rank_equal and not constant:
+            raise ValueError
 
         self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
+        self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert self.sf.size == self.size
+        if self.rank_equal:
+            assert self.constant
+        if self.ordered:
+            utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
 
     # }}}
 
@@ -246,6 +257,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
+    rank_equal: ClassVar[property] = utils.attr("_rank_equal")  # TODO: make an abstract property
     state: ClassVar[property] = utils.attr("_state")
     max_value: ClassVar[property] = utils.attr("_max_value")
     ordered: ClassVar[property] = utils.attr("_ordered")
@@ -278,8 +290,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.sf.user_comm if self.sf is not None else MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm if self.sf is not None else MPI.COMM_SELF
 
     # }}}
 
@@ -312,12 +324,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         data = np.full(size, fill_value, dtype=dtype)
         return cls(data, **kwargs)
 
-    # }}}
+    @classmethod
+    def from_scalar(cls, value: numbers.Number, **kwargs):
+        data = np.array([value])
+        return cls(data, **kwargs)
 
-    @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm | None:
-        return self.internal_comm
+    # }}}
 
     # @property
     # @not_in_flight
@@ -621,6 +633,8 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     DEFAULT_PREFIX = "petscmat"
 
     dtype = ScalarType
+    constant = False
+    rank_equal = False
 
     @property
     @abc.abstractmethod
@@ -659,7 +673,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         return handle_
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return self.mat.comm.tompi4py()
 
     # }}}
@@ -716,8 +730,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
                 mat_context = RowDatPythonMatContext.from_spec(row_axes, column_axes)
             else:
                 mat_context = ColumnDatPythonMatContext.from_spec(row_axes, column_axes)
-            mat = PETSc.Mat().createPython(mat_context.sizes, comm=mat_context.comm)
-            mat.setPythonContext(mat_context)
+            mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=mat_context.comm)
         else:
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
@@ -888,5 +901,5 @@ class BufferRef(DistributedObject):
         return self.buffer.handle(nest_indices=self.nest_indices)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm

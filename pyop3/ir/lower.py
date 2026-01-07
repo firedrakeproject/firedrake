@@ -26,6 +26,7 @@ import pymbolic as pym
 from immutabledict import immutabledict as idict
 
 from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi
+from pyop3.cache import memory_and_disk_cache
 from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
@@ -55,14 +56,6 @@ from pyop3.insn.base import (
     Loop,
     InstructionList,
 )
-from pyop3.utils import (
-    StrictlyUniqueDict,
-    UniqueNameGenerator,
-    as_tuple,
-    just_one,
-    merge_dicts,
-    strictly_all,
-)
 
 import pyop3.extras.debug
 
@@ -76,16 +69,6 @@ LOOPY_LANG_VERSION = (2018, 2)
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
-
-
-class CodeGenerationException(exc.Pyop3Exception):
-    pass
-
-
-@dataclasses.dataclass(frozen=True)
-class GlobalBufferArgSpec:
-    buffer: ConcreteBuffer
-    intent: Intent
 
 
 class CodegenContext(abc.ABC):
@@ -102,7 +85,7 @@ class LoopyCodegenContext(CodegenContext):
         self._within_inames = frozenset()
         self._last_insn_id = None
 
-        self._name_generator = UniqueNameGenerator()
+        self._name_generator = utils.UniqueNameGenerator()
 
         # buffer name -> name in kernel
         self._kernel_names = {}
@@ -217,22 +200,21 @@ class LoopyCodegenContext(CodegenContext):
                 return self._kernel_names[buffer_key]
 
             if isinstance(buffer_ref.handle, np.ndarray):
+                # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
+                # that it is correctly included in the cache key).
                 # Inject constant buffer data into the generated code if sufficiently small
-                # NOTE: We conflate 2 concepts for constant-ness here:
-                # * The array cannot be modified
-                # * The array is the same between ranks
-                if (
-                    buffer.constant
-                    and isinstance(buffer.size, numbers.Integral)
-                    and buffer.size < CONFIG.max_static_array_size
-                ):
-                    return self.add_temporary(
-                        "t",
-                        buffer.dtype,
-                        initializer=buffer.data_ro,
-                        shape=buffer.data_ro.shape,
-                        read_only=True,
-                    )
+                # if (
+                #     buffer.rank_equal
+                #     and isinstance(buffer.size, numbers.Integral)
+                #     and buffer.size < CONFIG.max_static_array_size
+                # ):
+                #     return self.add_temporary(
+                #         "t",
+                #         buffer.dtype,
+                #         initializer=buffer.data_ro,
+                #         shape=buffer.data_ro.shape,
+                #         read_only=True,
+                #     )
 
                 if isinstance(buffer.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
@@ -342,7 +324,7 @@ class CompiledCodeExecutor:
 
     @cached_property
     def executable(self):
-        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
+        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
         """
@@ -376,9 +358,8 @@ class CompiledCodeExecutor:
             buffers[index].inc_state()
 
         # if len(self.loopy_code.callables_table) > 1 and "expression" in str(self):
-        # if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
         #     breakpoint()
-        #     pyop3.extras.debug.maybe_breakpoint("submesh")
+        # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
 
         if self.comm.size > 1:
@@ -664,61 +645,48 @@ class SolveCallable(LACallable):
         yield ("solve", solve_preamble)
 
 
-class BinarySearchCallable(lp.ScalarCallable):
-    def __init__(self, name="bsearch", **kwargs):
-        super().__init__(name, **kwargs)
-
-    def with_types(self, arg_id_to_dtype, callables_table):
-        new_arg_id_to_dtype = arg_id_to_dtype.copy()
-        new_arg_id_to_dtype[-1] = int
-        return (
-            self.copy(name_in_target="bsearch", arg_id_to_dtype=new_arg_id_to_dtype),
-            callables_table,
-        )
-
-    def with_descrs(self, arg_id_to_descr, callables_table):
-        return self.copy(arg_id_to_descr=arg_id_to_descr), callables_table
-
-    def emit_call_insn(self, insn, target, expression_to_code_mapper):
-        assert False
-        from pymbolic import var
-
-        mat_descr = self.arg_id_to_descr[0]
-        m, n = mat_descr.shape
-        ecm = expression_to_code_mapper
-        mat, vec = insn.expression.parameters
-        (result,) = insn.assignees
-
-        c_parameters = [
-            var("CblasRowMajor"),
-            var("CblasNoTrans"),
-            m,
-            n,
-            1,
-            ecm(mat).expr,
-            1,
-            ecm(vec).expr,
-            1,
-            ecm(result).expr,
-            1,
-        ]
-        return (
-            var(self.name_in_target)(*c_parameters),
-            False,  # cblas_gemv does not return anything
-        )
-
-    def generate_preambles(self, target):
-        assert isinstance(target, lp.CTarget)
-        yield ("20_stdlib", "#include <stdlib.h>")
-        return
-
-
-# prefer generate_code?
-def compile(expr, compiler_parameters=None):
-    insn = expr
-
+# TODO: prefer generate_code?
+def compile(op, compiler_parameters=None):
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
+    expected = "(<class 'pyop3.insn.base.ConcretizedNonEmptyArrayAssignment'>, (<class 'pyop3.expr.buffer.NonlinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_7', dtype('float64')), ()), immutabledict({'layouts': immutabledict({immutabledict({'firedrake_default_topology': 2, 'dof2': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_1', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_0', (2, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_0', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_1', ('XXX', (0,))), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))})), immutabledict({'firedrake_default_topology': 0, 'dof0': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_4', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_4', (0, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_3', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_5', ('XXX', (1,))), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))})), immutabledict({'firedrake_default_topology': 1, 'dof1': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_6', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_6', (1, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_5', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_7', ('XXX', None)), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))}))})})), (<class 'pyop3.expr.buffer.NonlinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_8', dtype('float64')), ()), immutabledict({'layouts': immutabledict({immutabledict({'firedrake_default_topology': 2, 'dof2': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_1', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_0', (2, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_0', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_1', ('XXX', (0,))), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))})), immutabledict({'firedrake_default_topology': 0, 'dof0': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_4', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_4', (0, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_3', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_5', ('XXX', (1,))), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))})), immutabledict({'firedrake_default_topology': 1, 'dof1': 'XXX', 'dim0': 'XXX', 'dim1': 'XXX'}): (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.base.Add'>, immutabledict({'a': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_2', dtype('int64')), ()), immutabledict({'layout': (<class 'pyop3.expr.buffer.LinearDatBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_6', dtype('int32')), ()), immutabledict({'layout': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_6', (1, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_5', dtype('int64')), ()), immutabledict({})))), (None,)))}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_7', ('XXX', None)), (None,))), 'b': (4,)}))})), 'b': (<class 'pyop3.expr.base.Mul'>, immutabledict({'a': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', (2,))), (None,))), 'b': (2,)}))})), 'b': (<class 'pyop3.expr.base.AxisVar'>, ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', None)), (None,)))}))})})), <AssignmentType.WRITE: 'write'>, (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_8', (2, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_9', dtype('int64')), ()), immutabledict({}))), (0, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_10', dtype('int64')), ()), immutabledict({}))), (1, (<class 'pyop3.expr.buffer.ScalarBufferExpression'>, ((<class 'pyop3.buffer.ArrayBuffer'>, 'ArrayBuffer_11', dtype('int64')), ()), immutabledict({})))), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_1', ('XXX', (0,))), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', None)), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', (2,))), (None,)),)),)), ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_5', ('XXX', (1,))), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', None)), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', (2,))), (None,)),)),)), ((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_7', ('XXX', None)), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_2', ('XXX', None)), (((<class 'pyop3.tree.axis_tree.tree.Axis'>, 'Axis_3', ('XXX', (2,))), (None,)),)),)))),))"
+
+    loopy_code, buffer_index_map = _compile_static(op, compiler_parameters)
+    if str(op.disk_cache_key) == expected:
+        from pyop3.tree.axis_tree.visitors import DiskCacheKeyGetter
+        mykey = DiskCacheKeyGetter()(op.root_insn.axis_trees[0])
+        breakpoint()
+
+    # TODO: The handling of nest indices here is very confused
+    sorted_buffers = {}
+    for kernel_arg_name, buffer_info in buffer_index_map.items():
+        buffer_index, nest_indices, intent = buffer_info
+        global_buffer = op.buffers[buffer_index]
+        sorted_buffers[kernel_arg_name] = (BufferRef(global_buffer, nest_indices), intent)
+
+    return CompiledCodeExecutor(loopy_code, sorted_buffers, compiler_parameters, op.comm)
+
+
+def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+    return (op.disk_cache_key, compiler_parameters, CONFIG)
+
+
+@memory_and_disk_cache(
+    hashkey=_compile_static_hashkey,
+    get_comm=lambda op, *args, **kwargs: op.comm,
+)
+def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> tuple:
+    """Compile the operation without regard for specific data values.
+
+    This function is therefore suitable for disk caching.
+
+    Returns
+    -------
+    TU
+    datamap
+
+    """
+    insn = op.root_insn
     # function_name = insn.name
     function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
@@ -737,23 +705,8 @@ def compile(expr, compiler_parameters=None):
         # add external loop indices as kernel arguments
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
-        # for index, (path, _) in context.items():
-        #     if len(path) > 1:
-        #         raise NotImplementedError("needs to be sorted")
-        #
-        #     # dummy = Dat(index.iterset, data=NullBuffer(IntType))
-        #     dummy = Dat(Axis(1), dtype=IntType)
-        #     # this is dreadful, pass an integer array instead
-        #     ctx.add_argument(dummy)
-        #     myname = ctx.actual_to_kernel_rename_map[dummy.name]
-        #     replace_map = {
-        #         axis: pym.subscript(pym.var(myname), (i,))
-        #         for i, axis in enumerate(path.keys())
-        #     }
-        #     # FIXME currently assume that source and target exprs are the same, they are not!
-        #     loop_indices[index] = (replace_map, replace_map)
 
-        for e in as_tuple(ex): # TODO: get rid of this loop
+        for e in utils.as_tuple(ex): # TODO: get rid of this loop
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
@@ -779,19 +732,6 @@ def compile(expr, compiler_parameters=None):
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
-        (
-            "30_bsearch",
-            textwrap.dedent(
-                """
-                #include <stdlib.h>
-
-
-                int32_t cmpfunc(const void * a, const void * b) {
-                   return ( *(int32_t*)a - *(int32_t*)b );
-                }
-            """
-            ),
-        ),
     ]
 
     translation_unit = lp.make_kernel(
@@ -814,14 +754,17 @@ def compile(expr, compiler_parameters=None):
         entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
-    sorted_buffers = {}
+    buffer_index_map = {}
     for kernel_arg in entrypoint.args:
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
-        sorted_buffers[kernel_arg.name] = (context.global_buffers[buffer_key], context.global_buffer_intents[buffer_key])
+        buffer_ref = context.global_buffers[buffer_key]
+        buffer_index = op.buffers.index(buffer_ref.buffer)
+        intent = context.global_buffer_intents[buffer_key]
+        buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
 
-    return CompiledCodeExecutor(translation_unit, sorted_buffers, compiler_parameters, expr.internal_comm)
+    return translation_unit, buffer_index_map
+
 
 
 # put into a class in transform.py?
@@ -832,7 +775,7 @@ def _collect_temporary_shapes(expr):
 
 @_collect_temporary_shapes.register(InstructionList)
 def _(insn_list: InstructionList, /) -> idict:
-    return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+    return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
 @_collect_temporary_shapes.register(Loop)
@@ -920,7 +863,7 @@ def parse_loop_properly_this_time(
             )
         return
 
-    if strictly_all(x is None for x in {axis, path, iname_map}):
+    if utils.strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
         path = idict()
         iname_map = idict()
@@ -946,31 +889,25 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         with codegen_context.within_inames(within_inames):
-            # NOTE: The following bit is done for each axis, not sure if that's right or if
-            # we should handle at the bottom
-            loop_exprs = StrictlyUniqueDict()
-            for index_exprs in axes.index_exprs:
-                for axis_label, index_expr in index_exprs.get(path_, {}).items():
-                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = idict(loop_exprs)
-
             if subaxis := axes.node_map[path_]:
                 parse_loop_properly_this_time(
                     loop,
                     axes,
-                    # I think we only want to do this at the end of the traversal
-                    loop_indices | dict(loop_exprs),
-                    # loop_indices,
+                    loop_indices,
                     codegen_context,
                     axis=subaxis,
                     path=path_,
                     iname_map=iname_replace_map_,
                 )
             else:
+                loop_indices |= idict({
+                    (loop.index.id, axis_label): iname
+                    for axis_label, iname in iname_replace_map_.items()
+                })
                 for statement in loop.statements:
                     _compile(
                         statement,
-                        loop_indices | dict(loop_exprs),
+                        loop_indices,
                         codegen_context,
                     )
 
@@ -1056,27 +993,8 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
-    if isinstance(expr, numbers.Number):
-        # If we have an expression like
-        #
-        #     mat[f(p), f(p)] <- 666
-        #
-        # then we have to convert `666` into an appropriately sized temporary
-        # for Mat{Get,Set}Values to work.
-        # TODO: There must be a more elegant way of doing this
-        nrows = row_axis_tree.max_size
-        ncols = column_axis_tree.max_size
-        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
-
-        # if isinstance(nrows, numbers.Integral) and isinstance(ncols, numbers.Integral):
-        # else:
-        #     pyop3.extras.debug.warn_todo("Need expr.materialize() or similar to get the max size")
-        #     max_size = 36  # assume that this is OK
-        #     expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
-        array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
-    else:
-        assert isinstance(expr, op3_expr.BufferExpression)
-        array_buffer = expr.buffer
+    assert isinstance(expr, op3_expr.BufferExpression)
+    array_buffer = expr.buffer
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
@@ -1116,6 +1034,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     # which is what Mat{Get,Set}Values() needs.
     layout_exprs = []
     for layout in [mat.row_layout, mat.column_layout]:
+        # FIXME: this isn't happening for some boundary conditions, composite dats should probably always be nonlinear so they dont throw away info
         assert isinstance(layout, NonlinearDatBufferExpression)
         subst_sublayout = layout.layouts[idict()]
         subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
@@ -1358,14 +1277,14 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 @_lower_expr.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     try:
-        return just_one(iname_maps)[axis_var.axis_label]
+        return utils.just_one(iname_maps)[axis_var.axis.label]
     except KeyError:
         breakpoint()  # debug
 
 
 @_lower_expr.register(op3_expr.LoopIndexVar)
 def _(loop_var: op3_expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
-    return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
+    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 
 @_lower_expr.register(op3_expr.Scalar)
@@ -1388,7 +1307,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, con
 
 @_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
 def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
-    path = just_one(paths)
+    path = utils.just_one(paths)
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
@@ -1461,10 +1380,8 @@ def _(expr: op3_expr.Expression, inames, loop_indices, context):
     return extent_name
 
 
-# FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a
-# compilation comm at a higher point.
 # NOTE: A lot of this is more generic than just loopy, try to refactor
-def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
+def compile_loopy(translation_unit, *, pyop3_compiler_parameters, comm):
     """Build a shared library and return a function pointer from it.
 
     :arg jitmodule: The JIT Module which can generate the code to compile, or
@@ -1506,8 +1423,7 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
         cppargs += ("-DLIKWID_PERFMON",)
         ldargs += ("-llikwid",)
 
-    # TODO: needs the right comm
-    dll = load(code, "c", cppargs, ldargs, mpi.COMM_SELF)
+    dll = load(code, "c", cppargs, ldargs, comm=comm)
 
     if pyop3_compiler_parameters.add_petsc_event:
         # Create the event in python and then set in the shared library to avoid

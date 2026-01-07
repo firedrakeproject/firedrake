@@ -1,10 +1,9 @@
 import pytest
+import numpy as np
 
 from firedrake import *
 from firedrake.adjoint import *
 from pytest_mpi.parallel_assert import parallel_assert
-
-from numpy.random import rand
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +65,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -283,3 +282,31 @@ def test_real_space_parallel():
     Jhat = ReducedFunctional(J, Control(m))
     opt = minimize(Jhat)
     parallel_assert(np.allclose(opt.dat.data_ro, 1))
+
+
+@pytest.mark.parametrize("riesz_representation", ["l2", "L2", "H1"])
+@pytest.mark.skipcomplex
+def test_ad_dot(riesz_representation):
+    mesh = IntervalMesh(10, 0, 1)
+    V = FunctionSpace(mesh, "Lagrange", 1)
+
+    c = Constant(1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0])
+
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Constant(1), "on_boundary")
+
+    F = inner(grad(u), grad(v))*dx - f**2*v*dx
+    solve(F == 0, u, bc)
+
+    J = assemble(c**2*u*dx)
+    Jhat = ReducedFunctional(J, Control(f, riesz_map=riesz_representation))
+    dJhat = Jhat.derivative(apply_riesz=True)
+
+    h = Function(V)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
+    assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9

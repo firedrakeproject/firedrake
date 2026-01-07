@@ -27,6 +27,7 @@ from pyop3.tree.axis_tree import (
 )
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
+from pyop3.expr.base import Terminal
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
 from pyop3.exceptions import Pyop3Exception
@@ -102,10 +103,7 @@ class Dat(Tensor):
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
-        try:
-            assert buffer.size == axes.unindexed.local_size
-        except:
-            breakpoint()
+        assert buffer.size == axes.unindexed.local_max_size
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -138,21 +136,25 @@ class Dat(Tensor):
     dim = 1
 
     @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm:
-        return self.internal_comm
-
-    @cached_property
-    def shape(self) -> tuple[AxisTree]:
-        return (self.axes.materialize(),)
-
-    @property
     def axis_trees(self) -> tuple[AbstractAxisTree]:
         return (self.axes,)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
+
+    # TODO: global_max as well (can remove some code from Gusto)
+    @property
+    def local_max(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "max")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_extremum
+
+        return get_extremum(self, "min")
 
     # }}}
 
@@ -161,7 +163,7 @@ class Dat(Tensor):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.empty(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -171,7 +173,7 @@ class Dat(Tensor):
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.zeros(axes.unindexed.local_max_size, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -181,20 +183,23 @@ class Dat(Tensor):
     @classmethod
     def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
+        buffer = ArrayBuffer.full(axes.unindexed.local_max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype, **buffer_kwargs)
+        buffer = NullBuffer(axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+        from pyop3 import Scalar
+
         buffer_kwargs = buffer_kwargs or {}
 
-        axes = Axis(array.size)
+        # NOTE: Should this size *always* be a Scalar?
+        axes = Axis(Scalar(array.size))
         buffer = ArrayBuffer(array, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
@@ -516,11 +521,6 @@ class Dat(Tensor):
         return lvec.array
 
 
-    # TODO: deprecate this and just look at axes
-    @property
-    def outer_loops(self):
-        return self.axes.outer_loops
-
     @property
     def sf(self):
         return self.buffer.sf
@@ -558,33 +558,31 @@ class Dat(Tensor):
         return self.__record_init__(axes=axes)
 
 
-# should inherit from _Dat
-# or at least be an Expression!
-# this is important because we need to have shape and loop_axes
-class CompositeDat(abc.ABC):
+@utils.frozenrecord()
+class CompositeDat(Terminal):
 
-    dtype = IntType
+    # {{{ instance attrs
 
-    # {{{ abstract methods
+    axis_tree: AxisTree
+    exprs: idict[ConcretePathT, ExpressionT]
+
+    def __init__(self, axis_tree, exprs) -> None:
+        assert len(axis_tree._all_region_labels) == 0
+        exprs = idict(exprs)
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "exprs", exprs)
+
+    # }}}
+
+    # {{{ interface impls
 
     @property
-    @abc.abstractmethod
-    def axis_tree(self) -> AxisTree:
-        pass
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
 
     @property
-    @abc.abstractmethod
-    def loop_indices(self) -> tuple[LoopIndex, ...]:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def exprs(self) -> idict:
-        pass
-
-    # @abc.abstractmethod
-    # def __str__(self) -> str:
-    #     pass
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
 
     @property
     def _full_str(self):
@@ -592,118 +590,5 @@ class CompositeDat(abc.ABC):
 
     # }}}
 
-    @property
-    def shape(self) -> tuple[AxisTree]:
-        return (self.axis_tree,)
-
-    @property
-    def loop_axes(self):
-        return idict({
-            loop_index: tuple(axis.localize() for axis in loop_index.iterset.nodes)
-            for loop_index in self.loop_indices
-        })
-
-    @property
-    def loop_tree(self):
-        return self._loop_tree_and_replace_map[0]
-
-    @property
-    def loop_replace_map(self):
-        return self._loop_tree_and_replace_map[1]
-
-    @cached_property
-    def _loop_tree_and_replace_map(self) -> AxisTree:
-        from ..base import get_loop_tree
-
-        return get_loop_tree(self)
-
-    @cached_property
-    def loopified_axis_tree(self) -> AxisTree:
-        """Return the fully materialised axis tree including loops."""
-        return loopified_shape(self)[0]
-
-    @cached_property
-    def loop_vars(self) -> tuple[LoopIndexVar, ...]:
-        vars = []
-        for loop_index in self.loop_indices:
-            assert loop_index.iterset.is_linear
-            for loop_axis in loop_index.iterset.nodes:
-                vars.append(LoopIndexVar(loop_index, loop_axis.localize()))
-        return tuple(vars)
-
-
-@utils.frozenrecord()
-class LinearCompositeDat(CompositeDat):
-
-    # {{{ instance attrs
-
-    _axis_tree: AxisTree
-    # TODO: This should arguably only be the leaf expression
-    _exprs: Any
-    _loop_indices: tuple[Axis]
-
-    # }}}
-
-    # {{{ interface impls
-
-    axis_tree = utils.attr("_axis_tree")
-    exprs = utils.attr("_exprs")
-    loop_indices = utils.attr("_loop_indices")
-
-    # @property
-    # def exprs(self) -> idict:
-    #     return idict({self.axis_tree.leaf_path: self.leaf_expr})
-
-    # }}}
-
-    def __init__(self, axis_tree, exprs, loop_indices):
-        loop_indices = tuple(loop_indices)
-
-        assert axis_tree.is_linear
-        assert all(isinstance(index, LoopIndex) for index in loop_indices)
-        assert len(axis_tree._all_region_labels) == 0
-        assert utils.has_unique_entries(loop_indices)
-
-        object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "_exprs", exprs)
-        object.__setattr__(self, "_loop_indices", loop_indices)
-
-    def __str__(self) -> str:
-        return f"<{self.exprs[self.axis_tree.leaf_path]}>"
-
-
-@utils.frozenrecord()
-class NonlinearCompositeDat(CompositeDat):
-
-    # {{{ instance attrs
-
-    _axis_tree: AxisTree
-    _exprs: idict
-    _loop_indices: tuple[LoopIndex]
-
-    # }}}
-
-    # {{{ interface impls
-
-    axis_tree = utils.attr("_axis_tree")
-    exprs: ClassVar[idict] = utils.attr("_exprs")
-    loop_indices = utils.attr("_loop_indices")
-
-    # }}}
-
-    def __init__(self, axis_tree, exprs, loop_indices):
-        assert all(isinstance(index, LoopIndex) for index in loop_indices)
-        assert len(axis_tree._all_region_labels) == 0
-        assert utils.has_unique_entries(loop_indices)
-
-        exprs = idict(exprs)
-        loop_indices = tuple(loop_indices)
-
-        object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "_exprs", exprs)
-        object.__setattr__(self, "_loop_indices", loop_indices)
-
-    # def __str__(self) -> str:
-    #     return f"acc({self.expr})"
-
+    dtype = IntType
 

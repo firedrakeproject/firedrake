@@ -6,8 +6,9 @@ import typing
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.buffer import ArrayBuffer
 from pyop3.dtypes import IntType
-from pyop3.expr import Dat, AxisVar, LoopIndexVar
+from pyop3.expr import Dat, AxisVar, LoopIndexVar, ScalarBufferExpression
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
 from pyop3.insn import Loop
 from pyop3.tree import AbstractAxisTree, AxisTree, UNIT_AXIS_TREE
@@ -41,6 +42,7 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 
 
 def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, component_label: ComponentLabelT):
+    from pyop3 import Scalar
     from pyop3.expr.visitors import replace_terminals, replace
 
     path = as_path(path)
@@ -56,11 +58,9 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
     else:
         subtree_size = 1
 
-    # the size is the sum of the array...
-
     # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
     # Therefore the right thing to do is to sum the internal bits.
-    if not isinstance(subtree_size, numbers.Integral):
+    if not isinstance(subtree_size, numbers.Integral | Scalar | ScalarBufferExpression):
         # Consider the following cases:
         #
         # Example 1:
@@ -103,7 +103,7 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
             all_axes = subtree_size_axes
         else:
             # current axis not used, just pass it up
-            return component.local_size * subtree_size
+            return component.size * subtree_size
         assert all_axes.is_linear
 
         component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize()
@@ -132,7 +132,14 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
 
 
         if component_size_axes is UNIT_AXIS_TREE:
-            return utils.just_one(component_size.buffer.buffer._data)
+            # ick way to make sure that if we have sizes wrapped up into Scalars that this
+            # gets passed up
+            mysize = utils.just_one(component_size.buffer.buffer._data)
+            if not isinstance(subtree_size, numbers.Integral):
+                sbuf = ArrayBuffer.from_scalar(mysize, constant=True)
+                mysize = ScalarBufferExpression(sbuf)
+            return mysize
+
         else:
             loop_to_axis_var_replace_map_ = utils.invert_mapping(axis_to_loop_var_replace_map)
             XXX = replace(component_size, loop_to_axis_var_replace_map_)
@@ -140,6 +147,6 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
             axis_to_loop_var_replace_map = utils.invert_mapping(outer_loop_to_axis_var_replace_map)
             return replace(XXX, axis_to_loop_var_replace_map)
     else:
-        return component.local_size * subtree_size
+        return component.size * subtree_size
 
 

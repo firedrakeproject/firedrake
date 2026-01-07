@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+import contextlib
 import dataclasses
 import functools
 import itertools
@@ -11,6 +12,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
 from typing import Any
 
+import cachetools
 import numpy as np
 import pytools
 from immutabledict import immutabledict
@@ -33,6 +35,15 @@ This is important in cases where the more traditional `None` is actually
 meaningful.
 
 """
+
+
+_nothing = object()
+"""Sentinel value indicating nothing should be done.
+
+This is useful in cases where `None` holds some meaning.
+
+"""
+
 
 
 class UnorderedCollectionException(Pyop3Exception):
@@ -131,40 +142,34 @@ class ValueMismatchException(Pyop3Exception):
 
 class StrictlyUniqueDict(dict):
     """A dictionary where overwriting entries will raise an error."""
-
     def __setitem__(self, key, value, /) -> None:
         if key in self and value != self[key]:
             raise ValueMismatchException
         return super().__setitem__(key, value)
 
-    # def update(self, other) -> None:
-    #     shared_keys = self.keys() & other.keys()
-    #     if len(shared_keys) > 0:
-    #         raise ValueMismatchException
-    #     super().update(other)
+
+class StrictlyUniqueDefaultDict(collections.defaultdict):
+    def __setitem__(self, key, value, /) -> None:
+        if key in self and value != self[key]:
+            raise ValueMismatchException
+        return super().__setitem__(key, value)
 
 
+# NOTE: This has a lot of scope for improvements
+class UniqueList(list):
+    def append(self, value, /) -> None:
+        if value in self:
+            raise ValueMismatchException
+        return super().append(value)
 
-class OrderedSet(collections.abc.Sequence):
-    """A mutable ordered set."""
 
-    def __init__(self, values=None, /) -> None:
-        # Python dicts are ordered so we use one to keep the ordering
-        # and also have O(1) access.
-        # self._values = {}
-
-        # actually sometimes we have non-hashable things (PETSc Mats), so use a list
-        # NOTE: This is very unsatisfying
-        if values is not None:
-            self._values = list(values)
-        else:
-            self._values = []
+class AbstractOrderedSet:
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._values!r})"
 
     def __str__(self) -> str:
-        return f"{{{', '.join(self._values)}}})"
+        return f"{{{', '.join(map(str, self._values))}}}"
 
     def __len__(self) -> int:
         return len(self._values)
@@ -185,18 +190,40 @@ class OrderedSet(collections.abc.Sequence):
     def __reversed__(self):
         return iter(reversed(self._values))
 
-    def __or__(self, other, /) -> OrderedSet:
-        # NOTE: other must be iterable
-        merged = self.copy()
+    def __or__(self, other, /) -> Self:
+        assert is_ordered_sequence(other)
+        values = list(self._values)
         for item in other:
-            merged.add(item)
-        return merged
+            if item not in values:
+                values.append(item)
+        return type(self)(values)
+
+    def union(self, /, *others) -> Self:
+        new = self
+        for other in others:
+            new |= other
+        return new
+
+    def index(self, value, /) -> Any:
+        return self._values.index(value)
+
+
+class OrderedSet(AbstractOrderedSet):
+    """A mutable ordered set."""
+
+    def __init__(self, values=None, /) -> None:
+        if values is not None:
+            self._values = list(values)
+        else:
+            self._values = []
+
 
     def index(self, value) -> int:
         return self._values.index(value)
 
     def count(self, value) -> int:
-        return 1
+        # why did I write this?
+        raise NotImplementedError
 
     def copy(self) -> OrderedSet:
         return OrderedSet(self._values)
@@ -207,8 +234,17 @@ class OrderedSet(collections.abc.Sequence):
             self._values.append(value)
 
 
-def as_tuple(item):
-    if isinstance(item, collections.abc.Sequence):
+class OrderedFrozenSet(AbstractOrderedSet):
+
+    def __init__(self, values: collections.abc.Sequence = (), /) -> None:
+        self._values = tuple(values)
+
+    def __hash__(self) -> int:
+        return hash((type(self), self._values))
+
+
+def as_tuple(item: Any) -> tuple[Any, ...]:
+    if isinstance(item, collections.abc.Iterable):
         return tuple(item)
     else:
         return (item,)
@@ -278,6 +314,17 @@ def has_unique_entries(iterable):
     return len(unique(it1)) == len(list(it2))
 
 
+def is_sorted(array: np.ndarray) -> np.bool:
+    """
+    Notes
+    -----
+    This function works even for empty arrays, which are reported as being
+    sorted.
+
+    """
+    return np.all(array[:-1] <= array[1:])
+
+
 def reduce(func, *args, **kwargs):
     if isinstance(func, str):
         match func:
@@ -324,21 +371,31 @@ def strictly_all(iterable):
     return result
 
 
-def just_one(iterable):
-    iterator = iter(iterable)
+def just_one(iterable: collections.abc.Iterable, key: Hashable = _nothing) -> Any:
+    if isinstance(iterable, collections.abc.Mapping):
+        assert key is not _nothing, "key needed"
+        iterable = dict(iterable)
+        value = iterable.pop(key)
 
-    try:
-        first = next(iterator)
-    except StopIteration:
-        breakpoint()
-        raise ValueError("Empty iterable found")
+        assert not iterable
+        return value
 
-    try:
-        second = next(iterator)
-    except StopIteration:
-        return first
+    else:
+        assert key is _nothing, "only for dicts"
+        iterator = iter(iterable)
 
-    raise ValueError("Too many values")
+        try:
+            first = next(iterator)
+        except StopIteration:
+            breakpoint()
+            raise ValueError("Empty iterable found")
+
+        try:
+            second = next(iterator)
+        except StopIteration:
+            return first
+
+        raise ValueError("Too many values")
 
 
 class MultiStack:
@@ -401,13 +458,6 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])])
     return readonly(strides_[::-1])
 
-
-_nothing = object()
-"""Sentinel value indicating nothing should be done.
-
-This is useful in cases where `None` holds some meaning.
-
-"""
 
 
 def pairwise(iterable, *, final=_nothing):
@@ -486,12 +536,30 @@ def debug_assert(predicate, msg=None):
 
 _ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
 
+_dict_keys_type = type({}.keys())
+_dict_values_type = type({}.values())
+_dict_items_type = type({}.items())
+_ordered_sequence_types = (
+    list,
+    tuple,
+    AbstractOrderedSet,
+    _dict_keys_type,
+    _dict_values_type,
+    _dict_items_type,
+)
 
-def is_ordered_mapping(obj: Mapping):
+
+def is_ordered_mapping(obj: Mapping) -> bool:
     return isinstance(obj, _ordered_mapping_types)
 
 
-def expand_collection_of_iterables(compressed) -> tuple:
+def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
+    return isinstance(obj, _ordered_sequence_types)
+
+
+# TODO: case for using typing generics
+# TODO: signature is slightly wrong, can pass anything that can be cast to a dict
+def expand_collection_of_iterables(compressed: Mapping[Hashable, Sequence[Any]]) -> tuple[idict[Hashable, Any], ...]:
     """
     Expand target paths written in 'compressed' form like:
 
@@ -577,8 +645,11 @@ def _make_record(**kwargs):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.__record_init__ = _record_init
 
-        if kwargs.get("frozen", False):
-            cls.__hash__ = _frozenrecord_hash
+        def _record_method_cache(self):
+            return collections.defaultdict(dict)
+
+        # if kwargs.get("frozen", False):
+        #     cls.__hash__ = _frozenrecord_hash
 
         return cls
     return wrapper
@@ -586,10 +657,9 @@ def _make_record(**kwargs):
 
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     changed_attrs = {}
+    valid_attr_names = frozenset(f.name for f in dataclasses.fields(self))
     for attr_name, attr in attrs.items():
-        assert attr_name in self.__dataclass_fields__
-        # TODO: don't allow for assigning to ClassVar type, this should be nicer
-        assert "ClassVar" not in repr(self.__dataclass_fields__[attr_name])
+        assert attr_name in valid_attr_names, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
         try:
             if getattr(self, attr_name) != attr:
                 changed_attrs[attr_name] = attr
@@ -604,7 +674,6 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         attr = changed_attrs.pop(field.name, getattr(self, field.name))
         object.__setattr__(new, field.name, attr)
 
-    # FIXME: __post_init__ is not called when a custom __init__ method is provided
     if hasattr(new, "__post_init__"):
         new.__post_init__()
 
@@ -780,3 +849,40 @@ def is_ellipsis_type(obj: Any) -> bool:
             and all(item is Ellipsis for item in obj)
         )
     )
+
+
+@contextlib.contextmanager
+def stack(list_, to_push):
+    list_.extend(to_push)
+    yield
+    for _ in to_push:
+        list_.pop(-1)
+
+
+@contextlib.contextmanager
+def dict_stack(dict_, to_push):
+    for key, value in to_push.items():
+        dict_[key] = value
+    yield
+    for key in to_push:
+        dict_.pop(key)
+
+
+def _get_method_cache(obj):
+    if not hasattr(obj, "_method_cache"):
+        # Use object.__setattr__ to get around frozen dataclasses
+        object.__setattr__(obj, "_method_cache", collections.defaultdict(dict))
+    return obj._method_cache
+
+
+def cached_method(*args, **kwargs):
+    def wrapper(func):
+        return cachetools.cachedmethod(
+            lambda self: _get_method_cache(self)[func.__qualname__], *args, **kwargs
+        )(func)
+    return wrapper
+
+
+def pretty_type(obj: Any) -> str:
+    type_ = type(obj)
+    return f"{type_.__module__}.{type_.__name__}"

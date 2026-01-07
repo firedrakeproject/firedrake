@@ -14,12 +14,13 @@ import sys
 import threading
 from types import GeneratorType
 import typing
+from collections import defaultdict
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
+from types import NoneType
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
 
-import cachetools
 import numpy as np
 from cachetools import cachedmethod
 from mpi4py import MPI
@@ -30,7 +31,7 @@ from pyop3.cache import active_scoped_cache, cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
-from pyop3.mpi import collective
+from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
     as_node_map,
@@ -213,7 +214,7 @@ class _UnitAxisTree(CacheMixin):
         return "<UNIT>"
 
     size = 1
-    max_size = 1
+    local_max_size = 1
     alloc_size = 1
     local_size = 1
     depth = 1
@@ -224,20 +225,31 @@ class _UnitAxisTree(CacheMixin):
     leaf_path = idict()
     nodes = ()
     _all_region_labels = ()
+    node_map = idict({idict(): None})
+
+    targets = idict({idict(): ((),)})
 
     unindexed = property(lambda self: self)
     regionless = property(lambda self: self)
 
     nest_indices = ()
 
+    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+        assert not path
+        return idict()
+
+    def localize(self):
+        return self
+
     def prune(self) -> Self:
         return self
 
     def add_subtree(self, path: PathT, subtree):
-        assert len(path) == 0
+        assert not path
         return subtree
 
     def add_axis(self, path, axis):
+        assert not path
         return AxisTree(axis)
 
     def with_context(self, *args, **kwargs):
@@ -254,20 +266,8 @@ class _UnitAxisTree(CacheMixin):
     def leaf_subst_layouts(self):
         return idict({idict(): 0})
 
-    @property
-    def targets_acc(self):
-        return ()
-
-    @property
-    def outer_loops(self):
-        return ()
-
     def path_with_nodes(self, node) -> idict:
         assert node is None
-        return idict()
-
-    @property
-    def _source_path_and_exprs(self):
         return idict()
 
     def index(self) -> LoopIndex:
@@ -279,7 +279,7 @@ class _UnitAxisTree(CacheMixin):
     def comm(self):
         import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("This comm choice is unsafe")
-        return MPI.COMM_WORLD
+        return MPI.COMM_SELF
 
 
 
@@ -295,8 +295,11 @@ labels.
 
 @utils.frozenrecord()
 class AxisComponentRegion:
+
+    # {{{ instance attrs
+
     size: AxisComponentRegionSizeT
-    label: str | None = None
+    label: frozenset | str | None = None
 
     def __init__(self, size, label=None):
         from pyop3 import as_linear_buffer_expression, Tensor
@@ -311,8 +314,15 @@ class AxisComponentRegion:
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
+
         if isinstance(self.size, numbers.Integral):
             assert self.size >= 0
+        elif isinstance(self.size, Scalar | ScalarBufferExpression):
+            assert self.size.value >= 0
+
+    # }}}
 
     def __str__(self) -> str:
         if self.label is None:
@@ -320,13 +330,22 @@ class AxisComponentRegion:
         else:
             return f"{{{self.label}: {self.size}}}"
 
+    @property
+    def local_size(self):
+        from pyop3 import evaluate
+
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
+            return self.size
+
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> AxisComponentSize:
-    from pyop3 import Dat
-    from pyop3.expr.buffer import LinearDatBufferExpression
+    from pyop3 import Dat, Scalar
+    from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
 
-    if isinstance(obj, (Dat, LinearDatBufferExpression)):
+    if isinstance(obj, (Dat, LinearDatBufferExpression, Scalar, ScalarBufferExpression)):
         return (AxisComponentRegion(obj),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
@@ -344,32 +363,13 @@ def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
 
     return regions
 
+
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> FixedAxisComponentSize:
     return (AxisComponentRegion(num),)
 
 
-@functools.singledispatch
-def _parse_sf(obj: Any, size) -> AbstractStarForest | None:
-    if obj is None:
-        return None
-    else:
-        raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@_parse_sf.register(AbstractStarForest)
-def _(sf: AbstractStarForest, size) -> AbstractStarForest:
-    if size != sf.size:
-        raise ValueError("Size mismatch between regions and SF")
-    return sf
-
-
-@_parse_sf.register(PETSc.SF)
-def _(sf: PETSc.SF, size) -> StarForest:
-    return StarForest(sf, size)
-
-
-def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -> tuple[AxisComponentRegion, ...]:
+def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarForest) -> tuple[AxisComponentRegion, ...]:
     """
     examples:
 
@@ -379,29 +379,51 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -
 
     (a, 5), (b, 3) and sf: {6 owned and 2 ghost -> (a_owned, 5), (b_owned, 1), (a_ghost, 0), (b_ghost, 2)
     """
+    from pyop3 import Scalar
+
     region_sizes = {}
     ptr = 0
     for point_type in ["owned", "ghost"]:
         for region in regions:
             if point_type == "owned":
-                size = min((region.size, sf.num_owned-ptr))
+                size = min((region.local_size, sf.num_owned-ptr))
             else:
-                size = region.size - region_sizes[_as_region_label(region.label, "owned")]
+                size = region.local_size - region_sizes[_as_region_label(region.label, "owned")]
             region_sizes[_as_region_label(region.label, point_type)] = size
             ptr += size
-    assert ptr == sf.size
-    return tuple(AxisComponentRegion(size, label) for label, size in region_sizes.items())
+    try:
+        assert ptr == sf.size
+    except:
+        breakpoint()
+    return tuple(
+        AxisComponentRegion(Scalar(size, constant=True), label)
+        for label, size in region_sizes.items()
+    )
 
 
 def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
     if initial_region_label is None:
         return owned_or_ghost
     else:
+        # could be a frozenset?
         return (initial_region_label, owned_or_ghost)
 
 
+def _region_label_matches(region, label) -> bool:
+    return (
+        region.label == label
+        or not isinstance(region.label, str | NoneType) and label in region.label
+    )
+
+
+@utils.frozenrecord()
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"regions", "sf"}
+
+    # {{{ instance attrs
+
+    regions: Any
+    _label: Any
+    sf: Any
 
     def __init__(
         self,
@@ -409,17 +431,47 @@ class AxisComponent(LabelledNodeComponent):
         label=utils.PYOP3_DECIDE,
         *,
         sf=None,
-    ):
+    ) -> None:
+        from pyop3 import Scalar, evaluate
+        from pyop3.expr import ScalarBufferExpression
+
         regions = _parse_regions(regions)
-        size = sum(r.size for r in regions)
-        sf = _parse_sf(sf, size)
-
-        super().__init__(label=label)
-        self.regions = regions
-        self.sf = sf
-
         if sf is not None:
+            if any(
+                _region_label_matches(region, label_)
+                for region in regions
+                for label_ in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+            ):
+                # owned/ghost labels present, regions must be consistent with the SF
+                num_owned = 0
+                num_ghost = 0
+                for region in regions:
+                    assert not isinstance(region.size, numbers.Integral)
+                    if _region_label_matches(region, OWNED_REGION_LABEL):
+                        num_owned += region.local_size
+                    else:
+                        assert _region_label_matches(region, GHOST_REGION_LABEL)
+                        num_ghost += region.local_size
+                assert evaluate(num_owned) == sf.num_owned and evaluate(num_ghost) == sf.num_ghost
+            else:
+                regions = _partition_regions(regions, sf)
+
+        object.__setattr__(self, "regions", regions)
+        object.__setattr__(self, "_label", label)
+        object.__setattr__(self, "sf", sf)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        if self.sf is not None:
             assert self.local_size == self.sf.size
+
+    # }}}
+
+    # {{{ interface impls
+
+    label = utils.attr("_label")
+
+    # }}}
 
     def __str__(self) -> str:
         if self.has_non_trivial_regions:
@@ -434,7 +486,8 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def regionless(self) -> AxisComponent:
-        return self.copy(regions=(AxisComponentRegion(self.local_size),), sf=None)
+        breakpoint()  # probably a bad idea
+        return self.__record_init__(regions=(AxisComponentRegion(self.local_size),), sf=None)
 
     @property
     def rank_equal(self) -> bool:
@@ -447,61 +500,68 @@ class AxisComponent(LabelledNodeComponent):
         return self.size
 
     @cached_property
-    def size(self) -> Any:
-        from pyop3 import Scalar
-
-        # TODO: check the communicator instead?
-        if self.sf is not None:
-            if not isinstance(self.local_size, numbers.Integral):
-                raise NotImplementedError(
-                    "Unsure what to do with non-integral sizes in parallel"
-                )
-            return Scalar(self.local_size)
-        else:
-            # can be an integer or a Dat
-            return self.local_size
-
-    @cached_property
-    def local_size(self) -> Any:
+    def size(self) -> ExpressionT:
         return sum(r.size for r in self.regions)
 
     @cached_property
-    @collective
-    def max_size(self):
-        if not isinstance(self.local_size, numbers.Integral):
-            raise NotImplementedError("Not sure what to do here yet")
-        if self.sf is not None:
-            return self.comm.reduce(self.local_size, MPI.MAX)
-        else:
-            return self.local_size
+    def local_size(self) -> Any:
+        from pyop3 import evaluate
+
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
+            return self.size
+
+    @cached_property
+    def local_max_size(self):
+        from pyop3.expr.visitors import get_local_max
+
+        return get_local_max(self.local_size)
 
     @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
+        assert False, "old code"
         """Return axis component regions having expanded star forests into owned and ghost."""
         return _partition_regions(self.regions, self.sf) if self.sf else self.regions
 
     @property
     def has_non_trivial_regions(self) ->  bool:
-        return utils.strictly_all(r.label is not None for r in self._all_regions)
+        return len(self.regions) > 1 or utils.just_one(self.regions).label is not None
 
     @property
-    def user_comm(self) -> MPI.Comm | None:
-        return self.sf.user_comm if self.sf else None
+    def comm(self) -> MPI.Comm | None:
+        return self.sf.comm if self.sf else None
 
     @property
-    def _region_labels(self) -> tuple[ComponentRegionLabelT]:
+    def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
     @cached_property
     def _all_region_labels(self) -> tuple[str]:
+        assert False, "old code"
         return tuple(r.label for r in self._all_regions)
 
+    @utils.cached_method()
     def localize(self) -> AxisComponent:
-        return self._localized
-
-    @cached_property
-    def _localized(self) -> AxisComponent:
-        return self.copy(sf=None)
+        if any(
+            _region_label_matches(region, label_)
+            for region in self.regions
+            for label_ in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+        ):
+            if len(self.regions) == 2:
+                assert set(r.label for r in self.regions) == {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+                new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+                return self.__record_init__(regions=(new_region,), sf=None)
+            else:
+                # have sets/tuples instead here of (something, "owned") or (something, "ghost")
+                # need to merge into a single 'something' region
+                raise NotImplementedError
+                # drop the owned/ghost distinction
+                for region in self.regions:
+                    ...
+        else:
+            assert self.sf is None
+            return self
 
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
@@ -518,9 +578,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         # relabel components if needed
         if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
             if len(components) > 1:
-                components = tuple(c.copy(label=i) for i, c in enumerate(components))
+                components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
             else:
-                components = (utils.just_one(components).copy(label=None),)
+                components = (utils.just_one(components).__record_init__(_label=None),)
 
         self.components = components
         super().__init__(label=label)
@@ -587,12 +647,8 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         return self.components[self.component_index(component_label)]
 
     @property
-    def user_comm(self) -> MPI.Comm | None:
-        return utils.single_comm(self.components, "user_comm", allow_undefined=True)
-
-    @property
-    def user_comm(self) -> MPI.Comm | None:
-        return utils.single_comm(self.components, "user_comm", allow_undefined=True)
+    def comm(self) -> MPI.Comm | None:
+        return utils.single_comm(self.components, "comm", allow_undefined=True)
 
     @property
     def size(self):
@@ -624,26 +680,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     def iter(self, **kwargs) -> LoopIndex | GeneratorType[IteratorIndexT]:
         return self._tree.iter(**kwargs)
 
-    @property
-    def target_path_per_component(self):
-        return self._tree.target_path_per_component
-
-    @property
-    def index_exprs_per_component(self):
-        return self._tree.index_exprs_per_component
-
-    @property
-    def layout_exprs_per_component(self):
-        return self._tree.layout_exprs_per_component
-
     @deprecated("as_tree")
     @property
     def axes(self):
         return self.as_tree()
-
-    @property
-    def index_exprs(self):
-        return self._tree.index_exprs
 
     def as_tree(self) -> AxisTree:
         """Convert the axis to a tree that contains it.
@@ -661,12 +701,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
         """
         return self._tree
 
+    @utils.cached_method()
     def localize(self):
-        return self._localized
-
-    @cached_property
-    def _localized(self):
-        return self.copy(components=[c.localize() for c in self.components])
+        return self.copy(components=tuple(c.localize() for c in self.components))
 
     def component_offset(self, component):
         cidx = self.component_index(component)
@@ -723,6 +760,31 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
             return tuple(as_axis_component(c) for c in components)
         else:
             return (as_axis_component(components),)
+
+
+@utils.frozenrecord()
+class AxisTarget:
+    """TODO.
+
+    (this is hard to explain)
+
+    """
+    axis: AxisLabelT
+    component: AxisComponentLabelT
+    expr: ExpressionT
+
+    @property
+    def path(self) -> ConcretePathT:
+        return idict({self.axis: self.component})
+
+    @property
+    def replace_map(self) -> idict[AxisLabelT, ExpressionT]:
+        return idict({self.axis: self.expr})
+
+
+# TODO: implement this so we don't have lists of lists everywhere
+class EquivalentAxisTargetSet(tuple):
+    pass
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
@@ -859,7 +921,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             sfs = collect_star_forests(self)
             return concatenate_star_forests(sfs)
         else:
-            return NullStarForest(self.size)
+            return NullStarForest(self.local_size)
 
 
     # @property
@@ -878,11 +940,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self._match_path_and_exprs(self.unindexed)[0]
 
     @property
-    @abc.abstractmethod
-    def index_exprs(self):
-        pass
-
-    @property
     def source_exprs(self):
         # return self.index_exprs[-1]
         return self._match_path_and_exprs(self)[1]
@@ -894,18 +951,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @property
     @abc.abstractmethod
-    def layout_exprs(self):
-        pass
-
-    @property
-    @abc.abstractmethod
     def layouts(self):
         pass
 
-    @property
-    @abc.abstractmethod
-    def outer_loops(self):
-        pass
+    @cached_property
+    def _matching_target(self):
+        return match_target(self, self.unindexed, self.targets)
 
     def subst_layouts(self):
         return self._subst_layouts_default
@@ -931,9 +982,15 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self
 
     def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
+        from pyop3 import Scalar
+        from pyop3.expr import ScalarBufferExpression
         from .visitors import compute_axis_tree_component_size
 
-        return compute_axis_tree_component_size(self, path, component_label)
+        size = compute_axis_tree_component_size(self, path, component_label)
+        if isinstance(size, Scalar | ScalarBufferExpression):
+            return size.value
+        else:
+            return size
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
@@ -954,16 +1011,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def regionless(self) -> AbstractAxisTree:
         pass
 
-    @cached_property
-    def leaf_target_paths(self):
-        return tuple(
-            merge_dicts(
-                self.target_paths.get((ax.id, clabel), {})
-                for ax, clabel in self.path_with_nodes(*leaf, ordered=True)
-            )
-            for leaf in self.leaves
-        )
-
     @property
     def leaf_axis(self):
         return self.node_map[parent_path(self.leaf_path)]
@@ -974,26 +1021,24 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def size(self):
-        from pyop3 import Scalar
-
-        if  self.is_empty:
-            return 0
-        elif self.internal_comm.size > 1:
-            return Scalar(self.local_size)
-        else:
-            return self.local_size
-
-    @cached_property
-    def local_size(self):
         from .visitors import compute_axis_tree_size
 
         return compute_axis_tree_size(self)
 
     @cached_property
-    def max_size(self):
-        from pyop3.expr.visitors import max_value
+    def local_size(self):
+        from pyop3 import evaluate
 
-        return max_value(self.local_size)
+        try:
+            return evaluate(self.size)
+        except MissingVariableException:
+            return self.size
+
+    @cached_property
+    def local_max_size(self) -> numbers.Number:
+        from pyop3.expr.visitors import get_local_max
+
+        return get_local_max(self.local_size)
 
     @cached_property
     @collective
@@ -1017,7 +1062,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         else:
             size_expr = self.materialize().subtree(subpath).local_size
 
-        size_dat = Dat.empty(axis.linearize(component.label).regionless, dtype=IntType)
+        size_dat = Dat.empty(axis.linearize(component.label).localize(), dtype=IntType)
+
+
         size_dat.assign(size_expr, eager=True)
 
         sizes = size_dat.buffer.data_ro
@@ -1031,11 +1078,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             section.setDof(point, sizes[point])
         section.setUp()
         return section
-
-    @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm:
-        return self.internal_comm
 
     @cached_property
     def owned(self):
@@ -1054,6 +1096,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         if not region_labels:
             return self
 
+        # not sure about this
         if not allow_missing and set(region_labels) - set(self._all_region_labels):
             raise ValueError
 
@@ -1073,7 +1116,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         matching_label = None
         slice_components = []
         for component in axis.components:
-            if matching_labels := region_labels & set(component._all_region_labels):
+            if matching_labels := region_labels & set(component.region_labels):
                 matching_label = utils.just_one(matching_labels)
                 region_label_matches_no_components = False
                 slice_component = RegionSliceComponent(component.label, matching_label, label=f"{component.label}_{matching_label}")
@@ -1104,32 +1147,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
                 subtree = self._region_slice(region_labels, path=path_)
                 index_tree = index_tree.add_subtree({slice_.label: slice_component.label}, subtree)
         return index_tree
-
-    def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=idict(), target_path_acc=None, target_exprs_acc=None):
-        """Traverse the tree and accumulate per-node targets."""
-        axis = self.node_map[path]
-        targets = {}
-
-        if path == idict():
-            target_path_acc, target_exprs_acc = targets_per_axis.get(path, (idict(), idict()))
-            targets[path] = (target_path_acc, target_exprs_acc)
-
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            axis_target_path, axis_target_exprs = targets_per_axis.get(path_, (idict(), idict()))
-            target_path_acc_ = target_path_acc | axis_target_path
-            target_exprs_acc_ = target_exprs_acc | axis_target_exprs
-            targets[path_] = (target_path_acc_, target_exprs_acc_)
-
-            if self.node_map[path_]:
-                targets_ = self._accumulate_targets(
-                    targets_per_axis,
-                    path=path_,
-                    target_path_acc=target_path_acc_,
-                    target_exprs_acc=target_exprs_acc_,
-                )
-                targets.update(targets_)
-        return idict(targets)
 
     # TODO: refactor/move
     def _match_path_and_exprs(self, tree):
@@ -1165,70 +1182,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @property
     @abc.abstractmethod
-    def _matching_target(self):
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         pass
 
     @cached_property
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
-
-    @cached_property
-    def _source_paths(self) -> tuple[PathT]:
-        if self.is_empty:
-            return idict({idict(): idict()})
-        else:
-            return self._collect_source_path(path=idict())
-
-    def _collect_source_path(self, *, path: PathT):
-        assert not self.is_empty
-
-        source_path = {}
-        if path == idict():
-            source_path |= {idict(): idict()}
-
-        axis = self.node_map[path]
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            source_path |= {path_: idict({axis.label: component.label})}
-            if self.node_map[path_]:
-                source_path |= self._collect_source_path(path=path_)
-        return idict(source_path)
-
-    @cached_property
-    def _source_exprs(self):
-        if self.is_empty:  # debug
-            breakpoint()
-        assert not self.is_empty, "handle outside?"
-        if self.is_empty:
-            return idict({idict(): idict()})
-        else:
-            return self._collect_source_exprs(path=idict())
-
-    def _collect_source_exprs(self, *, path: ConcretePathT) -> idict:
-        from pyop3.expr import AxisVar
-
-        source_exprs = {}
-
-        if path == idict():
-            source_exprs |= {idict(): idict()}
-
-        axis = self.node_map[path].localize()
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-            source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label).regionless)})}
-            if self.node_map[path_]:
-                source_exprs |= self._collect_source_exprs(path=path_)
-        return idict(source_exprs)
-
-    def _check_labels(self):
-        def check(node, prev_labels):
-            if node == self.root:
-                return prev_labels
-            if node.label in prev_labels:
-                raise ValueError("shouldn't have the same label as above")
-            return prev_labels | {node.label}
-
-        previsit(self, check, self.root, frozenset())
 
     @property
     @abc.abstractmethod
@@ -1242,12 +1201,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
 
+    # TODO: rename to just _region_labels or similar
     @cached_property
     def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
         region_labels = utils.OrderedSet()
         for axis in self.axes:
             for component in axis.components:
-                for region in component._all_regions:
+                for region in component.regions:
                     if region.label is not None:
                         region_labels.add(region.label)
         return tuple(region_labels)
@@ -1310,6 +1270,22 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def unindexed(self) -> AxisTree:
         return self
 
+    @cached_property
+    def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
+        from pyop3 import AxisVar
+
+        targets_ = utils.StrictlyUniqueDict({idict(): ((),)})
+        for path, axis in self.node_map.items():
+            if axis is None:
+                continue
+
+            for component in axis.components:
+                path_ = path | {axis.label: component.label}
+                expr = AxisVar(axis.linearize(component.label).localize())
+                target = AxisTarget(axis.label, component.label, expr)
+                targets_[path_] = [[target]]
+        return utils.freeze(targets_)
+
     @property
     def _materialized(self):
         return self
@@ -1336,54 +1312,26 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             return self[self._block_indices(block_shape)].materialize()
 
     @property
-    def user_comm(self):
-        return utils.single_comm(self.nodes, "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self):
+        return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # }}}
 
+    @utils.cached_method()
     def localize(self) -> AxisTree:
-        return self._localized
-
-    @cached_property
-    def _localized(self) -> AxisTree:
         node_map = {
             path: axis.localize() if axis else None
             for path, axis in self.node_map.items()
         }
         return type(self)(node_map)
 
-    # bit of a hack, think about the design
-    @cached_property
-    def targets_acc(self):
-        return frozenset({self._accumulate_targets(self._source_path_and_exprs)})
-
-    @cached_property
-    def _source_path_and_exprs(self) -> idict:
-        return idict({
-            path: (self._source_paths[path], self._source_exprs[path])
-            for path in self.paths
-        })
-        # TODO: merge source path and source expr collection here
-        return idict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
-
     @cached_property
     def paths_and_exprs(self):
         """
         Return the possible paths represented by this tree.
         """
+        assert False, "old code"
         return frozenset({self._source_path_and_exprs})
-
-    @cached_property
-    def index_exprs(self):
-        return (self._source_exprs,)
-
-    @property
-    def layout_exprs(self):
-        return self.index_exprs
-
-    @property
-    def outer_loops(self):
-        return ()
 
     def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path.
@@ -1434,12 +1382,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         with active_scoped_cache(self):
             return compute_layouts(self)
 
-    @property
-    def _matching_target(self):
-        return self._source_path_and_exprs
-
     @cached_property
     def _buffer_slice(self) -> slice:
+        assert isinstance(self.local_size, numbers.Integral)
         return slice(self.local_size)
 
     @cached_property
@@ -1450,7 +1395,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         if not self.comm:  # maybe goes away if we disallow comm=None
             numbering = np.arange(self.size, dtype=IntType)
         else:
-            start = self.sf.internal_comm.exscan(self.owned.local_size) or 0
+            with temp_internal_comm(self.sf.comm) as icomm:
+                start = self.sf.comm.exscan(self.owned.local_size) or 0
             numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
             # set ghost entries to -1 to make sure they are overwritten
@@ -1466,35 +1412,32 @@ class IndexedAxisTree(AbstractAxisTree):
 
     # {{{ instance attrs
 
-    _node_map: idict
-    _unindexed: AxisTree | None
-    targets: idict
-
+    _node_map: idict[ConcretePathT, Axis]
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
+    _unindexed: AxisTree | None
+    _targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
+
+    # TODO: where to put *, and order?
     def __init__(
         self,
         node_map,
-        unindexed,  # allowed to be None
+        unindexed,
         *,
         targets,
     ):
         if isinstance(node_map, AxisTree):
             node_map = node_map.node_map
+        else:
+            node_map = as_node_map(node_map)
 
-        # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
-        targets = utils.freeze(targets)
+        targets = complete_axis_targets(targets)
 
-        object.__setattr__(self, "_node_map", as_node_map(node_map))
-        object.__setattr__(self, "targets", targets)
+        object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
-        if len(self.nodes) == 2 and self.nodes[0].label == "support" and self.nodes[1].label == "closure" and self.nodes[1].component_labels == (None,):
-            breakpoint()
+        object.__setattr__(self, "_targets", targets)
 
-    # FIXME
-    @property
-    def unindexed(self):
-        return self._unindexed
+        # if "closure" in str(self) and targets[idict()] == ((),):
+        #     breakpoint()
 
     # }}}
 
@@ -1503,11 +1446,12 @@ class IndexedAxisTree(AbstractAxisTree):
     node_map = utils.attr("_node_map")
     unindexed = utils.attr("_unindexed")
 
-    # TODO: Should this return LoopIndexVars?
-    # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
     @cached_property
-    def outer_loops(self) -> tuple[LoopIndex, ...]:
-        return gather_loop_indices_from_targets(self.targets)
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        targets_ = utils.StrictlyUniqueDict()
+        for path, axis in self.node_map.items():
+            targets_[path] = self._targets[path] + self._materialized.targets[path]
+        return complete_axis_targets(targets_)
 
     @cached_property
     def _materialized(self) -> AxisTree:
@@ -1524,15 +1468,21 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=self.unindexed.regionless,
         )
 
+    @utils.cached_method()
+    def localize(self):
+        return type(self)(
+            self.materialize().localize(),
+            targets=self.targets,
+            unindexed=self.unindexed.localize(),
+        )
+
     # TODO: Should have nest indices and nest labels as separate concepts.
     # The former is useful for buffers and the latter for trees
     @cached_property
     def nest_indices(self) -> tuple[int, ...]:
         # Compare the 'fully indexed' bits of the matching target and try to
         # match to the unindexed tree.
-        if idict() not in self._matching_target:
-            return ()
-        consumed_axes = dict(self._matching_target[idict()][0])
+        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
 
         nest_indices_ = []
         path = idict()
@@ -1589,89 +1539,9 @@ class IndexedAxisTree(AbstractAxisTree):
     # }}}
 
 
-    # old alias
     @property
-    def _targets(self):
-        return self.targets
-
-    @property
-    def user_comm(self):
-        return self.unindexed.user_comm
-
-    # ideally this is ordered
-    # TODO: should include source I think to be consistent with AxisTree
-    @cached_property
-    def targets_acc(self):
-        return frozenset(self._accumulate_targets(t) for t in self.targets)
-
-    # compat for now while I tinker
-    @cached_property
-    def _target_paths(self):
-        return frozenset({
-            idict({key: path for key, (path, _) in target.items()})
-            for target in self._targets
-        })
-
-    @cached_property
-    def _target_exprs(self):
-        return frozenset({
-            idict({key: exprs for key, (_, exprs) in target.items()})
-            for target in self._targets
-        })
-
-    @cached_property
-    def paths(self):
-        """
-        Return a `tuple` of the possible paths represented by this tree.
-        """
-        # return self._target_paths | {self._source_path}
-        return self._target_paths
-
-    # @cached_property
-    # def _source_path_and_exprs(self):
-    #     # TODO: merge source path and source expr collection here
-    #     return freeze({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
-
-    @cached_property
-    def paths_and_exprs(self):
-        """
-        Return a `tuple` of the possible paths represented by this tree.
-        """
-        # return self._targets | {self._source_path_and_exprs}
-        return self._targets
-
-    # def _collect_paths(self, *, axis=None):
-    #     """
-    #     Traverse the tree and add the trivial path to the possible paths
-    #     represented by each node.
-    #     """
-    #     paths = {}
-    #
-    #     if axis is None:
-    #         axis = self.root
-    #         paths[None] = self._target_paths.get(None, {})
-    #
-    #     for component in axis.components:
-    #         axis_key = (axis.id, component.label)
-    #         source_path = pmap({axis.label: component.label})
-    #         target_paths = self._target_paths.get(axis_key, ())
-    #         paths[axis_key] = target_paths + (source_path,)
-    #
-    #         if subaxis := self.child(axis, component):
-    #             paths_ = self._collect_paths(axis=subaxis)
-    #             paths.update(paths_)
-    #
-    #     return freeze(paths)
-
-
-    @property
-    def index_exprs(self):
-        # return self._target_exprs | {self._source_exprs}
-        return self._target_exprs
-
-    @property
-    def layout_exprs(self):
-        return self._layout_exprs
+    def comm(self):
+        return self.unindexed.comm
 
     @property
     def layouts(self):
@@ -1682,17 +1552,18 @@ class IndexedAxisTree(AbstractAxisTree):
         path = as_path(path)
 
         linearized_axis_tree = self.materialize().linearize(path, partial=partial)
+        linearized_targets = {
+            partial_path: self.targets[partial_path]
+            for partial_path in accumulate_path(path)
+        }
 
-        # linearize the targets
-        linearized_targets = []
-
-        for orig_target in self.targets:
-            linearized_target = {}
-            for axis_path, target_spec in orig_target.items():
-                if axis_path in linearized_axis_tree.node_map:
-                    linearized_target[axis_path] = target_spec
-            linearized_target = idict(linearized_target)
-            linearized_targets.append(linearized_target)
+        # for orig_target in self.targets:
+        #     linearized_target = {}
+        #     for axis_path, target_spec in orig_target.items():
+        #         if axis_path in linearized_axis_tree.node_map:
+        #             linearized_target[axis_path] = target_spec
+        #     linearized_target = idict(linearized_target)
+        #     linearized_targets.append(linearized_target)
 
         return IndexedAxisTree(
             linearized_axis_tree, self.unindexed, targets=linearized_targets,
@@ -1700,6 +1571,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
     @cached_property
     def layout_axes(self) -> AxisTree:
+        breakpoint()
         if not self.outer_loops:
             return self
         raise NotImplementedError
@@ -1721,18 +1593,13 @@ class IndexedAxisTree(AbstractAxisTree):
         return AxisTree(self.node_map)
 
 
-    @cached_property
-    def _matching_target(self) -> idict:
-        return find_matching_target(self)
-
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!
     @cached_property
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        # FIXME: parallel!!!
-        if self.local_size == 0:
+        if self.size == 0:
             return slice(0, 0)
 
         # NOTE: The below method might be better...
@@ -1747,18 +1614,23 @@ class IndexedAxisTree(AbstractAxisTree):
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro
-
         indices = np.unique(np.sort(indices))
 
-        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
+        # print(indices, self.local_size)
+        # breakpoint()
+
+        # debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
+        if len(indices) > 0:
+            assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")
         slice_ = None
         n = len(indices)
 
-        assert n > 0
-        if n == 1:
+        if n == 0:
+            return slice(0, 0)
+        elif n == 1:
             start = indices[0]
             return slice(start, start+1)
         else:
@@ -1793,21 +1665,48 @@ class UnitIndexedAxisTree(DistributedObject):
         *,
         targets,
     ):
+        if idict() not in targets:
+            targets = targets | {idict(): ((),)}
+
+        assert targets.keys() == {idict()}
+        # same as indexed axis tree
+        # new_targets = []
+        # for target in targets:
+        #     # for consistency we don't want missing bits, even if they are empty
+        #     if idict() not in target:
+        #         target = {idict(): ()} | target
+        #     new_targets.append(target)
         # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
+        # TODO: remove this ideally...
+        # targets = utils.unique(new_targets)
+        # targets = utils.freeze(targets)
+        # assert len(targets) > 0
+
+        # debugging
+        assert isinstance(targets, idict)
+        for vs in targets.values():
+            assert isinstance(vs, tuple)
+            assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
 
         self.unindexed = unindexed
-        self.targets = targets
+        self._targets = targets
+
+    @cached_property
+    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+        return complete_axis_targets({
+            idict(): self._targets[idict()] + self.materialize().targets[idict()]
+        })
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.unindexed.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.unindexed.comm
 
     def __str__(self) -> str:
         return "<UNIT>"
 
     @cached_property
     def outer_loops(self):
+        breakpoint()
         return gather_loop_indices_from_targets(self.targets)
 
     def materialize(self):
@@ -1816,6 +1715,8 @@ class UnitIndexedAxisTree(DistributedObject):
     size = 1
     is_linear = True
     is_empty = False
+
+    node_map = idict({idict(): None})
 
     def as_axis(self) -> Axis:
         return Axis(0)
@@ -1834,13 +1735,14 @@ class UnitIndexedAxisTree(DistributedObject):
 
     subst_layouts = lambda self: self.leaf_subst_layouts
 
-    @cached_property
-    def _matching_target(self):
-        return find_matching_target(self)
-
     @property
     def leaf_paths(self):
         return (idict(),)
+
+    # same  as abstract tree case
+    @cached_property
+    def _matching_target(self):
+        return match_target(self, self.unindexed, self.targets)
 
     @property
     def leaves(self):
@@ -1895,20 +1797,21 @@ class UnitIndexedAxisTree(DistributedObject):
     # TODO: shared with other index tree
     @cached_property
     def _matching_target(self):
-        return find_matching_target(self)
+        return match_target(self, self.unindexed, self.targets)
 
 
-def find_matching_target(self):
+def find_matching_target(self, target_set):
+    assert False, "old code"
     # NOTE: I don't currently know why we still need this, but we apparently do as things otherwise fail
     matching_targets = []
-    for target in self.targets:
+    for target in target_set:
         all_leaves_match = True
         for leaf_path in self.leaf_paths:
             target_path = {}
             for leaf_path_acc in accumulate_path(leaf_path):
                 if leaf_path_acc in target:
-                    target_path_, _ = target[leaf_path_acc]
-                    target_path.update(target_path_)
+                    for target_ in target[leaf_path_acc]:
+                        target_path[target_.axis] = target_.component
             target_path = idict(target_path)
 
             # NOTE: We assume that if we get an empty target path then something has
@@ -1930,6 +1833,52 @@ def find_matching_target(self):
             matching_targets.append(target)
 
     return utils.single_valued(matching_targets)
+
+
+class IncompatibleAxisTargetException(Pyop3Exception):
+    pass
+
+
+def match_target(source_axes, target_axes, target_set):
+    return _match_target_rec(source_axes, target_axes, target_set, source_path=None, target_path=idict())
+
+
+def _match_target_rec(source_axes, target_axes, target_set, *, source_path, target_path):
+    if source_path is None:
+        source_paths = (idict(),)
+    else:
+        source_axis = source_axes.node_map[source_path]
+        source_paths = tuple(
+            source_path | {source_axis.label: source_component.label}
+            for source_component in source_axis.components
+        )
+
+    matching_target = utils.StrictlyUniqueDict()
+    for source_path_ in source_paths:
+        match_found = False
+        for candidate_targets in target_set[source_path_]:
+            target_path_ = target_path | merge_dicts(t.path for t in candidate_targets)
+            if source_axes.node_map.get(source_path_):
+                if not any(target_path_.items() <= leaf_path.items() for leaf_path in target_axes.leaf_paths):
+                    continue  # incompatible paths, skip
+                try:
+                    submatching_target = _match_target_rec(source_axes, target_axes, target_set, source_path=source_path_, target_path=target_path_)
+                except IncompatibleAxisTargetException:
+                    pass
+                else:
+                    assert not match_found
+                    match_found = True
+                    matching_target[source_path_] = candidate_targets
+                    matching_target |= submatching_target
+            else:  # at a leaf
+                if target_path_ in target_axes.leaf_paths:
+                    assert not match_found
+                    match_found = True
+                    matching_target[source_path_] = candidate_targets
+
+        if not match_found:
+            raise IncompatibleAxisTargetException
+    return utils.freeze(matching_target)
 
 
 class AxisForest(DistributedObject):
@@ -2018,14 +1967,18 @@ class AxisForest(DistributedObject):
                 return AxisForest(indexed_trees_)
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.trees, "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.trees, "comm")
 
-    def materialize(self):
+    def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
+
+    def localize(self) -> AxisForest:
+        return type(self)((tree.localize() for tree in self.trees))
 
     @cached_property
     def regionless(self):
+        assert False, "old code"
         return type(self)((tree.regionless for tree in self.trees))
 
     def prune(self) -> AxisForest:
@@ -2037,20 +1990,21 @@ class AxisForest(DistributedObject):
     def restrict_nest(self, index):
         return type(self)((tree.restrict_nest(index) for tree in self.trees))
 
-    # def prune(self):
-    #     return type(self)((tree.prune() for tree in self.trees))
-    #
-    # @property
-    # def regionless(self):
-    #     return type(self)((tree.regionless for tree in self.trees))
-
     @property
     def size(self):
         return self.trees[0].size
 
     @property
+    def sf(self) -> AbstractStarForest:
+        return utils.single_valued((tree.sf for tree in self.trees))
+
+    @property
     def local_size(self) -> int:
         return utils.single_valued((tree.local_size for tree in self.trees))
+
+    @property
+    def local_max_size(self) -> int:
+        return utils.single_valued((tree.local_max_size for tree in self.trees))
 
     @property
     def global_size(self) -> int:
@@ -2074,11 +2028,6 @@ class AxisForest(DistributedObject):
         return Dat(self, buffer=self.trees[0].global_numbering.buffer)
 
     @property
-    @utils.deprecated("internal_comm")
-    def comm(self) -> MPI.Comm:
-        return self.internal_comm
-
-    @property
     def owned(self) -> AxisForest:
         return type(self)((tree.owned for tree in self.trees))
 
@@ -2090,8 +2039,8 @@ class AxisForest(DistributedObject):
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable, DistributedObject):
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.single_comm(self.context_map.values(), "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.single_comm(self.context_map.values(), "comm")
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.context_map!r})"
@@ -2232,26 +2181,31 @@ def subst_layouts(
     *,
     path=idict(),
     target_paths_and_exprs_acc=None,
+    loop_vars=frozenset(),
 ):
-    from pyop3.expr.visitors import replace_terminals
+    from pyop3 import NAN
+    from pyop3.expr.visitors import replace_terminals, collect_loop_index_vars
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
     if path == idict():
+        target_paths_and_exprs_acc = {idict(): targets[idict()]}
 
-        # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
-        # arrays
-        target_paths_and_exprs_acc = {idict(): targets.get(path, (idict(), idict()))}
-
-        accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
+        accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc.values() for t in ts)
 
         # layouts_subst[path] = replace(layouts[accumulated_path], linear_axes_acc, target_paths_and_exprs_acc)
-        replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc.values())
+        replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc.values() for t in ts)
+
+        loop_vars |= utils.reduce("|", (set(collect_loop_index_vars(t.expr)) for ts in target_paths_and_exprs_acc.values() for t in ts), set())
 
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.
-        if accumulated_path in layouts:
+        if accumulated_path in layouts and inner_loop_indices(axes, targets, path) <= loop_vars:
             layouts_subst[path] = replace_terminals(layouts[accumulated_path], replace_map)
+        else:
+            # if we haven't gone far enough down the tree to have found all of the loop
+            # indices then we can't really say that we know what the layout function is.
+            layouts_subst[path] = NAN
 
         if axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree):
             return layouts_subst
@@ -2260,17 +2214,19 @@ def subst_layouts(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-            path_: targets.get(path_, (idict(), idict()))
-        }
+        target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {path_: targets[path_]}
 
-        accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
-        replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc_.values())
+        accumulated_path = merge_dicts(t.path for ts in target_paths_and_exprs_acc_.values() for t in ts)
+        replace_map = merge_dicts(t.replace_map for ts in target_paths_and_exprs_acc_.values() for t in ts)
+        loop_vars_ = loop_vars | utils.reduce("|", (set(collect_loop_index_vars(t.expr)) for ts in target_paths_and_exprs_acc_.values() for t in ts), set())
 
         # If we have indexed using a different order to the initial axis tree then sometimes
         # the accumulated path is not valid. In this case do not emit a layout function.
-        if accumulated_path in layouts:
+        # if accumulated_path in layouts:
+        if accumulated_path in layouts and inner_loop_indices(axes, targets, path) <= loop_vars_:
             layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
+        else:
+            layouts_subst[path_] = NAN
 
         if axes.node_map[path_]:
             layouts_subst.update(
@@ -2280,9 +2236,26 @@ def subst_layouts(
                     layouts,
                     path=path_,
                     target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
+                    loop_vars=loop_vars_,
                 )
             )
     return idict(layouts_subst)
+
+
+# NOTE: likely very inefficient
+def inner_loop_indices(axes, targets, path):
+    from pyop3.expr.visitors import collect_loop_index_vars
+
+    if path in axes.leaf_paths:
+        return set()
+
+    loop_index_vars = set()
+    subtree = axes.linearize(path, partial=True)
+    for subpath in subtree.node_map:
+        for axis_target in targets[path | subpath]:
+            loop_index_vars |= set(collect_loop_index_vars(axis_target.expr))
+    return loop_index_vars
+
 
 
 def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, path=idict()) -> AxisTree:
@@ -2430,36 +2403,30 @@ def _(region: AxisComponentRegion, /, replace_map):
 
 
 def gather_loop_indices_from_targets(targets):
+    # NOTE: think this isn't really needed, remove with 'outer_loops'
     from pyop3.expr.visitors import collect_loop_index_vars
 
     loop_indices = utils.OrderedSet()
-    for target in targets:
-        for _, exprs in target.values():
-            for expr in exprs.values():
-                for loop_var in collect_loop_index_vars(expr):
+    for axis_targetss in targets.values():
+        for axis_targets in axis_targetss:
+            for axis_target in axis_targets:
+                for loop_var in collect_loop_index_vars(axis_target.expr):
                     loop_indices.add(loop_var.loop_index)
     return tuple(loop_indices)
 
 
 def trim_axis_targets(targets, to_trim):
-    return tuple(
-        {
-            axis_path: (
-                {
-                    axis_label: path
-                    for axis_label, path in target_spec[0].items()
-                    if axis_label not in to_trim
-                },
-                {
-                    axis_label: expr
-                    for axis_label, expr in target_spec[1].items()
-                    if axis_label not in to_trim
-                },
-            )
-            for axis_path, target_spec in target.items()
-        }
-        for target in targets
-    )
+    return utils.freeze({
+        path: [
+            [
+                axis_target
+                for axis_target in axis_targets
+                if axis_target.axis not in to_trim
+            ]
+            for axis_targets in axis_targetss
+        ]
+        for path, axis_targetss in targets.items()
+    })
 
 
 # ContextFreeSingleAxisTreeT = ???
@@ -2492,3 +2459,13 @@ def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: Con
                 target_leaf_paths.remove(target_leaf_path)
                 break
     return not target_leaf_paths
+
+
+def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:
+    new_targets = dict(targets)
+    if idict() not in targets:
+        new_targets[idict()] = ((),)
+    # drop duplicates
+    for path, candidate_axis_targets in targets.items():
+        new_targets[path] = utils.unique(candidate_axis_targets)
+    return utils.freeze(new_targets)

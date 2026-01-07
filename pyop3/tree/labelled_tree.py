@@ -37,9 +37,15 @@ from pyop3.utils import (
 )
 
 
-if typing.TYPE_CHECKING:
-    from pyop3.types import *
+# {{{ types
 
+LabelT = Hashable
+NodeLabelT = LabelT
+NodeComponentLabelT = LabelT
+PathT = Mapping[NodeLabelT, NodeComponentLabelT]
+ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
+
+# }}}
 
 class NodeNotFoundException(Exception):
     pass
@@ -64,14 +70,11 @@ class Node(pytools.ImmutableRecord):
         pytools.ImmutableRecord.__init__(self)
 
 
-
-
-
-class LabelledNodeComponent(pytools.ImmutableRecord):
-    fields = {"label"}
-
-    def __init__(self, label=None):
-        self.label = label
+class LabelledNodeComponent(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def label(self) -> ComponentLabelT:
+        pass
 
 
 class MultiComponentLabelledNode(Node, Labelled):
@@ -595,6 +598,21 @@ class LabelledTree:
                 nest[node].append(None)
         return idict(nest)
 
+    @utils.cached_method()
+    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+        trimmed_node_map = {}
+        path_set = set(path.items())
+        for orig_path, node in self.node_map.items():
+            orig_path_set = set(orig_path.items())
+            if path_set <= orig_path_set:
+                trimmed_path = idict(
+                    (axis_label, component_label)
+                    for axis_label, component_label in orig_path.items()
+                    if (axis_label, component_label) not in path.items()
+                )
+                trimmed_node_map[trimmed_path] = node
+        return idict(trimmed_node_map)
+
 
 class MutableLabelledTreeMixin:
     def add_node(self, path: PathT, node: Node) -> MutableLabelledTreeMixin:
@@ -651,17 +669,7 @@ class MutableLabelledTreeMixin:
         if path not in self.node_map:
             raise TreeMutationException("Provided path does not exist in the tree")
 
-        trimmed_node_map = {}
-        path_set = frozenset(path.items())
-        for orig_path, node in self.node_map.items():
-            orig_path_set = frozenset(orig_path.items())
-            if path_set <= orig_path_set:
-                trimmed_path = idict(
-                    (axis_label, component_label)
-                    for axis_label, component_label in orig_path.items()
-                    if (axis_label, component_label) not in path.items()
-                )
-                trimmed_node_map[trimmed_path] = node
+        trimmed_node_map = self._subtree_node_map(path)
         return type(self)(trimmed_node_map)
 
     def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabelledTreeMixin:

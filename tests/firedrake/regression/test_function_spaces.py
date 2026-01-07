@@ -122,7 +122,7 @@ def test_function_space_variant(mesh, space):
 
 
 @pytest.mark.parametrize("modifier",
-                         [BrokenElement, HDivElement,
+                         [HDivElement,
                           HCurlElement])
 @pytest.mark.parametrize("element",
                          [FiniteElement("CG", triangle, 1),
@@ -442,3 +442,46 @@ class TestFunctionSpaceLayout:
                 self.check_space_layout(mixed_space, layout_labels, indexed_labels)
         else:
             self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+
+
+@pytest.mark.parametrize("family", ("CG", "BDM", "DG"))
+@pytest.mark.parametrize("shape", (0, 2, (2, 3)), ids=("0", "2", "(2,3)"))
+def test_broken_space(mesh, shape, family):
+    """Check that FunctionSpace.broken_space returns the a
+    FunctionSpace with the correct element.
+    """
+    kwargs = {"variant": "spectral"} if family == "DG" else {}
+
+    elem = FiniteElement(family, mesh.ufl_cell(), 1, **kwargs)
+
+    if not isinstance(shape, int):
+        make_element = lambda elem: TensorElement(elem, shape=shape)
+    elif shape > 0:
+        make_element = lambda elem: VectorElement(elem, dim=shape)
+    else:
+        make_element = lambda elem: elem
+
+    fs = FunctionSpace(mesh, make_element(elem))
+    broken = fs.broken_space()
+    expected = FunctionSpace(mesh, make_element(BrokenElement(elem)))
+
+    assert broken == expected
+
+
+def test_mixed_broken_space(mesh):
+    """Check that MixedFunctionSpace.broken_space returns the a
+    MixedFunctionSpace with the correct element.
+    """
+
+    mixed_elem = MixedElement([
+        FiniteElement("CG", mesh.ufl_cell(), 1),
+        VectorElement("BDM", mesh.ufl_cell(), 2, dim=2),
+        TensorElement("DG", mesh.ufl_cell(), 1, shape=(2, 3), variant="spectral")
+    ])
+    broken_elem = MixedElement([BrokenElement(elem) for elem in mixed_elem.sub_elements])
+
+    mfs = FunctionSpace(mesh, mixed_elem)
+    broken = mfs.broken_space()
+    expected = FunctionSpace(mesh, broken_elem)
+
+    assert broken == expected

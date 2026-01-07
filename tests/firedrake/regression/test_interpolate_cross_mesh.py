@@ -406,11 +406,12 @@ def test_exact_refinement():
     )
 
 
-def test_interpolate_unitsquare_tfs_shape():
+@pytest.mark.parametrize("shape,symmetry", [((1, 2, 3), None), ((3, 3), True)])
+def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     m_src = UnitSquareMesh(2, 3)
     m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
-    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=(1, 2, 3))
-    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=(1, 2, 3))
+    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=shape, symmetry=symmetry)
+    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=shape, symmetry=symmetry)
     f_src = Function(V_src)
     assemble(interpolate(f_src, V_dest))
 
@@ -666,9 +667,9 @@ def test_interpolate_matrix_cross_mesh():
     f_at_points2 = assemble(interpolate(f, P0DG))
     assert np.allclose(f_at_points.dat.data_ro, f_at_points2.dat.data_ro)
     # To get the points in the correct order in V we interpolate into vom.input_ordering
-    # We pass matfree=False which constructs the permutation matrix instead of using SFs
+    # We pass mat_type='aij' which constructs the permutation matrix instead of using SFs
     P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
-    B = assemble(interpolate(TrialFunction(P0DG), P0DG_io, matfree=False))
+    B = assemble(interpolate(TrialFunction(P0DG), P0DG_io), mat_type='aij')
     f_at_points_correct_order = assemble(B @ f_at_points)
     f_at_points_correct_order2 = assemble(interpolate(f_at_points, P0DG_io))
     assert np.allclose(f_at_points_correct_order.dat.data_ro, f_at_points_correct_order2.dat.data_ro)

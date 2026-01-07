@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import collections
 import itertools
+import numbers
 from functools import cached_property
 from itertools import product
 from typing import Any, ClassVar
@@ -93,8 +94,12 @@ class Mat(Tensor):
     parent: ClassVar[property] = utils.attr("_parent")
 
     @property
-    def shape(self):
-        return (self.row_axes.materialize(), self.caxes.materialize())
+    def local_max(self) -> numbers.Number:
+        raise NotImplementedError
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise NotImplementedError
 
     @property
     def _full_str(self) -> str:
@@ -464,7 +469,10 @@ class Mat(Tensor):
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
-        if self.row_axes.size * self.caxes.size > 1e6:
+        if self.comm.size > 1:
+            raise RuntimeError("Only valid in serial")
+
+        if self.row_axes.local_size * self.caxes.local_size > 1e6:
             raise ValueError(
                 "Printing a dense matrix with more than 1 million "
                 "entries is not allowed"
@@ -505,7 +513,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_spec = row_axes
             column_spec = column_axes
         else:
-            comm = utils.common_comm((row_axes, column_axes), "internal_comm")
+            comm = utils.common_comm((row_axes, column_axes), "comm")
 
             nrows = row_axes.unindexed.owned.local_size
             ncolumns = column_axes.unindexed.owned.local_size
@@ -556,6 +564,9 @@ class DatPythonMatContext:
     @abc.abstractmethod
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         pass
+
+    def set_diagonal(self, value: numbers.Number) -> None:
+        self.dat.data_wo[0] = value
 
     @property
     def comm(self) -> MPI.Comm:
@@ -706,7 +717,7 @@ class RowDatPythonMatContext(DatPythonMatContext):
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((self.dat.axes.unindexed.size, None), (None, 1))
+        return ((self.dat.axes.unindexed.owned.local_size, None), (None, 1))
 
 
 class ColumnDatPythonMatContext(DatPythonMatContext):
@@ -721,4 +732,4 @@ class ColumnDatPythonMatContext(DatPythonMatContext):
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        return ((None, 1), (self.dat.axes.unindexed.size, None))
+        return ((None, 1), (self.dat.axes.unindexed.owned.local_size, None))

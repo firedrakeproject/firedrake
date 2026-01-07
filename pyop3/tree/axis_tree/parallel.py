@@ -75,13 +75,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
                 _check_sf(petsc_sf)
             else:
                 petsc_sf = component.sf.sf
-
-            size = axis_tree.component_size(path, component.label)
-
-            if not isinstance(size, numbers.Integral):
-                raise NotImplementedError("Assume that star forests have integer size")
-
-            sf = StarForest(petsc_sf, size)
+            sf = StarForest(petsc_sf, component.sf.comm)
             sfs.append(sf)
         elif subaxis := axis_tree.node_map.get(path_):
             if isinstance(size := component.size, numbers.Integral) and size > 1:
@@ -164,110 +158,5 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
 
     ilocal = np.concatenate(local_leaf_indicess)
     iremote = np.concatenate(remote_leaf_indicess)
-    comm = utils.single_comm(star_forests, "internal_comm")
-    return StarForest.from_graph(total_size, total_size, ilocal, iremote, comm)
-
-
-# perhaps I can defer renumbering the SF to here?
-# PETSc provides a similar function that composes an SF with a Section, can I use that?
-# def grow_dof_sf(axes, axis, path, indices):
-#     from pyop3.axtree.layout import step_size
-#
-#     point_sf = axis.sf
-#     # TODO, use convenience methods
-#     nroots, ilocal, iremote = point_sf._graph
-#
-#     component_counts = tuple(c.count for c in axis.components)
-#     component_offsets = [0] + list(np.cumsum(component_counts))
-#     npoints = component_offsets[-1]
-#
-#     # renumbering per component, can skip if no renumbering present
-#     if axis.numbering is not None:
-#         renumbering = [np.empty(c.count, dtype=int) for c in axis.components]
-#         counters = [0] * len(axis.components)
-#         for new_pt, old_pt in enumerate(axis.numbering.data_ro):
-#             for cidx, (min_, max_) in enumerate(
-#                 zip(component_offsets, component_offsets[1:])
-#             ):
-#                 if min_ <= old_pt < max_:
-#                     renumbering[cidx][old_pt - min_] = counters[cidx]
-#                     counters[cidx] += 1
-#                     break
-#         assert all(
-#             count == c.count for count, c in checked_zip(counters, axis.components)
-#         )
-#     else:
-#         renumbering = [np.arange(c.count, dtype=int) for c in axis.components]
-#
-#     # effectively build the section
-#     new_nroots = 0
-#     root_offsets = np.full(npoints, -1, IntType)
-#     for pt in point_sf.iroot:
-#         # convert to a component-wise numbering
-#         selected_component = None
-#         component_num = None
-#         for cidx, (min_, max_) in enumerate(
-#             zip(component_offsets, component_offsets[1:])
-#         ):
-#             if min_ <= pt < max_:
-#                 selected_component = axis.components[cidx]
-#                 component_num = renumbering[cidx][pt - component_offsets[cidx]]
-#                 break
-#         assert selected_component is not None
-#         assert component_num is not None
-#
-#         offset = axes.offset(
-#             indices | {axis.label: component_num},
-#             path | {axis.label: selected_component.label},
-#         )
-#         root_offsets[pt] = offset
-#         new_nroots += step_size(
-#             axes,
-#             axis,
-#             selected_component,
-#             indices | {axis.label: component_num},
-#         )
-#
-#     point_sf.broadcast(root_offsets, MPI.REPLACE)
-#
-#     # for sanity reasons remove the original root values from the buffer
-#     root_offsets[point_sf.iroot] = -1
-#
-#     local_leaf_offsets = np.empty(point_sf.nleaves, dtype=IntType)
-#     leaf_ndofs = local_leaf_offsets.copy()
-#     for myindex, pt in enumerate(ilocal):
-#         # convert to a component-wise numbering
-#         selected_component = None
-#         component_num = None
-#         for cidx, (min_, max_) in enumerate(
-#             zip(component_offsets, component_offsets[1:])
-#         ):
-#             if min_ <= pt < max_:
-#                 selected_component = axis.components[cidx]
-#                 component_num = renumbering[cidx][pt - component_offsets[cidx]]
-#                 break
-#         assert selected_component is not None
-#         assert component_num is not None
-#
-#         # this is wrong?
-#         offset = axes.offset(
-#             indices | {axis.label: component_num},
-#             path | {axis.label: selected_component.label},
-#         )
-#         local_leaf_offsets[myindex] = offset
-#         leaf_ndofs[myindex] = step_size(axes, axis, selected_component)
-#
-#     # construct a new SF with these offsets
-#     ndofs = sum(leaf_ndofs)
-#     local_leaf_dof_offsets = np.empty(ndofs, dtype=IntType)
-#     remote_leaf_dof_offsets = np.empty((ndofs, 2), dtype=IntType)
-#     counter = 0
-#     for leaf, pos in enumerate(point_sf.ilocal):
-#         for d in range(leaf_ndofs[leaf]):
-#             local_leaf_dof_offsets[counter] = local_leaf_offsets[leaf] + d
-#
-#             rank = point_sf.iremote[leaf][0]
-#             remote_leaf_dof_offsets[counter] = [rank, root_offsets[pos] + d]
-#             counter += 1
-#
-#     return (new_nroots, local_leaf_dof_offsets, remote_leaf_dof_offsets)
+    comm = utils.single_comm(star_forests, "comm")
+    return StarForest.from_graph(total_size, ilocal, iremote, comm)

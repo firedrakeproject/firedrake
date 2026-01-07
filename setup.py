@@ -20,6 +20,7 @@ from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
 # Ensure that the PETSc getting linked against is compatible
+# TODO RELEASE set to ">=3.25"
 petsctools.init(version_spec=">=3.23.0")
 import petsc4py
 
@@ -51,6 +52,14 @@ class ExternalDependency:
             return getattr(self, key)
         except AttributeError:
             raise KeyError(f"Key {key} not present")
+
+
+# MPI
+# strip the leading 'gcc' or equivalent
+mpi_args = petsctools.get_petscvariables()["MPICC_SHOW"].split()[1:]
+mpi_ = ExternalDependency(
+    extra_compile_args=mpi_args,
+)
 
 
 # Pybind11
@@ -157,61 +166,61 @@ def extensions():
         name="firedrake.cython.dmcommon",
         language="c",
         sources=[os.path.join("firedrake", "cython", "dmcommon.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
     # firedrake/cython/extrusion_numbering.pyx: petsc, numpy
     cython_list.append(Extension(
         name="firedrake.cython.extrusion_numbering",
         language="c",
         sources=[os.path.join("firedrake", "cython", "extrusion_numbering.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
     # firedrake/cython/hdf5interface.pyx: petsc, numpy, hdf5
     cython_list.append(Extension(
         name="firedrake.cython.hdf5interface",
         language="c",
         sources=[os.path.join("firedrake", "cython", "hdf5interface.pyx")],
-        **(petsc_ + numpy_ + hdf5_)
+        **(mpi_ + petsc_ + numpy_ + hdf5_)
     ))
     # firedrake/cython/mgimpl.pyx: petsc, numpy
     cython_list.append(Extension(
         name="firedrake.cython.mgimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "mgimpl.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
     # firedrake/cython/patchimpl.pyx: petsc, numpy
     cython_list.append(Extension(
         name="firedrake.cython.patchimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
     # firedrake/cython/spatialindex.pyx: numpy, spatialindex
     cython_list.append(Extension(
         name="firedrake.cython.spatialindex",
         language="c",
         sources=[os.path.join("firedrake", "cython", "spatialindex.pyx")],
-        **(numpy_ + spatialindex_)
+        **(mpi_ + numpy_ + spatialindex_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(petsc_ + numpy_ + libsupermesh_)
+        **(mpi_ + petsc_ + numpy_ + libsupermesh_)
     ))
     cython_list.append(Extension(
         name="pyop3._buffer_cy",
         language="c",
         sources=[os.path.join("pyop3", "_buffer_cy.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
     cython_list.append(Extension(
         name="pyop3._sf_cy",
         language="c",
         sources=[os.path.join("pyop3", "_sf_cy.pyx")],
-        **(petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_)
     ))
 
     # PYBIND11 EXTENSIONS
@@ -221,7 +230,7 @@ def extensions():
         name="tinyasm._tinyasm",
         language="c++",
         sources=sorted(glob("tinyasm/*.cpp")),  # Sort source files for reproducibility
-        **(petsc_ + pybind11_)
+        **(mpi_ + petsc_ + pybind11_)
     ))
     return cythonize(cython_list) + pybind11_list
 
@@ -235,6 +244,7 @@ FIREDRAKE_CHECK_FILES = (
     "tests/firedrake/regression/test_nullspace.py",
     "tests/firedrake/regression/test_dg_advection.py",
     "tests/firedrake/regression/test_interpolate_cross_mesh.py",
+    "tests/firedrake/output/test_io_function.py",
 )
 
 

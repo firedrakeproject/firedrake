@@ -77,15 +77,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         # User comm
         self.comm = function_space.comm
-        # Internal comm
-        self._comm = internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, op3.Dat):
-            # assert val.comm == self._comm  # FIXME
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -302,12 +300,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if isinstance(self.function_space().topological, MixedFunctionSpace):
             return tuple(
-                type(self)(self.function_space().sub(i, weak=True), val)
+                type(self)(self.function_space().sub(i), val)
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         shape = self.function_space().shape
         components = np.empty(shape, dtype=object)
@@ -633,9 +631,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = self._comm.bcast(arg, root=0)
-        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            root_arg = icomm.bcast(arg, root=0)
+            same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+            diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 

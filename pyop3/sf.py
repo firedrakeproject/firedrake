@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import dataclasses
 import numbers
 import typing
 from functools import cached_property
@@ -10,9 +11,8 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
-from pyop3.mpi import internal_comm
-from pyop3.utils import just_one, strict_int
 
 
 if typing.TYPE_CHECKING:
@@ -20,13 +20,6 @@ if typing.TYPE_CHECKING:
 
 
 from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
-
-
-# This is so we can more easily distinguish internal and external comms
-# It is still necessary to register weakref finalizers for these (see what
-# we do in Firedrake).
-class Pyop3Comm(MPI.Comm):
-    pass
 
 
 class ParallelAwareObject(abc.ABC):
@@ -39,22 +32,7 @@ class ParallelAwareObject(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def user_comm(self) -> MPI.Comm | None:
-        pass
-
-    # TODO: probably decorate as 'collective'
-    @property
-    def internal_comm(self) -> Pyop3Comm | None:
-        if self.user_comm is None:
-            return None
-
-        # this is where the magic happens...
-        # but not yet
-        return self.user_comm
-
-    # TODO: cast to a Pyop3 and register a weakref handler of some kind
-    @staticmethod
-    def register_comm(self, comm) -> Pyop3Comm:
+    def comm(self) -> MPI.Comm | None:
         pass
 
 
@@ -66,15 +44,8 @@ class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
     """
 
     @property
-    def internal_comm(self) -> Pyop3Comm:
-        # this is where the magic happens...
-        # but not yet
-        assert self.user_comm is not None
-        return self.user_comm
-
-    @property
     @abc.abstractmethod
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         pass
 
 
@@ -114,19 +85,26 @@ class AbstractStarForest(DistributedObject, abc.ABC):
 
     # }}}
 
-    def __init__(self, size: AxisComponentRegionSizeT) -> None:
-        self.size = size
 
     def broadcast(self, *args):
         self.broadcast_begin(*args)
         self.broadcast_end(*args)
 
 
-
+@utils.record()
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
 
+    # {{{ instance attrs
+
+    sf: PETSc.SF
+    _comm: MPI.Comm
+
+    # }}}
+
     # {{{ interface impls
+
+    comm = utils.attr("_comm")
 
     def __hash__(self) -> int:
         return hash((
@@ -146,36 +124,22 @@ class StarForest(AbstractStarForest):
 
     # }}}
 
-    # NOTE: I think 'size' now has to equal the number of roots
-    def __init__(self, sf: PETSc.SF, size: IntType) -> None:
-        size = strict_int(size)
-
-        # TODO: This check only makes sense for SFs that we make (where ghosts are at the end)
-        # in the general case it isn't true
-        # _check_sf(sf)
-
-        num_roots, local_leaf_indices, _ = sf.getGraph()
-        assert size >= num_roots and size >= len(local_leaf_indices)
-
-        self.sf = sf
-        super().__init__(size)
+    @property
+    def size(self):
+        return self.graph[0]
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
 
     @classmethod
-    def from_graph(cls, size: IntType, nroots: IntType, ilocal, iremote, comm):
-        size = strict_int(size)
+    def from_graph(cls, size: IntType, ilocal, iremote, comm):
+        size = utils.strict_int(size)
         ilocal = ilocal.astype(IntType, casting="safe")
         iremote = iremote.astype(IntType, casting="safe")
 
         sf = PETSc.SF().create(comm)
-        sf.setGraph(nroots, ilocal, iremote)
-        return cls(sf, size)
-
-    @property
-    def user_comm(self) -> MPI.Comm:
-        return self.sf.comm.tompi4py()
+        sf.setGraph(size, ilocal, iremote)
+        return cls(sf, comm)
 
     @cached_property
     def iroot(self):
@@ -187,7 +151,7 @@ class StarForest(AbstractStarForest):
 
         # now clear the leaf indices, the remaining marked indices are roots
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
     @property
     def ileaf(self):
@@ -199,7 +163,7 @@ class StarForest(AbstractStarForest):
         mask = np.full(self.size, True, dtype=bool)
         mask[self.iroot] = False
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
     # not useful
     # @property
@@ -278,6 +242,17 @@ class StarForest(AbstractStarForest):
 
 class NullStarForest(AbstractStarForest):
 
+    # {{{ instance attrs
+
+    def __init__(self, size):
+        self.size = size
+        self.__post_init__()
+
+    def __post_init__(self):
+        assert isinstance(self.size, numbers.Integral)
+
+    # }}}
+
     # {{{ interface impls
 
     def __hash__(self) -> int:
@@ -302,6 +277,9 @@ class NullStarForest(AbstractStarForest):
 
     # }}}
 
+    def __repr__(self, /) -> str:
+        return f"NullStarForest({self.size})"
+
     # TODO: This leads to some very unclear semantics. Basically there are
     # subtle differences between having a null star forest and an SF that is
     # 'None' and sometimes we want to treat them as equivalent and other
@@ -310,7 +288,7 @@ class NullStarForest(AbstractStarForest):
         return False
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return MPI.COMM_SELF
 
     def reduce_begin(self, *args):
@@ -329,23 +307,20 @@ def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 
 
     """
     if comm.rank == root:
-        nroots = size
         # there are no leaves on the root process
         ilocal = np.empty(0, dtype=np.int32)
         iremote = np.empty(0, dtype=np.int32)
     else:
-        nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
         iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
 
 
 def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
-    # nroots = IntType.type(0)
-    nroots = IntType.type(size)
+    size = IntType.type(size)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
 
 
 def _check_sf(sf: PETSc.SF):

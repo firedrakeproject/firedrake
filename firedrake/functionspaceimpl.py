@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property, reduce
 from immutabledict import immutabledict as idict
-from typing import Optional
+from typing import Literal, Optional
 from mpi4py import MPI
 
 import finat.ufl
@@ -135,7 +135,6 @@ class WithGeometryBase:
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):
@@ -194,12 +193,6 @@ class WithGeometryBase:
         self.cargo.topological = val
 
     @utils.cached_property
-    def strong_subspaces(self):
-        r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, mesh, parent=self)
-                     for mesh, subspace in zip(self.mesh(), self.topological.strong_subspaces, strict=True))
-
-    @utils.cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         if isinstance(self.topological, MixedFunctionSpace):
@@ -232,32 +225,19 @@ class WithGeometryBase:
         return self.mesh().ufl_cell()
 
     @utils.cached_property
-    def _strong_components(self):
-        components = numpy.empty(self.shape, dtype=object)
-        for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix, weak=False), self.mesh())
-        return utils.readonly(components)
-
-    @utils.cached_property
     def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh(), parent=self)
+            components[ix] = type(self).create(self.topological.sub(ix), self.mesh(), parent=self)
         return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices, *, weak: bool = True):
+    def sub(self, indices):
         if type(self.ufl_element()) is finat.ufl.MixedElement:
-            if weak:
-                return self.subspaces[indices]
-            else:
-                return self.strong_subspaces[indices]
+            return self.subspaces[indices]
         else:
             indices = parse_component_indices(indices, self.shape)
-            if weak:
-                return self._components[indices]
-            else:
-                return self._strong_components[indices]
+            return self._components[indices]
 
     @utils.cached_property
     def dm(self):
@@ -493,6 +473,19 @@ class WithGeometryBase:
             new = cls.create(new, mesh)
         return new
 
+    def broken_space(self):
+        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
+        constructed from this function space's FiniteElement.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        """
+        return type(self).make_function_space(
+            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            name=f"{self.name}_broken" if self.name else None)
+
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,
@@ -665,11 +658,7 @@ class FunctionSpace:
 
         self.name = name
         r"""The (optional) descriptive name for this space."""
-
-        # User comm
         self.comm = mesh.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(self.comm, self)
 
         self.element = element
         self.finat_element = create_element(element)
@@ -808,7 +797,7 @@ class FunctionSpace:
             else:
                 new_pt = old_pt
 
-            ndofs = self.local_section.getDof(old_pt)
+            ndofs = self.local_section.getDof(old_pt) // self.block_size
 
             if new_pt not in constrained_points:
                 num_unconstrained_dofs[new_pt] = ndofs
@@ -877,25 +866,20 @@ class FunctionSpace:
     @cached_property
     def nodes(self) -> op3.Axis:
         scalar_axis_tree = self.layout_axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.local_size
+        num_nodes = scalar_axis_tree.size
         return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        node_axis = self.nodes
-        num_nodes = node_axis.local_size
-        axis_tree = op3.AxisTree(node_axis)
+        # Create the axis tree without index information
+        axis_tree = self.nodes.as_tree()
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
-
-
         assert axis_tree.sf == self.layout_axes.sf
-        # assert axis_tree.sf.num_owned == self.plex_axes.sf.num_owned
-        # assert axis_tree.sf.num_ghost == self.plex_axes.sf.num_ghost
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
-        # means we have to determine the mapping
+        # means we have to determine the mapping:
         #
         #   n0 -> (p0, d0)
         #   n1 -> (p0, d1)
@@ -911,15 +895,14 @@ class FunctionSpace:
         #   n0 -> d0, n1 -> d1, n2 -> d0, ...
         #
         # The excessive tabulations should not impose a performance penalty
-        # because they mappings will be compressed during compilation.
-        import pyop3
-        pyop3.extras.debug.warn_todo("Cythonize")
+        # because the mappings are compressed during compilation.
+        op3.extras.debug.warn_todo("Cythonize")
 
-        node_point_map_array = numpy.full(num_nodes, -1, dtype=IntType)
-        node_dof_map_array = numpy.full_like(node_point_map_array, -1)
+        node_point_map_array = numpy.full(self.nodes.local_size, -1, dtype=IntType)
+        node_dof_map_array = node_point_map_array.copy()
 
         dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
-        ndofs = dof_axis.component.size.buffer.buffer.data_ro
+        ndofs = dof_axis.component.size.buffer.buffer.data_ro  # this sucks
 
         node = 0
         for point, ndof in enumerate(ndofs):
@@ -927,35 +910,31 @@ class FunctionSpace:
                 node_point_map_array[node] = point
                 node_dof_map_array[node] = dof
                 node += 1
-
         assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
-        node_point_map_dat = op3.Dat(node_axis, data=node_point_map_array)
-        node_dof_map_dat = op3.Dat(node_axis, data=node_dof_map_array)
+        node_point_map_dat = op3.Dat(self.nodes, data=node_point_map_array)
+        node_dof_map_dat = op3.Dat(self.nodes, data=node_dof_map_array)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
 
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in axis_tree._source_path_and_exprs.items():
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == "nodes":
-                    new_target_path |= {"mesh": "mylabel", "dof": "XXX"}
+        # We have the two mappings as expressions, now we have to plug them
+        # into the indexed axis tree in the right way.
+        targets = utils.StrictlyUniqueDict()
+        for source_path, candidate_axis_targets in axis_tree.targets.items():
+            new_axis_targets = []
+            axis_targets = utils.just_one(candidate_axis_targets)
+            for axis_target in axis_targets:
+                if axis_target.axis == "nodes":
+                    mesh_target = op3.AxisTarget("mesh", "mylabel", node_point_map_expr)
+                    dof_target = op3.AxisTarget("dof", "XXX", node_dof_map_expr)
+                    new_axis_targets.extend([mesh_target, dof_target])
                 else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == "nodes":
-                    new_target_exprs |= {"mesh": node_point_map_expr, "dof": node_dof_map_expr}
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+                    # All other axes (e.g. 'dim0') map directly to the layout axes
+                    # and do not require modification
+                    new_axis_targets.append(axis_target)
+            targets[source_path] = [new_axis_targets]
+        targets = utils.freeze(targets)
 
         return op3.IndexedAxisTree(
             axis_tree,
@@ -1076,12 +1055,12 @@ class FunctionSpace:
             stratum_ranges = {
             }
             for dim in range(dm.getDimension()+1):
-                ndofs = entity_dofs[dim]
+                ndofs = entity_dofs[dim] * self.block_size
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
             stratum_ranges = {0: (0, dm.getLocalSize())}
-            ndofs = entity_dofs[0]
+            ndofs = entity_dofs[0] * self.block_size
             for pt in range(dm.getLocalSize()):
                 section.setDof(pt, ndofs)
         else:
@@ -1094,10 +1073,10 @@ class FunctionSpace:
                 base_dim = base_dim_label.getValue(pt)
                 if base_dim == dim:
                     # vertex
-                    ndofs = entity_dofs[base_dim, 0]
+                    ndofs = entity_dofs[base_dim, 0] * self.block_size
                 else:
                     # edge
-                    ndofs = entity_dofs[base_dim, 1]
+                    ndofs = entity_dofs[base_dim, 1] * self.block_size
                 section.setDof(pt, ndofs)
 
         if self._ufl_function_space.ufl_element().family() == "Real":
@@ -1129,7 +1108,7 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
-        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
+        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.local_size, -1))
         if self.extruded:
             return nodes[::self.mesh().layers-1]
         else:
@@ -1144,7 +1123,7 @@ class FunctionSpace:
         mesh = self.mesh()
 
         indices_axes = self.axes.blocked(self.shape)
-        indices_array = numpy.arange(indices_axes.size, dtype=IntType)
+        indices_array = numpy.arange(indices_axes.local_size, dtype=IntType)
         indices_dat = op3.Dat(indices_axes, data=indices_array)
 
         cell_index = self._mesh.cells.owned.iter()
@@ -1215,8 +1194,6 @@ class FunctionSpace:
         """Split into a tuple of constituent spaces."""
         return (self,)
 
-    strong_subspaces = property(lambda self: self.subspaces)
-
     @property
     def subfunctions(self):
         import warnings
@@ -1231,16 +1208,6 @@ class FunctionSpace:
         return self
 
     @utils.cached_property
-    def _strong_components(self):
-        if self.rank == 0:
-            return self.strong_subspaces
-        else:
-            components = numpy.empty(self.shape, dtype=object)
-            for ix in numpy.ndindex(self.shape):
-                components[ix] = ComponentFunctionSpace(self, ix, weak=False)
-            return utils.readonly(components)
-
-    @utils.cached_property
     def _components(self):
         if self.rank == 0:
             return self.subspaces
@@ -1250,13 +1217,10 @@ class FunctionSpace:
                 components[ix] = ComponentFunctionSpace(self, ix)
             return utils.readonly(components)
 
-    def sub(self, indices, *, weak: bool = True):
+    def sub(self, indices):
         r"""Return a view into the ith component."""
         indices = parse_component_indices(indices, self.shape)
-        if weak:
-            return self._components[indices or 0]
-        else:
-            return self._strong_components[indices or 0]
+        return self._components[indices or 0]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -1308,7 +1272,6 @@ class FunctionSpace:
         """Return a map from cells to cell closures."""
         return self.mesh()._fiat_closure(cell)
 
-    # NOTE: This shouldn't ever really be used, doesn't do the right permutations..
     def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
 
@@ -1337,7 +1300,7 @@ class FunctionSpace:
             composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
         else:
             # No shared topology, must be using a vertex-only mesh
-            composed_map = mesh.cell_parent_cell_map(iteration_spec.loop_index)
+            composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
             target_integral_type = "cell"
 
         if target_integral_type == "cell":
@@ -1586,8 +1549,6 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        # NOTE: This might be a good candidate for axis forests so we could have
-        # V.axes and index it with node things or mesh things
         scalar_axis_tree = self.axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
 
@@ -1644,8 +1605,6 @@ class MixedFunctionSpace:
 
         self._orig_spaces = spaces
         self.layout = layout
-        self._strong_spaces = tuple(IndexedFunctionSpace(i, s, self, weak=False)
-                             for i, s in enumerate(spaces))
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
@@ -1660,7 +1619,6 @@ class MixedFunctionSpace:
         self._mesh = mesh
 
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1671,74 +1629,56 @@ class MixedFunctionSpace:
     # TODO:
     # @cached_on(mesh)?
     @cached_property
-    def layout_axes(self) -> AxisTree:
+    def layout_axes(self) -> op3.AxisTree:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
-    def axes(self):
+    def axes(self) -> op3.AxisForest:
         return op3.AxisForest([self.plex_axes, self.nodal_axes])
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        # It isn't possible to use an index tree here because the axes of Real
-        # spaces aren't expressible using index trees. Hence we have to be clever
-        # how we combine things here to retain that information.
+        return self._make_axes("plex")
 
-        field_axis = utils.single_valued((
-            axis for axis in self.layout_axes.nodes if axis.label == "field"
-        ))
-        axis_tree = op3.AxisTree(field_axis)
-        targets = utils.StrictlyUniqueDict()
-        for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
-            leaf_path = idict({field_axis.label: field_component.label})
-            subaxes = subspace.plex_axes
-            axis_tree = axis_tree.add_subtree(
-                leaf_path, subaxes.materialize()
-            )
-            # i.e. a full slice
-            targets[leaf_path] = (
-                idict({field_axis.label: field_component.label}),
-                idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
-            )
-            subtargets, *_ = subaxes.targets
-            for sub_path, sub_target in subtargets.items():
-                targets[leaf_path | sub_path] = sub_target
-
-        # TODO: This looks quite hacky
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
-
-        return op3.IndexedAxisTree(
-            axis_tree, unindexed=self.layout_axes, targets=targets,
-        )
-
-    # This is very very close to .axes
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
+        return self._make_axes("nodal")
+
+    def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         field_axis = utils.single_valued((
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
         axis_tree = op3.AxisTree(field_axis)
         targets = utils.StrictlyUniqueDict()
-        for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
+        for field_component, subspace in zip(
+            field_axis.components, self._orig_spaces, strict=True
+        ):
+            if mode == "plex":
+                subaxes = subspace.plex_axes
+            else:
+                assert mode == "nodal"
+                subaxes = subspace.nodal_axes
+
             leaf_path = idict({field_axis.label: field_component.label})
-            subaxes = subspace.nodal_axes
             axis_tree = axis_tree.add_subtree(
                 leaf_path, subaxes.materialize()
             )
-            # i.e. a full slice
-            targets[leaf_path] = (
-                idict({field_axis.label: field_component.label}),
-                idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
-            )
-            subtargets, _ = subaxes.targets
-            for sub_path, sub_target in subtargets.items():
-                if sub_target == (idict(), idict()):
-                    continue
-                targets[leaf_path | sub_path] = sub_target
 
-        # TODO: This looks quite hacky
-        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+            # Target a full slice of the 'field' component
+            targets[leaf_path] = [[
+                op3.AxisTarget(
+                    field_axis.label,
+                    field_component.label,
+                    op3.AxisVar(field_axis.linearize(field_component.label)),
+                ),
+            ]]
+            for subpath, subaxis_targets in subaxes.targets.items():
+                if subpath:
+                    targets[leaf_path | subpath] = subaxis_targets
+                else:
+                    assert subaxis_targets == ((),)
 
+        targets = utils.freeze(targets)
         return op3.IndexedAxisTree(
             axis_tree, unindexed=self.layout_axes, targets=targets,
         )
@@ -1782,12 +1722,6 @@ class MixedFunctionSpace:
         return hash(tuple(self))
 
     @property
-    def strong_subspaces(self):
-        r"""The list of :class:`FunctionSpace`\s of which this
-        :class:`MixedFunctionSpace` is composed."""
-        return self._strong_spaces
-
-    @property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
@@ -1800,13 +1734,10 @@ class MixedFunctionSpace:
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
-    def sub(self, i, *, weak=True):
+    def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        if weak:
-            return self._spaces[i]
-        else:
-            return self._strong_spaces[i]
+        return self._spaces[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
@@ -1875,7 +1806,8 @@ class MixedFunctionSpace:
 
         Used when extracting blocks from matrices for solvers."""
         ises = []
-        start = self._comm.exscan(self.axes.owned.local_size) or 0
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            start = icomm.exscan(self.axes.owned.local_size) or 0
         for subspace in self:
             size = subspace.axes.owned.local_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
@@ -2091,7 +2023,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
+def IndexedFunctionSpace(index, space, parent):
     r"""Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
 
@@ -2114,7 +2046,7 @@ def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
     return new
 
 
-def ComponentFunctionSpace(parent, component, *, weak: bool = True):
+def ComponentFunctionSpace(parent, component):
     r"""Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
     components of a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace`.
@@ -2159,7 +2091,7 @@ class RealFunctionSpace(FunctionSpace):
         assert ndofs is not None
 
         dof_axis = op3.Axis(
-            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self._comm, ndofs)),
+            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self.comm, ndofs)),
             "dof"
         )
         constraints = [AxisConstraint(dof_axis)]
@@ -2171,76 +2103,13 @@ class RealFunctionSpace(FunctionSpace):
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        # For real function spaces the mesh is conceptually non-existent as all
-        # cells map to the same globally-defined DoFs. We can trick pyop3 into
-        # pretending that a mesh axis exists though by careful construction of
-        # an indexed axis tree. With this trick no special-casing of real spaces
-        # should be necessary anywhere else.
+        return self._make_axes("plex")
 
-        # Create the pretend axis tree that includes the mesh axis. This is
-        # just a DG0 function.
-        dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.plex_axes.materialize()
-
-        # Now map the mesh-aware axis tree back to the actual one
-        # constitutes two steps:
-        #All
-        #   1. All references to the mesh must be removed.
-        #   2. Attempts to address cell DoFs should map to the "dof" axis
-        #      in the actual layout axis tree.
-        #
-        # Other elements of the tree (i.e. tensor shape) are the same and
-        # can be left unchanged.
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
-
-            # this avoids a later failure
-            if not source_path:
-                assert not orig_target_path
-                assert not orig_target_exprs
-                continue
-
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == self._mesh.name:
-                    continue
-                elif target_axis_label.startswith("dof"):
-                    new_target_path["dof"] = "XXX"
-                else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == self._mesh.name:
-                    continue
-                elif target_axis_label.startswith("dof"):
-                    if target_axis_label == f"dof{self._mesh.cell_label}":
-                        dof_axis = utils.single_valued(
-                            axis
-                            for axis in dg_space.plex_axes.nodes
-                            if axis.label == f"dof{self._mesh.cell_label}"
-                        )
-                        new_target_exprs["dof"] = op3.AxisVar(dof_axis)
-                    else:
-                        new_target_exprs["dof"] = op3.NAN
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
-        targets = utils.freeze(targets)
-
-        # TODO: This looks hacky
-        targets = (targets,) + (fake_axes._source_path_and_exprs,)
-
-        return op3.IndexedAxisTree(
-            fake_axes, unindexed=self.layout_axes, targets=targets,
-        )
-
-    # I think that this should be very very similar to the above case
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
+        return self._make_axes("nodal")
+
+    def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # For real function spaces the mesh is conceptually non-existent as all
         # cells map to the same globally-defined DoFs. We can trick pyop3 into
         # pretending that a mesh axis exists though by careful construction of
@@ -2250,45 +2119,39 @@ class RealFunctionSpace(FunctionSpace):
         # Create the pretend axis tree that includes the mesh axis. This is
         # just a DG0 function.
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.nodal_axes.materialize()
+        if mode == "plex":
+            fake_axes = dg_space.plex_axes.materialize()
+        else:
+            assert mode == "nodal"
+            fake_axes = dg_space.nodal_axes.materialize()
 
-        # Now map the mesh-aware axis tree back to the actual one
-        # constitutes two steps:
-        #
-        #   1. All references to the mesh must be removed.
-        #   2. Attempts to address cell DoFs should map to the "dof" axis
-        #      in the actual layout axis tree.
+        # Now map the mesh-aware axis tree back to the actual one. For the 'plex'
+        # case this means mapping all of the mesh points to nothing, and the
+        # (single) cell DoF to 0. For the 'nodal' case we have to map all the node
+        # points to 0.
         #
         # Other elements of the tree (i.e. tensor shape) are the same and
         # can be left unchanged.
-        targets = {}
-        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
-            new_target_path = {}
-            for target_axis_label, target_component_label in orig_target_path.items():
-                if target_axis_label == "nodes":
-                    new_target_path["dof"] = "XXX"
-                else:
-                    new_target_path[target_axis_label] = target_component_label
-            new_target_path = utils.freeze(new_target_path)
-
-            dof_axis = utils.single_valued(
-                axis
-                for axis in dg_space.nodal_axes.nodes
-                if axis.label == "nodes"
-            )
-            new_target_exprs = {}
-            for target_axis_label, target_expr in orig_target_exprs.items():
-                if target_axis_label == "nodes":
-                    new_target_exprs["dof"] = 0
-                else:
-                    new_target_exprs[target_axis_label] = target_expr
-            new_target_exprs = utils.freeze(new_target_exprs)
-
-            targets[source_path] = (new_target_path, new_target_exprs)
+        targets = utils.StrictlyUniqueDefaultDict(list)
+        for path, axis_targetss in fake_axes.targets.items():
+            new_axis_targets = []
+            axis_targets = utils.just_one(axis_targetss)
+            if mode == "plex":
+                if path.keys() != {self._mesh.name}:
+                    for axis_target in axis_targets:
+                        if axis_target.axis == f"dof{self._mesh.cell_label}":
+                            axis_target = op3.AxisTarget("dof", "XXX", 0)
+                        elif axis_target.axis.startswith("dof"):
+                            axis_target = op3.AxisTarget("dof", "XXX", op3.NAN)
+                        new_axis_targets.append(axis_target)
+            else:
+                assert mode == "nodal"
+                for axis_target in axis_targets:
+                    if axis_target.axis == "nodes":
+                        axis_target = op3.AxisTarget("dof", "XXX", 0)
+                    new_axis_targets.append(axis_target)
+            targets[path] = [new_axis_targets]
         targets = utils.freeze(targets)
-
-        # TODO: This looks hacky
-        targets = (targets,) + (fake_axes._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
             fake_axes, unindexed=self.layout_axes, targets=targets,
@@ -2310,40 +2173,6 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
-
-    # def set_shared_data(self):
-    #     pass
-
-    # def make_dof_dset(self):
-    #     raise NotImplementedError
-    #     return op2.GlobalDataSet(self.make_dat())
-
-    # def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
-    #     return None
-    #
-    # def cell_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no cell node map."
-    #     return None
-    #
-    # def interior_facet_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no interior facet node map."
-    #     return None
-    #
-    # def exterior_facet_node_map(self, bcs=None):
-    #     ":class:`RealFunctionSpace` objects have no exterior facet node map."
-    #     return None
-    #
-    # def bottom_nodes(self):
-    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
-    #     return None
-    #
-    # def top_nodes(self):
-    #     ":class:`RealFunctionSpace` objects have no bottom nodes."
-    #     return None
-    #
-    # def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-    #     assert len(bcs) == 0
-    #     return None
 
 
 @dataclass

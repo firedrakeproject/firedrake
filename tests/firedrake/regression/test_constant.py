@@ -288,7 +288,7 @@ def test_constant_ufl2unicode():
     _ = ufl2unicode(dFda)
     _ = ufl2unicode(dFdb)
 
-    dFda_du = derivative(F, u=a, du=ufl.classes.IntValue(1))
-    dFdb_du = derivative(F, u=b, du=ufl.classes.IntValue(1))
+    dFda_du = derivative(F, u=a, du=IntValue(1))
+    dFdb_du = derivative(F, u=b, du=IntValue(1))
     _ = ufl2unicode(dFda_du)
     _ = ufl2unicode(dFdb_du)

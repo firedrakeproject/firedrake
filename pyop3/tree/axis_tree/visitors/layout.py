@@ -201,7 +201,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 continue
 
             regioned_axes = offset_axes.with_region_labels(regions)
-            assert not regioned_axes._all_region_labels
+            assert not regioned_axes._all_region_labels  # confusing!
 
             # Add the global offset to the values in this region
             if starts[i] != 0:  # don't bother adding 0 to things
@@ -245,18 +245,17 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         subtree = axis_tree.subtree(path_acc_)
 
         if not subtree.is_empty:
+            # NOTE: THis is really confusing, _all_region_labels will drop nones
             subtree_has_non_trivial_regions = len(subtree._all_region_labels) > 0
         else:
             subtree_has_non_trivial_regions = False
 
-        # changed 30/10/25, need to keep SF info here
-        # linear_axis = axis.linearize(component.label).localize()
+        # NOTE: we need to keep region information here so we can loop over it in _tabulate_regions
         linear_axis = axis.linearize(component.label)
         parent_axes_ = parent_axes + (linear_axis,)
 
         # The subtree contains regions so we cannot have a layout function here.
         if subtree_has_non_trivial_regions:
-            # layout_expr_acc_ = layout_expr_acc + start  # 30/10 think this is wrong, not sure why it was there
             assert layout_expr_acc == 0
             layout_expr_acc_ = 0
             layouts[path_acc_] = NAN
@@ -333,7 +332,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
     axis = axes.node_map[path]
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        for region in component._all_regions:
+        for region in component.regions:
             merged_region = frozenset({region.label}) if region.label is not None else frozenset()
 
             if axes.node_map[path_]:
@@ -347,8 +346,8 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
     return tuple(merged_regions)
 
 
-# TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
+# TODO: I dont really understand why this is so complicated, maybe do something like materialise dats?
 @functools.singledispatch
 def _accumulate_step_sizes(obj: Any, axis, comm):
     """TODO
@@ -361,6 +360,7 @@ def _accumulate_step_sizes(obj: Any, axis, comm):
 
 
 @_accumulate_step_sizes.register(numbers.Number)
+@_accumulate_step_sizes.register(op3_expr.ScalarBufferExpression)
 def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
     return num
 
@@ -423,7 +423,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     outer_loop_tree = offset_axes.drop_node(loc)
     assert linear_axis not in outer_loop_tree.nodes
 
-    offset_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+    offset_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
 
     size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
 
@@ -440,11 +440,11 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
         loop_(
-            ix, exscan(assignee, size_expr_alt, "+", scan_axis, assignee.user_comm), eager=True
+            ix, exscan(assignee, size_expr_alt, "+", scan_axis, assignee.comm), eager=True
         )
 
     else:
-        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.user_comm, eager=True)
+        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.comm, eager=True)
 
     offset_expr = offset_dat.concretize()
 
@@ -488,7 +488,7 @@ def _tabulate_regions(offset_axes, step, comm):
         regioned_offset_axes = offset_axes.with_region_labels(regions)
         assert not regioned_offset_axes._all_region_labels
 
-        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless)
+        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.localize())
 
         if not regioned_offset_axes.is_linear:
             raise NotImplementedError("Doesn't strictly have to be linear here")
@@ -510,7 +510,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # all of the available axes (there is no axis-wise 'exscan' here). This is
     # because the axes above this have not yet been tabulated so accumulation
     # is not a concern.
-    step_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+    step_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
     step_dat.assign(step, eager=True)
 
     # But the steps here are in the wrong order since they do not account for
@@ -523,4 +523,4 @@ def _tabulate_regions(offset_axes, step, comm):
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
-    return Dat(offset_axes.regionless, data=offsets)
+    return Dat(step_dat.axes, data=offsets)

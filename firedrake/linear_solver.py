@@ -2,7 +2,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-from pyop3.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
 __all__ = ["LinearSolver"]
@@ -55,7 +54,6 @@ class LinearSolver(LinearVariationalSolver):
 
         self.A = A
         self.comm = A.comm
-        self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
         self.ksp = self.snes.ksp
@@ -84,10 +82,19 @@ class LinearSolver(LinearVariationalSolver):
             raise ValueError(f"b must be a Cofunction in {self.b.function_space()}.")
 
         self.x.assign(x)
-        self.b.assign(b)
 
-        # debugging
-        assert (self.x.dat.data_ro == x.dat.data_ro).all()
+        global firstcall
+
+        if firstcall:
+            firstcall = False
+        else:
+            import pyop3
+            pyop3.extras.debug.enable_conditional_breakpoints()
+
+        self.b.assign(b)
 
         super().solve()
         x.assign(self.x)
+
+
+firstcall = True

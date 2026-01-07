@@ -39,8 +39,8 @@ import numpy
 from itertools import chain
 from textwrap import dedent
 from pytest_mpi import parallel_assert
-from pyop2 import op2
-from pyop2.caching import (
+import pyop3 as op3
+from pyop3.cache import (
     DEFAULT_CACHE,
     disk_only_cache,
     get_comm_caches,
@@ -49,9 +49,9 @@ from pyop2.caching import (
     clear_memory_cache,
     _KNOWN_CACHES,
 )
-from pyop2.compilation import load
-from pyop2.configuration import configuration
-from pyop2.mpi import (
+from pyop3.compile import load
+from pyop3.config import CONFIG
+from pyop3.mpi import (
     MPI,
     COMM_WORLD,
     COMM_SELF,
@@ -851,11 +851,11 @@ class spmd_strict:
         self._enabled = enabled
 
     def __enter__(self):
-        self._orig_spmd_strict = configuration["spmd_strict"]
-        configuration["spmd_strict"] = self._enabled
+        self._orig_spmd_strict = CONFIG.spmd_strict
+        CONFIG.spmd_strict = self._enabled
 
     def __exit__(self, *args, **kwargs):
-        configuration["spmd_strict"] = self._orig_spmd_strict
+        CONFIG.spmd_strict = self._orig_spmd_strict
 
 
 @pytest.mark.parallel(2)

@@ -331,8 +331,8 @@ def test_extruded_cell_parent_cell_list():
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
-    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._dm_renumbering]).all()
-    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._dm_renumbering]).all()
+    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._new_to_old_point_renumbering]).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._new_to_old_point_renumbering]).all()
 
     # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
     # per cell which is the expression evaluated at the cell midpoint.
@@ -351,8 +351,8 @@ def test_extruded_cell_parent_cell_list():
     mx_eval = PointEvaluator(mx, coords)
     assert np.allclose(ms_eval.evaluate(fs), expected)
     assert np.allclose(mx_eval.evaluate(fx), expected)
-    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
-    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._new_to_old_point_renumbering])
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._new_to_old_point_renumbering])
 
 
 @pytest.mark.parallel

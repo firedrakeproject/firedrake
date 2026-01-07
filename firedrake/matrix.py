@@ -1,7 +1,6 @@
 import itertools
 import ufl
 
-from pyop3.mpi import internal_comm
 from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import PETSc
 
@@ -51,7 +50,6 @@ class MatrixBase(ufl.Matrix):
             bcs = ()
         self.bcs = bcs
         self.comm = test.function_space().comm
-        self._comm = internal_comm(self.comm, self)
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
@@ -209,7 +207,7 @@ class ImplicitMatrix(MatrixBase):
                                     col_bcs=self.bcs,
                                     fc_params=fc_params,
                                     appctx=appctx)
-        self.petscmat = PETSc.Mat().create(comm=self._comm)
+        self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import numbers
 from functools import cached_property
 from typing import Any, ClassVar, Callable
 
@@ -13,17 +14,17 @@ from pyop3 import utils
 from pyop3.sf import DistributedObject
 from pyop3.tree.axis_tree import ContextAware
 from pyop3.tree.axis_tree.tree import AbstractAxisTree
-from pyop3.expr import Expression
+from pyop3.expr import Terminal
 from pyop3.exceptions import InvalidIndexCountException
 
 
-class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
+class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return self.buffer.user_comm
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     def __getitem__(self, indices):
         # Handle the fact that 'obj[123]' sets 'indices' to '123' (not a tuple)
@@ -121,11 +122,6 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
             self.assign(self//other, eager=True)
         return self
 
-    # @property
-    # @utils.deprecated("internal_comm")
-    # def comm(self) -> MPI.Comm:
-    #     return self.buffer.comm
-
     @property
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
@@ -164,6 +160,7 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     # NOTE: This is quite nasty
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
+        breakpoint()
         if self.parent:
             raise NotImplementedError
         # we should be able to get this information from the subst layouts

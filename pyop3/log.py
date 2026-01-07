@@ -39,18 +39,17 @@ import logging
 from pyop3.config import CONFIG
 
 
-logger = logging.getLogger('pyop3')
-logger.setLevel(CONFIG.log_level)
+LOGGER = logging.getLogger('pyop3')
 
-handler = logging.StreamHandler()
-logger.addHandler(handler)
+if CONFIG.debug:
+    LOGGER.setLevel(logging.DEBUG)
 
 
-debug = logger.debug
-info = logger.info
-warning = logger.warning
-error = logger.error
-critical = logger.critical
+debug = LOGGER.debug
+info = LOGGER.info
+warning = LOGGER.warning
+error = LOGGER.error
+critical = LOGGER.critical
 
 DEBUG = logging.DEBUG
 INFO = logging.INFO
@@ -65,7 +64,7 @@ def log(level, msg, *args, **kwargs):
     :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
     :arg msg: the message '''
 
-    logger.log(level, msg, *args, **kwargs)
+    LOGGER.log(level, msg, *args, **kwargs)
 
 
 _indent = 0

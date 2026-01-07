@@ -132,17 +132,7 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
         raise NotImplementedError("Need to think about context-sensitive itersets and add them here")
 
     return OrderedSet({
-        (
-            loop_index.id,
-            tuple(
-                tuple(
-                    target_acc[leaf_path][0]
-                    for target_acc in loop_index.iterset.targets_acc
-                )
-                for leaf_path in loop_index.iterset.leaf_paths
-            )
-        )
-    })
+        (loop_index.id, loop_index.iterset.leaf_paths)})
 
 
 @collect_loop_contexts.register(CalledMap)

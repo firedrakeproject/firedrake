@@ -1,5 +1,3 @@
-# TODO Rename this file insn.py - the pyop3 language is everything, not just this
-
 from __future__ import annotations
 
 import abc
@@ -18,11 +16,11 @@ import immutabledict
 import loopy as lp
 import numpy as np
 import pytools
-from cachetools import cachedmethod
 from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
+from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
@@ -175,13 +173,7 @@ class UnprocessedExpressionException(Pyop3Exception):
     """Exception raised when pyop3 expected a preprocessed expression."""
 
 
-class Instruction(DistributedObject, abc.ABC):
-
-    @property
-    def _cache(self) -> collections.defaultdict[dict]:
-        if not hasattr(self, "_lazy_cache"):
-            object.__setattr__(self, "_lazy_cache", collections.defaultdict(dict))
-        return self._lazy_cache
+class Instruction(Node, DistributedObject, abc.ABC):
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None, *, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -193,14 +185,15 @@ class Instruction(DistributedObject, abc.ABC):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
         return self._preprocess(compiler_parameters)
 
-    @cachedmethod(lambda self: self._cache["Instruction._preprocess"])
-    def _preprocess(self, compiler_parameters: ParsedCompilerParameters):
+    @utils.cached_method()
+    def _preprocess(self, compiler_parameters: ParsedCompilerParameters) -> Instruction:
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_assignments,
             materialize_indirections,
             concretize_layouts,
+            insert_literals,
         )
 
         insn = self
@@ -222,15 +215,17 @@ class Instruction(DistributedObject, abc.ABC):
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
 
+        insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
-        return insn
+        return PreprocessedOperation(insn)
 
+    # TODO: only really an attr of lowered ones...
     def compile(self, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
         return self._compile(compiler_parameters)
 
-    @cachedmethod(lambda self: self._cache["Instruction._compile"])
+    @utils.cached_method()
     def _compile(self, compiler_parameters: ParsedCompilerParameters):
         from pyop3.ir.lower import compile
 
@@ -254,20 +249,47 @@ _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
 @utils.frozenrecord()
+class PreprocessedOperation:
+    root_insn: Instruction
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.root_insn.comm
+
+    @cached_property
+    def buffers(self) -> OrderedFrozenSet:
+        """The buffers (global data) that are present in the operation."""
+        from pyop3.insn.visitors import collect_buffers
+
+        return collect_buffers(self.root_insn)
+
+    @cached_property
+    def disk_cache_key(self) -> Hashable:
+        """Key used to write the operation to disk.
+
+        The returned key should be consistent across ranks and not include
+        overly specific information such as buffer names or array values.
+
+        """
+        from pyop3.insn.visitors import get_disk_cache_key
+
+        return get_disk_cache_key(self.root_insn)
+
+
+@utils.frozenrecord()
 class Loop(Instruction):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     index: LoopIndex
-    statements: tuple[Instruction]
+    statements: tuple[Instruction, ...]
 
     def __init__(
         self,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
-    ):
+    ) -> None:
         statements = as_tuple(statements)
-
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
 
@@ -275,9 +297,12 @@ class Loop(Instruction):
 
     # {{{ interface impls
 
+    child_attrs = ("statements",)
+
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.statements, "user_comm")
+    def comm(self) -> MPI.Comm:
+        # TODO: check iterset
+        return utils.common_comm(self.statements, "comm")
 
     # }}}
 
@@ -301,7 +326,6 @@ class Loop(Instruction):
         code = self.compile(compiler_parameters)
 
         # TODO: Move to executor class
-        # TODO: handle interleaving as a compiler_parameter somehow
         if compiler_parameters.interleave_comp_comm:
             raise NotImplementedError
             new_index, (icore, iroot, ileaf) = partition_iterset(
@@ -356,12 +380,6 @@ class Loop(Instruction):
             # with PETSc.Log.Event(f"apply_{self.name}"):
             code(replacement_buffers)
 
-    @property
-    @utils.deprecated()
-    def comm(self):
-        # maybe collect the comm by looking at everything?
-        return self.index.iterset.comm
-
     @cached_property
     def function_arguments(self) -> tuple:
         args = {}  # ordered
@@ -383,7 +401,7 @@ class Loop(Instruction):
 class InstructionList(Instruction):
     """A list of instructions."""
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     instructions: tuple[Instruction]
 
@@ -395,9 +413,11 @@ class InstructionList(Instruction):
 
     # {{{ interface impls
 
+    child_attrs = ("instructions",)
+
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.instructions, "user_comm")
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.instructions, "comm")
 
     # }}}
 
@@ -445,7 +465,7 @@ def filter_null(iterable: Iterable[Instruction]):
     return filter(non_null, iterable)
 
 
-class Terminal(Instruction, metaclass=abc.ABCMeta):
+class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
     @property
     @abc.abstractmethod
@@ -457,7 +477,7 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
         return tuple(utils.filter_type(BufferExpression, self.arguments))
 
 
-class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):
+class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
@@ -476,8 +496,12 @@ class FunctionArgument(abc.ABC):
     """Abstract class for types that may be passed to functions."""
 
 
+@utils.frozenrecord()
 class Function:
     """A callable function."""
+
+    code: Any
+    _access_descrs: tuple[Intent, ...]
 
     def __init__(self, loopy_kernel, access_descrs):
         lpy_args = loopy_kernel.default_entrypoint.args
@@ -489,8 +513,27 @@ class Function:
             ):
                 raise ValueError("Reduction operations are only valid for scalars")
 
-        self.code = fix_intents(loopy_kernel, access_descrs)
-        self._access_descrs = access_descrs
+        loopy_kernel = fix_intents(loopy_kernel, access_descrs)
+        access_descrs = tuple(access_descrs)
+
+        object.__setattr__(self, "code", loopy_kernel)
+        object.__setattr__(self, "_access_descrs", access_descrs)
+
+    # unfortunately needed because loopy translation units aren't immediately hashable
+    def __hash__(self) -> int:
+        if not hasattr(self, "_saved_hash"):
+            kb = lp.tools.LoopyKeyBuilder()
+            hash_ = hash((
+                type(self),
+                kb(self.code),
+                self._access_descrs,
+            ))
+            object.__setattr__(self, "_saved_hash", hash_)
+        return self._saved_hash
+
+    # unfortunately needed because loopy translation units aren't immediately hashable
+    def __eq__(self, other, /) -> bool:
+        return type(other) is type(self) and other.code == self.code and other._access_descrs == self._access_descrs
 
     def __call__(self, *args):
         # if not all(isinstance(a, FunctionArgument) for a in args):
@@ -574,8 +617,8 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         )
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm(self.arguments, "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm(self.arguments, "comm", allow_undefined=True) or MPI.COMM_SELF
 
 
 @utils.frozenrecord()
@@ -621,12 +664,13 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
-class NullInstruction(Terminal):
+class NullInstruction(TerminalInstruction):
     """An instruction that does nothing."""
 
     arguments = ()
 
-    user_comm = MPI.COMM_SELF
+    # COMM_DYNAMIC?
+    comm = MPI.COMM_SELF
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -645,7 +689,7 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
+class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
 
     # {{{ Abstract methods
 
@@ -788,8 +832,8 @@ class ArrayAssignment(AbstractAssignment):
     assignment_type: ClassVar[property] = utils.attr("_assignment_type")
 
     @property
-    def user_comm(self) -> MPI.Comm:
-        return utils.common_comm([self.assignee, self.expression], "user_comm", allow_undefined=True) or MPI.COMM_SELF
+    def comm(self) -> MPI.Comm:
+        return utils.common_comm([self.assignee, self.expression], "comm", allow_undefined=True) or MPI.COMM_SELF
 
     # NOTE: Wrong type here...
     @property
@@ -820,7 +864,8 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     _expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
-    _comm: MPI.Comm
+    # is this still needed?
+    _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def __init__(self, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
@@ -839,11 +884,11 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = utils.attr("_assignee")
-    expression: ClassVar[property] = utils.attr("_expression")
-    axis_trees: ClassVar[property] = utils.attr("_axis_trees")
-    assignment_type: ClassVar[property] = utils.attr("_assignment_type")
-    user_comm: ClassVar[property] = utils.attr("_comm")
+    assignee = utils.attr("_assignee")
+    expression = utils.attr("_expression")
+    axis_trees = utils.attr("_axis_trees")
+    assignment_type = utils.attr("_assignment_type")
+    comm = utils.attr("_comm")
 
     # }}}
 
@@ -857,7 +902,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     _expression: Any
     _assignment_type: AssignmentType
     _axis_trees: tuple[AxisTree, ...]
-    _comm: MPI.Comm
+    _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
@@ -876,17 +921,17 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
     # {{{ Interface impls
 
-    assignee: ClassVar[property] = property(lambda self: self._assignee)
-    expression: ClassVar[property] = property(lambda self: self._expression)
-    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
-    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
-    user_comm: ClassVar[property] = utils.attr("_comm")
+    assignee: ClassVar = utils.attr("_assignee")
+    expression: ClassVar = utils.attr("_expression")
+    assignment_type: ClassVar = utils.attr("_assignment_type")
+    axis_trees: ClassVar = utils.attr("_axis_trees")
+    comm: ClassVar = utils.attr("_comm")
 
     # }}}
 
 
 @utils.frozenrecord()
-class Exscan(Terminal):
+class Exscan(TerminalInstruction):
 
     # {{{ instance attrs
 
@@ -905,7 +950,7 @@ class Exscan(Terminal):
         return (self.assignee, self.expression)
 
     @property
-    def user_comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm:
         return self._comm
 
     # }}}

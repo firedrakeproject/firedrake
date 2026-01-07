@@ -10,7 +10,7 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement", "Crouzeix-Raviart"])
+native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement", "Crouzeix-Raviart", "Kong-Mulder-Veldhuizen"])
 alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
                              "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
                              "Guzman-Neilan", "Guzman-Neilan Bubble"])
@@ -183,7 +183,7 @@ class TransferManager(object):
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V._comm)
+            ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")

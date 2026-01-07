@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import restrict, restricted_dofs, split_dofs
+from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
@@ -1231,7 +1231,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
 
-        matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = cache_generate_code(kernel, V.comm)
         matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
 
         ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))
@@ -1603,7 +1603,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 def broken_function(V, val):
     """Return a Function(V, val=val) interpolated onto the broken space."""
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
+    W = V.broken_space()
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"
