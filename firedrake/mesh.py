@@ -6214,7 +6214,6 @@ class IterationSpec:
 
     @cached_property
     def loop_index(self) -> op3.LoopIndex:
-        breakpoint()
         return self.iterset[self.subset].iter()
 
     @cached_property

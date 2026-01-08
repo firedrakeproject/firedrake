@@ -78,6 +78,13 @@ def cached_on(obj, key=cachetools.keys.hashkey):
         return wrapper
     return decorator
 
+
+def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
+    args_key = tuple(utils.freeze(a) for a in args)
+    kwargs_key = tuple((key, utils.freeze(value)) for key, value in kwargs.items())
+    return (args_key, kwargs_key)
+
+
 class CacheMixin:
     """Mixin class for objects that may be treated as a cache."""
     def __init__(self):
@@ -380,7 +387,7 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
         lambda arg: not isinstance(arg[1], MPI.Comm),
         kwargs.items()
     ))
-    return cachetools.keys.hashkey(*hash_args, **hash_kwargs)
+    return default_hashkey(*hash_args, **hash_kwargs)
 
 
 def instrument(cls):

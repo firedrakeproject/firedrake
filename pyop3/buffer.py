@@ -681,6 +681,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @property
     def comm(self) -> MPI.Comm:
+        raise NotImplementedError("Wrong comm, this is the PETSc one")
         return self.mat.comm.tompi4py()
 
     def zero(self) -> None:
