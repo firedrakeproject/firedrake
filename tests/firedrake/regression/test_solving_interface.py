@@ -85,6 +85,14 @@ def test_assembled_solver_gced(a_L_out):
     assert before == after
 
 
+def test_linear_solve_zero_rhs(a_L_out):
+    a, L, out = a_L_out
+
+    out.assign(1)
+    solve(a == 0, out)
+    assert np_norm(out.dat.data_ro) < 1E-13
+
+
 def test_nonlinear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
