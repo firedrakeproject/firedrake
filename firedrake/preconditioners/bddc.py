@@ -223,11 +223,11 @@ def create_matis(Amat, local_mat_type, cellwise=False):
         Vsub = local_space(V, False)
         sub_domain = list(bc.sub_domain)
         if "on_boundary" in sub_domain:
-            valid_markers = set(V.mesh().unique().exterior_facets.unique_markers)
-            valid_markers &= set(Vsub.mesh().unique().exterior_facets.unique_markers)
-            sub_domain.extend(valid_markers)
             sub_domain.remove("on_boundary")
+            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
 
+        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
+        sub_domain = list(set(sub_domain) & set(valid_markers))
         bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
         if cellwise:
             bc = BrokenDirichletBC(bc)
