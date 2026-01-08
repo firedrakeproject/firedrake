@@ -320,3 +320,19 @@ petsctools.add_citation("Farrell2015", """
   url =          {http://arxiv.org/abs/1410.5620}
 }
 """)
+
+petsctools.add_citation("Croci2018", """
+@article{Croci2018,
+  title={Efficient White Noise Sampling and Coupling for Multilevel Monte Carlo with Nonnested Meshes},
+  volume={6},
+  ISSN={2166-2525},
+  DOI={10.1137/18M1175239},
+  number={4},
+  journal={SIAM/ASA Journal on Uncertainty Quantification},
+  author={Croci, M. and Giles, M. B. and Rognes, M. E. and Farrell, P. E.},
+  year={2018},
+  month={jan},
+  pages={1630–1655},
+  language={en}
+}
+""")
