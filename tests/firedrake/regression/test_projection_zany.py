@@ -87,7 +87,8 @@ def test_projection_zany_convergence_2d(hierarchy_2d, el, deg, convrate):
 
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Johnson-Mercier', 1, 1.8),
-                          ('Morley', 2, 2.4)])
+                          ('Morley', 2, 2.4),
+                          ('Walkington', 5, 4.3)])
 def test_projection_zany_convergence_3d(hierarchy_3d, el, deg, convrate):
     run_convergence_test(hierarchy_3d, el, deg, convrate)
 
