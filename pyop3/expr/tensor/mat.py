@@ -151,8 +151,8 @@ class Mat(Tensor):
         """Return a new "unindexed" array with the same shape."""
         # TODO: use axis forests instead of trees here
         return type(self).null(
-            self.row_axes.materialize().regionless,
-            self.column_axes.materialize().regionless,
+            self.row_axes.materialize().localize(),
+            self.column_axes.materialize().localize(),
             dtype=self.dtype,
             prefix="t",
         )

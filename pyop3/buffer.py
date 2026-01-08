@@ -187,6 +187,10 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def inc_state(self) -> None:
         pass
 
+    @abc.abstractmethod
+    def zero(self) -> None:
+        pass
+
     # NOTE: This is similar in nature to Buffer.data etc
     @abc.abstractmethod
     def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
@@ -292,6 +296,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @property
     def comm(self) -> MPI.Comm:
         return self.sf.comm if self.sf is not None else MPI.COMM_SELF
+
+    def zero(self) -> None:
+        self.data_wo[...] = 0
 
     # }}}
 
@@ -675,6 +682,9 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     @property
     def comm(self) -> MPI.Comm:
         return self.mat.comm.tompi4py()
+
+    def zero(self) -> None:
+        self.mat.zeroEntries()
 
     # }}}
 
