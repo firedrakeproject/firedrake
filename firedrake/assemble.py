@@ -1066,7 +1066,7 @@ class ParloopFormAssembler(FormAssembler):
         else:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                self._as_pyop3_type(tensor).zero(eager=True)
+                self._as_pyop3_type(tensor).buffer.zero()
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
