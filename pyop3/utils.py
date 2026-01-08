@@ -19,6 +19,7 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
+from pyop3.cache import memory_cache
 from pyop3.config import CONFIG
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
@@ -644,14 +645,14 @@ def popfirst(dict_: dict) -> Any:
 
 
 def record():
-    return _make_record(eq=False)
+    return _make_record_class(eq=False)
 
 
 def frozenrecord():
-    return _make_record(frozen=True)
+    return _make_record_class(frozen=True)
 
 
-def _make_record(**kwargs):
+def _make_record_class(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.__record_init__ = _record_init
@@ -667,23 +668,34 @@ def _make_record(**kwargs):
 
 
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
-    changed_attrs = {}
-    valid_attr_names = frozenset(f.name for f in dataclasses.fields(self))
-    for attr_name, attr in attrs.items():
-        assert attr_name in valid_attr_names, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
-        try:
-            if getattr(self, attr_name) != attr:
-                changed_attrs[attr_name] = attr
-        except ValueError:  # __eq__ not always available (e.g. numpy arrays)
-            changed_attrs[attr_name] = attr
-
-    if not changed_attrs:
-        return self
-
-    new = object.__new__(type(self))
+    new_attrs = {}
+    attrs_changed = False
     for field in dataclasses.fields(self):
-        attr = changed_attrs.pop(field.name, getattr(self, field.name))
-        object.__setattr__(new, field.name, attr)
+        orig_attr = getattr(self, field.name)
+        new_attr = attrs.pop(field.name, orig_attr)
+        if not safe_equals(new_attr, orig_attr):
+            attrs_changed = True
+        new_attrs[field.name] = new_attr
+    assert not attrs, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
+
+    if not attrs_changed:
+        return self
+    # TODO: make .comm an attr for all frozen records?
+    elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
+        return _make_record_maybe_singleton(self, new_attrs)
+    else:
+        return _make_record(self, new_attrs)
+
+
+@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm)
+def _make_record_maybe_singleton(*args, **kwargs):
+    return _make_record(*args, **kwargs)
+
+
+def _make_record(self, attrs):
+    new = object.__new__(type(self))
+    for field_name, attr in attrs.items():
+        object.__setattr__(new, field_name, attr)
 
     if hasattr(new, "__post_init__"):
         new.__post_init__()
@@ -897,3 +909,13 @@ def cached_method(*args, **kwargs):
 def pretty_type(obj: Any) -> str:
     type_ = type(obj)
     return f"{type_.__module__}.{type_.__name__}"
+
+
+@functools.singledispatch
+def safe_equals(a, b, /) -> bool:
+    return a == b
+
+
+@safe_equals.register(np.ndarray)
+def _(a, b, /) -> bool:
+    return (a == b).all()

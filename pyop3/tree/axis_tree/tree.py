@@ -325,6 +325,13 @@ class AxisComponentRegion:
 
     # }}}
 
+    @property
+    def comm(self) -> MPI.Comm:
+        if isinstance(self.size, numbers.Integral):
+            return MPI.COMM_SELF
+        else:
+            return self.size.comm
+
     def __str__(self) -> str:
         if self.label is None:
             return str(self.size)
@@ -626,7 +633,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
             return f"{{{self.label}: {component_str}}}"
 
     def linearize(self, component_label):
-        return self.copy(components=tuple(c for c in self.components if c.label == component_label))
+        assert component_label in self.component_labels
+        if len(self.component_labels) == 1:
+            return self
+        else:
+            return self.copy(components=tuple(c for c in self.components if c.label == component_label))
 
     @cached_property
     def regionless(self) -> Axis:
@@ -1352,9 +1363,12 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
         linear_axes = []
         for axis, component_label in self.visited_nodes(path):
-            component = utils.just_one(c for c in axis.components if c.label == component_label)
-            linear_axis = Axis([component], axis.label)
+            linear_axis = axis.linearize(component_label)
             linear_axes.append(linear_axis)
+
+        if linear_axes == self.nodes:
+            return self
+
         axis_tree = AxisTree.from_iterable(linear_axes)
 
         if partial:
@@ -1437,9 +1451,13 @@ class IndexedAxisTree(AbstractAxisTree):
         object.__setattr__(self, "_node_map", node_map)
         object.__setattr__(self, "_unindexed", unindexed)
         object.__setattr__(self, "_targets", targets)
+        self.__post_init__()
 
-        # if "closure" in str(self) and targets[idict()] == ((),):
-        #     breakpoint()
+    def __post_init__(self) -> None:
+        # Eagerly evaluate some attributes to make profiles easier to understand
+        # infinite recursion...
+        # self.subst_layouts()
+        pass
 
     # }}}
 
@@ -1554,46 +1572,24 @@ class IndexedAxisTree(AbstractAxisTree):
         path = as_path(path)
 
         linearized_axis_tree = self.materialize().linearize(path, partial=partial)
-        linearized_targets = {
-            partial_path: self.targets[partial_path]
-            for partial_path in accumulate_path(path)
-        }
 
-        # for orig_target in self.targets:
-        #     linearized_target = {}
-        #     for axis_path, target_spec in orig_target.items():
-        #         if axis_path in linearized_axis_tree.node_map:
-        #             linearized_target[axis_path] = target_spec
-        #     linearized_target = idict(linearized_target)
-        #     linearized_targets.append(linearized_target)
+        if linearized_axis_tree == self.materialize():
+            return self
+
+        linearized_targets = {}
+        for partial_path in accumulate_path(path):
+            linearized_targets[partial_path] = self.targets[partial_path]
+        for path_, target in self.targets.items():
+            if path.items() < path_.items():
+                linearized_targets[path_] = target
 
         return IndexedAxisTree(
             linearized_axis_tree, self.unindexed, targets=linearized_targets,
         )
 
-    @cached_property
-    def layout_axes(self) -> AxisTree:
-        breakpoint()
-        if not self.outer_loops:
-            return self
-        raise NotImplementedError
-        loop_axes, _ = self.outer_loop_bits
-        return loop_axes.add_subtree(self, *loop_axes.leaf)
-
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
-        # "unindexed" axis tree
-        # strip parallel semantics (in a bad way)
-        # parent_to_children = collections.defaultdict(list)
-        # for p, cs in self.node_map.items():
-        #     for c in cs:
-        #         if c is not None and c.sf is not None:
-        #             c = c.copy(sf=None)
-        #         parent_to_children[p].append(c)
-        #
-        # return AxisTree(parent_to_children)
         return AxisTree(self.node_map)
-
 
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!

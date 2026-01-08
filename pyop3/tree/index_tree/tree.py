@@ -16,6 +16,7 @@ from itertools import chain
 from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Optional
 
 import numpy as np
+from mpi4py import MPI
 import pymbolic as pym
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 import pytools
@@ -157,6 +158,10 @@ class AffineSliceComponent(SliceComponent):
     # {{{ interface impls
 
     @property
+    def comm(self):
+        return MPI.COMM_SELF
+
+    @property
     def component(self):
         return self._component
 
@@ -200,6 +205,10 @@ class SubsetSliceComponent(SliceComponent):
         object.__setattr__(self, "array", array)
 
     # {{{ interface impls
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.array.comm
 
     @property
     def label(self):
