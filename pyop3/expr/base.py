@@ -17,7 +17,7 @@ from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
 
 class Expression(Node, abc.ABC):
 
-    MAX_NUM_CHARS = 120
+    # MAX_NUM_CHARS = 120
 
     # {{{ abstract methods
 
@@ -39,12 +39,12 @@ class Expression(Node, abc.ABC):
     # }}}
 
     def __str__(self) -> str:
-        full_str = self._full_str
-        if len(full_str) > self.MAX_NUM_CHARS:
-            pos = self.MAX_NUM_CHARS // 2 - 1
-            return f"{full_str[:pos]}..{full_str[-pos:]}"
-        else:
-            return full_str
+        return self._full_str
+        # if len(full_str) > self.MAX_NUM_CHARS:
+        #     pos = self.MAX_NUM_CHARS // 2 - 1
+        #     return f"{full_str[:pos]}..{full_str[-pos:]}"
+        # else:
+        #     return full_str
 
     def __add__(self, other: ExpressionT, /) -> Expression:
         # FIXME: This is generally not valid to do! In parallel we can't be sure that this is collective

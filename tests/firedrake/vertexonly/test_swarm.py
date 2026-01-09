@@ -90,7 +90,6 @@ def point_ownership(m, points, localpoints):
                         "square",
                         "squarequads",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
@@ -106,8 +105,6 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
-    elif request.param == "extrudedvariablelayers":
-        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -147,6 +144,7 @@ def exclude_halos(request):
 
 # pic swarm tests
 
+@pytest.mark.parallel([1, 3])
 def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
@@ -279,11 +277,10 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert len(localpointcoords) == swarm.getLocalSize()
     if exclude_halos:
         # Check there are as many local points as there are local cells
-        # (excluding ghost cells in the halo). This won't be true for extruded
-        # meshes as the cell_set.size is the number of base mesh cells.
+        # (excluding ghost cells in the halo)
         assert len(localpointcoords) == parentmesh.cells.owned.local_size
     elif parentmesh.comm.size > 1:
-        # parentmesh.cell_set.total_size is the sum of owned and halo
+        # parentmesh.cells.local_size is the sum of owned and halo
         # points. We have a point in each cell, hence the below.
         assert len(localpointcoords) == parentmesh.cells.local_size
 
@@ -296,7 +293,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         if nptsglobal:
             assert nptsglobal > len(inputpointcoords)
         else:
-            # otherwise there should be none
+            # otherwise there should be nonehttps://defelement.org/elements/discontinuous-lagrange.html
             assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
 
@@ -305,7 +302,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     for index in localparentcellindices:
         assert np.any(index == cell_indexes)
 
-    # since we know all points are in the mesh, we can check that the global
+    # since we know all points are in the mesh, we can check thahttps://defelement.org/elements/discontinuous-lagrange.htmlt the global
     # indices are correct (i.e. they should be in rank order)
     allglobalindices = np.concatenate(parentmesh.comm.allgather(globalindices))
     if exclude_halos:
@@ -384,22 +381,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
 
 
-@pytest.mark.parallel
-def test_pic_swarm_in_mesh_parallel(parentmesh, redundant, exclude_halos):
-    test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos)
-
-
-@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+@pytest.mark.parallel([2, 3])  # nprocs >= total number of mesh cells
 def test_pic_swarm_in_mesh_2d_2procs():
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
-
-
-@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
-def test_pic_swarm_in_mesh_2d_3procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=False)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=False)

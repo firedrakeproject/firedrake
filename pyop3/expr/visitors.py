@@ -702,7 +702,7 @@ def _(buffer_expr: expr_types.ScalarBufferExpression, layouts, key):
 
 @concretize_materialized_tensor_indirections.register(expr_types.LinearDatBufferExpression)
 def _(buffer_expr: expr_types.LinearDatBufferExpression, layouts, key):
-    layout = layouts[key + (buffer_expr,)]
+    layout = linearize_expr(layouts[key + (buffer_expr,)])
     return buffer_expr.__record_init__(layout=layout)
 
 
@@ -1317,17 +1317,20 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
     @process.register(expr_types.NonlinearDatBufferExpression)
     @ExpressionVisitor.postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
-        # this nasty code tries to find the best candidate layout looking at 'path', bearing
-        # in mind that the path might only be a partial match.
-        # consider expression: dat1[i] + dat2[j]
-        # the full path is i and j, but each component only 'sees' one of these.
-        selected_layout = utils.just_one((
-            layout
-            for path_, layout in dat_expr.leaf_layouts.items()
-            if is_subpath(path_, path)
-        ))
-        return expr_types.LinearDatBufferExpression(dat_expr.buffer, selected_layout)
+        if path is None:
+            layout = utils.just_one(dat_expr.leaf_layouts.values())
+        else:
+            # find the best candidate layout looking at 'path', bearing
+            # in mind that the path might only be a partial match.
+            # consider expression: dat1[i] + dat2[j]
+            # the full path is i and j, but each component only 'sees' one of these.
+            layout = utils.just_one((
+                layout_
+                for path_, layout_ in dat_expr.leaf_layouts.items()
+                if is_subpath(path_, path)
+            ))
+        return expr_types.LinearDatBufferExpression(dat_expr.buffer, layout)
 
 
-def linearize_expr(expr: ExpressionT, path) -> ExpressionT:
+def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
     return ExpressionLinearizer()(expr, path=path)

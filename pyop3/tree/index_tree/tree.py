@@ -356,7 +356,7 @@ class LoopIndex(Index):
     dtype = IntType
     fields = Index.fields - {"label"} | {"id"}
 
-    def __init__(self, iterset: AbstractAxisTree, *, id=None):
+    def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
         self.iterset = iterset
         super().__init__(label=id)
 
@@ -364,11 +364,6 @@ class LoopIndex(Index):
     @property
     def id(self):
         return self.label
-
-    @property
-    def kernel_dtype(self):
-        assert False, "old code"
-        return self.dtype
 
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
     # index trees
@@ -444,7 +439,6 @@ class ScalarIndex(Index):
         return ("0",)
 
 
-# TODO I want a Slice to have "bits" like a Map/CalledMap does
 class Slice(Index):
     """
 
