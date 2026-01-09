@@ -9,6 +9,7 @@ from immutabledict import immutabledict as idict
 
 import pyop3.tree.axis_tree as op3_tree
 from pyop3 import utils
+from pyop3.cache import memory_cache
 from pyop3.node import Visitor, LabelledTreeVisitor
 from pyop3.utils import OrderedFrozenSet
 from pyop3.expr.visitors import BufferCollector as ExprBufferCollector, DiskCacheKeyGetter as ExprDiskCacheKeyGetter
@@ -67,17 +68,10 @@ class BufferCollector(LabelledTreeVisitor):
         self._lazy_expr_collector = expr_collector
         super().__init__()
 
-    # IDEA: dont collect targets because they don't matter during codegen - already in the expressions
-    # def __call__(self, tree: op3_tree.AbstractAxisTree) -> OrderedFrozenSet:
-    #     # collect attributes that do not live at nodes of the tree
-    #     target_buffers = OrderedFrozenSet().union(
-    #         *(
-    #             self._collect_expr_buffers(target.expr)
-    #             for targets in itertools.chain(*tree.targets.values())
-    #             for target in targets
-    #         )
-    #     )
-    #     return super().__call__(tree) | target_buffers
+    @classmethod
+    @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls()
 
     @functools.singledispatchmethod
     def process(self, obj: Any, /, path: ConcretePathT) -> OrderedFrozenSet:

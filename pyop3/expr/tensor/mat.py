@@ -157,15 +157,17 @@ class Mat(Tensor):
     def dtype(self) -> np.dtype:
         return ScalarType
 
+    # NOTE: is this used?
     @cached_property
     def nrows(self) -> int:
         "The number of local rows in the matrix (including ghosts)."
-        return self.row_axes.size
+        return self.row_axes.local_size
 
+    # NOTE: is this used?
     @cached_property
     def ncols(self) -> int:
         "The number of local columns in the matrix (including ghosts)."
-        return self.caxes.size
+        return self.column_axes.local_size
 
     @cached_property
     def nblock_rows(self):

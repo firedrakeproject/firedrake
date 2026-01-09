@@ -32,6 +32,7 @@ from cachetools import cachedmethod
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
+from pyop3.cache import memory_cache
 from pyop3.pyop2_utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
@@ -343,6 +344,8 @@ class AbstractMeshTopology(abc.ABC):
             Submesh parent.
 
         """
+        op3.cache.register_heavy_cache(self)
+
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
@@ -855,7 +858,7 @@ class AbstractMeshTopology(abc.ABC):
     @utils.cached_property
     def _strata_slice(self):
         if self.dimension == 0:
-            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, self.num_cells, label=0)], label=self.name)
+            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self.name)
 
         subsets = []
         if self._is_renumbered:
@@ -3527,7 +3530,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op3.Map(
             {
                 idict({self.name: self.cell_label}): [[
-                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
+                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]]
             },
             name="cell_parent_cell",
@@ -6239,6 +6242,9 @@ class IterationSpec:
 
 
 # NOTE: The API is a bit tangled now. The class carries almost all of this information now.
+# NOTE: Using the memory cache isn't quite necessary because we *know* that this only lives on one mesh.
+# use cached_on instead.
+@memory_cache(heavy=True, get_comm=lambda mesh, *args, **kwargs: mesh.comm)
 def get_iteration_spec(
     mesh: MeshGeometry,
     integral_type: str,

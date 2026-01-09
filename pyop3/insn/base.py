@@ -197,15 +197,14 @@ class Instruction(Node, DistributedObject, abc.ABC):
         )
 
         insn = self
+        if "expression" in str(self) and len(self.statements[0].arguments) == 3:
+            import pyop3
+            pyop3.extras.debug.enable_conditional_breakpoints()
 
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
-
         insn = expand_assignments(insn)  # specifically reshape bits
-
-        # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
-
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 

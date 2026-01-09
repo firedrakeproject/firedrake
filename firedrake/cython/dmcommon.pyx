@@ -1974,16 +1974,16 @@ def transform_vec_from_firedrake_to_petsc(PETSc.DM dm,
     CHKERR(VecGetArrayRead(firedrake_vec.vec, &firedrake_array))
     CHKERR(VecGetArray(petsc_vec.vec, &petsc_array))
     for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetDof(firedrake_sec.sec, p, &firedrake_dof))  # scalar offset
+        CHKERR(PetscSectionGetDof(firedrake_sec.sec, p, &firedrake_dof))
         CHKERR(PetscSectionGetDof(petsc_sec.sec, p, &petsc_dof))
-        if petsc_dof != bs * firedrake_dof:
-            raise RuntimeError(f"petsc_dof ({petsc_dof}) != bs * firedrake_dof ({bs} * {firedrake_dof})")
+        if petsc_dof != firedrake_dof:
+            raise RuntimeError(f"petsc_dof ({petsc_dof}) != firedrake_dof ({firedrake_dof})")
         CHKERR(DMPlexGetPointHeight(dm.dm, p, &height))
-        CHKERR(PetscSectionGetOffset(firedrake_sec.sec, p, &firedrake_offset))  # scalar offset
+        CHKERR(PetscSectionGetOffset(firedrake_sec.sec, p, &firedrake_offset))
         CHKERR(PetscSectionGetOffset(petsc_sec.sec, p, &petsc_offset))
         for i in range(ndofs[height]):
             for j in range(bs):
-                petsc_array[petsc_offset + bs * perm[perm_offsets[height] + i] + j] = firedrake_array[bs * firedrake_offset + bs * i + j]
+                petsc_array[petsc_offset + bs * perm[perm_offsets[height] + i] + j] = firedrake_array[firedrake_offset + bs * i + j]
         total_dof += petsc_dof
     CHKERR(VecRestoreArray(petsc_vec.vec, &petsc_array))
     CHKERR(VecRestoreArrayRead(firedrake_vec.vec, &firedrake_array))
@@ -2079,7 +2079,6 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
                 for i in range(dim):
                     coords[offset//dim, i] = dm_coords[dm_offset//dim, i]
         else:
-            raise NotImplementedError("dim stuff")
             # Use DG coordinates
             get_height_stratum(dm.dm, 0, &cStart, &cEnd)
             dim = dm.getCoordinateDim()
@@ -2088,12 +2087,11 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
             dm_coords = dm.getCellCoordinatesLocal().array.reshape(((cEnd - cStart) * ndofs[0], dim))
             coords = np.empty_like(dm_coords)
             for c in range(cStart, cEnd):
-                CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))  # scalar offset
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))
                 CHKERR(PetscSectionGetOffset(dm_sec.sec, c, &dm_offset))
-                dm_offset = dm_offset // dim
                 for j in range(ndofs[0]):
                     for i in range(dim):
-                        coords[offset + j, i] = dm_coords[dm_offset + perm[perm_offsets[0] + j], i]
+                        coords[offset//dim + j, i] = dm_coords[dm_offset//dim + perm[perm_offsets[0] + j], i]
     elif isinstance(dm, PETSc.DMSwarm):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
@@ -2107,7 +2105,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
         for v in range(vStart, vEnd):
             CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
             for i in range(dim):
-                coords[offset, i] = dm_coords[v - vStart, i]
+                coords[offset//dim, i] = dm_coords[v - vStart, i]
         dm.restoreField(swarm_field_name)
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
@@ -4291,6 +4289,7 @@ def renumber_map_fixed(
 
 
 # TODO: petsc4py
+# NOTE: copy=False doesnt appear to work
 def is_on_comm(is_: PETSc.IS, comm: MPI.Comm, *, copy=True) -> PETSc.IS:
     new_is: PETSc.IS = PETSc.IS()
     copy_mode: PetscCopyMode = PETSC_COPY_VALUES if copy else PETSC_USE_POINTER

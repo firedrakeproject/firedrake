@@ -48,13 +48,14 @@ from functools import wraps
 from tempfile import mkstemp
 from typing import Any, Callable, Hashable
 
+from petsc4py import PETSc
+
+from pyop3 import utils
 from pyop3.config import CONFIG
 from pyop3.log import debug
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
-import pytools
-from petsc4py import PETSc
 
 
 _CACHE_CIDX = count()
@@ -76,6 +77,13 @@ def cached_on(obj, key=cachetools.keys.hashkey):
                 return value
         return wrapper
     return decorator
+
+
+def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
+    args_key = tuple(utils.freeze(a) for a in args)
+    kwargs_key = tuple((key, utils.freeze(value)) for key, value in kwargs.items())
+    return (args_key, kwargs_key)
+
 
 class CacheMixin:
     """Mixin class for objects that may be treated as a cache."""
@@ -143,7 +151,7 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
     if (
         CONFIG.spmd_strict
-        and not pytools.is_single_valued(comm.allgather(key))
+        and not utils.is_single_valued(comm.allgather(key))
     ):
         raise ValueError(
             f"Cache keys differ between ranks. On rank {comm.rank} got:\n{key}"
@@ -379,7 +387,7 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
         lambda arg: not isinstance(arg[1], MPI.Comm),
         kwargs.items()
     ))
-    return cachetools.keys.hashkey(*hash_args, **hash_kwargs)
+    return default_hashkey(*hash_args, **hash_kwargs)
 
 
 def instrument(cls):
@@ -434,6 +442,7 @@ def parallel_cache(
     get_comm: Callable = default_get_comm,
     make_cache: Callable[[], Mapping] = lambda: DEFAULT_CACHE(),
     bcast=False,
+    heavy: bool = False,
 ):
     """Parallel cache decorator.
 
@@ -453,6 +462,11 @@ def parallel_cache(
         to the others. If `False` then values are generated on all ranks.
         This option can only be `True` if the operation can be executed in
         serial; else it will deadlock.
+    heavy :
+        Do the objects stored in the cache have a large memory footprint? If
+        yes then this cache is only used when a 'heavy' cache is set (see the
+        `heavy_cache` context manager) and the lifetime of the objects in the
+        cache are tied to the lifetime of the cache.
 
     """
     # Store a unique integer for each 'parallel_cache' decorator so we can
@@ -470,13 +484,27 @@ def parallel_cache(
             # when the wrapper exits
 
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                # Get the right cache from the comm
-                comm_caches = get_comm_caches(comm)
-                try:
-                    cache = comm_caches[cache_id]
-                except KeyError:
-                    cache = comm_caches.setdefault(cache_id, make_cache())
-                    _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                if heavy and len(_heavy_caches) == 0:
+                    cache = utils.AlwaysEmptyDict()
+                    value = CACHE_MISS
+                else:
+                    # Get the right cache from the comm
+                    comm_caches = get_comm_caches(comm)
+                    try:
+                        cache = comm_caches[cache_id]
+                    except KeyError:
+                        cache = make_cache()
+                        if heavy:
+                            assert not isinstance(cache, DictLikeDiskAccess), "Disk caches cannot be heavy"
+                            # The lifetime of the cache must be tied to the
+                            # heavy cache object, so the comm should only hold
+                            # a weakref.
+                            for heavy_cache in _heavy_caches.values():
+                                heavy_cache[cache_id] = cache
+                            comm_caches[cache_id] = weakref.proxy(cache)
+                        else:
+                            comm_caches[cache_id] = cache
+                        _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
                 key = hashkey(*args, **kwargs)
                 value = get_cache_entry(comm, cache, key)
@@ -513,18 +541,18 @@ def parallel_cache(
                     # on their contents.
                     if (
                         CONFIG.spmd_strict
-                        and not pytools.is_single_valued(
+                        and not utils.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
                     ):
                         raise ValueError("Cache hit on some ranks but missed on others")
 
-            if value is CACHE_MISS:
-                if bcast:
-                    value = func(*args, **kwargs) if comm.rank == 0 else None
-                    value = comm.bcast(value, root=0)
-                else:
-                    value = func(*args, **kwargs)
+                if value is CACHE_MISS:
+                    if bcast:
+                        value = func(*args, **kwargs) if comm.rank == 0 else None
+                        value = comm.bcast(value, root=0)
+                    else:
+                        value = func(*args, **kwargs)
 
             return cache.setdefault(key, value)
         return wrapper
@@ -557,76 +585,9 @@ def memory_and_disk_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
     return decorator
 
 
-# I *think* that we are fine to not worry about comms here because we can
-# be confident about collectiveness.
-_active_scoped_cache = None
+_heavy_caches = weakref.WeakKeyDictionary()
 
 
-class active_scoped_cache:
-    def __init__(self, cache):
-        self._cache = cache
-
-    def __enter__(self):
-        global _active_scoped_cache
-
-        if _active_scoped_cache is None:
-            _active_scoped_cache = self._cache
-            self._set_cache = True
-        else:
-            self._set_cache = False
-
-    def __exit__(self, *exc):
-        global _active_scoped_cache
-
-        if self._set_cache:
-            _active_scoped_cache = None
-
-
-def scoped_cache(*args, **kwargs):
-    """Cache decorator for 'heavy' objects.
-
-    Unlike the other cache decorators this cache is scoped to another object
-    and will be cleaned up with that object.
-
-    If a cache scope has not been set with `active_scoped_cache` then no
-    caching happens.
-
-    """
-    return cachetools.cached(cache=_active_scoped_cache, **kwargs)
-
-
-# HEAVY_CACHE_COMM_KEYVAL = MPI.Comm.Create_keyval()
-#
-#
-# def scoped_cache(*args, **kwargs):
-#     """Cache decorator for 'heavy' objects.
-#
-#     Unlike the other cache decorators this cache is scoped to another object
-#     and will be cleaned up with that object.
-#
-#     If a cache scope has not been set with `active_scoped_cache` then no
-#     caching happens.
-#
-#     """
-#     return memory_cache(*args, **kwargs, scoped=True)
-#
-#
-# class active_scoped_cache:
-#     """
-#     """
-#     def __init__(self, lifetime_obj):
-#         self._lifetime_obj = lifetime_obj
-#
-#     def __enter__(self):
-#         with temp_internal_comm(self._lifetime_obj.comm) as comm:
-#             # only overwrite if no object exists yet
-#             if comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL) is None:
-#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, self._lifetime_obj)
-#                 self._set = True
-#             else:
-#                 self._set = False
-#
-#     def __exit__(self, *exc):
-#         if self._set:
-#             with temp_internal_comm(self._lifetime_obj.comm) as comm:
-#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, None)
+def register_heavy_cache(obj: Any) -> None:
+    assert obj not in _heavy_caches
+    _heavy_caches[obj] = {}

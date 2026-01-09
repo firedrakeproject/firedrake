@@ -37,7 +37,6 @@ from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
-from pyop3.cache import active_scoped_cache
 
 
 __all__ = "assemble",
@@ -1059,37 +1058,33 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         mesh = self._form.ufl_domains()[0]
-        with active_scoped_cache(mesh._cache):  # NOTE: This doesn't really do anything
-            # debug
-            pyop3_compiler_parameters = {"optimize": True}
-            # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-            # pyop3_compiler_parameters = {"optimize": False}
-            pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
+        pyop3_compiler_parameters = {"optimize": True}
+        pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
-            if tensor is None:
-                tensor = self.allocate()
-            else:
-                self._check_tensor(tensor)
-                if self._needs_zeroing:
-                    self._as_pyop3_type(tensor).zero(eager=True)
+        if tensor is None:
+            tensor = self.allocate()
+        else:
+            self._check_tensor(tensor)
+            if self._needs_zeroing:
+                self._as_pyop3_type(tensor).buffer.zero()
 
-            for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
-                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
+        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+            subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
-                # TODO: move this elsewhere, or avoid entirely?
-                if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                    subtensor = subtensor.buffer.mat.getPythonContext().dat
+            # TODO: move this elsewhere, or avoid entirely?
+            if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
+                subtensor = subtensor.buffer.mat.getPythonContext().dat
 
-                if isinstance(self, ExplicitMatrixAssembler):
-                    with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
-                        parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
-                else:
+            if isinstance(self, ExplicitMatrixAssembler):
+                with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                     parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+            else:
+                parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
-            for bc in self._bcs:
-                self._apply_bc(tensor, bc, u=current_state)
+        for bc in self._bcs:
+            self._apply_bc(tensor, bc, u=current_state)
 
-            return self.result(tensor)
+        return self.result(tensor)
 
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):

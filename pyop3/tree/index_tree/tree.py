@@ -16,6 +16,7 @@ from itertools import chain
 from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Optional
 
 import numpy as np
+from mpi4py import MPI
 import pymbolic as pym
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 import pytools
@@ -136,11 +137,11 @@ class AffineSliceComponent(SliceComponent):
         stop: IntType | None = None,
         step: IntType | None = None,
         *,
-        label=None,
+        label=utils.PYOP3_DECIDE,
         label_was_none=None,
         **kwargs
     ):
-        label_was_none = label_was_none or label is None
+        label_was_none = label_was_none or label is utils.PYOP3_DECIDE
 
         object.__setattr__(self, "_component", component)
         object.__setattr__(self, "_label", label)
@@ -155,6 +156,10 @@ class AffineSliceComponent(SliceComponent):
         object.__setattr__(self, "label_was_none", label_was_none)
 
     # {{{ interface impls
+
+    @property
+    def comm(self):
+        return MPI.COMM_SELF
 
     @property
     def component(self):
@@ -200,6 +205,10 @@ class SubsetSliceComponent(SliceComponent):
         object.__setattr__(self, "array", array)
 
     # {{{ interface impls
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.array.comm
 
     @property
     def label(self):
@@ -277,7 +286,7 @@ class UnparsedSlice:
 class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
     fields = {"target_axis", "target_component", "label"}
 
-    def __init__(self, target_axis, target_component, *, label=None):
+    def __init__(self, target_axis, target_component, *, label=utils.PYOP3_DECIDE):
         pytools.ImmutableRecord.__init__(self)
         Labelled.__init__(self, label)
         self.target_axis = target_axis
@@ -297,7 +306,7 @@ class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
 class TabulatedMapComponent(MapComponent):
     fields = MapComponent.fields | {"array", "arity"}
 
-    def __init__(self, target_axis, target_component, array, *, arity=None, label=None):
+    def __init__(self, target_axis, target_component, array, *, arity=None, label=utils.PYOP3_DECIDE):
         from pyop3.expr import as_linear_buffer_expression
 
         # determine the arity from the provided array
@@ -347,7 +356,7 @@ class LoopIndex(Index):
     dtype = IntType
     fields = Index.fields - {"label"} | {"id"}
 
-    def __init__(self, iterset: AbstractAxisTree, *, id=None):
+    def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
         self.iterset = iterset
         super().__init__(label=id)
 
@@ -355,11 +364,6 @@ class LoopIndex(Index):
     @property
     def id(self):
         return self.label
-
-    @property
-    def kernel_dtype(self):
-        assert False, "old code"
-        return self.dtype
 
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
     # index trees
@@ -435,7 +439,6 @@ class ScalarIndex(Index):
         return ("0",)
 
 
-# TODO I want a Slice to have "bits" like a Map/CalledMap does
 class Slice(Index):
     """
 
@@ -448,11 +451,11 @@ class Slice(Index):
 
     fields = Index.fields | {"axis", "components", "label"}
 
-    def __init__(self, axis, components, *, label=None):
+    def __init__(self, axis, components, *, label=utils.PYOP3_DECIDE):
         components = as_tuple(components)
-        if any(c.label is None for c in components):
-            if not all(c.label is None for c in components):
-                raise ValueError("Cannot have only some as None")
+        if any(c.label is utils.PYOP3_DECIDE for c in components):
+            if not all(c.label is utils.PYOP3_DECIDE for c in components):
+                raise ValueError("Cannot have only some as PYOP3_DECIDE")
             components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
 
         self.axis = axis
@@ -495,11 +498,8 @@ class Slice(Index):
         return merge_dicts([s.datamap for s in self.components])
 
 
-# class DuplicateIndexException(Pyop3Exception):
-#     pass
-
-
-class Map(pytools.ImmutableRecord):
+@utils.frozenrecord()
+class Map:
     """
 
     Parameters
@@ -558,23 +558,21 @@ class Map(pytools.ImmutableRecord):
 
     """
 
-    fields = {"connectivity", "name"}
+    connectivity: idict
+    name: str  # should delete this
 
+    # a class var
     counter = 0
 
     def __init__(self, connectivity, name=None) -> None:
-        # if not has_unique_entries(k for m in maps for k in m.connectivity.keys()):
-        #     raise DuplicateIndexException("The keys for each map given to the multi-map may not clash")
-
-        super().__init__()
-        self.connectivity = idict(connectivity)
+        object.__setattr__(self, "connectivity", utils.freeze(connectivity))
 
         # TODO delete entirely
         if name is None:
             # lazy unique name
             name = f"_Map_{self.counter}"
             self.counter += 1
-        self.name = name
+        object.__setattr__(self, "name", name)
 
     def __call__(self, index):
         # If the input index is context-free then we should return something context-free
@@ -1174,7 +1172,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     if subset_loop_axes:
                         raise NotImplementedError
                     subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
-                    indices = materialize_composite_dat(subset_expr).buffer.buffer.data_ro
+                    indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)
