@@ -148,7 +148,9 @@ class LabelledTreeVisitor(Visitor):
     """
 
     def __init__(self):
-        super().__init__()
+        # FIXME: component.size is unique to each axis object, but the cache
+        # keys used aren't. This means that we hit cache erroneously sometimes.
+        super().__init__(visited_cache=utils.AlwaysEmptyDict())
 
         # variables that are only valid mid traversal
         self._tree = None
