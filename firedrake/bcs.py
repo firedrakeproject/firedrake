@@ -3,15 +3,15 @@ import numpy as np
 
 from functools import partial, reduce
 import itertools
+from functools import cached_property
 
 import ufl
 from ufl import as_ufl, as_tensor
 from finat.ufl import VectorElement
 import finat
 
-import pyop2 as op2
-from pyop2 import exceptions
-from pyop2.utils import as_tuple
+import pyop3 as op3
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix
@@ -26,7 +26,7 @@ from firedrake.petsc import PETSc
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
 
-class BCBase(object):
+class BCBase:
     r'''Implementation of a base class of Dirichlet-like boundary conditions.
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
@@ -39,9 +39,8 @@ class BCBase(object):
     '''
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
-
         self._function_space = V
-        self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
+        self.sub_domain = (sub_domain,) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -80,6 +79,13 @@ class BCBase(object):
 
         return self._function_space
 
+    @utils.cached_property
+    def parent_function_space(self):
+        space = self._function_space
+        while space.parent is not None:
+            space = space.parent
+        return space
+
     def function_space_index(self):
         fs = self._function_space
         if fs.component is not None:
@@ -89,43 +95,33 @@ class BCBase(object):
         return fs.index
 
     @utils.cached_property
-    def domain_args(self):
-        r"""The sub_domain the BC applies to."""
-        # Define facet, edge, vertex using tuples:
-        # Ex in 3D:
-        #           user input                                                         returned keys
-        # facet  = ((1, ), )                                  ->     ((2, ((1, ), )), (1, ()),         (0, ()))
-        # edge   = ((1, 2), )                                 ->     ((2, ()),        (1, ((1, 2), )), (0, ()))
-        # vertex = ((1, 2, 4), )                              ->     ((2, ()),        (1, ()),         (0, ((1, 2, 4), ))
-        #
-        # Multiple facets:
-        # (1, 2, 4) := ((1, ), (2, ), (4,))                   ->     ((2, ((1, ), (2, ), (4, ))), (1, ()), (0, ()))
-        #
-        # One facet and two edges:
-        # ((1,), (1, 3), (1, 4))                              ->     ((2, ((1,),)), (1, ((1,3), (1, 4))), (0, ()))
-        #
-
-        sub_d = self.sub_domain
-        # if string, return
-        if isinstance(sub_d, str):
-            return (sub_d, )
-        # convert: i -> (i, )
-        sub_d = as_tuple(sub_d)
-        # convert: (i, j, (k, l)) -> ((i, ), (j, ), (k, l))
-        sub_d = [as_tuple(i) for i in sub_d]
-
-        ndim = self.function_space().mesh().topology_dm.getDimension()
-        sd = [[] for _ in range(ndim)]
-        for i in sub_d:
-            sd[ndim - len(i)].append(i)
-        s = []
-        for i in range(ndim):
-            s.append((ndim - 1 - i, as_tuple(sd[i])))
-        return as_tuple(s)
+    def _indices(self):
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
+            if fs.index is not None:
+                indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
+            # Now try the parent
+            if fs.parent is not None:
+                fs = fs.parent
+            else:
+                # All done
+                break
+        return tuple(reversed(indices))
 
     @utils.cached_property
     def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
+        '''The list of nodes at which this boundary condition applies.
+
+        These must be unique.
+
+        '''
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
@@ -148,6 +144,20 @@ class BCBase(object):
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
+         # 'subdomain_id' has the form
+         #
+         #     (A, B, C)
+         #
+         # where each entry is either itself a tuple or a string. For instance
+         # 'A' may be
+         #
+         #     (1, 2, 3)
+         #
+         # or a special string like "on_boundary".
+         #
+         # The points constrained by the boundary condition is the *intersection
+         # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+         # entries* (e.g. A ∪ B ∪ C).
         sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
@@ -169,14 +179,103 @@ class BCBase(object):
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        return np.unique(np.concatenate(bcnodes))
 
-    @utils.cached_property
-    def node_set(self):
-        '''The subset corresponding to the nodes at which this
-        boundary condition applies.'''
+    @cached_property
+    def node_set(self) -> op3.Slice:
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
+        subset = op3.Subset(None, subset_dat)
+        return op3.Slice("nodes", [subset])
 
-        return op2.Subset(self._function_space.node_set, self.nodes)
+    # @cached_property
+    # def subset(self):
+    #     """Return the subset of mesh points constrained by the boundary condition."""
+    #     # NOTE: This returns facets, whose closure is then used when applying the BC
+    #     mesh = self._function_space.mesh().topology
+    #     tdim = mesh.dimension
+    #
+    #     # 1D Hermite elements have strange vertex properties, we only want every
+    #     # other entry
+    #     if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
+    #         raise NotImplementedError("TODO, need to have inner slice with stride 2")
+    #
+    #     # 'subdomain_id' has the form
+    #     #
+    #     #     (A, B, C)
+    #     #
+    #     # where each entry is either itself a tuple or a string. For instance
+    #     # 'A' may be
+    #     #
+    #     #     (1, 2, 3)
+    #     #
+    #     # or a special string like "on_boundary".
+    #     #
+    #     # The points constrained by the boundary condition is the *intersection
+    #     # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+    #     # entries* (e.g. A ∪ B ∪ C).
+    #
+    #
+    #     # very convoluted
+    #     # if isinstance(self.sub_domain, str):
+    #     #     subdomain_ids = ((self.sub_domain,),)
+    #     # else:
+    #     #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+    #
+    #     # This check should be moved into __init__
+    #     mesh = self.function_space().mesh().topology
+    #     valid_markers = set(mesh.interior_facets.unique_markers)
+    #     valid_markers |= set(mesh.exterior_facets.unique_markers)
+    #
+    #     subsets_ = []
+    #     for intersecting_subdomain_ids in self.sub_domain:
+    #         subdomain_subsets = tuple([] for _ in range(tdim+1))
+    #         # TODO: Where should this check go?
+    #         if isinstance(intersecting_subdomain_ids, str):
+    #             subdomain_id = intersecting_subdomain_ids
+    #
+    #             if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
+    #                 invalid = set(intersecting_subdomain_ids) - valid_markers
+    #                 if invalid:
+    #                     raise LookupError(f"BC construction got invalid markers {invalid}. "
+    #                                       f"Valid markers are '{valid_markers}'")
+    #
+    #         else:
+    #             if (
+    #                 isinstance(intersecting_subdomain_ids, tuple)
+    #                 and len(intersecting_subdomain_ids) > 1
+    #                 and not isinstance(
+    #                     self._function_space.finat_element,
+    #                     (finat.Lagrange, finat.GaussLobattoLegendre)
+    #                 )
+    #             ):
+    #                 raise TypeError(
+    #                     "subdomain intersection conditions have only "
+    #                     "been tested with CG Lagrange elements"
+    #                 )
+    #
+    #         for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
+    #             subdomain_subsets[dim].append(subset)
+    #
+    #         subdomain_subsets = tuple(
+    #             functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
+    #         )
+    #         subsets_.append(subdomain_subsets)
+    #
+    #     # take the union of 'subsets_'
+    #     if len(subsets_) > 1:
+    #         raise NotImplementedError("TODO")
+    #     else:
+    #         subsets_ = op3.utils.just_one(subsets_)
+    #
+    #     slices = []
+    #     for dim, data in enumerate(subsets_):
+    #         if len(data) == 0:
+    #             continue
+    #
+    #         subset_dat = op3.Dat(op3.Axis(data.size), data=data, prefix="subset")
+    #         subset = op3.Subset(str(dim), subset_dat)
+    #         slices.append(subset)
+    #     return op3.Slice(mesh.points.root.label, slices)
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -191,10 +290,12 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        try:
-            r.dat.zero(subset=self.node_set)
-        except exceptions.MapValueError:
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+        # TODO: This check no longer DTRT
+        # if r.function_space().axes != self._function_space.axes:
+        #     raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
+
+        r.zero(subset=self.node_set)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
@@ -205,9 +306,11 @@ class BCBase(object):
 
         for idx in self._indices:
             r = r.sub(idx)
-        if not np.isscalar(val):
+        if isinstance(val, firedrake.Cofunction):
             for idx in self._indices:
                 val = val.sub(idx)
+        else:
+            assert np.isscalar(val)
         r.assign(val, subset=self.node_set)
 
     def integrals(self):
@@ -244,6 +347,15 @@ class BCBase(object):
     def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
+
+    # @utils.cached_property
+    # def nodes(self):
+    #     offsets = []
+    #     parent_space = self.parent_function_space
+    #     for pt in parent_space.axes[self.constrained_points].iter():
+    #         offset = parent_space.axes.offset(pt.target_exprs, path=pt.target_path)
+    #         offsets.append(offset)
+    #     return np.asarray(offsets, dtype=utils.IntType)
 
 
 class DirichletBC(BCBase, DirichletBCMixin):

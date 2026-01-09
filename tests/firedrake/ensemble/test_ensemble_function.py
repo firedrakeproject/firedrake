@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
-from pyop2 import Subset
 import firedrake as fd
 
 
@@ -128,7 +127,7 @@ def test_efunc_zero(ensemblefunc):
     # check the norm is nonzero
     failed = []
     for i, u in enumerate(ensemblefunc.subfunctions):
-        with u.dat.vec_ro as uvec:
+        with u.vec_ro as uvec:
             if uvec.norm() < 1e-14:
                 failed.append(i)
 
@@ -142,7 +141,7 @@ def test_efunc_zero(ensemblefunc):
 
     failed = []
     for i, u in enumerate(ensemblefunc.subfunctions):
-        with u.dat.vec_ro as uvec:
+        with u.vec_ro as uvec:
             if uvec.norm() > 1e-14:
                 failed.append(i)
 
@@ -176,7 +175,7 @@ def test_efunc_zero_with_subset(ensemblefunc):
     failed_nonzero_notsubset = []
     for i, (u, subset) in enumerate(zip(ensemblefunc.subfunctions, subsets)):
         if subset is None:
-            with u.dat.vec_ro as uvec:
+            with u.vec_ro as uvec:
                 if uvec.norm() > 1e-14:
                     failed_zero_all.append(i)
         else:
@@ -235,7 +234,7 @@ def test_efunc_subfunctions(ensemblefunc):
         esub.assign(usub)
 
     for i, (u, e) in enumerate(zip(local_funcs, efunc.subfunctions)):
-        with u.dat.vec_ro as uvec, e.dat.vec_ro as evec:
+        with u.vec_ro as uvec, e.vec_ro as evec:
             if not np.allclose(uvec.array_r, evec.array_r):
                 failed.append(i)
 
@@ -265,7 +264,7 @@ def test_efunc_riesz_representation(ensemblefunc):
     failed = []
     for i, (ef, ed) in enumerate(zip(efunc.subfunctions, edual.subfunctions)):
         check = ef.riesz_representation()
-        with ed.dat.vec_ro as edvec, check.dat.vec_ro as cvec:
+        with ed.vec_ro as edvec, check.vec_ro as cvec:
             if not np.allclose(edvec.array_r, cvec.array_r):
                 failed.append(i)
 
@@ -291,7 +290,7 @@ def test_efunc_assign(ensemblefunc):
     failed = []
     for i, (u0, u1) in enumerate(zip(efunc0.subfunctions,
                                      efunc1.subfunctions)):
-        with u0.dat.vec_ro as v0, u1.dat.vec_ro as v1:
+        with u0.vec_ro as v0, u1.vec_ro as v1:
             if not np.allclose(v0.array_r, v1.array_r):
                 failed.append(i)
 
@@ -314,7 +313,7 @@ def test_efunc_copy(ensemblefunc):
     failed = []
     for i, (u0, u1) in enumerate(zip(efunc0.subfunctions,
                                      efunc1.subfunctions)):
-        with u0.dat.vec_ro as v0, u1.dat.vec_ro as v1:
+        with u0.vec_ro as v0, u1.vec_ro as v1:
             if not np.allclose(v0.array_r, v1.array_r):
                 failed.append(i)
 
@@ -337,7 +336,7 @@ def test_efunc_vec(ensemblefunc):
     for esub in efunc.subfunctions:
         esub.assign(10)
 
-    with efunc.vec_ro() as rvec:
+    with efunc.vec_ro as rvec:
         parallel_assert(
             np.allclose(rvec.array_r, 10),
             msg="EnsembleFunction data should be copied in by ro context")
@@ -358,7 +357,7 @@ def test_efunc_vec(ensemblefunc):
     for esub in efunc.subfunctions:
         esub.assign(30)
 
-    with efunc.vec_wo() as wvec:
+    with efunc.vec_wo as wvec:
         parallel_assert(
             np.allclose(wvec.array_r, 20),
             msg="EnsembleFunction data should not be copied in by wo context")
@@ -378,7 +377,7 @@ def test_efunc_vec(ensemblefunc):
     for esub in efunc.subfunctions:
         esub.assign(50)
 
-    with efunc.vec() as vec:
+    with efunc.vec as vec:
         parallel_assert(
             np.allclose(vec.array_r, 50),
             msg="EnsembleFunction data should be copied in by rw context.")

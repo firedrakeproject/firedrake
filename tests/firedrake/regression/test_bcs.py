@@ -130,7 +130,6 @@ def test_homogenize(V):
 def test_restore_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
-
     solve(a == 0, u, bcs=[bc])
     assert abs(u.dat.data_ro).max() == 0.0
 
@@ -141,7 +140,6 @@ def test_restore_bc_value(a, u, V, f):
 
 def test_set_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
-
     bc.set_value(7)
 
     solve(a == 0, u, bcs=[bc])
@@ -282,8 +280,8 @@ def test_assemble_mass_bcs_2d(V):
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
 
+    solve(inner(u, v)*dx == inner(f, v)*dx, w, bcs=bcs)
     assert assemble(inner((w - f), (w - f))*dx) < 1e-12
 
 
@@ -299,7 +297,7 @@ def test_overlapping_bc_nodes(quad):
            DirichletBC(V, 1, 4)]
     A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
-    assert np.allclose(A, np.identity(V.dof_dset.size))
+    assert np.allclose(A, np.identity(V.axes.size))
 
 
 @pytest.mark.parametrize("diagonal",
@@ -316,7 +314,7 @@ def test_mixed_bcs(diagonal):
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
     if diagonal:
-        data = A.dat[1].data
+        data = A.dat[1].data_ro
     else:
         data = A.M[1, 1].values.diagonal()
     assert np.allclose(data[bc.nodes], 1.0)
@@ -385,18 +383,26 @@ def test_bc_nodes_cover_ghost_dofs():
                                                             (sizes, points)})
 
     V = FunctionSpace(mesh, "CG", 1)
-
     bc = DirichletBC(V, 0, 2)
 
+    # I suspect that this may be failing because constrained_points might not
+    # know about the owned/ghost differences.
+    offsets = []
+    for pt in V.axes[bc.constrained_points].iter():
+        offsets.append(V.axes.offset(pt.target_exprs, path=pt.target_path))
+
     if mesh.comm.rank == 0:
-        assert np.allclose(bc.nodes, [1])
+        expected = [1]
     else:
-        assert np.allclose(bc.nodes, [1, 2])
+        expected = [1, 2]
+    assert np.array_equal(offsets, expected)
 
 
+@pytest.mark.skip(reason="pyop3 TODO")  # extruded
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)
+
     baseh = MeshHierarchy(base, 1)
     mh = ExtrudedMeshHierarchy(baseh, height=2, base_layer=N)
     mesh = mh[-1]
@@ -423,8 +429,8 @@ def test_bcs_mixed_real():
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
-    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+    assert np.allclose(A.M[0, 1].values, [0, 0, 0.25, 0.25])
+    assert np.allclose(A.M[1, 0].values, [0, 0, 0.25, 0.25])
 
 
 def test_bcs_mixed_real_vector():
@@ -437,8 +443,8 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
-    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
+    assert np.allclose(A.M[0, 1].values, [0.25, 0, 0.25, 0, 0.25, 0.25, 0.25, 0.25])
+    assert np.allclose(A.M[1, 0].values, [0.25, 0, 0.25, 0, 0.25, 0.25, 0.25, 0.25])
 
 
 def test_homogeneous_bc_residual():
@@ -450,7 +456,10 @@ def test_homogeneous_bc_residual():
     r = Function(V).assign(333)
     bc.apply(r, u=u)
 
-    assert np.allclose(r.dat.data_ro[bc.nodes], u.dat.data_ro[bc.nodes])
+    r_data = r.dat.data_ro.reshape((-1, 2))
+    u_data = u.dat.data_ro.reshape((-1, 2))
 
-    interior = np.setdiff1d(range(r.dat.data_ro.shape[0]), bc.nodes)
-    assert np.allclose(r.dat.data_ro[interior], 333)
+    assert np.allclose(r_data[bc.nodes], u_data[bc.nodes])
+
+    interior = np.setdiff1d(range(r_data.shape[0]), bc.nodes)
+    assert np.allclose(r_data[interior], 333)

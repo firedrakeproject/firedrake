@@ -1,15 +1,15 @@
 from os import path
 import numpy
+import textwrap
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp
 
-from pyop2 import op2
-from pyop2.parloop import generate_single_cell_wrapper
+import pyop3 as op3
 
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, RealType, IntType_c
 
 import ufl
 import finat.ufl
@@ -23,28 +23,36 @@ import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
 
-def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map())
-    return (arg,)
-
-
-def make_wrapper(function, **kwargs):
-    args = make_args(function)
-    return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
-
-
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh, tolerance))
-    src.append(make_wrapper(mesh.coordinates,
-                            forward_args=["void*", "double*", RealType_c+"*"],
-                            kernel_name="to_reference_coords_kernel",
-                            wrapper_name="wrap_to_reference_coords"))
+
+    shape = numpy.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    gdim = mesh.geometric_dimension
+
+    wrapper_src = textwrap.dedent(f"""\
+        #include <complex.h>
+        #include <math.h>
+        #include <petsc.h>
+        #include <stdint.h>
+        #include <stdbool.h>
+
+        void wrap_to_reference_coords(void* const farg0, double* const farg1, {RealType_c}* const farg2, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {IntType_c} const *__restrict__ map0)
+        {{
+          {ScalarType_c} t0[{shape}*{gdim}];
+
+          for (int32_t i = 0; i < {shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {shape} * start] + j];
+          to_reference_coords_kernel(farg0, farg1, farg2, &(t0[0]));
+        }}"""
+    )
+    src.append(wrapper_src)
+
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
-    src = "\n".join(src)
-    return src
+    return "\n".join(src)
 
 
 def dX_norm_square(topological_dimension):
@@ -233,9 +241,6 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension),
-        "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
-        "extr_comment_out": "//" if mesh.extruded else "",
-        "non_extr_comment_out": "//" if not mesh.extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
         "RealType": RealType_c,
@@ -278,24 +283,15 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
 }
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
+    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
 %(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
-    %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+    wrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
 }
-
-%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
-{
-    %(RealType)s cell_dist_l1 = 0.0;
-    %(non_extr_comment_out)s%(IntType)s layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
-    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
-    return cell_dist_l1;
-}
-
 """
 
     return evaluate_template_c % code

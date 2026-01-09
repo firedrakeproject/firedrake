@@ -48,7 +48,7 @@ def test_macro_quadrature_monomial(degree, variant, meshes):
     Q = FunctionSpace(msh, "DG", 0, variant=variant)
     q = TestFunction(Q)
     f = assemble(inner(expr, q)*dx(degree=degree))
-    with f.dat.vec_ro as fv:
+    with f.vec_ro as fv:
         result = fv.sum()
 
     results.append(result)
@@ -77,7 +77,7 @@ def test_macro_quadrature_piecewise(degree, variant, meshes):
         Q = FunctionSpace(msh, "DG", 0, variant=v)
         q = TestFunction(Q)
         f = assemble(inner(expr, q)*dx(degree=degree))
-        with f.dat.vec_ro as fv:
+        with f.vec_ro as fv:
             result = fv.sum()
 
         results.append(result)

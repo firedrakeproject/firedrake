@@ -53,8 +53,8 @@ def run_test(degree):
         mass_diag = assemble(a_mass, diagonal=True)
 
         def solve(mass_diag, arhs, rhs, update):
-            with assemble(arhs, tensor=rhs).dat.vec_ro as x:
-                with update.dat.vec as y, mass_diag.dat.vec_ro as d:
+            with assemble(arhs, tensor=rhs).vec_ro as x:
+                with update.vec as y, mass_diag.vec_ro as d:
                     y.pointwiseDivide(x, d)
 
         for _ in range(nstep):

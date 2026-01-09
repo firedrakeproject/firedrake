@@ -59,14 +59,14 @@ read-write access to the PETSc object.  For read-only access, we use:
 
 .. code-block:: python3
 
-   with assemble(linear_form).dat.vec_ro as v:
+   with assemble(linear_form).vec_ro as v:
        petsc_vec_ro = v
 
 For write-only access, use ``.vec_wo``, and for read-write access, use:
 
 .. code-block:: python3
 
-   with assemble(linear_form).dat.vec as v:
+   with assemble(linear_form).vec as v:
        petsc_vec = v
 
 These context managers ensure that if PETSc writes to the vector,
@@ -140,10 +140,10 @@ newly defined class to compute the matrix action:
 
    # Now do the same for the linear forms for u and v, making a copy
 
-   with assemble(u_form).dat.vec_ro as u_vec:
+   with assemble(u_form).vec_ro as u_vec:
        u = u_vec.copy()
 
-   with assemble(v_form).dat.vec_ro as v_vec:
+   with assemble(v_form).vec_ro as v_vec:
        v = v_vec.copy()
 
 
@@ -179,8 +179,8 @@ Now we can solve a system using this ``ksp`` object:
 
    rhs = assemble(rhs_form)
 
-   with rhs.dat.vec_ro as b:
-       with solution.dat.vec as x:
+   with rhs.vec_ro as b:
+       with solution.vec as x:
            ksp.solve(b, x)
 
 
@@ -307,8 +307,8 @@ before going on to solve the system as before:
 
    rhs = assemble(rhs_form)
 
-   with rhs.dat.vec_ro as b:
-       with solution.dat.vec as x:
+   with rhs.vec_ro as b:
+       with solution.vec as x:
            ksp.solve(b, x)
 
 

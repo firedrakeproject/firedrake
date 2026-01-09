@@ -103,10 +103,10 @@ def test_attributes(f, dumpfile):
         assert chk.read_attribute("/", "nprocs") == 1
 
         chk.write_attribute("/fields/coords", "dimension",
-                            mesh.coordinates.dat.cdim)
+                            mesh.coordinates.function_space().block_size)
 
         assert chk.read_attribute("/fields/coords", "dimension") == \
-            mesh.coordinates.dat.cdim
+            mesh.coordinates.function_space().block_size
 
 
 def test_store_read_only_ioerror(f, dumpfile):

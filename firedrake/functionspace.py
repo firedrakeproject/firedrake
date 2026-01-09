@@ -8,7 +8,7 @@ import itertools
 import ufl
 import finat.ufl
 
-from pyop2.utils import flatten
+from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
@@ -56,6 +56,9 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     if isinstance(family, finat.ufl.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
+    if family in {"Real", "R"} and degree is None:
+        degree = 0
+
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
@@ -73,7 +76,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None):
+                  vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -103,7 +106,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -143,7 +146,7 @@ def DualSpace(mesh, family, degree=None, name=None,
 
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None, variant=None):
+                        name=None, vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -185,7 +188,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = finat.ufl.VectorElement(sub_element, dim=dim)
-    return FunctionSpace(mesh, element, name=name)
+    return FunctionSpace(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -239,7 +242,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -298,7 +301,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
+def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters

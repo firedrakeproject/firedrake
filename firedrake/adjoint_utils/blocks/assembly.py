@@ -76,8 +76,8 @@ class AssembleBlock(Block):
                 # Get PETSc matrix
                 dform_mat = assembled_dform.petscmat
                 # Action of the adjoint (Hermitian transpose)
-                with adj_input.dat.vec_ro as v_vec:
-                    with adj_output.dat.vec as res_vec:
+                with adj_input.vec_ro as v_vec:
+                    with adj_output.vec_wo as res_vec:
                         dform_mat.multHermitian(v_vec, res_vec)
             return adj_output, dform
         else:
