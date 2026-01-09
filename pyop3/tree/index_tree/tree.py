@@ -137,11 +137,11 @@ class AffineSliceComponent(SliceComponent):
         stop: IntType | None = None,
         step: IntType | None = None,
         *,
-        label=None,
+        label=utils.PYOP3_DECIDE,
         label_was_none=None,
         **kwargs
     ):
-        label_was_none = label_was_none or label is None
+        label_was_none = label_was_none or label is utils.PYOP3_DECIDE
 
         object.__setattr__(self, "_component", component)
         object.__setattr__(self, "_label", label)
@@ -286,7 +286,7 @@ class UnparsedSlice:
 class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
     fields = {"target_axis", "target_component", "label"}
 
-    def __init__(self, target_axis, target_component, *, label=None):
+    def __init__(self, target_axis, target_component, *, label=utils.PYOP3_DECIDE):
         pytools.ImmutableRecord.__init__(self)
         Labelled.__init__(self, label)
         self.target_axis = target_axis
@@ -306,7 +306,7 @@ class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
 class TabulatedMapComponent(MapComponent):
     fields = MapComponent.fields | {"array", "arity"}
 
-    def __init__(self, target_axis, target_component, array, *, arity=None, label=None):
+    def __init__(self, target_axis, target_component, array, *, arity=None, label=utils.PYOP3_DECIDE):
         from pyop3.expr import as_linear_buffer_expression
 
         # determine the arity from the provided array
@@ -457,11 +457,11 @@ class Slice(Index):
 
     fields = Index.fields | {"axis", "components", "label"}
 
-    def __init__(self, axis, components, *, label=None):
+    def __init__(self, axis, components, *, label=utils.PYOP3_DECIDE):
         components = as_tuple(components)
-        if any(c.label is None for c in components):
-            if not all(c.label is None for c in components):
-                raise ValueError("Cannot have only some as None")
+        if any(c.label is utils.PYOP3_DECIDE for c in components):
+            if not all(c.label is utils.PYOP3_DECIDE for c in components):
+                raise ValueError("Cannot have only some as PYOP3_DECIDE")
             components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
 
         self.axis = axis

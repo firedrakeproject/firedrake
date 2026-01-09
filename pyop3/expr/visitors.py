@@ -22,6 +22,7 @@ from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, I
 
 from pyop3 import utils
 # TODO: just namespace these
+from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one, OrderedFrozenSet
@@ -541,7 +542,6 @@ def _(dat_expr: expr_types.NonlinearDatBufferExpression, /, *, axis_trees: Itera
         for path, layout in dat_expr.layouts.items()
     })
 
-
 @collect_tensor_candidate_indirections.register(expr_types.MatPetscMatBufferExpression)
 def _(mat_expr: expr_types.MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     costs = []
@@ -873,6 +873,9 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
         materialized_expr = expr_types.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+
+    if assignee.name in {"array_512", "array_526"}:
+        breakpoint()
 
     # key = tuple(assignee.buffer.data)
     # if key in debug:
@@ -1315,23 +1318,15 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
     @ExpressionVisitor.postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
         # this nasty code tries to find the best candidate layout looking at 'path', bearing
-        # in mind that the path might only be a partial match... is there a nicer approach? not sure there is
+        # in mind that the path might only be a partial match.
         # consider expression: dat1[i] + dat2[j]
         # the full path is i and j, but each component only 'sees' one of these.
-        best = None
-        duplicates = False
-        for path_, layout in dat_expr.layouts.items():
-            if path_.items() <= path.items():
-                if best is None:
-                    best = path_
-                else:
-                    if len(path_) == len(best):
-                        duplicates = True
-                    else:
-                        best = path_
-                        duplicates = False
-        assert best is not None
-        return expr_types.LinearDatBufferExpression(dat_expr.buffer, dat_expr.layouts[best])
+        selected_layout = utils.just_one((
+            layout
+            for path_, layout in dat_expr.leaf_layouts.items()
+            if is_subpath(path_, path)
+        ))
+        return expr_types.LinearDatBufferExpression(dat_expr.buffer, selected_layout)
 
 
 def linearize_expr(expr: ExpressionT, path) -> ExpressionT:

@@ -473,6 +473,9 @@ class AxisComponent(LabelledNodeComponent):
         if self.sf is not None:
             assert self.local_size == self.sf.size
 
+        if self.label == '_label_TabulatedMapComponent_0':
+            breakpoint()
+
     # }}}
 
     # {{{ interface impls
@@ -578,8 +581,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     def __init__(
         self,
         components,
-        # label=utils.PYOP3_DECIDE,  # TODO
-        label=None,
+        label=utils.PYOP3_DECIDE,
     ):
         components = self._parse_components(components)
 

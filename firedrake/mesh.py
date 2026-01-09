@@ -858,7 +858,7 @@ class AbstractMeshTopology(abc.ABC):
     @utils.cached_property
     def _strata_slice(self):
         if self.dimension == 0:
-            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, self.num_cells, label=0)], label=self.name)
+            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self.name)
 
         subsets = []
         if self._is_renumbered:
@@ -3530,7 +3530,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op3.Map(
             {
                 idict({self.name: self.cell_label}): [[
-                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
+                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]]
             },
             name="cell_parent_cell",

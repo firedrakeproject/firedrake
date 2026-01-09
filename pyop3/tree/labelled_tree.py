@@ -80,7 +80,7 @@ class LabelledNodeComponent(abc.ABC):
 class MultiComponentLabelledNode(Node, Labelled):
     fields = Node.fields | {"label"}
 
-    def __init__(self, label=None):
+    def __init__(self, label=utils.PYOP3_DECIDE):
         Node.__init__(self)
         Labelled.__init__(self, label)
 
@@ -856,3 +856,9 @@ def filter_path(orig_path: PathT, to_remove: PathT) -> ConcretePathT:
         if (node_label, component_label) not in to_remove.items():
             filtered_path[node_label] = component_label
     return idict(filtered_path)
+
+
+def is_subpath(subpath: PathT, full_path: PathT) -> bool:
+    subpath = as_path(subpath)
+    full_path = as_path(full_path)
+    return subpath.items() <= full_path.items()
