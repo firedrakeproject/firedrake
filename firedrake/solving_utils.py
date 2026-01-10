@@ -353,9 +353,17 @@ class _SNESContext(object):
         splits = []
         problem = self._problem
         splitter = ExtractSubBlock()
+
+        Fbig = problem.F
+        # Reuse the submatrices if we are splitting a MatNest
+        Jbig = self._jac if self.mat_type == "nest" else problem.J
+        Jpbig = self._pjac if self.pmat_type == "nest" else problem.Jp
+        if Jpbig is Jbig:
+            Jpbig = None
+
         for field in fields:
-            F = splitter.split(problem.F, argument_indices=(field, ))
-            J = splitter.split(problem.J, argument_indices=(field, field))
+            F = splitter.split(Fbig, argument_indices=(field, ))
+            J = splitter.split(Jbig, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
             V = F.arguments()[0].function_space()
             # Exposition:
@@ -397,7 +405,6 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            J = replace(J, {problem.u_restrict: u})
             if problem.is_linear and isinstance(J, MatrixBase):
                 # The BC lifting term is action(MatrixBase, u).
                 # We cannot replace u with the split solution, as action expects a Function.
@@ -407,23 +414,35 @@ class _SNESContext(object):
                 F += problem.compute_bc_lifting(J, subu)
             else:
                 F = replace(F, {problem.u_restrict: u})
-            if problem.Jp is not None:
-                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+
+            J = replace(J, {problem.u_restrict: u})
+            if Jpbig is not None:
+                Jp = splitter.split(Jpbig, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
-            bcs = []
-            for bc in problem.bcs:
-                if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
-                elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
-                if bc_temp is not None:
-                    bcs.append(bc_temp)
+
+            if isinstance(J, MatrixBase) and J.has_bcs:
+                # The BCs of the problem are already encoded in the Jacobian
+                bcs = None
+            else:
+                bcs = []
+                for bc in problem.bcs:
+                    if isinstance(bc, DirichletBC):
+                        bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg)
+                    elif isinstance(bc, EquationBC):
+                        bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
+                    if bc_temp is not None:
+                        bcs.append(bc_temp)
+
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
-            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
+            splits.append(type(self)(new_problem,
+                                     mat_type=self.mat_type,
+                                     pmat_type=self.pmat_type,
+                                     sub_mat_type=self.sub_mat_type,
+                                     sub_pmat_type=self.sub_pmat_type,
                                      appctx=self.appctx,
                                      transfer_manager=self.transfer_manager,
                                      pre_apply_bcs=self.pre_apply_bcs))
