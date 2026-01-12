@@ -402,12 +402,22 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #     u <- g(t)  -- out-of-place transform
     #     X += u
     #
-    # Note that the final instruction is where the increment takes place.
-    #     t1 <- t0
-    #     mat[f(p), f(p)] <- t1
-    # if assignment.is_mat_access:
-    #     raise NotImplementedError("think")
-    #     return op3_insn.InstructionList([assignment])
+    # To make this work we extract the increment by materialising 'u'.
+
+    if assignment.assignment_type == AssignmentType.INC and hasattr(assignment.assignee, "parent") and assignment.assignee.parent:
+        # if we have a transform then extract the increment and try again (in a subsequent pass)
+        # get the ultimate parent
+        current = assignment.assignee
+        while current.parent:
+            current = current.parent.untransformed
+        root_temp = current.materialize()
+
+        untransformed_assignee = current.__record_init__(_parent=None)
+        bare_root_temp = root_temp.__record_init__(_parent=None)
+        return insn_types.InstructionList((
+            root_temp.assign(assignment.expression),  # this still has all the transform info
+            untransformed_assignee.iassign(bare_root_temp),  # no transforms here, just the inc
+        ))
 
     bare_expression, expression_transform_insns = _expand_reshapes(
         assignment.expression, ArrayAccessType.READ
@@ -424,6 +434,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     )
     bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
 
+    # NOTE: Don't think we need this if we handle INCs in advance...
     if bare_assignee == assignment.assignee:
         # no extra assignments
         bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
@@ -541,6 +552,8 @@ def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[I
       and 'U'
 
     """
+    assert tensor.parent is None or access_type != ArrayAccessType.INC, "should handle this earlier..."
+
     current_tensor = tensor
     unpack_insns = ()
     while current_tensor.parent:
@@ -575,11 +588,14 @@ def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[I
         # the tensor.
         if isinstance(current_tensor.parent, InPlaceTensorTransform):
             if isinstance(bare_current_tensor, Dat):
-                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.axes.materialize())
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(
+                    bare_parent_tensor.axes.materialize()
+                )
             elif isinstance(bare_current_tensor, Mat):
-                # bare_parent_tensor_reshaped = bare_parent_tensor.with_axes(bare_current_tensor.raxes.materialize(), bare_current_tensor.caxes.materialize())
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.row_axes.materialize(), bare_parent_tensor.column_axes.materialize())
+                bare_current_tensor_reshaped = bare_current_tensor.with_axes(
+                    bare_parent_tensor.row_axes.materialize(),
+                    bare_parent_tensor.column_axes.materialize(),
+                )
             else:
                 raise NotImplementedError
             # NOTE: It seems a bit weird to have an assignment given that this is 'inplace'
