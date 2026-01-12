@@ -853,7 +853,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # TODO: Cache this function.
     @utils.cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.tree.index_tree.parse import as_index_forests
@@ -1909,6 +1908,7 @@ class AxisForest(DistributedObject):
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
 
+    @utils.cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False):
         if utils.is_ellipsis_type(indices):
             return self
