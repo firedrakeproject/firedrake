@@ -17,6 +17,7 @@ from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 
 import pyop3.expr.base as expr_types
+from pyop3.cache import memory_cache
 from pyop3.expr.buffer import MatArrayBufferExpression
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
@@ -31,7 +32,6 @@ from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuf
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 import pyop3.insn as insn_types
-# TODO: remove all these in favour of op3_insn
 from pyop3.insn.base import (
     INC,
     READ,
@@ -665,10 +665,6 @@ MAX_COST_CONSIDERATION_FACTOR = 5
 
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
-    # try setting a 'global' cache here
-    # TODO: formalise this.
-    mycache = {}
-
     expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
     if not expr_candidates:
@@ -728,7 +724,7 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
     # Materialise any symbolic (composite) dats
     composite_dats = frozenset.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
-        comp_dat: expr_visitors.materialize_composite_dat(comp_dat)
+        comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
     best_candidate = {
@@ -896,18 +892,23 @@ def get_disk_cache_key(insn: insn_types.Instruction) -> Hashable:
 
 class BufferCollector(NodeCollector):
 
-    def __init__(self):
+    def __init__(self, comm):
         from pyop3.expr.visitors import BufferCollector as ExprBufferCollector
         from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
 
-        expr_collector = ExprBufferCollector()
-        tree_collector = TreeBufferCollector()
+        expr_collector = ExprBufferCollector.maybe_singleton(comm)
+        tree_collector = TreeBufferCollector.maybe_singleton(comm)
         expr_collector.tree_collector = tree_collector
         tree_collector.expr_collector = expr_collector
 
         self._expr_collector = expr_collector
         self._tree_collector = tree_collector
         super().__init__()
+
+    @classmethod
+    @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls(comm)
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:
@@ -947,7 +948,7 @@ class BufferCollector(NodeCollector):
 
 
 def collect_buffers(insn: insn_types.Instruction) -> OrderedFrozenSet:
-    return BufferCollector()(insn)
+    return BufferCollector.maybe_singleton(insn.comm)(insn)
 
 
 class LiteralInserter(NodeTransformer):

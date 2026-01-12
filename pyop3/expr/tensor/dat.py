@@ -590,5 +590,4 @@ class CompositeDat(Terminal):
 
     # }}}
 
-    dtype = IntType
-
+    dtpe = IntType

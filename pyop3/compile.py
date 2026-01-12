@@ -55,7 +55,7 @@ from petsc4py import PETSc
 
 from pyop3 import mpi
 from pyop3.cache import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.exceptions import CompilationException
 from pyop3.log import warning, debug, progress, INFO
 from pyop3.pyop2_utils import get_petsc_variables
@@ -289,8 +289,8 @@ class Compiler(ABC):
             cflags += self._debugflags
         else:
             cflags += self._optflags
-        if CONFIG.cflags:
-            cflags += CONFIG.cflags
+        if config.cflags:
+            cflags += config.cflags
         return cflags
 
     @property
@@ -300,15 +300,15 @@ class Compiler(ABC):
             cxxflags += self._debugflags
         else:
             cxxflags += self._optflags
-        if CONFIG.cxxflags:
-            cxxflags += CONFIG.cxxflags
+        if config.cxxflags:
+            cxxflags += config.cxxflags
         return cxxflags
 
     @property
     def ldflags(self):
         ldflags = self._ldflags + self._extra_linker_flags
-        if CONFIG.ldflags:
-            ldflags += CONFIG.ldflags
+        if config.ldflags:
+            ldflags += config.ldflags
         return ldflags
 
     @property
@@ -464,9 +464,9 @@ def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
             exe = petsc_variables["CC"]
         compiler = sniff_compiler(exe, comm)
 
-    debug = CONFIG.debug
+    debug = config.debug
     compiler_instance = compiler(cppargs, ldargs, debug=debug)
-    if CONFIG.check_src_hashes or CONFIG.debug:
+    if config.check_src_hashes or config.debug:
         check_source_hashes(compiler_instance, code, extension, comm)
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)
@@ -532,7 +532,7 @@ def check_source_hashes(compiler, code, extension, comm):
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
             # Dump all src code to disk for debugging
-            output = Path(CONFIG.cache_dir).joinpath("mismatching-kernels")
+            output = Path(config.cache_dir).joinpath("mismatching-kernels")
             srcfile = output.joinpath(f"src-rank{icomm.rank}.{extension}")
             if icomm.rank == 0:
                 output.mkdir(parents=True, exist_ok=True)
@@ -547,7 +547,7 @@ def check_source_hashes(compiler, code, extension, comm):
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    make_cache=lambda: CompilerDiskAccess(CONFIG.cache_dir, extension=".so")
+    make_cache=lambda: CompilerDiskAccess(config.cache_dir, extension=".so")
 )
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm, filename=None):
@@ -654,7 +654,7 @@ def clear_compiler_disk_cache(prompt=False):
 
     :arg prompt: if ``True`` prompt before removing any files
     """
-    cachedirs = [CONFIG.cache_dir, MEM_TMP_DIR]
+    cachedirs = [config.cache_dir, MEM_TMP_DIR]
 
     for directory in cachedirs:
         if not os.path.exists(directory):

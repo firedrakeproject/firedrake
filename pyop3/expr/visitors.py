@@ -11,16 +11,18 @@ from typing import Any, Callable, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
-from pyop3.config import CONFIG
-from pyop3.cache import scoped_cache
+from petsc4py import PETSc
+
+from pyop3.cache import memory_cache
+from pyop3.config import config
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
-from petsc4py import PETSc
 
 from pyop3 import utils
 # TODO: just namespace these
+from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one, OrderedFrozenSet
@@ -540,7 +542,6 @@ def _(dat_expr: expr_types.NonlinearDatBufferExpression, /, *, axis_trees: Itera
         for path, layout in dat_expr.layouts.items()
     })
 
-
 @collect_tensor_candidate_indirections.register(expr_types.MatPetscMatBufferExpression)
 def _(mat_expr: expr_types.MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     costs = []
@@ -701,7 +702,7 @@ def _(buffer_expr: expr_types.ScalarBufferExpression, layouts, key):
 
 @concretize_materialized_tensor_indirections.register(expr_types.LinearDatBufferExpression)
 def _(buffer_expr: expr_types.LinearDatBufferExpression, layouts, key):
-    layout = layouts[key + (buffer_expr,)]
+    layout = linearize_expr(layouts[key + (buffer_expr,)])
     return buffer_expr.__record_init__(layout=layout)
 
 
@@ -801,11 +802,17 @@ def _(dat, /) -> frozenset:
     return frozenset({dat})
 
 
-def materialize_composite_dat(composite_dat: expr_types.CompositeDat) -> expr_types.LinearDatBufferExpression:
-    axes = composite_dat.axis_tree
+mycount = 0
+debug = {}
 
-    # if mytree.size == 0:
-    #     return None
+@memory_cache(heavy=True)
+def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.Comm) -> expr_types.LinearDatBufferExpression:
+    # debugging
+    global mycount
+    mycount += 1
+    # print(f"MISS {mycount}", flush=True)
+
+    axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
     assert not big_tree._all_region_labels
@@ -866,6 +873,15 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat) -> expr_ty
         materialized_expr = expr_types.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+
+    if assignee.name in {"array_512", "array_526"}:
+        breakpoint()
+
+    # key = tuple(assignee.buffer.data)
+    # if key in debug:
+    #     breakpoint()  # hey, I found something
+    # else:
+    #     debug[key] = composite_dat
 
     return materialized_expr
 
@@ -1095,7 +1111,7 @@ class DiskCacheKeyGetter(ExpressionVisitor):
     def _(self, loop_var: expr_types.LoopIndexVar, /) -> Hashable:
         return (
             type(loop_var),
-            self._renamer[loop_var.loop_index],  # surrogate for loop ID
+            self._renamer.add(loop_var.loop_index),
             self._get_tree_disk_cache_key(loop_var.loop_index.iterset),
             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
         )
@@ -1138,6 +1154,11 @@ class BufferCollector(NodeCollector):
     def __init__(self, tree_collector: TreeBufferCollector | None = None):
         self._lazy_tree_collector = tree_collector
         super().__init__()
+
+    @classmethod
+    @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls()
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:
@@ -1296,25 +1317,20 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
     @process.register(expr_types.NonlinearDatBufferExpression)
     @ExpressionVisitor.postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
-        # this nasty code tries to find the best candidate layout looking at 'path', bearing
-        # in mind that the path might only be a partial match... is there a nicer approach? not sure there is
-        # consider expression: dat1[i] + dat2[j]
-        # the full path is i and j, but each component only 'sees' one of these.
-        best = None
-        duplicates = False
-        for path_, layout in dat_expr.layouts.items():
-            if path_.items() <= path.items():
-                if best is None:
-                    best = path_
-                else:
-                    if len(path_) == len(best):
-                        duplicates = True
-                    else:
-                        best = path_
-                        duplicates = False
-        assert best is not None
-        return expr_types.LinearDatBufferExpression(dat_expr.buffer, dat_expr.layouts[best])
+        if path is None:
+            layout = utils.just_one(dat_expr.leaf_layouts.values())
+        else:
+            # find the best candidate layout looking at 'path', bearing
+            # in mind that the path might only be a partial match.
+            # consider expression: dat1[i] + dat2[j]
+            # the full path is i and j, but each component only 'sees' one of these.
+            layout = utils.just_one((
+                layout_
+                for path_, layout_ in dat_expr.leaf_layouts.items()
+                if is_subpath(path_, path)
+            ))
+        return expr_types.LinearDatBufferExpression(dat_expr.buffer, layout)
 
 
-def linearize_expr(expr: ExpressionT, path) -> ExpressionT:
+def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
     return ExpressionLinearizer()(expr, path=path)

@@ -10,7 +10,7 @@ from immutabledict import immutabledict as idict
 import numpy as np
 from petsc4py import PETSc
 
-from pyop3.cache import scoped_cache
+from pyop3.cache import memory_cache
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
@@ -30,7 +30,7 @@ if typing.TYPE_CHECKING:
     from pyop3.types import *
 
 
-@scoped_cache()
+@memory_cache(heavy=True, get_comm=lambda tree: tree.comm)
 @PETSc.Log.EventDecorator()
 def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     """Compute the layout functions for an axis tree.
@@ -395,7 +395,7 @@ def _(dat_expr: LinearDatBufferExpression, /, axis: Axis, comm) -> LinearDatBuff
     return _accumulate_dat_expr(dat_expr, axis, comm)
 
 
-@scoped_cache()
+@memory_cache(heavy=True)
 def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
@@ -458,7 +458,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
 
 
 # This gets the sizes right for a particular dat, then we merge them above
-@scoped_cache()
+@memory_cache(heavy=True)
 def _tabulate_regions(offset_axes, step, comm):
     # Regions are always tabulated using all available free indices (i.e. all
     # parent axes) because they get interleaved.

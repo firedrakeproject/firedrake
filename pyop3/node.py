@@ -8,6 +8,7 @@ from typing import Any
 
 from immutabledict import immutabledict as idict
 from pyop3 import utils
+from pyop3.cache import memory_cache
 from pyop3.utils import OrderedFrozenSet
 
 
@@ -26,10 +27,6 @@ class Node(abc.ABC):
 
 class Terminal(Node, abc.ABC):
     child_attrs = ()
-
-
-# TODO: Add mixin for stateless transformers...
-# def maybe_singleton():  cached on the mesh (or outermost 'heavy' cache)
 
 
 """Taken from UFL"""
@@ -151,7 +148,9 @@ class LabelledTreeVisitor(Visitor):
     """
 
     def __init__(self):
-        super().__init__()
+        # FIXME: component.size is unique to each axis object, but the cache
+        # keys used aren't. This means that we hit cache erroneously sometimes.
+        super().__init__(visited_cache=utils.AlwaysEmptyDict())
 
         # variables that are only valid mid traversal
         self._tree = None

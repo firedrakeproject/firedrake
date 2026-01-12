@@ -15,7 +15,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
@@ -309,7 +309,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if CONFIG.debug:
+        if config.debug:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)
@@ -618,6 +618,7 @@ class FullPetscMatBufferSpec:
     mat_type: str
     row_spec: PetscMatAxisSpec | "AbstractAxisTree"
     column_spec: PetscMatAxisSpec | "AbstractAxisTree"
+    comm: MPI.Comm
 
 
 @dataclasses.dataclass(frozen=True)
@@ -679,9 +680,12 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
         return handle_
 
+    def zero(self) -> None:
+        self.mat.zeroEntries()
+
     @property
     def comm(self) -> MPI.Comm:
-        return self.mat.comm.tompi4py()
+        return self.mat_spec.comm
 
     def zero(self) -> None:
         self.mat.zeroEntries()
@@ -833,6 +837,10 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     mat_spec: ClassVar[property] = utils.attr("_mat_spec")
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.mat_spec.comm
 
     # }}}
 

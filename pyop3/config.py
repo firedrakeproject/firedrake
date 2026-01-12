@@ -147,4 +147,4 @@ def _prepare_configuration() -> Pyop3Configuration:
     return Pyop3Configuration._from_env(env_options)
 
 
-CONFIG = _prepare_configuration()
+config = _prepare_configuration()

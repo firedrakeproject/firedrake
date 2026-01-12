@@ -9,6 +9,7 @@ from typing import ClassVar
 
 from pyop3 import utils
 from pyop3.node import NodeVisitor
+from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE
 from pyop3.buffer import BufferRef, AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
@@ -244,6 +245,18 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         )
 
     # }}}
+
+    @property
+    def leaf_layouts(self) -> idict:
+        leaf_layouts_ = {}
+        for path, layout in self.layouts.items():
+            if not any(
+                is_subpath(path, other_path)
+                for other_path in self.layouts.keys()
+                if other_path != path
+            ):
+                leaf_layouts_[path] = layout
+        return idict(leaf_layouts_)
 
 
 class MatBufferExpression(BufferExpression):

@@ -511,10 +511,10 @@ def inject_kernel(Vf, Vc):
             lp.CInstruction((), kernel, frozenset({"R", "X", "f", "Xf"}), ("R",)),
         ],
         [
-            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
-            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("Xf", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("R", ScalarType, numpy.prod(Vf.value_shape, dtype=int), is_input=True, is_output=True),
+            lp.GlobalArg("X", ScalarType, Vc.finat_element.cell.get_spatial_dimension(), is_input=True, is_output=False),
+            lp.GlobalArg("f", ScalarType, 1, is_input=True, is_output=False),
+            lp.GlobalArg("Xf", ScalarType, Vf.finat_element.cell.get_spatial_dimension(), is_input=True, is_output=False),
         ],
         name="pyop3_kernel_inject",
         preambles=[
