@@ -604,6 +604,7 @@ def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[I
             ]
 
             # at the end of the traversal, maybe emit an INC
+            # NOTE: I don't know how much of this is needed any more
             if not parent_tensor.parent and access_type == ArrayAccessType.INC:
                 current_unpack_insns.append(bare_parent_tensor.iassign(bare_current_tensor_reshaped))
             else:
