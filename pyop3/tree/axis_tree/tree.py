@@ -473,9 +473,6 @@ class AxisComponent(LabelledNodeComponent):
         if self.sf is not None:
             assert self.local_size == self.sf.size
 
-        if self.label == '_label_TabulatedMapComponent_0':
-            breakpoint()
-
     # }}}
 
     # {{{ interface impls

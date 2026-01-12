@@ -921,6 +921,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         if loopy_arg.shape is not None:
             shape = loopy_arg.shape
         else:
+            raise NotImplementedError
             shape = (np.prod(*(axis_tree.size for axis_tree in arg.shape), dtype=int),)
 
         # subarrayref nonsense/magic
