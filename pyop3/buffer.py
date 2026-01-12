@@ -618,6 +618,7 @@ class FullPetscMatBufferSpec:
     mat_type: str
     row_spec: PetscMatAxisSpec | "AbstractAxisTree"
     column_spec: PetscMatAxisSpec | "AbstractAxisTree"
+    comm: MPI.Comm
 
 
 @dataclasses.dataclass(frozen=True)
@@ -679,13 +680,12 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
         return handle_
 
-    @property
-    def comm(self) -> MPI.Comm:
-        raise NotImplementedError("Wrong comm, this is the PETSc one")
-        return self.mat.comm.tompi4py()
-
     def zero(self) -> None:
         self.mat.zeroEntries()
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.mat_spec.comm
 
     # }}}
 
@@ -834,6 +834,10 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     mat_spec: ClassVar[property] = utils.attr("_mat_spec")
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.mat_spec.comm
 
     # }}}
 

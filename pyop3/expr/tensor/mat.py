@@ -508,12 +508,12 @@ class Mat(Tensor):
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
+        comm = utils.common_comm((row_axes, column_axes), "comm")
+
         if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes
             column_spec = column_axes
         else:
-            comm = utils.common_comm((row_axes, column_axes), "comm")
-
             nrows = row_axes.unindexed.owned.local_size
             ncolumns = column_axes.unindexed.owned.local_size
 
@@ -532,7 +532,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
-        full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
+        full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec, comm)
     else:  # MATNEST
         assert isinstance(partial_spec, PetscMatNestBufferSpec)
         full_spec = np.empty_like(partial_spec.submat_specs)

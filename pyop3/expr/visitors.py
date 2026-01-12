@@ -1111,7 +1111,7 @@ class DiskCacheKeyGetter(ExpressionVisitor):
     def _(self, loop_var: expr_types.LoopIndexVar, /) -> Hashable:
         return (
             type(loop_var),
-            self._renamer[loop_var.loop_index],  # surrogate for loop ID
+            self._renamer.add(loop_var.loop_index),
             self._get_tree_disk_cache_key(loop_var.loop_index.iterset),
             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
         )

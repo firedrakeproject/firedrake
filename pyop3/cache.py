@@ -149,14 +149,6 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 
 
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
-    if (
-        CONFIG.spmd_strict
-        and not utils.is_single_valued(comm.allgather(key))
-    ):
-        raise ValueError(
-            f"Cache keys differ between ranks. On rank {comm.rank} got:\n{key}"
-        )
-
     value = cache.get(key, CACHE_MISS)
 
     if CONFIG.debug:
@@ -375,8 +367,7 @@ def default_get_comm(*args, **kwargs):
 
 
 def default_parallel_hashkey(*args, **kwargs) -> Hashable:
-    """ A sensible default hash key for use with `parallel_cache`.
-    """
+    """ A sensible default hash key for use with `parallel_cache`."""
     # We now want to actively remove any comms from args and kwargs to get
     # the same disk cache key.
     hash_args = tuple(filter(

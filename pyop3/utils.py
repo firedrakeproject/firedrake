@@ -682,7 +682,10 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         return self
     # TODO: make .comm an attr for all frozen records?
     elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
-        return _make_record_maybe_singleton(self, new_attrs)
+        try:
+            return _make_record_maybe_singleton(self, new_attrs)
+        except UnhashableObjectException:
+            return _make_record(self, new_attrs)
     else:
         return _make_record(self, new_attrs)
 
@@ -716,9 +719,13 @@ def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
 
 
+class UnhashableObjectException(Exception):
+    pass
+
+
 @functools.singledispatch
 def freeze(obj: Any) -> Hashable:
-    raise TypeError
+    raise UnhashableObjectException
 
 
 @freeze.register

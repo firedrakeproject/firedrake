@@ -40,7 +40,7 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
         new_label = self._renamer.add(axis)
         key = [type(axis), new_label]
         for component in axis.components:
-            component_key = (component.label, self._get_expr_disk_cache_key(component.size))
+            component_key = get_disk_cache_key(component, renamer=self._renamer)
             key.append(component_key)
         return (tuple(key), visited)
 
@@ -56,8 +56,24 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
 
         return self._lazy_expr_getter._safe_call(expr)
 
+
+@functools.singledispatch
 def get_disk_cache_key(axis_tree: op3_tree.AxisTree, renamer=None) -> Hashable:
     return DiskCacheKeyGetter(renamer)(axis_tree)
+
+
+@get_disk_cache_key.register(op3_tree.AxisComponent)
+def _(component: op3_tree.AxisComponent, renamer=None) -> tuple:
+    if renamer is None:
+        renamer = Renamer()
+    expr_renamer = ExprDiskCacheKeyGetter(renamer)
+    return (component.label, expr_renamer(component.size))
+
+
+@get_disk_cache_key.register(op3_tree.AxisComponentRegion)
+def _(component: op3_tree.AxisComponent, renamer) -> tuple:
+    expr_renamer = ExprDiskCacheKeyGetter(renamer)
+    return (component.label, expr_renamer(component.size))
 
 
 class BufferCollector(LabelledTreeVisitor):
