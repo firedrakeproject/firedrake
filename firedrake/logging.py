@@ -5,7 +5,7 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 import tsfc.logging             # noqa: F401
 import pyop3.log             # noqa: F401
 
-from pyop3.config import CONFIG as PYOP3_CONFIG
+from pyop3.config import config as PYOP3_CONFIG
 from pyop3.mpi import COMM_WORLD
 
 

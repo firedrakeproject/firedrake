@@ -20,7 +20,7 @@ from mpi4py import MPI
 
 
 from pyop3.cache import memory_cache
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
 from pyop3.mpi import collective
@@ -539,7 +539,7 @@ def readonly(array):
 
 
 def debug_assert(predicate, msg=None):
-    if CONFIG.debug:
+    if config.debug:
         if msg:
             assert predicate(), msg
         else:

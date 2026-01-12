@@ -47,7 +47,7 @@ import os
 import tempfile
 import weakref
 
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.exceptions import CompilationException
 from pyop3.log import debug, LOGGER, DEBUG
 from pyop3.pyop2_utils import trim
@@ -157,7 +157,7 @@ class PyOP2CommError(ValueError):
 # PYOP2_FINALISED flag.
 
 
-if CONFIG.spmd_strict:
+if config.spmd_strict:
     def collective(fn):
         extra = trim("""
         This function is logically collective over MPI ranks, it is an
@@ -454,10 +454,10 @@ def create_split_comm(comm):
     else:
         debug("Creating compilation communicator using MPI_Split + filesystem")
         if comm.rank == 0:
-            if not os.path.exists(CONFIG.cache_dir):
-                os.makedirs(CONFIG.cache_dir, exist_ok=True)
+            if not os.path.exists(config.cache_dir):
+                os.makedirs(config.cache_dir, exist_ok=True)
             tmpname = tempfile.mkdtemp(prefix="rank-determination-",
-                                       dir=CONFIG.cache_dir)
+                                       dir=config.cache_dir)
         else:
             tmpname = None
         tmpname = comm.bcast(tmpname, root=0)
@@ -530,7 +530,7 @@ def compilation_comm(comm, obj):
     if not is_pyop2_comm(comm):
         raise PyOP2CommError("Communicator is not a PyOP2 comm")
     # Should we try and do node-local compilation?
-    if CONFIG.node_local_compilation:
+    if config.node_local_compilation:
         comp_comm = get_compilation_comm(comm)
         if comp_comm is not None:
             debug("Found existing compilation communicator")

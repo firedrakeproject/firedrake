@@ -50,7 +50,7 @@ from pyop3.cache import (
     _KNOWN_CACHES,
 )
 from pyop3.compile import load
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.mpi import (
     MPI,
     COMM_WORLD,
@@ -683,11 +683,11 @@ class spmd_strict:
         self._enabled = enabled
 
     def __enter__(self):
-        self._orig_spmd_strict = CONFIG.spmd_strict
-        CONFIG.spmd_strict = self._enabled
+        self._orig_spmd_strict = config.spmd_strict
+        config.spmd_strict = self._enabled
 
     def __exit__(self, *args, **kwargs):
-        CONFIG.spmd_strict = self._orig_spmd_strict
+        config.spmd_strict = self._orig_spmd_strict
 
 
 @pytest.mark.parallel(2)

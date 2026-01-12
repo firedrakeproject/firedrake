@@ -32,7 +32,7 @@ from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.insn.base import (
@@ -661,7 +661,7 @@ def compile(op, compiler_parameters=None):
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-    return (op.disk_cache_key, compiler_parameters, CONFIG)
+    return (op.disk_cache_key, compiler_parameters, config)
 
 
 @memory_and_disk_cache(

@@ -51,7 +51,7 @@ from typing import Any, Callable, Hashable
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.log import debug
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
@@ -151,7 +151,7 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
     value = cache.get(key, CACHE_MISS)
 
-    if CONFIG.debug:
+    if config.debug:
         message = [f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "]
         message.append(f"key={key} in cache: '{cache}' ")
         if value is CACHE_MISS:
@@ -531,7 +531,7 @@ def parallel_cache(
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
                     if (
-                        CONFIG.spmd_strict
+                        config.spmd_strict
                         and not utils.is_single_valued(
                             comm.allgather(value is not CACHE_MISS)
                         )
@@ -566,11 +566,11 @@ def serial_cache(hashkey=cachetools.keys.hashkey, cache_factory=lambda: DEFAULT_
     return cachetools.cached(key=hashkey, cache=cache_factory())
 
 
-def disk_only_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
+def disk_only_cache(*args, cachedir=config.cache_dir, **kwargs):
     return parallel_cache(*args, **kwargs, make_cache=lambda: DictLikeDiskAccess(cachedir))
 
 
-def memory_and_disk_cache(*args, cachedir=CONFIG.cache_dir, **kwargs):
+def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
     def decorator(func):
         return memory_cache(*args, **kwargs)(disk_only_cache(*args, cachedir=cachedir, **kwargs)(func))
     return decorator

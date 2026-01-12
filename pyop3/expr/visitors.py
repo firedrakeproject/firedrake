@@ -14,7 +14,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 from pyop3.cache import memory_cache
-from pyop3.config import CONFIG
+from pyop3.config import config
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer
