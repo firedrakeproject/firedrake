@@ -196,3 +196,28 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     meshes = MeshHierarchy(base, 2)
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("cellwise", (True, False))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+def test_create_matis(local_mat_type, cellwise):
+    from firedrake.preconditioners.bddc import create_matis
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    a = inner(grad(TrialFunction(V)), grad(TestFunction(V)))*dx
+    A = assemble(a, mat_type="matfree").petscmat
+
+    A, assembler = create_matis(A, local_mat_type, cellwise=cellwise)
+    B = assemble(a, mat_type=local_mat_type).petscmat
+    if local_mat_type == "matfree":
+        Ax, x = A.createVecs()
+        Bx, _ = B.createVecs()
+        x.setRandom()
+        A.mult(x, Ax)
+        B.mult(x, Bx)
+        assert np.allclose(Ax.array, Bx.array)
+    else:
+        A.convert("aij")
+        B.axpy(-1, A)
+        assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)

@@ -264,7 +264,12 @@ def create_matis(Amat, local_mat_type, cellwise=False):
     Amatis.setLGMap(rmap, cmap)
     Amatis.setISLocalMat(tensor.petscmat)
     Amatis.setUp()
-    return Amatis, partial(assembler.assemble, tensor=tensor)
+    Amatis.assemble()
+
+    def update():
+        assembler.assemble(tensor=tensor)
+        Amatis.assemble()
+    return Amatis, update
 
 
 def get_restricted_dofs(V, domain):
