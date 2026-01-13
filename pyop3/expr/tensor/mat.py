@@ -357,20 +357,6 @@ class Mat(Tensor):
         return (self.row_axes, self.column_axes)
 
     @classmethod
-    def _merge_axes(cls, row_axes, col_axes):
-        # Since axes require unique labels, relabel the row and column axis trees
-        # with different suffixes. This allows us to create a combined axis tree
-        # without clashes.
-        raxes_relabel = relabel_axes(row_axes, "_row")
-        caxes_relabel = relabel_axes(col_axes, "_col")
-
-        axes = raxes_relabel
-        for leaf in raxes_relabel.leaves:
-            axes = axes.add_subtree(caxes_relabel, leaf, uniquify_ids=True)
-
-        return axes
-
-    @classmethod
     def from_sparsity(cls, sparsity, **kwargs):
         buffer = sparsity.buffer.materialize()
         return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)

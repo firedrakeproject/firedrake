@@ -300,8 +300,8 @@ def test_assign_vector_const_to_vfs(vcg1):
     c = Constant(range(1, f.function_space().value_shape[0]+1))
 
     f.assign(c)
-    assert np.allclose(f.dat.data_ro[::2], 1)
-    assert np.allclose(f.dat.data_ro[1::2], 2)
+    assert np.allclose(f.dat.data_ro[:, 0], 1)
+    assert np.allclose(f.dat.data_ro[:, 1], 2)
 
 
 def test_assign_scalar_const_to_vfs(vcg1):

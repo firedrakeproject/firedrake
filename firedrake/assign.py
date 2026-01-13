@@ -123,7 +123,7 @@ class CoefficientCollector(MultiFunction):
         are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
         in both cases ``c.dat.dim`` must have shape ``(1,)``.
         """
-        return all(_isconstant(c) and c.dat.size == 1 for (c, _) in weighted_coefficients)
+        return all(_isconstant(c) and c.ufl_shape == () for (c, _) in weighted_coefficients)
 
     def _as_scalar(self, weighted_coefficients):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.

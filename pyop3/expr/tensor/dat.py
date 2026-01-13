@@ -422,46 +422,94 @@ class Dat(Tensor):
                 "non-trivially indexed (i.e. sliced) arrays."
             )
 
-    # TODO: It is inefficient (I think) to create a new vec every time, even
-    # if we are reusing the underlying array. Care must be taken though because
-    # sometimes we cannot create write-able vectors and use a copy (when fancy
-    # indexing is required).
-    @contextlib.contextmanager
-    def vec_rw(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_rw, bsize=bsize)
+    @property
+    def vec_ro(self) -> GeneratorType[PETSc.Vec]:
+        yield from self.as_vec("ro", self.axes.block_shape)
 
-    @contextlib.contextmanager
-    def vec_ro(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_ro, bsize=bsize)
+    @property
+    def vec_wo(self) -> GeneratorType[PETSc.Vec]:
+        yield from self.as_vec("wo", self.axes.block_shape)
 
-    @contextlib.contextmanager
-    def vec_wo(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        # TODO: make this check nicer, and apply to other vec accesses
-        indices = self.axes.owned._buffer_slice
-        if isinstance(indices, slice):
-            yield self._make_vec(array=self.data_wo, bsize=bsize)
-        else:
-            # Cannot return a view, must copy in and out
-            vec = self._make_vec(array=self.data_ro, bsize=bsize)
-            yield vec
-            self.data_wo[...] = vec.buffer_r
+    @property
+    def vec_rw(self) -> GeneratorType[PETSc.Vec]:
+        yield from self.as_vec("rw", self.axes.block_shape)
 
+    @property
     @deprecated(".vec_rw")
-    def vec(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        return self.vec_rw(bsize=bsize)
+    def vec(self) -> GeneratorType[PETSc.Vec]:
+        yield from self.vec_rw
 
-    def _make_vec(self, *, array: np.ndarray, bsize: int) -> PETSc.Vec:
+    @contextlib.contextmanager
+    def as_vec(
+        self,
+        mode,
+        block_shape: collections.abc.Iterable[int, ...] | int = (),
+    ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
-                f"Cannot create a Vec with data type {self.dtype}, "
-                f"must be {PETSc.ScalarType}"
+                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+                f"must be '{PETSc.ScalarType}'"
             )
-        return PETSc.Vec().createWithArray(
-            array,
-            size=(array.size, None),
-            bsize=bsize,
-            comm=self.comm,
-        )
+
+        local_size = self.axes.owned.local_size
+        global_size = self.axes.global_size
+        if isinstance(block_shape, collections.abc.Iterable):
+            bsize = np.prod(block_shape, dtype=int) 
+        else:
+            assert isinstance(block_shape, int)
+            bsize = block_shape
+
+        def make_vec(array):
+            return PETSc.Vec().createWithArray(
+                array,
+                size=(local_size, global_size),
+                bsize=bsize,
+                comm=self.comm,
+            )
+
+        needs_copy = not isinstance(self.axes.owned._buffer_slice, slice)
+        if mode == "ro":
+            yield make_vec(self.data_ro)
+        elif mode == "wo":
+            yield make_vec(self.data_wo)
+        else:
+            assert mode == "rw"
+            yield make_vec(self.data_rw)
+
+            # if needs_copy:
+            #     def copy_out():
+            #         self.data_wo[...] = vec.buffer_r
+            # else:
+            #     def copy_out():
+            #         pass
+
+
+        # yield vec
+        # copy_out()
+
+    # def _make_vec(
+    #     self, array: np.ndarray, block_shape: collections.abc.Iterable[int, ...] | int = (),
+    # ) -> PETSc.Vec:
+    #     if array.dtype != PETSc.ScalarType:
+    #         raise RuntimeError(
+    #             f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+    #             f"must be '{PETSc.ScalarType}'"
+    #         )
+    #
+    #     local_size = self.axes.owned.local_size
+    #     global_size = self.axes.global_size
+    #     if isinstance(block_shape, collections.abc.Iterable):
+    #         bsize = np.prod(block_shape, dtype=int) 
+    #     else:
+    #         assert isinstance(block_shape, int)
+    #         bsize = block_shape
+    #
+    #     return PETSc.Vec().createWithArray(
+    #         array,
+    #         size=(local_size, global_size),
+    #         bsize=bsize,
+    #         comm=self.comm,
+    #     )
 
     def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
         assert self.dtype == IntType
