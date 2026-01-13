@@ -2570,15 +2570,14 @@ class ExtrudedMeshTopology(MeshTopology):
 
         base_mesh_axis = self._base_mesh.flat_points
         npoints = base_mesh_axis.component.local_size * column_height
-        #
-        # base_point_sf = base_mesh_axis.component.sf
-        # section = PETSc.Section().create(comm=self._base_mesh.comm)
-        # section.setChart(0, base_point_sf.size)
-        # for pt in range(base_point_sf.size):
-        #     section.setDof(pt, column_height)
-        # point_sf = op3.StarForest(op3.sf.create_petsc_section_sf(base_point_sf.sf, section), self._base_mesh.comm)
 
-        point_sf = self.topology_dm.getPointSF()
+        # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
+        # would be nice to avoid this branch.
+        if self.comm.size > 1:
+            point_sf = self.topology_dm.getPointSF()
+        else:
+            point_sf = op3.local_sf(self.num_points, self.comm).sf
+
         point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
         point_sf_renum = op3.StarForest(point_sf_renum, self.comm)
 
