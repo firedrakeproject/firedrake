@@ -936,29 +936,33 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         else:
             return NullStarForest(self.local_size)
 
+    @cached_property
+    def block_shape(self) -> tuple[int, ...]:
+        from .visitors import get_block_shape
 
-    # @property
-    # @abc.abstractmethod
-    # def paths(self):
-    #     pass
+        return get_block_shape(self)
 
     @cached_property
     def source_path(self):
+        assert False, "old code?"
         # return self.paths[-1]
         return self._match_path_and_exprs(self)[0]
 
     @cached_property
     def target_path(self):
+        assert False, "old code?"
         # return self.paths[0]
         return self._match_path_and_exprs(self.unindexed)[0]
 
     @property
     def source_exprs(self):
+        assert False, "old code?"
         # return self.index_exprs[-1]
         return self._match_path_and_exprs(self)[1]
 
     @property
     def target_exprs(self):
+        assert False, "old code?"
         # return self.index_exprs[0]
         return self._match_path_and_exprs(self.unindexed)[1]
 
@@ -1963,6 +1967,10 @@ class AxisForest(DistributedObject):
     @property
     def comm(self) -> MPI.Comm:
         return utils.common_comm(self.trees, "comm")
+
+    @property
+    def block_shape(self) -> tuple[int, ...]:
+        return utils.single_valued((tree.block_shape for tree in self.trees))
 
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))

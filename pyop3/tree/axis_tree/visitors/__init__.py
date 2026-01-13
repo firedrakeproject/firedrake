@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import numbers
 from types import NoneType
 from typing import Any, Hashable
 
@@ -11,6 +12,7 @@ import pyop3.tree.axis_tree as op3_tree
 from pyop3 import utils
 from pyop3.cache import memory_cache
 from pyop3.node import Visitor, LabelledTreeVisitor
+from pyop3.tree.labelled_tree import parent_path
 from pyop3.utils import OrderedFrozenSet
 from pyop3.expr.visitors import BufferCollector as ExprBufferCollector, DiskCacheKeyGetter as ExprDiskCacheKeyGetter
 
@@ -115,3 +117,22 @@ class BufferCollector(LabelledTreeVisitor):
 
 def collect_buffers(axis_tree: AbstractAxisTree) -> OrderedFrozenSet:
     return BufferCollector()(axis_tree)
+
+
+def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
+    """Detect any common innermost integer shape in an axis tree."""
+    axis_tree = axis_tree.materialize()
+
+    block_shape = []
+    while not axis_tree.is_empty:
+        if not utils.is_single_valued(axis_tree.leaves):
+            break
+        leaf_axis = utils.single_valued(axis_tree.leaves)
+
+        if not isinstance(leaf_axis.size, numbers.Integral):
+            break
+        block_shape.insert(0, leaf_axis.size)
+
+        for leaf_path in axis_tree.leaf_paths:
+            axis_tree = axis_tree.drop_node(parent_path(leaf_path))
+    return tuple(block_shape)

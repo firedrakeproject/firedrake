@@ -213,7 +213,7 @@ def _(mat: expr_types.Mat, /) -> OrderedSet:
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
 
-    for cs_axes in {mat.row_axes, mat.caxes}:
+    for cs_axes in {mat.row_axes, mat.column_axes}:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
@@ -944,7 +944,7 @@ def _(dat: expr_types.Dat, /) -> tuple[AxisTree, ...]:
 
 @get_shape.register(expr_types.Mat)
 def _(mat: expr_types.Mat, /) -> tuple[AxisTree, ...]:
-    return (mat.row_axes.materialize(), mat.caxes.materialize())
+    return (mat.row_axes.materialize(), mat.column_axes.materialize())
 
 
 @get_shape.register(expr_types.CompositeDat)

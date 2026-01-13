@@ -342,13 +342,13 @@ class Assigner:
         lhs_dat = lhs[subset]
         if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
             if assign_to_halos:
-                lhs_dat.data_wo_with_halos = rvalue
+                lhs_dat.data_wo_with_halos[...] = rvalue
             else:
-                lhs_dat.data_wo = rvalue
+                lhs_dat.data_wo[...] = rvalue
         elif assign_to_halos and rvalue.size == lhs_dat.axes.local_size:
-            lhs_dat.data_wo_with_halos = rvalue.flatten()
+            lhs_dat.data_wo_with_halos[...] = rvalue
         elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.local_size:
-            lhs_dat.data_wo = rvalue.flatten()
+            lhs_dat.data_wo[...] = rvalue
         else:
             block_shape = self._assignee.function_space().shape
             if rvalue.size != np.prod(block_shape, dtype=int):

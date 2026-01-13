@@ -100,7 +100,6 @@ class Dat(Tensor):
             if buffer_kwargs is None:
                 buffer_kwargs = {}
             assert buffer is None and data is not None
-            assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
         assert buffer.size == axes.unindexed.local_max_size
@@ -318,81 +317,92 @@ class Dat(Tensor):
         return self.buffer.dtype
 
     @property
-    @deprecated(".data_rw")
-    def data(self):
-        return self.data_rw
+    def data_ro(self) -> np.ndarray:
+        """Return a read-only view of the data stored by the dat."""
+        return self.as_array("ro", self.axes.block_shape)
 
     @property
-    def data_rw(self):
-        self._check_no_copy_access()
-        return self.buffer.data_rw[self.axes.owned._buffer_slice]
+    def data_ro_with_halos(self):
+        """Return a read-only view of the data stored by the dat.
 
-    @property
-    def data_ro(self):
-        if not isinstance(self.axes._buffer_slice, slice):
-            warning(
-                "Read-only access to the array is provided with a copy, "
-                "consider avoiding if possible."
-            )
-        return self.buffer.data_ro[self.axes.owned._buffer_slice]
+        This view includes ghost entries.
 
-    @data_ro.setter
-    def data_ro(self, value):
-        raise RuntimeError
-
-    @property
-    def data_wo(self):
         """
-        Have to be careful. If not setting all values (i.e. subsets) should
-        call `reduce_leaves_to_roots` first.
+        return self.as_array("ro", self.axes.block_shape, include_ghosts=True)
 
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
-        """
-        self._check_no_copy_access()
-        return self.buffer.data_wo[self.axes.owned._buffer_slice]
+    @property
+    def data_wo(self) -> np.ndarray:
+        """Return a write-only view of the data stored by the dat."""
+        return self.as_array("wo", self.axes.block_shape)
 
+    # TODO: Remove me, different to before
     @data_wo.setter
     def data_wo(self, value):
+        assert False, "old code"
         # This method is necessary because if _buffer_slice incurs a copy then
         # self.data_wo = <something> would do nothing as it would create and
         # discard a copy.
         self.buffer.data_wo[self.axes.owned._buffer_slice] = value
 
     @property
-    @deprecated(".data_rw")
-    def data_with_halos(self):
-        return self.data_rw
-
-    @property
-    def data_rw_with_halos(self):
-        self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_rw[self.axes._buffer_slice]
-
-    @property
-    def data_ro_with_halos(self):
-        if not isinstance(self.axes._buffer_slice, slice):
-            warning(
-                "Read-only access to the array is provided with a copy, "
-                "consider avoiding if possible."
-            )
-        return self.buffer.data_ro[self.axes._buffer_slice]
-
-    @property
     def data_wo_with_halos(self):
-        """
-        Have to be careful. If not setting all values (i.e. subsets) should
-        call `reduce_leaves_to_roots` first.
+        """Return a write-only view of the data stored by the dat.
 
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
+        This view includes ghost entries.
+
         """
-        self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_wo[self.axes._buffer_slice]
+        return self.as_array("wo", self.axes.block_shape, include_ghosts=True)
 
     @data_wo.setter
     def data_wo_with_halos(self, value):
+        assert False, "old code"
         self.buffer.data_wo[self.axes._buffer_slice] = value
+
+    @property
+    def data_rw(self) -> np.ndarray:
+        """Return a modifiable view of the data stored by the dat."""
+        return self.as_array("rw", self.axes.block_shape)
+
+    @property
+    def data_rw_with_halos(self) -> np.ndarray:
+        """Return a modifiable view of the data stored by the dat.
+
+        This view includes ghost entries.
+
+        """
+        return self.as_array_rw(self.block_shape, include_ghosts=True)
+
+    @property
+    @deprecated(".data_rw")
+    def data(self):
+        return self.data_rw
+
+    @property
+    @deprecated(".data_rw_with_halos")
+    def data_with_halos(self):
+        return self.data_rw_with_halos
+
+    def as_array(self, mode, block_shape=(), *, include_ghosts: bool = False) -> np.ndarray:
+        if include_ghosts:
+            selector = self.axes._buffer_slice
+        else:
+            selector = self.axes.owned._buffer_slice
+
+        if mode == "ro":
+            if not isinstance(selector, slice):
+                warning(
+                    "Read-only access to the array is provided with a copy, "
+                    "consider avoiding if possible."
+                )
+            array = self.buffer.data_ro
+        elif mode == "wo":
+            self._check_no_copy_access()
+            array = self.buffer.data_wo
+        else:
+            assert mode == "rw"
+            self._check_no_copy_access(include_ghost_points=include_ghosts)
+            array = self.buffer.data_rw
+        return array[selector].reshape((-1, *block_shape))
 
 
     @property

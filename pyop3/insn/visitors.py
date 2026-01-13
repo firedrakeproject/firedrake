@@ -174,7 +174,7 @@ class ImplicitPackUnpackExpander(NodeTransformer):
                     temporary = Dat.null(arg.axes.materialize().localize(), dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.row_axes.materialize().localize(), arg.caxes.materialize().localize(), dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().localize(), arg.column_axes.materialize().localize(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(insn_types.ArrayAssignment(temporary, arg, "write"))
@@ -246,7 +246,7 @@ def _(dat: Dat) -> bool:
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.caxes))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.column_axes))
 
 
 def _layouts_match(axes: AxisTreeT) -> bool:
