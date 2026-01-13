@@ -1709,29 +1709,6 @@ def facet_closure_nodes(V, sub_domain):
         sub_domain = (1, )
     else:
         label = FACE_SETS_LABEL
-        if V.mesh().variable_layers:
-            raise NotImplementedError
-            # We can't use the generic code in this case because we
-            # need to manually take closure of facets on each external
-            # face (rather than using the label completion and section
-            # information).
-            # The reason for this is that (for example) a stack of
-            # vertices may extend higher than the faces
-            #
-            #            Y---.
-            #            |   |
-            #    .---x---x---.
-            #    |   | O |
-            #    .---x---x
-            #    |   |
-            #    .---Y
-            #
-            # BCs on the facet marked with 'O' should produce 4 values
-            # for a P1 field (marked X). But if we just include
-            # everything from the sections we'd get 6: additionally we
-            # see the points marked Y.
-            from firedrake.cython import extrusion_numbering as extnum
-            return extnum.facet_closure_nodes(V, sub_domain)
 
     if not dm.hasLabel(label) or all(dm.getStratumSize(label, marker)
                                      for marker in sub_domain) == 0:
@@ -1746,7 +1723,7 @@ def facet_closure_nodes(V, sub_domain):
         for i in range(n):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
-            nnodes += dof
+            nnodes += dof // V.block_size
 
     nodes = np.empty(nnodes, dtype=IntType)
     j = 0
@@ -1759,8 +1736,8 @@ def facet_closure_nodes(V, sub_domain):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
             CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
-            for d in range(dof):
-                nodes[j] = offset + d
+            for d in range(dof//V.block_size):
+                nodes[j] = offset//V.block_size + d
                 j += 1
     assert j == nnodes
     return np.unique(nodes)

@@ -335,15 +335,6 @@ class Dat(Tensor):
         """Return a write-only view of the data stored by the dat."""
         return self.as_array("wo", self.axes.block_shape)
 
-    # TODO: Remove me, different to before
-    @data_wo.setter
-    def data_wo(self, value):
-        assert False, "old code"
-        # This method is necessary because if _buffer_slice incurs a copy then
-        # self.data_wo = <something> would do nothing as it would create and
-        # discard a copy.
-        self.buffer.data_wo[self.axes.owned._buffer_slice] = value
-
     @property
     def data_wo_with_halos(self):
         """Return a write-only view of the data stored by the dat.
@@ -352,11 +343,6 @@ class Dat(Tensor):
 
         """
         return self.as_array("wo", self.axes.block_shape, include_ghosts=True)
-
-    @data_wo.setter
-    def data_wo_with_halos(self, value):
-        assert False, "old code"
-        self.buffer.data_wo[self.axes._buffer_slice] = value
 
     @property
     def data_rw(self) -> np.ndarray:
@@ -370,7 +356,7 @@ class Dat(Tensor):
         This view includes ghost entries.
 
         """
-        return self.as_array_rw(self.block_shape, include_ghosts=True)
+        return self.as_array("rw", self.axes.block_shape, include_ghosts=True)
 
     @property
     @deprecated(".data_rw")
@@ -424,20 +410,20 @@ class Dat(Tensor):
 
     @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:
-        yield from self.as_vec("ro", self.axes.block_shape)
+        return self.as_vec("ro", self.axes.block_shape)
 
     @property
     def vec_wo(self) -> GeneratorType[PETSc.Vec]:
-        yield from self.as_vec("wo", self.axes.block_shape)
+        return self.as_vec("wo", self.axes.block_shape)
 
     @property
     def vec_rw(self) -> GeneratorType[PETSc.Vec]:
-        yield from self.as_vec("rw", self.axes.block_shape)
+        return self.as_vec("rw", self.axes.block_shape)
 
     @property
     @deprecated(".vec_rw")
     def vec(self) -> GeneratorType[PETSc.Vec]:
-        yield from self.vec_rw
+        return self.vec_rw
 
     @contextlib.contextmanager
     def as_vec(
@@ -451,8 +437,6 @@ class Dat(Tensor):
                 f"must be '{PETSc.ScalarType}'"
             )
 
-        local_size = self.axes.owned.local_size
-        global_size = self.axes.global_size
         if isinstance(block_shape, collections.abc.Iterable):
             bsize = np.prod(block_shape, dtype=int) 
         else:
@@ -462,7 +446,7 @@ class Dat(Tensor):
         def make_vec(array):
             return PETSc.Vec().createWithArray(
                 array,
-                size=(local_size, global_size),
+                size=(array.size, None),
                 bsize=bsize,
                 comm=self.comm,
             )
@@ -577,7 +561,7 @@ class Dat(Tensor):
     @collective
     def global_data(self) -> np.ndarray:
         """Return all the data for the Dat gathered onto individual ranks."""
-        with self.vec_ro() as gvec:
+        with self.vec_ro as gvec:
             scatter, lvec = PETSc.Scatter().toAll(gvec)
             scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
         return lvec.array

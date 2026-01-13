@@ -278,7 +278,7 @@ class FunctionMixin(FloatingType):
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
         range_begin, range_end = dst.function_space().template_vec.getOwnershipRange()
-        dst.dat.data_wo = src[offset + range_begin:offset + range_end]
+        dst.dat.data_wo[...] = src[offset + range_begin:offset + range_end]
         offset += range_end - range_begin
         return dst, offset
 

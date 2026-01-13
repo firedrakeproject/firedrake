@@ -499,7 +499,7 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
     best_candidate = {key: expr for key, (expr, _) in best_candidate.items()}
 
     # Materialise any symbolic (composite) dats
-    composite_dats = frozenset.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
+    composite_dats = OrderedFrozenSet.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
@@ -648,6 +648,17 @@ class DiskCacheKeyGetter(NodeVisitor):
             *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
         )
 
+    @process.register(insn_types.Exscan)
+    def _(self, exscan: insn_types.Exscan) -> Hashable:
+        from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
+
+        return (
+            type(exscan),
+            get_expr_disk_cache_key(exscan.assignee, self._renamer),
+            get_expr_disk_cache_key(exscan.expression, self._renamer),
+            exscan.scan_type,
+        )
+
     # TODO: Could have a nice visiter that checks fields (except where hash=False)
     @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
     def _(self, assignment: insn_types.ConcretizedNonEmptyArrayAssignment, /) -> Hashable:
@@ -694,7 +705,6 @@ class BufferCollector(NodeCollector):
     @process.register(insn_types.InstructionList)
     @NodeCollector.postorder
     def _(self, insn_list: insn_types.InstructionList, visited, /) -> OrderedFrozenSet:
-        breakpoint()
         return utils.reduce("|", visited.values(), OrderedFrozenSet())
 
     @process.register(insn_types.NullInstruction)
@@ -713,6 +723,14 @@ class BufferCollector(NodeCollector):
     def _(self, func: insn_types.StandaloneCalledFunction, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(
             *(self._expr_collector(arg) for arg in func.arguments)
+        )
+
+    @process.register(insn_types.Exscan)
+    def _(self, exscan: insn_types.Exscan, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet().union(
+            self._expr_collector(exscan.assignee),
+            self._expr_collector(exscan.expression),
+            self._expr_collector(exscan.extent),
         )
 
     @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
@@ -735,6 +753,7 @@ class LiteralInserter(NodeTransformer):
         return super().process(obj)
 
     @process.register(insn_types.Loop)
+    @process.register(insn_types.Exscan)
     @process.register(insn_types.StandaloneCalledFunction)
     def _(self, insn: insn_types.Instruction) -> insn_types.Instruction:
         return self.reuse_if_untouched(insn)

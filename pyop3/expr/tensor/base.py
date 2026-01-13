@@ -77,11 +77,6 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def context_free(self):
-        pass
-
-    @property
-    @abc.abstractmethod
     def alloc_size(self) -> int:
         pass
 

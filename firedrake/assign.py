@@ -256,7 +256,7 @@ class Assigner:
         # else:
         #     subset_indices = ... if subset is None else subset.owned_indices
         data_ro = operator.attrgetter("data_ro")
-        func_data = np.array([data_ro(f.dat)[subset] for f in funcs])
+        func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
         self._assign_single_dat(lhs_func.dat, subset, rvalue, assign_to_halos)
         if assign_to_halos:
@@ -340,23 +340,30 @@ class Assigner:
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
         lhs_dat = lhs[subset]
-        if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
+
+        try:
             if assign_to_halos:
                 lhs_dat.data_wo_with_halos[...] = rvalue
             else:
                 lhs_dat.data_wo[...] = rvalue
-        elif assign_to_halos and rvalue.size == lhs_dat.axes.local_size:
-            lhs_dat.data_wo_with_halos[...] = rvalue
-        elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.local_size:
-            lhs_dat.data_wo[...] = rvalue
-        else:
-            block_shape = self._assignee.function_space().shape
-            if rvalue.size != np.prod(block_shape, dtype=int):
-                raise ValueError("Assignee and assignment values are different shapes")
+        except op3.FancyIndexWriteException:
+            # convert rvalue into an expression pyop3 understands
+            if isinstance(rvalue, numbers.Number):
+                pass
+            elif rvalue.size == 1:
+                rvalue = rvalue.item()
+            else:
+                if rvalue.size == lhs_dat.axes.local_size:
+                    expr_axes = lhs_dat.axes.materialize()
+                else:
+                    block_shape = self._assignee.function_space().shape or (1,)
 
-            expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
-            expr = op3.Dat(expr_axes, data=rvalue)
-            lhs_dat.assign(expr, eager=True)
+                    if rvalue.size != np.prod(block_shape, dtype=int):
+                        raise ValueError("Assignee and assignment values are different shapes")
+
+                    expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
+                rvalue = op3.Dat(expr_axes, data=rvalue)
+            lhs_dat.assign(rvalue, eager=True)
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),

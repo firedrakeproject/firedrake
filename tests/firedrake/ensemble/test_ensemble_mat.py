@@ -55,7 +55,7 @@ def test_ensemble_mat():
             A.mult(xv, yv)
 
     # assemble matmult
-    with x.vec_ro() as xv, y.vec_wo() as yv:
+    with x.vec_ro as xv, y.vec_wo as yv:
         emat.mult(xv, yv)
 
     checks = [
@@ -137,7 +137,7 @@ def test_ensemble_pc(default_options):
         bi.assign(offset + i + 1)
 
     with petsctools.inserted_options(ksp):
-        with x.vec_wo() as xv, b.vec_ro() as bv:
+        with x.vec_wo as xv, b.vec_ro as bv:
             ksp.solve(bv, xv)
 
     # 1 richardson iteration should be a direct solve

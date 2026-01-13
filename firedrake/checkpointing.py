@@ -1012,7 +1012,7 @@ class CheckpointFile(object):
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
-            with tf.dat.vec_ro() as vec:
+            with tf.dat.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
                 with self.opts.inserted_options():
@@ -1382,7 +1382,7 @@ class CheckpointFile(object):
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
             else:
                 raise RuntimeError(f"Function {path} not found in {self.filename}")
-            with tf.dat.vec_wo() as vec:
+            with tf.dat.vec_wo as vec:
                 vec.setName(tf_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,

@@ -490,7 +490,7 @@ class DatPythonMatContext:
 
     def mult(self, mat, x, y):
         """Set y = self @ x."""
-        with self.dat.vec_ro() as A:
+        with self.dat.vec_ro as A:
             if isinstance(self, RowDatPythonMatContext):  # FIXME: inheritance
                 # Example:
                 # * 'A' (self) has global size (5, 2)

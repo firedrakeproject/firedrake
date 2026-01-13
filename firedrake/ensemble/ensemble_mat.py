@@ -72,12 +72,12 @@ class EnsembleMatCtxBase:
         --------
         EnsembleMatCtxBase.mult_impl
         """
-        with self.x.vec_wo() as xvec:
+        with self.x.vec_wo as xvec:
             x.copy(result=xvec)
 
         self.mult_impl(A, self.x, self.y)
 
-        with self.y.vec_ro() as yvec:
+        with self.y.vec_ro as yvec:
             yvec.copy(result=y)
 
     def mult_impl(self, A, x: EnsembleFunctionBase, y: EnsembleFunctionBase):

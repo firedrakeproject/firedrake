@@ -1762,7 +1762,8 @@ class UnitIndexedAxisTree(DistributedObject):
     def nest_indices(self):
         if idict() not in self._matching_target:
             return ()
-        consumed_axes = dict(self._matching_target[idict()][0])
+
+        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
 
         nest_indices_ = []
         path = idict()
@@ -1986,11 +1987,6 @@ class AxisForest(DistributedObject):
     def localize(self) -> AxisForest:
         return type(self)((tree.localize() for tree in self.trees))
 
-    @cached_property
-    def regionless(self):
-        assert False, "old code"
-        return type(self)((tree.regionless for tree in self.trees))
-
     def prune(self) -> AxisForest:
         return type(self)((tree.prune() for tree in self.trees))
 
@@ -1999,6 +1995,10 @@ class AxisForest(DistributedObject):
 
     def restrict_nest(self, index):
         return type(self)((tree.restrict_nest(index) for tree in self.trees))
+
+    @property
+    def nest_indices(self):
+        return utils.single_valued((tree.nest_indices for tree in self.trees))
 
     @property
     def size(self):

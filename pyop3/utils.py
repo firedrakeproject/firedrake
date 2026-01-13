@@ -411,7 +411,7 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
     except StopIteration:
         return first
     else:
-        raise ValueError("Iterable contains too many values")
+        raise ValueError("Too many values")
 
 
 def popwhen(predicate, iterable):
@@ -654,7 +654,12 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         if not safe_equals(new_attr, orig_attr):
             attrs_changed = True
         new_attrs[field.name] = new_attr
-    assert not attrs, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
+
+    if attrs:
+        valid_attr_names = tuple(field.name for field in dataclasses.fields(self))
+        raise AssertionError(
+            f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
+        )
 
     if not attrs_changed:
         return self
