@@ -380,15 +380,14 @@ class IAddAssigner(Assigner):
     symbol = "+="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:
-                lhs_dat[subset].data_wo_with_halos[...] += rval
+                lhs[subset].data_wo_with_halos[...] += rval
             else:
-                lhs_dat[subset].data_wo[...] += rval
+                lhs[subset].data_wo[...] += rval
         except op3.FancyIndexWriteException:
             raise NotImplementedError("Need expression assignment")
 
@@ -398,15 +397,14 @@ class ISubAssigner(Assigner):
     symbol = "-="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:
-                lhs_dat[subset].data_wo_with_halos[...] -= rval
+                lhs[subset].data_wo_with_halos[...] -= rval
             else:
-                lhs_dat[subset].data_wo[...] -= rval
+                lhs[subset].data_wo[...] -= rval
         except op3.FancyIndexWriteException:
             raise NotImplementedError("Need expression assignment")
 
@@ -419,12 +417,10 @@ class IMulAssigner(Assigner):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
 
-        lhs_dat = lhs.dat
-
         if assign_to_halos:
-            lhs_dat[indices].data_wo_with_halos[...] *= rvalue
+            lhs[indices].data_wo_with_halos[...] *= rvalue
         else:
-            lhs_dat[indices].data_wo[...] *= rvalue
+            lhs[indices].data_wo[...] *= rvalue
 
 
 class IDivAssigner(Assigner):
@@ -435,13 +431,11 @@ class IDivAssigner(Assigner):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
 
-        lhs_dat = lhs.dat
-
         if assign_to_halos:
             # TODO set modified
-            lhs_dat[indices].buffer._data[...] /= rvalue
+            lhs[indices].buffer._data[...] /= rvalue
         else:
-            lhs_dat[indices].data_wo[...] /= rvalue
+            lhs[indices].data_wo[...] /= rvalue
 
 
 @functools.singledispatch

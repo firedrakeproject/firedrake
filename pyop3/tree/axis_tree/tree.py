@@ -43,6 +43,7 @@ from pyop3.tree.labelled_tree import (
     accumulate_path,
     as_component_label,
     as_path,
+    is_subpath,
     parent_path,
     postvisit,
     previsit,
@@ -1612,10 +1613,6 @@ class IndexedAxisTree(AbstractAxisTree):
         indices = indices_dat.buffer.data_ro
         indices = np.unique(np.sort(indices))
 
-        # print(indices, self.local_size)
-        # breakpoint()
-
-        # debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
         if len(indices) > 0:
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
@@ -2443,19 +2440,39 @@ def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _Unit
         return candidate
 
 
-def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: ContextFreeSingleAxisTreeT) -> bool:
+def axis_tree_is_valid_subset(
+    candidate: ContextFreeSingleAxisTreeT,
+    target: ContextFreeSingleAxisTreeT,
+) -> bool:
     """Return if one axis tree may be 'overlaid' on top of another.
 
-    The trees need not exactly match, but they must have the same number of branches.
+    We consider an axis tree to be a valid subset if all of its leaf paths
+    have a (unique) matching leaf path in the target tree.
+
+    Parameters
+    ----------
+    candidate
+        The axis tree that may be a subset.
+    target
+        The (buffer) axis tree to test against.
+
+    Returns
+    -------
+    bool
+        Whether ``candidate`` is a valid subset of ``target``.
 
     """
     target_leaf_paths = set(target.leaf_paths)
     for candidate_leaf_path in candidate.leaf_paths:
+        match_found = False
         for target_leaf_path in target_leaf_paths:
-            if candidate_leaf_path.keys() <= target_leaf_path.keys():
+            if is_subpath(candidate_leaf_path, target_leaf_path):
+                match_found = True
                 target_leaf_paths.remove(target_leaf_path)
                 break
-    return not target_leaf_paths
+        if not match_found:
+            return False
+    return True
 
 
 def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:

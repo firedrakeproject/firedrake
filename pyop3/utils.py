@@ -380,57 +380,38 @@ def strictly_all(iterable):
     return result
 
 
-def just_one(iterable: collections.abc.Iterable, key: Hashable = _nothing) -> Any:
-    if isinstance(iterable, collections.abc.Mapping):
-        assert key is not _nothing, "key needed"
-        iterable = dict(iterable)
-        value = iterable.pop(key)
+def just_one(iterable: collections.abc.Iterable) -> Any:
+    """Return the only entry in an iterable.
 
-        assert not iterable
-        return value
+    Parameters
+    ----------
+    iterable
+        The container with only a single entry.
 
+    Returns
+    -------
+    Any
+        The single item in ``iterable``.
+
+    Raises
+    ------
+    ValueError
+        If the iterable does not contain a single entry.
+
+    """
+    iterator = iter(iterable)
+
+    try:
+        first = next(iterator)
+    except StopIteration:
+        raise ValueError("Iterable is empty")
+
+    try:
+        second = next(iterator)
+    except StopIteration:
+        return first
     else:
-        assert key is _nothing, "only for dicts"
-        iterator = iter(iterable)
-
-        try:
-            first = next(iterator)
-        except StopIteration:
-            breakpoint()
-            raise ValueError("Empty iterable found")
-
-        try:
-            second = next(iterator)
-        except StopIteration:
-            return first
-
-        raise ValueError("Too many values")
-
-
-class MultiStack:
-    """Keyed stack."""
-
-    def __init__(self, data=None):
-        raise NotImplementedError("shouldnt be needed")
-        self._data = data or collections.defaultdict(PrettyTuple)
-
-    def __str__(self):
-        return str(dict(self._data))
-
-    def __repr__(self):
-        return f"{self.__class__}({self._data!r})"
-
-    def __getitem__(self, key):
-        return self._data[key]
-
-    def __or__(self, other):
-        new_data = self._data.copy()
-        if isinstance(other, collections.abc.Mapping):
-            for key, value in other.items():
-                new_data[key] += value
-            return type(self)(new_data)
-        else:
-            return NotImplemented
+        raise ValueError("Iterable contains too many values")
 
 
 def popwhen(predicate, iterable):
