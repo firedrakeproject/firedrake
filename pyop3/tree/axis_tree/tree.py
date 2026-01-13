@@ -1970,7 +1970,15 @@ class AxisForest(DistributedObject):
 
     @property
     def block_shape(self) -> tuple[int, ...]:
-        return utils.single_valued((tree.block_shape for tree in self.trees))
+        # Must use the shortest available block shape
+        block_shapes = tuple(tree.block_shape for tree in self.trees)
+        min_block_shape_size = min(map(len, block_shapes))
+        if min_block_shape_size == 0:
+            return ()
+        else:
+            return utils.single_valued((
+                tree.block_shape[-min_block_shape_size:] for tree in self.trees
+            ))
 
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
