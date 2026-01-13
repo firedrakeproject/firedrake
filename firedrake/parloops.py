@@ -333,19 +333,17 @@ def pack_tensor(tensor: Any, iter_spec: IterationSpec, **kwargs):
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, iter_spec: IterationSpec, *, nodes=False):
-    return pack_pyop3_tensor(func.dat, func.function_space(), iter_spec)
+def _(func, iter_spec: IterationSpec, **kwargs):
+    return pack_pyop3_tensor(func.dat, func.function_space(), iter_spec, **kwargs)
 
 
 @pack_tensor.register
-def _(matrix: Matrix, iter_spec):
+def _(matrix: Matrix, iter_spec, **kwargs):
     return pack_pyop3_tensor(
-        matrix.M, *matrix.ufl_function_spaces(), iter_spec
+        matrix.M, *matrix.ufl_function_spaces(), iter_spec, **kwargs
     )
 
 
-# TODO: rename to pack_tensor, and return tuple of instructions
-# TODO: Actually don't do that, pass indices in...
 @functools.singledispatch
 def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(tensor).__name__}")
@@ -358,6 +356,7 @@ def _(
     iter_spec: IterationSpec,
     *,
     nodes: bool = False,
+    permutation: collections.abc.Iterable | None = None,
 ):
     """
     Consider:
@@ -404,7 +403,7 @@ def _(
     else:
         raise NotImplementedError
 
-    return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, nodes=nodes)
+    return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
 
 @pack_pyop3_tensor.register(op3.Mat)
@@ -453,11 +452,7 @@ def _(
     return transform_packed_cell_closure_mat(packed_mat, row_space, column_space, row_map.index, column_map.index, row_depth=row_depth, column_depth=column_depth, nodes=nodes)
 
 
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op3.LoopIndex, *, depth: int = 0, nodes: bool = False):
-    if nodes:
-        # NOTE: This is only valid for cases where runtime transformations are not required.
-        return packed_dat
-
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op3.LoopIndex, *, depth: int = 0, permutation=None):
     dat_sequence = [packed_dat]
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
@@ -465,9 +460,26 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
     if space.mesh().ufl_cell() == ufl.hexahedron:
         dat_sequence[-1] = _orient_dofs(dat_sequence[-1], space, cell_index, depth=depth)
 
-    if _needs_static_permutation(space.finat_element):
-        nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
-        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
+    # FIXME: This code is awful. I think the issue is that we can't universally reshape at the moment
+    # because the compiler somehow doesn't DTRT and ignores the 'parent' attribute. I should really
+    # move the logic over from India's branch.
+    if _needs_static_permutation(space.finat_element) or permutation is not None:
+        nodal_axis_tree, nodal_axis = _packed_nodal_axes(packed_dat.axes, space, depth)
+        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)
+
+        if _needs_static_permutation(space.finat_element):
+            dof_perm_slice = _static_node_permutation_slice(nodal_axis, space, depth)
+            dat_sequence[-1] = dat_sequence[-1][dof_perm_slice]
+
+        if permutation is not None:
+            # needed because we relabel here... else the labels dont match
+            nodal_axis = dat_sequence[-1].axes.axes[depth]
+            perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
+            perm_slice = op3.Slice(
+                nodal_axis.label,
+                [op3.Subset(None, perm_dat)],
+            )
+            dat_sequence[-1] = dat_sequence[-1][perm_slice]
 
     assert len(dat_sequence) % 2 == 1, "Must have an odd number"
     # I want to return a 'PackUnpackKernelArg' type that has information
@@ -634,28 +646,32 @@ def _flatten_entity_dofs(element) -> np.ndarray:
     return readonly(flat_entity_dofs)
 
 
-def _static_node_permutation_slice(packed_axis_tree: op3.AxisTree, space: WithGeometry, depth: int) -> tuple[op3.AxisTree, tuple]:
+def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tuple[op3.AxisTree, tuple]:
+    permutation = _node_permutation_from_element(space.finat_element)
+    dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
+    dof_perm_slice = op3.Slice(
+        nodal_axis.label,
+        [op3.Subset(None, dof_perm_dat)],
+    )
+    return (*[slice(None)]*depth, dof_perm_slice)
+
+
+def _packed_nodal_axes(packed_axes: op3.AxisTree, space, depth):
+    # involved way to get num_nodes
     permutation = _node_permutation_from_element(space.finat_element)
 
     # TODO: Could be 'AxisTree.linear_to_depth()' or similar
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):
-        outer_axis = packed_axis_tree.node_map[outer_path]
+        outer_axis = packed_axes.node_map[outer_path]
         assert len(outer_axis.components) == 1
         outer_axes.append(outer_axis)
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
     nodal_axis = op3.Axis(permutation.size)
     nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
-
-    dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
-    dof_perm_slice = op3.Slice(
-        nodal_axis.label,
-        [op3.Subset(None, dof_perm_dat)],
-    )
-
-    return nodal_axis_tree, (*[slice(None)]*depth, dof_perm_slice)
+    return nodal_axis_tree, nodal_axis
 
 
 @serial_cache()

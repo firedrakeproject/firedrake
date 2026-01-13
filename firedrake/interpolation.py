@@ -729,7 +729,11 @@ class SameMeshInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
+        if (
+            isinstance(tensor, Cofunction)
+            and isinstance(self.dual_arg, Cofunction)
+            and tensor.dat == self.dual_arg.dat
+        ):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
             f = self._get_tensor(mat_type)

@@ -31,6 +31,7 @@ from pyop3.utils import (  # noqa: F401
     invert,
     split_by,
     as_tuple,
+    is_sorted,
 )
 
 import petsctools
