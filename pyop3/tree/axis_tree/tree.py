@@ -43,6 +43,7 @@ from pyop3.tree.labelled_tree import (
     accumulate_path,
     as_component_label,
     as_path,
+    is_subpath,
     parent_path,
     postvisit,
     previsit,
@@ -935,29 +936,33 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         else:
             return NullStarForest(self.local_size)
 
+    @cached_property
+    def block_shape(self) -> tuple[int, ...]:
+        from .visitors import get_block_shape
 
-    # @property
-    # @abc.abstractmethod
-    # def paths(self):
-    #     pass
+        return get_block_shape(self)
 
     @cached_property
     def source_path(self):
+        assert False, "old code?"
         # return self.paths[-1]
         return self._match_path_and_exprs(self)[0]
 
     @cached_property
     def target_path(self):
+        assert False, "old code?"
         # return self.paths[0]
         return self._match_path_and_exprs(self.unindexed)[0]
 
     @property
     def source_exprs(self):
+        assert False, "old code?"
         # return self.index_exprs[-1]
         return self._match_path_and_exprs(self)[1]
 
     @property
     def target_exprs(self):
+        assert False, "old code?"
         # return self.index_exprs[0]
         return self._match_path_and_exprs(self.unindexed)[1]
 
@@ -1612,10 +1617,6 @@ class IndexedAxisTree(AbstractAxisTree):
         indices = indices_dat.buffer.data_ro
         indices = np.unique(np.sort(indices))
 
-        # print(indices, self.local_size)
-        # breakpoint()
-
-        # debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.local_size)
         if len(indices) > 0:
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
@@ -1761,7 +1762,8 @@ class UnitIndexedAxisTree(DistributedObject):
     def nest_indices(self):
         if idict() not in self._matching_target:
             return ()
-        consumed_axes = dict(self._matching_target[idict()][0])
+
+        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
 
         nest_indices_ = []
         path = idict()
@@ -1967,16 +1969,23 @@ class AxisForest(DistributedObject):
     def comm(self) -> MPI.Comm:
         return utils.common_comm(self.trees, "comm")
 
+    @property
+    def block_shape(self) -> tuple[int, ...]:
+        # Must use the shortest available block shape
+        block_shapes = tuple(tree.block_shape for tree in self.trees)
+        min_block_shape_size = min(map(len, block_shapes))
+        if min_block_shape_size == 0:
+            return ()
+        else:
+            return utils.single_valued((
+                tree.block_shape[-min_block_shape_size:] for tree in self.trees
+            ))
+
     def materialize(self) -> AxisForest:
         return type(self)((tree.materialize() for tree in self.trees))
 
     def localize(self) -> AxisForest:
         return type(self)((tree.localize() for tree in self.trees))
-
-    @cached_property
-    def regionless(self):
-        assert False, "old code"
-        return type(self)((tree.regionless for tree in self.trees))
 
     def prune(self) -> AxisForest:
         return type(self)((tree.prune() for tree in self.trees))
@@ -1986,6 +1995,10 @@ class AxisForest(DistributedObject):
 
     def restrict_nest(self, index):
         return type(self)((tree.restrict_nest(index) for tree in self.trees))
+
+    @property
+    def nest_indices(self):
+        return utils.single_valued((tree.nest_indices for tree in self.trees))
 
     @property
     def size(self):
@@ -2443,19 +2456,39 @@ def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _Unit
         return candidate
 
 
-def axis_tree_is_valid_subset(candidate: ContextFreeSingleAxisTreeT, target: ContextFreeSingleAxisTreeT) -> bool:
+def axis_tree_is_valid_subset(
+    candidate: ContextFreeSingleAxisTreeT,
+    target: ContextFreeSingleAxisTreeT,
+) -> bool:
     """Return if one axis tree may be 'overlaid' on top of another.
 
-    The trees need not exactly match, but they must have the same number of branches.
+    We consider an axis tree to be a valid subset if all of its leaf paths
+    have a (unique) matching leaf path in the target tree.
+
+    Parameters
+    ----------
+    candidate
+        The axis tree that may be a subset.
+    target
+        The (buffer) axis tree to test against.
+
+    Returns
+    -------
+    bool
+        Whether ``candidate`` is a valid subset of ``target``.
 
     """
     target_leaf_paths = set(target.leaf_paths)
     for candidate_leaf_path in candidate.leaf_paths:
+        match_found = False
         for target_leaf_path in target_leaf_paths:
-            if candidate_leaf_path.keys() <= target_leaf_path.keys():
+            if is_subpath(candidate_leaf_path, target_leaf_path):
+                match_found = True
                 target_leaf_paths.remove(target_leaf_path)
                 break
-    return not target_leaf_paths
+        if not match_found:
+            return False
+    return True
 
 
 def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:

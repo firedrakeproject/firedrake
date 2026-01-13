@@ -100,7 +100,6 @@ class Dat(Tensor):
             if buffer_kwargs is None:
                 buffer_kwargs = {}
             assert buffer is None and data is not None
-            assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
         assert buffer.size == axes.unindexed.local_max_size
@@ -314,81 +313,78 @@ class Dat(Tensor):
         return self.buffer.dtype
 
     @property
+    def data_ro(self) -> np.ndarray:
+        """Return a read-only view of the data stored by the dat."""
+        return self.as_array("ro", self.axes.block_shape)
+
+    @property
+    def data_ro_with_halos(self):
+        """Return a read-only view of the data stored by the dat.
+
+        This view includes ghost entries.
+
+        """
+        return self.as_array("ro", self.axes.block_shape, include_ghosts=True)
+
+    @property
+    def data_wo(self) -> np.ndarray:
+        """Return a write-only view of the data stored by the dat."""
+        return self.as_array("wo", self.axes.block_shape)
+
+    @property
+    def data_wo_with_halos(self):
+        """Return a write-only view of the data stored by the dat.
+
+        This view includes ghost entries.
+
+        """
+        return self.as_array("wo", self.axes.block_shape, include_ghosts=True)
+
+    @property
+    def data_rw(self) -> np.ndarray:
+        """Return a modifiable view of the data stored by the dat."""
+        return self.as_array("rw", self.axes.block_shape)
+
+    @property
+    def data_rw_with_halos(self) -> np.ndarray:
+        """Return a modifiable view of the data stored by the dat.
+
+        This view includes ghost entries.
+
+        """
+        return self.as_array("rw", self.axes.block_shape, include_ghosts=True)
+
+    @property
     @deprecated(".data_rw")
     def data(self):
         return self.data_rw
 
     @property
-    def data_rw(self):
-        self._check_no_copy_access()
-        return self.buffer.data_rw[self.axes.owned._buffer_slice]
-
-    @property
-    def data_ro(self):
-        if not isinstance(self.axes._buffer_slice, slice):
-            warning(
-                "Read-only access to the array is provided with a copy, "
-                "consider avoiding if possible."
-            )
-        return self.buffer.data_ro[self.axes.owned._buffer_slice]
-
-    @data_ro.setter
-    def data_ro(self, value):
-        raise RuntimeError
-
-    @property
-    def data_wo(self):
-        """
-        Have to be careful. If not setting all values (i.e. subsets) should
-        call `reduce_leaves_to_roots` first.
-
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
-        """
-        self._check_no_copy_access()
-        return self.buffer.data_wo[self.axes.owned._buffer_slice]
-
-    @data_wo.setter
-    def data_wo(self, value):
-        # This method is necessary because if _buffer_slice incurs a copy then
-        # self.data_wo = <something> would do nothing as it would create and
-        # discard a copy.
-        self.buffer.data_wo[self.axes.owned._buffer_slice] = value
-
-    @property
-    @deprecated(".data_rw")
+    @deprecated(".data_rw_with_halos")
     def data_with_halos(self):
-        return self.data_rw
+        return self.data_rw_with_halos
 
-    @property
-    def data_rw_with_halos(self):
-        self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_rw[self.axes._buffer_slice]
+    def as_array(self, mode, block_shape=(), *, include_ghosts: bool = False) -> np.ndarray:
+        if include_ghosts:
+            selector = self.axes._buffer_slice
+        else:
+            selector = self.axes.owned._buffer_slice
 
-    @property
-    def data_ro_with_halos(self):
-        if not isinstance(self.axes._buffer_slice, slice):
-            warning(
-                "Read-only access to the array is provided with a copy, "
-                "consider avoiding if possible."
-            )
-        return self.buffer.data_ro[self.axes._buffer_slice]
-
-    @property
-    def data_wo_with_halos(self):
-        """
-        Have to be careful. If not setting all values (i.e. subsets) should
-        call `reduce_leaves_to_roots` first.
-
-        When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
-        can be dropped.
-        """
-        self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_wo[self.axes._buffer_slice]
-
-    @data_wo.setter
-    def data_wo_with_halos(self, value):
-        self.buffer.data_wo[self.axes._buffer_slice] = value
+        if mode == "ro":
+            if not isinstance(selector, slice):
+                warning(
+                    "Read-only access to the array is provided with a copy, "
+                    "consider avoiding if possible."
+                )
+            array = self.buffer.data_ro
+        elif mode == "wo":
+            self._check_no_copy_access()
+            array = self.buffer.data_wo
+        else:
+            assert mode == "rw"
+            self._check_no_copy_access(include_ghost_points=include_ghosts)
+            array = self.buffer.data_rw
+        return array[selector].reshape((-1, *block_shape))
 
 
     @property
@@ -408,46 +404,92 @@ class Dat(Tensor):
                 "non-trivially indexed (i.e. sliced) arrays."
             )
 
-    # TODO: It is inefficient (I think) to create a new vec every time, even
-    # if we are reusing the underlying array. Care must be taken though because
-    # sometimes we cannot create write-able vectors and use a copy (when fancy
-    # indexing is required).
-    @contextlib.contextmanager
-    def vec_rw(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_rw, bsize=bsize)
+    @property
+    def vec_ro(self) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("ro", self.axes.block_shape)
 
-    @contextlib.contextmanager
-    def vec_ro(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        yield self._make_vec(array=self.data_ro, bsize=bsize)
+    @property
+    def vec_wo(self) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("wo", self.axes.block_shape)
 
-    @contextlib.contextmanager
-    def vec_wo(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        # TODO: make this check nicer, and apply to other vec accesses
-        indices = self.axes.owned._buffer_slice
-        if isinstance(indices, slice):
-            yield self._make_vec(array=self.data_wo, bsize=bsize)
-        else:
-            # Cannot return a view, must copy in and out
-            vec = self._make_vec(array=self.data_ro, bsize=bsize)
-            yield vec
-            self.data_wo[...] = vec.buffer_r
+    @property
+    def vec_rw(self) -> GeneratorType[PETSc.Vec]:
+        return self.as_vec("rw", self.axes.block_shape)
 
+    @property
     @deprecated(".vec_rw")
-    def vec(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
-        return self.vec_rw(bsize=bsize)
+    def vec(self) -> GeneratorType[PETSc.Vec]:
+        return self.vec_rw
 
-    def _make_vec(self, *, array: np.ndarray, bsize: int) -> PETSc.Vec:
+    @contextlib.contextmanager
+    def as_vec(
+        self,
+        mode,
+        block_shape: collections.abc.Iterable[int, ...] | int = (),
+    ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
-                f"Cannot create a Vec with data type {self.dtype}, "
-                f"must be {PETSc.ScalarType}"
+                f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+                f"must be '{PETSc.ScalarType}'"
             )
-        return PETSc.Vec().createWithArray(
-            array,
-            size=(array.size, None),
-            bsize=bsize,
-            comm=self.comm,
-        )
+
+        if isinstance(block_shape, collections.abc.Iterable):
+            bsize = np.prod(block_shape, dtype=int) 
+        else:
+            assert isinstance(block_shape, int)
+            bsize = block_shape
+
+        def make_vec(array):
+            return PETSc.Vec().createWithArray(
+                array,
+                size=(array.size, None),
+                bsize=bsize,
+                comm=self.comm,
+            )
+
+        needs_copy = not isinstance(self.axes.owned._buffer_slice, slice)
+        if mode == "ro":
+            yield make_vec(self.data_ro)
+        elif mode == "wo":
+            yield make_vec(self.data_wo)
+        else:
+            assert mode == "rw"
+            yield make_vec(self.data_rw)
+
+            # if needs_copy:
+            #     def copy_out():
+            #         self.data_wo[...] = vec.buffer_r
+            # else:
+            #     def copy_out():
+            #         pass
+
+
+        # yield vec
+        # copy_out()
+
+    # def _make_vec(
+    #     self, array: np.ndarray, block_shape: collections.abc.Iterable[int, ...] | int = (),
+    # ) -> PETSc.Vec:
+    #     if array.dtype != PETSc.ScalarType:
+    #         raise RuntimeError(
+    #             f"Cannot create a PETSc Vec with data type '{self.dtype}', "
+    #             f"must be '{PETSc.ScalarType}'"
+    #         )
+    #
+    #     local_size = self.axes.owned.local_size
+    #     global_size = self.axes.global_size
+    #     if isinstance(block_shape, collections.abc.Iterable):
+    #         bsize = np.prod(block_shape, dtype=int) 
+    #     else:
+    #         assert isinstance(block_shape, int)
+    #         bsize = block_shape
+    #
+    #     return PETSc.Vec().createWithArray(
+    #         array,
+    #         size=(local_size, global_size),
+    #         bsize=bsize,
+    #         comm=self.comm,
+    #     )
 
     def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
         assert self.dtype == IntType
@@ -515,7 +557,7 @@ class Dat(Tensor):
     @collective
     def global_data(self) -> np.ndarray:
         """Return all the data for the Dat gathered onto individual ranks."""
-        with self.vec_ro() as gvec:
+        with self.vec_ro as gvec:
             scatter, lvec = PETSc.Scatter().toAll(gvec)
             scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
         return lvec.array

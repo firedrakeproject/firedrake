@@ -187,96 +187,6 @@ class BCBase:
         subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
-    # @cached_property
-    # def subset(self):
-    #     """Return the subset of mesh points constrained by the boundary condition."""
-    #     # NOTE: This returns facets, whose closure is then used when applying the BC
-    #     mesh = self._function_space.mesh().topology
-    #     tdim = mesh.dimension
-    #
-    #     # 1D Hermite elements have strange vertex properties, we only want every
-    #     # other entry
-    #     if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
-    #         raise NotImplementedError("TODO, need to have inner slice with stride 2")
-    #
-    #     # 'subdomain_id' has the form
-    #     #
-    #     #     (A, B, C)
-    #     #
-    #     # where each entry is either itself a tuple or a string. For instance
-    #     # 'A' may be
-    #     #
-    #     #     (1, 2, 3)
-    #     #
-    #     # or a special string like "on_boundary".
-    #     #
-    #     # The points constrained by the boundary condition is the *intersection
-    #     # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
-    #     # entries* (e.g. A ∪ B ∪ C).
-    #
-    #
-    #     # very convoluted
-    #     # if isinstance(self.sub_domain, str):
-    #     #     subdomain_ids = ((self.sub_domain,),)
-    #     # else:
-    #     #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
-    #
-    #     # This check should be moved into __init__
-    #     mesh = self.function_space().mesh().topology
-    #     valid_markers = set(mesh.interior_facets.unique_markers)
-    #     valid_markers |= set(mesh.exterior_facets.unique_markers)
-    #
-    #     subsets_ = []
-    #     for intersecting_subdomain_ids in self.sub_domain:
-    #         subdomain_subsets = tuple([] for _ in range(tdim+1))
-    #         # TODO: Where should this check go?
-    #         if isinstance(intersecting_subdomain_ids, str):
-    #             subdomain_id = intersecting_subdomain_ids
-    #
-    #             if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
-    #                 invalid = set(intersecting_subdomain_ids) - valid_markers
-    #                 if invalid:
-    #                     raise LookupError(f"BC construction got invalid markers {invalid}. "
-    #                                       f"Valid markers are '{valid_markers}'")
-    #
-    #         else:
-    #             if (
-    #                 isinstance(intersecting_subdomain_ids, tuple)
-    #                 and len(intersecting_subdomain_ids) > 1
-    #                 and not isinstance(
-    #                     self._function_space.finat_element,
-    #                     (finat.Lagrange, finat.GaussLobattoLegendre)
-    #                 )
-    #             ):
-    #                 raise TypeError(
-    #                     "subdomain intersection conditions have only "
-    #                     "been tested with CG Lagrange elements"
-    #                 )
-    #
-    #         for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
-    #             subdomain_subsets[dim].append(subset)
-    #
-    #         subdomain_subsets = tuple(
-    #             functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
-    #         )
-    #         subsets_.append(subdomain_subsets)
-    #
-    #     # take the union of 'subsets_'
-    #     if len(subsets_) > 1:
-    #         raise NotImplementedError("TODO")
-    #     else:
-    #         subsets_ = op3.utils.just_one(subsets_)
-    #
-    #     slices = []
-    #     for dim, data in enumerate(subsets_):
-    #         if len(data) == 0:
-    #             continue
-    #
-    #         subset_dat = op3.Dat(op3.Axis(data.size), data=data, prefix="subset")
-    #         subset = op3.Subset(str(dim), subset_dat)
-    #         slices.append(subset)
-    #     return op3.Slice(mesh.points.root.label, slices)
-
     @PETSc.Log.EventDecorator()
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
@@ -347,15 +257,6 @@ class BCBase:
     def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
-
-    # @utils.cached_property
-    # def nodes(self):
-    #     offsets = []
-    #     parent_space = self.parent_function_space
-    #     for pt in parent_space.axes[self.constrained_points].iter():
-    #         offset = parent_space.axes.offset(pt.target_exprs, path=pt.target_path)
-    #         offsets.append(offset)
-    #     return np.asarray(offsets, dtype=utils.IntType)
 
 
 class DirichletBC(BCBase, DirichletBCMixin):

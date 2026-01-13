@@ -203,127 +203,45 @@ class Mat(Tensor):
         layout_vec = self.sparsity.dsets[1].layout_vec
         return layout_vec.local_size // layout_vec.block_size
 
+    @utils.cached_method()
     def getitem(self, row_index, column_index, *, strict=False):
+        # (old comment, still useful exposition)
+        # Combine the loop contexts of the row and column indices. Consider
+        # a loop over a multi-component axis with components "a" and "b":
+        #
+        #   loop(p, mat[p, p])
+        #
+        # The row and column index forests with "merged" loop contexts would
+        # look like:
+        #
+        #   {
+        #     {p: "a"}: [rtree0, ctree0],
+        #     {p: "b"}: [rtree1, ctree1]
+        #   }
+        #
+        # By contrast, distinct loop indices are combined as a product, not
+        # merged. For example, the loop
+        #
+        #   loop(p, loop(q, mat[p, q]))
+        #
+        # with p still a multi-component loop over "a" and "b" and q the same
+        # over "x" and "y". This would give the following combined set of
+        # index forests:
+        #
+        #   {
+        #     {p: "a", q: "x"}: [rtree0, ctree0],
+        #     {p: "a", q: "y"}: [rtree0, ctree1],
+        #     {p: "b", q: "x"}: [rtree1, ctree0],
+        #     {p: "b", q: "y"}: [rtree1, ctree1],
+        #   }
         indexed_row_axes = self.row_axes.getitem(row_index, strict=strict)
         indexed_column_axes = self.column_axes.getitem(column_index, strict=strict)
         return self.__record_init__(row_axes=indexed_row_axes, column_axes=indexed_column_axes)
-        # from pyop3.tree.index_tree import index_axes
-        # from pyop3.tree.index_tree.parse import as_index_forest
-        # # does not work as indices may not be hashable, parse first?
-        # # cache_key = (indices, strict)
-        # # if cache_key in self._cache:
-        # #     return self._cache[cache_key]
-        #
-        # # Combine the loop contexts of the row and column indices. Consider
-        # # a loop over a multi-component axis with components "a" and "b":
-        # #
-        # #   loop(p, mat[p, p])
-        # #
-        # # The row and column index forests with "merged" loop contexts would
-        # # look like:
-        # #
-        # #   {
-        # #     {p: "a"}: [rtree0, ctree0],
-        # #     {p: "b"}: [rtree1, ctree1]
-        # #   }
-        # #
-        # # By contrast, distinct loop indices are combined as a product, not
-        # # merged. For example, the loop
-        # #
-        # #   loop(p, loop(q, mat[p, q]))
-        # #
-        # # with p still a multi-component loop over "a" and "b" and q the same
-        # # over "x" and "y". This would give the following combined set of
-        # # index forests:
-        # #
-        # #   {
-        # #     {p: "a", q: "x"}: [rtree0, ctree0],
-        # #     {p: "a", q: "y"}: [rtree0, ctree1],
-        # #     {p: "b", q: "x"}: [rtree1, ctree0],
-        # #     {p: "b", q: "y"}: [rtree1, ctree1],
-        # #   }
-        #
-        # rtrees = as_index_forest(row_index, self.raxes, strict=strict)
-        # ctrees = as_index_forest(column_index, self.caxes, strict=strict)
-        # rcforest = {}
-        # for rctx, rtree in rtrees.items():
-        #     for cctx, ctree in ctrees.items():
-        #         # skip if the row and column contexts are incompatible
-        #         if any(idx in rctx and rctx[idx] != path for idx, path in cctx.items()):
-        #             continue
-        #         rcforest[rctx | cctx] = (rtree, ctree)
-        #
-        # # If there are no outer loops then we can return a context-free array.
-        # if len(rcforest) == 1:
-        #     rtree, ctree = just_one(rcforest.values())
-        #
-        #     indexed_raxess = tuple(
-        #         index_axes(restricted, pmap(), self.raxes)
-        #         for restricted in rtree
-        #     )
-        #     indexed_caxess = tuple(
-        #         index_axes(restricted, pmap(), self.caxes)
-        #         for restricted in ctree
-        #     )
-        #     if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
-        #         raise NotImplementedError("Need axis forests")
-        #     else:
-        #         indexed_raxes = just_one(indexed_raxess)
-        #         indexed_caxes = just_one(indexed_caxess)
-        #
-        #     mat = self.__record_init__(raxes=indexed_raxes, caxes=indexed_caxes)
-        # else:
-        #     # Otherwise we are context-sensitive
-        #     cs_indexed_raxess = {}
-        #     cs_indexed_caxess = {}
-        #     for loop_context, (rindex_forest, cindex_forest) in rcforest.items():
-        #         indexed_raxess = tuple(
-        #             index_axes(restricted, loop_context, self.raxes)
-        #             for restricted in rindex_forest
-        #         )
-        #         indexed_caxess = tuple(
-        #             index_axes(restricted, loop_context, self.caxes)
-        #             for restricted in cindex_forest
-        #         )
-        #
-        #         if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
-        #             raise NotImplementedError("Need axis forests")
-        #         else:
-        #             indexed_raxes = just_one(indexed_raxess)
-        #             indexed_caxes = just_one(indexed_caxess)
-        #
-        #         cs_indexed_raxess[loop_context] = indexed_raxes
-        #         cs_indexed_caxess[loop_context] = indexed_caxes
-        #
-        #     cs_indexed_raxess = ContextSensitiveAxisTree(cs_indexed_raxess)
-        #     cs_indexed_caxess = ContextSensitiveAxisTree(cs_indexed_caxess)
-        #
-        #     mat = self.__record_init__(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
-        #
-        # # self._cache[cache_key] = mat
-        # return mat
 
     def with_context(self, context):
         cf_row_axes = self.row_axes.with_context(context)
         cf_column_axes = self.column_axes.with_context(context)
         return self.__record_init__(row_axes=cf_row_axes, column_axes=cf_column_axes)
-
-    @property
-    def context_free(self):
-        assert False, "old code"
-        row_axes = self.row_axes.context_free
-        col_axes = self.caxes.context_free
-        return self.__record_init__(raxes=row_axes, caxes=col_axes)
-
-    @property
-    @utils.deprecated("row_axes")
-    def raxes(self):
-        return self.row_axes
-
-    @property
-    @utils.deprecated("comn_axes")
-    def caxes(self):
-        return self.column_axes
 
     def with_axes(self, row_axes, col_axes):
         return self.__record_init__(row_axes=row_axes, column_axes=col_axes)
@@ -345,7 +263,7 @@ class Mat(Tensor):
 
     @property
     def comm(self) -> MPI.Comm:
-        return single_valued([self.row_axes.comm, self.caxes.comm])
+        return single_valued([self.row_axes.comm, self.column_axes.comm])
 
     # }}}
 
@@ -362,11 +280,11 @@ class Mat(Tensor):
 
     @cached_property
     def size(self) -> Any:
-        return self.row_axes.size * self.caxes.size
+        return self.row_axes.size * self.column_axes.size
 
     @cached_property
     def alloc_size(self) -> int:
-        return self.row_axes.alloc_size * self.caxes.alloc_size
+        return self.row_axes.alloc_size * self.column_axes.alloc_size
 
     @property
     def nested(self):
@@ -391,7 +309,7 @@ class Mat(Tensor):
             x is None for x in {raxis, caxis, mat_type, rlabel_acc, clabel_acc}
         ):
             raxis = self.row_axes.unindexed.root
-            caxis = self.caxes.unindexed.root
+            caxis = self.column_axes.unindexed.root
             mat_type = self.mat_type
             rlabel_acc = ()
             clabel_acc = ()
@@ -414,11 +332,11 @@ class Mat(Tensor):
             rlabels = (None,)
 
         if not strictly_all(x is None for _, x in mat_type.keys()):
-            croot = self.caxes.root
+            croot = self.column_axes.root
             clabels = unique(
                 clabel
                 for c in croot.components
-                for axlabel, clabel in self.caxes.target_paths[
+                for axlabel, clabel in self.column_axes.target_paths[
                     croot.id, c.label
                 ].items()
                 if axlabel == caxis.label
@@ -437,7 +355,7 @@ class Mat(Tensor):
             submat_type = mat_type[rlabel, clabel]
             if isinstance(submat_type, collections.abc.Mapping):
                 rsubaxis = self.row_axes.unindexed.child(raxis, rlabel)
-                csubaxis = self.caxes.unindexed.child(caxis, clabel)
+                csubaxis = self.column_axes.unindexed.child(caxis, clabel)
                 yield from self._iter_nest_labels(
                     rsubaxis, csubaxis, submat_type, rlabel_acc_, clabel_acc_
                 )
@@ -446,21 +364,7 @@ class Mat(Tensor):
 
     @cached_property
     def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:
-        return (self.row_axes, self.caxes)
-
-    @classmethod
-    def _merge_axes(cls, row_axes, col_axes):
-        # Since axes require unique labels, relabel the row and column axis trees
-        # with different suffixes. This allows us to create a combined axis tree
-        # without clashes.
-        raxes_relabel = relabel_axes(row_axes, "_row")
-        caxes_relabel = relabel_axes(col_axes, "_col")
-
-        axes = raxes_relabel
-        for leaf in raxes_relabel.leaves:
-            axes = axes.add_subtree(caxes_relabel, leaf, uniquify_ids=True)
-
-        return axes
+        return (self.row_axes, self.column_axes)
 
     @classmethod
     def from_sparsity(cls, sparsity, **kwargs):
@@ -474,7 +378,7 @@ class Mat(Tensor):
         if self.comm.size > 1:
             raise RuntimeError("Only valid in serial")
 
-        if self.row_axes.local_size * self.caxes.local_size > 1e6:
+        if self.row_axes.local_size * self.column_axes.local_size > 1e6:
             raise ValueError(
                 "Printing a dense matrix with more than 1 million "
                 "entries is not allowed"
@@ -495,7 +399,7 @@ class Mat(Tensor):
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
-                return petscmat[self.row_axes._buffer_slice, self.caxes._buffer_slice]
+                return petscmat[self.row_axes._buffer_slice, self.column_axes._buffer_slice]
         else:
             raise NotImplementedError
 
@@ -506,7 +410,7 @@ class Mat(Tensor):
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.caxes.nest_indices))
+        return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.column_axes.nest_indices))
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
@@ -589,7 +493,7 @@ class DatPythonMatContext:
 
     def mult(self, mat, x, y):
         """Set y = self @ x."""
-        with self.dat.vec_ro() as A:
+        with self.dat.vec_ro as A:
             if isinstance(self, RowDatPythonMatContext):  # FIXME: inheritance
                 # Example:
                 # * 'A' (self) has global size (5, 2)

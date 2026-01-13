@@ -123,7 +123,7 @@ class CoefficientCollector(MultiFunction):
         are :class:`firedrake.Function` and ``c.ufl_element().family() == "Real"``
         in both cases ``c.dat.dim`` must have shape ``(1,)``.
         """
-        return all(_isconstant(c) and c.dat.size == 1 for (c, _) in weighted_coefficients)
+        return all(_isconstant(c) and c.ufl_shape == () for (c, _) in weighted_coefficients)
 
     def _as_scalar(self, weighted_coefficients):
         """Compress a sequence of ``(coefficient, weight)`` tuples to a single scalar value.
@@ -256,7 +256,7 @@ class Assigner:
         # else:
         #     subset_indices = ... if subset is None else subset.owned_indices
         data_ro = operator.attrgetter("data_ro")
-        func_data = np.array([data_ro(f.dat)[subset] for f in funcs])
+        func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
         self._assign_single_dat(lhs_func.dat, subset, rvalue, assign_to_halos)
         if assign_to_halos:
@@ -340,23 +340,30 @@ class Assigner:
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
         lhs_dat = lhs[subset]
-        if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
-            if assign_to_halos:
-                lhs_dat.data_wo_with_halos = rvalue
-            else:
-                lhs_dat.data_wo = rvalue
-        elif assign_to_halos and rvalue.size == lhs_dat.axes.local_size:
-            lhs_dat.data_wo_with_halos = rvalue.flatten()
-        elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.local_size:
-            lhs_dat.data_wo = rvalue.flatten()
-        else:
-            block_shape = self._assignee.function_space().shape
-            if rvalue.size != np.prod(block_shape, dtype=int):
-                raise ValueError("Assignee and assignment values are different shapes")
 
-            expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
-            expr = op3.Dat(expr_axes, data=rvalue)
-            lhs_dat.assign(expr, eager=True)
+        try:
+            if assign_to_halos:
+                lhs_dat.data_wo_with_halos[...] = rvalue
+            else:
+                lhs_dat.data_wo[...] = rvalue
+        except op3.FancyIndexWriteException:
+            # convert rvalue into an expression pyop3 understands
+            if isinstance(rvalue, numbers.Number):
+                pass
+            elif rvalue.size == 1:
+                rvalue = rvalue.item()
+            else:
+                if rvalue.size == lhs_dat.axes.local_size:
+                    expr_axes = lhs_dat.axes.materialize()
+                else:
+                    block_shape = self._assignee.function_space().shape or (1,)
+
+                    if rvalue.size != np.prod(block_shape, dtype=int):
+                        raise ValueError("Assignee and assignment values are different shapes")
+
+                    expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
+                rvalue = op3.Dat(expr_axes, data=rvalue)
+            lhs_dat.assign(rvalue, eager=True)
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
@@ -380,15 +387,14 @@ class IAddAssigner(Assigner):
     symbol = "+="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:
-                lhs_dat[subset].data_wo_with_halos[...] += rval
+                lhs[subset].data_wo_with_halos[...] += rval
             else:
-                lhs_dat[subset].data_wo[...] += rval
+                lhs[subset].data_wo[...] += rval
         except op3.FancyIndexWriteException:
             raise NotImplementedError("Need expression assignment")
 
@@ -398,15 +404,14 @@ class ISubAssigner(Assigner):
     symbol = "-="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
         try:
             if assign_to_halos:
-                lhs_dat[subset].data_wo_with_halos[...] -= rval
+                lhs[subset].data_wo_with_halos[...] -= rval
             else:
-                lhs_dat[subset].data_wo[...] -= rval
+                lhs[subset].data_wo[...] -= rval
         except op3.FancyIndexWriteException:
             raise NotImplementedError("Need expression assignment")
 
@@ -419,12 +424,10 @@ class IMulAssigner(Assigner):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
 
-        lhs_dat = lhs.dat
-
         if assign_to_halos:
-            lhs_dat[indices].data_wo_with_halos[...] *= rvalue
+            lhs[indices].data_wo_with_halos[...] *= rvalue
         else:
-            lhs_dat[indices].data_wo[...] *= rvalue
+            lhs[indices].data_wo[...] *= rvalue
 
 
 class IDivAssigner(Assigner):
@@ -435,13 +438,11 @@ class IDivAssigner(Assigner):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
 
-        lhs_dat = lhs.dat
-
         if assign_to_halos:
             # TODO set modified
-            lhs_dat[indices].buffer._data[...] /= rvalue
+            lhs[indices].buffer._data[...] /= rvalue
         else:
-            lhs_dat[indices].data_wo[...] /= rvalue
+            lhs[indices].data_wo[...] /= rvalue
 
 
 @functools.singledispatch

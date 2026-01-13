@@ -685,26 +685,21 @@ class MutableLabelledTreeMixin:
             else:
                 assert False
 
-        subtree = self.subtree(path)
-
-        trimmed_node_map = {}
+        node_map = {}
         for orig_path, node in self.node_map.items():
-            if node in subtree.node_map.values():
+            if is_subpath(path, orig_path):
                 continue
-            trimmed_node_map[orig_path] = node
-        return type(self)(trimmed_node_map)
+            node_map[orig_path] = node
+        return type(self)(node_map)
 
     def drop_node(self, path: PathT) -> MutableLabelledTreeMixin:
-        assert self.is_linear
-
         path = as_path(path)
 
         to_drop = self.node_map[path]
 
         above = self.drop_subtree(path, allow_empty_subtree=True)
         below = self.subtree(path | {to_drop.label: to_drop.component_label})
-
-        return above.add_subtree(above.leaf_path, below)
+        return above.add_subtree(path, below)
 
 
 def as_component_label(component):

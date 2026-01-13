@@ -297,7 +297,7 @@ def test_overlapping_bc_nodes(quad):
            DirichletBC(V, 1, 4)]
     A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
-    assert np.allclose(A, np.identity(V.axes.size))
+    assert np.allclose(A, np.identity(V.axes.local_size))
 
 
 @pytest.mark.parametrize("diagonal",
@@ -328,7 +328,7 @@ def test_bcs_rhs_assemble(a, V):
         bc.zero(b1_func)
     b1.assign(b1_func.riesz_representation(riesz_map="l2"))
     b2 = assemble(a, bcs=bcs)
-    assert np.allclose(b1.dat.data, b2.dat.data)
+    assert np.allclose(b1.dat.data_ro, b2.dat.data_ro)
 
 
 def test_invalid_marker_raises_error(a, V):
@@ -443,8 +443,8 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0, 1].values, [0.25, 0, 0.25, 0, 0.25, 0.25, 0.25, 0.25])
-    assert np.allclose(A.M[1, 0].values, [0.25, 0, 0.25, 0, 0.25, 0.25, 0.25, 0.25])
+    assert np.allclose(A.M[0, 1].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
+    assert np.allclose(A.M[1, 0].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
 
 
 def test_homogeneous_bc_residual():

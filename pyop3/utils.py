@@ -302,13 +302,10 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts: Iterable[Mapping], *, allow_duplicates=False) -> immutabledict:
-    merged = {}
+def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
+    merged = StrictlyUniqueDict()
     for dict_ in dicts:
         merged.update(dict_)
-    if not allow_duplicates and len(merged) != sum(map(len, dicts)):
-        pyop3.extras.debug.warn_todo("duplicates found, this will become a hard error")
-        # raise ValueError("Duplicates found")
     return immutabledict(merged)
 
 
@@ -383,57 +380,38 @@ def strictly_all(iterable):
     return result
 
 
-def just_one(iterable: collections.abc.Iterable, key: Hashable = _nothing) -> Any:
-    if isinstance(iterable, collections.abc.Mapping):
-        assert key is not _nothing, "key needed"
-        iterable = dict(iterable)
-        value = iterable.pop(key)
+def just_one(iterable: collections.abc.Iterable) -> Any:
+    """Return the only entry in an iterable.
 
-        assert not iterable
-        return value
+    Parameters
+    ----------
+    iterable
+        The container with only a single entry.
 
+    Returns
+    -------
+    Any
+        The single item in ``iterable``.
+
+    Raises
+    ------
+    ValueError
+        If the iterable does not contain a single entry.
+
+    """
+    iterator = iter(iterable)
+
+    try:
+        first = next(iterator)
+    except StopIteration:
+        raise ValueError("Iterable is empty")
+
+    try:
+        second = next(iterator)
+    except StopIteration:
+        return first
     else:
-        assert key is _nothing, "only for dicts"
-        iterator = iter(iterable)
-
-        try:
-            first = next(iterator)
-        except StopIteration:
-            breakpoint()
-            raise ValueError("Empty iterable found")
-
-        try:
-            second = next(iterator)
-        except StopIteration:
-            return first
-
         raise ValueError("Too many values")
-
-
-class MultiStack:
-    """Keyed stack."""
-
-    def __init__(self, data=None):
-        raise NotImplementedError("shouldnt be needed")
-        self._data = data or collections.defaultdict(PrettyTuple)
-
-    def __str__(self):
-        return str(dict(self._data))
-
-    def __repr__(self):
-        return f"{self.__class__}({self._data!r})"
-
-    def __getitem__(self, key):
-        return self._data[key]
-
-    def __or__(self, other):
-        new_data = self._data.copy()
-        if isinstance(other, collections.abc.Mapping):
-            for key, value in other.items():
-                new_data[key] += value
-            return type(self)(new_data)
-        else:
-            return NotImplemented
 
 
 def popwhen(predicate, iterable):
@@ -676,7 +654,12 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         if not safe_equals(new_attr, orig_attr):
             attrs_changed = True
         new_attrs[field.name] = new_attr
-    assert not attrs, f"'{attr_name}' is not valid option, must be one of '{valid_attr_names}'"
+
+    if attrs:
+        valid_attr_names = tuple(field.name for field in dataclasses.fields(self))
+        raise AssertionError(
+            f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
+        )
 
     if not attrs_changed:
         return self

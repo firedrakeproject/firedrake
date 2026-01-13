@@ -1679,16 +1679,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(op2tensor, row_axes, caxes, i, j, component, node_set):
+    def _apply_bcs_mat_real_block(op2tensor, row_axes, column_axes, i, j, component, node_set):
         dat = op2tensor.handle.getNestSubMatrix(i, j).getPythonContext().dat
-        mat_type = op2tensor.buffer.mat_spec[i, j].mat_type
-        if mat_type == "rvec":
-            nodal_axes = row_axes 
-        else:
-            nodal_axes = caxes 
 
         if component is not None:
-            dat = dat[:, *component]
+            selector = []
+            for i, c in enumerate(component):
+                selector.append(op3.ScalarIndex(f"dim{i}", "XXX", c))
+            dat = dat[*selector]
+
         dat[node_set].zero(eager=True)
 
     def _check_tensor(self, tensor):

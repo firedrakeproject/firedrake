@@ -197,10 +197,6 @@ class Instruction(Node, DistributedObject, abc.ABC):
         )
 
         insn = self
-        if "expression" in str(self) and len(self.statements[0].arguments) == 3:
-            import pyop3
-            pyop3.extras.debug.enable_conditional_breakpoints()
-
         insn = expand_loop_contexts(insn)
 
         # bad name, this expands all transformations and pack/unpacks for called functions
@@ -941,7 +937,7 @@ class Exscan(TerminalInstruction):
     expression: Any
     scan_type: Any
     scan_axis: Axis
-    _comm: MPI.Comm
+    _comm: MPI.Comm = dataclasses.field(hash=False)
 
     # }}}
 
@@ -954,6 +950,10 @@ class Exscan(TerminalInstruction):
     @property
     def comm(self) -> MPI.Comm:
         return self._comm
+
+    @cached_property
+    def extent(self):
+        return self.scan_axis.component.size - 1
 
     # }}}
 

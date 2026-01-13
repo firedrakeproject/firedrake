@@ -109,10 +109,6 @@ class Scalar(Tensor):
         return self
 
     @property
-    def context_free(self):
-        return self
-
-    @property
     def alloc_size(self) -> int:
         return 1
 

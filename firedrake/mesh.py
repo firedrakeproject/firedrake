@@ -1062,7 +1062,6 @@ class AbstractMeshTopology(abc.ABC):
     def _old_to_new_vertex_numbering(self) -> PETSc.Section:
         return self._plex_to_entity_numbering(0)
 
-    # TODO: Cythonize
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
     # but now returns entity numbering to entity numbering
     @cachedmethod(lambda self: self._cache["_entity_numbering"])
@@ -1385,6 +1384,7 @@ class AbstractMeshTopology(abc.ABC):
         return self._star(k=k)(index)
 
     # TODO: Cythonize
+    # NOTE: I think I duplicated this somewhere...
     def _renumber_map(self, map_pts, src_dim, dest_dim, sizes=None, *, src_mesh = None):
         """
         sizes :

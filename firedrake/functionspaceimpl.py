@@ -766,8 +766,6 @@ class FunctionSpace:
 
         constraints = [AxisConstraint(mesh_axis)]
 
-        pyop3.extras.debug.warn_todo("Do in Cython")
-
         # identify constrained points
         constrained_points = set()
         if self.boundary_set:
@@ -781,10 +779,7 @@ class FunctionSpace:
                 if n == 0:
                     continue
                 points = plex.getStratumIS(label, marker).indices
-                for i in range(n):
-                    p = points[i]
-                    if p not in constrained_points:
-                        constrained_points.add(p)
+                constrained_points.update(points)
 
         num_constrained_points = len(constrained_points)
         num_unconstrained_points = num_points - num_constrained_points
@@ -896,13 +891,13 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because the mappings are compressed during compilation.
-        op3.extras.debug.warn_todo("Cythonize")
-
         node_point_map_array = numpy.full(self.nodes.local_size, -1, dtype=IntType)
         node_dof_map_array = node_point_map_array.copy()
 
-        dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
-        ndofs = dof_axis.component.size.buffer.buffer.data_ro  # this sucks
+        dof_axis = utils.just_one(
+            axis for axis in self.layout_axes.nodes if axis.label == "dof"
+        )
+        ndofs = dof_axis.local_size.buffer.buffer.data_ro
 
         node = 0
         for point, ndof in enumerate(ndofs):

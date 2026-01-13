@@ -213,7 +213,7 @@ def _(mat: expr_types.Mat, /) -> OrderedSet:
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
 
-    for cs_axes in {mat.row_axes, mat.caxes}:
+    for cs_axes in {mat.row_axes, mat.column_axes}:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
@@ -724,18 +724,16 @@ def _(mat_expr: expr_types.MatPetscMatBufferExpression, /, layouts, key) -> expr
     return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
 
-# Should be very similar to dat case
 @concretize_materialized_tensor_indirections.register(expr_types.MatArrayBufferExpression)
 def _(buffer_expr: expr_types.MatArrayBufferExpression, /, layouts, key):
-    # TODO: linearise the layouts here like we do for dats
     new_buffer_layoutss = []
     buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
     for i, buffer_layouts in enumerate(buffer_layoutss):
-        new_buffer_layouts = idict({
-            path: layouts[key + ((buffer_expr, i, path),)]
-            for path in buffer_layouts.keys()
-        })
-        new_buffer_layoutss.append(new_buffer_layouts)
+        new_layouts = {}
+        for leaf_path in buffer_layouts.keys():
+            layout = layouts[key + ((buffer_expr, i, leaf_path),)]
+            new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
+        new_buffer_layoutss.append(utils.freeze(new_layouts))
     return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
 
 
@@ -774,12 +772,12 @@ def _(dat: expr_types.NonlinearDatBufferExpression, /) -> OrderedSet:
 
 
 @functools.singledispatch
-def collect_composite_dats(obj: Any) -> frozenset:
+def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_composite_dats.register(expr_types.Operator)
-def _(op: expr_types.Operator, /) -> frozenset:
+def _(op: expr_types.Operator, /) -> OrderedFrozenSet:
     return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
 
 
@@ -788,18 +786,18 @@ def _(op: expr_types.Operator, /) -> frozenset:
 @collect_composite_dats.register(expr_types.LoopIndexVar)
 @collect_composite_dats.register(expr_types.NaN)
 @collect_composite_dats.register(expr_types.ScalarBufferExpression)
-def _(op, /) -> frozenset:
-    return frozenset()
+def _(op, /) -> OrderedFrozenSet:
+    return OrderedFrozenSet()
 
 
 @collect_composite_dats.register(expr_types.LinearDatBufferExpression)
-def _(dat, /) -> frozenset:
+def _(dat, /) -> OrderedFrozenSet:
     return collect_composite_dats(dat.layout)
 
 
 @collect_composite_dats.register(expr_types.CompositeDat)
-def _(dat, /) -> frozenset:
-    return frozenset({dat})
+def _(dat, /) -> OrderedFrozenSet:
+    return OrderedFrozenSet([dat])
 
 
 mycount = 0
@@ -944,7 +942,7 @@ def _(dat: expr_types.Dat, /) -> tuple[AxisTree, ...]:
 
 @get_shape.register(expr_types.Mat)
 def _(mat: expr_types.Mat, /) -> tuple[AxisTree, ...]:
-    return (mat.row_axes.materialize(), mat.caxes.materialize())
+    return (mat.row_axes.materialize(), mat.column_axes.materialize())
 
 
 @get_shape.register(expr_types.CompositeDat)

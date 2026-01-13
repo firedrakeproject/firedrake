@@ -1193,9 +1193,8 @@ def add_leaf_assignment(
 def _(exscan: Exscan, loop_indices, context) -> None:
     if exscan.scan_type != "+":
         raise NotImplementedError
-    component = exscan.scan_axis.component
     domain_var = register_extent(
-        component.size-1,
+        exscan.extent,
         {},
         loop_indices,
         context,
