@@ -631,7 +631,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        with mpi.temp_internal_comm(self.comm) as icomm:
+        with op3.mpi.temp_internal_comm(self.comm) as icomm:
             root_arg = icomm.bcast(arg, root=0)
             same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
             diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
