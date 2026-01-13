@@ -240,7 +240,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     # trick to pass the right layer through to the local kernel
     # TODO: make this a mesh attribute
-    my_layer_data = numpy.empty((base_mesh.num_cells, extr_mesh.layers-1), dtype=IntType)
+    my_layer_data = numpy.empty((base_mesh.cells.owned.local_size, extr_mesh.layers-1), dtype=IntType)
     for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
