@@ -140,7 +140,7 @@ def _prepare_configuration() -> Pyop3Configuration:
             env_options[field_name] = os.environ[env_key]
         elif (env_key := f"PYOP2_{field_name.upper()}") in os.environ:
             warnings.warn(
-                f"{env_key} is deprecated, please use 'PYOP3_{field_name}' instead.",
+                f"{env_key} is deprecated, please use 'PYOP3_{field_name.upper()}' instead.",
                 FutureWarning,
             )
             env_options[field_name] = os.environ[env_key]
