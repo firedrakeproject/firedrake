@@ -270,7 +270,7 @@ class FunctionMixin(FloatingType):
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":
             return assemble((firedrake.inner(self, other)
-                            + firedrake.inner(firedrake.grad(self), other))*firedrake.dx)
+                            + firedrake.inner(firedrake.grad(self), firedrake.grad(other)))*firedrake.dx)
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
