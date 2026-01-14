@@ -6,7 +6,7 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType, ScalarType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
-from firedrake.parloops import pack_tensor, pack_pyop3_tensor
+from firedrake.pack import pack
 from firedrake.ufl_expr import extract_domains
 from firedrake import utils
 
@@ -106,7 +106,7 @@ def matrix_funptr(form, state):
         #
         # The size of the matrix doesn't matter as it's just a pointer
         mat = op3.Mat.empty(test.axes, trial.axes, buffer_kwargs={"name": "out"})
-        arg = pack_pyop3_tensor(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
+        arg = pack(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
         args.append(arg)
 
         # NOT IMPLEMENTED
@@ -117,15 +117,15 @@ def matrix_funptr(form, state):
         # statearg = statedat(op2.READ, state_entity_node_map)
 
         for i in kinfo.active_domain_numbers.coordinates:
-            arg = pack_tensor(all_meshes[i].coordinates, loop_index, kinfo.integral_type)
+            arg = pack(all_meshes[i].coordinates, loop_index, kinfo.integral_type)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_orientations:
             c = all_meshes[i].cell_orientations()
-            arg = pack_tensor(c, loop_index, kinfo.integral_type)
+            arg = pack(c, loop_index, kinfo.integral_type)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_sizes:
             c = all_meshes[i].cell_sizes
-            arg = pack_tensor(c, loop_index, kinfo.integral_type)
+            arg = pack(c, loop_index, kinfo.integral_type)
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
@@ -137,7 +137,7 @@ def matrix_funptr(form, state):
                 continue
             for ind in indices:
                 c_ = c.subfunctions[ind]
-                arg = pack_tensor(c_, loop_index, kinfo.integral_type)
+                arg = pack(c_, loop_index, kinfo.integral_type)
                 args.append(arg)
 
         all_constants = extract_firedrake_constants(form)

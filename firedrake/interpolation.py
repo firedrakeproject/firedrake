@@ -43,7 +43,7 @@ import gem
 import finat
 
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.parloops import pack_tensor, pack_pyop3_tensor, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
+from firedrake.pack import pack, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.petsc import PETSc
@@ -979,11 +979,11 @@ def _build_interpolation_callables(
     arguments = expr.arguments()
     if not arguments:
         V_dest = FunctionSpace(target_mesh, "Real", 0)
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, iter_spec)
         local_kernel_args.append(packed_tensor)
     elif len(arguments) < 2:
         V_dest = utils.just_one(arguments).function_space()
-        packed_tensor = pack_pyop3_tensor(tensor, V_dest, iter_spec)
+        packed_tensor = pack(tensor, V_dest, iter_spec)
         local_kernel_args.append(packed_tensor)
     else:
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
@@ -1002,17 +1002,17 @@ def _build_interpolation_callables(
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
 
-        packed_tensor = pack_pyop3_tensor(tensor, Vrow, Vcol, iter_spec)
+        packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
-        local_kernel_args.append(pack_tensor(target_mesh.cell_orientations(), iter_spec))
+        local_kernel_args.append(pack(target_mesh.cell_orientations(), iter_spec))
 
     if kernel.needs_cell_sizes:
-        local_kernel_args.append(pack_tensor(source_mesh.cell_sizes, iter_spec))
+        local_kernel_args.append(pack(source_mesh.cell_sizes, iter_spec))
 
     for coefficient in coefficients:
-        local_kernel_args.append(pack_tensor(coefficient, iter_spec))
+        local_kernel_args.append(pack(coefficient, iter_spec))
 
     for const in extract_firedrake_constants(expr):
         local_kernel_args.append(const.dat)
@@ -1037,7 +1037,7 @@ def _build_interpolation_callables(
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                local_kernel_args.append(pack_tensor(target_mesh.reference_coordinates, iter_spec))
+                local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
 
     if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor

@@ -11,7 +11,7 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.mesh import get_iteration_spec
 from firedrake.utils import IntType_c, cached_property, ScalarType
-from firedrake.parloops import pack_tensor
+from firedrake.pack import pack
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop3.cache import serial_cache
@@ -1259,13 +1259,13 @@ class StandaloneInterpolationMatrix(object):
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
         loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
 
-        prolong_args = [pack_tensor(self.uf, loop_info, permutation=uf_perm),
-                        pack_tensor(self.uc, loop_info, permutation=uc_perm),
-                        pack_tensor(self._weight, loop_info, permutation=uf_perm)]
-        restrict_args = [pack_tensor(self.uc, loop_info, permutation=uc_perm),
-                         pack_tensor(self.uf, loop_info, permutation=uf_perm),
-                         pack_tensor(self._weight, loop_info, permutation=uf_perm)]
-        coefficient_args = [pack_tensor(c, loop_info) for c in coefficients]
+        prolong_args = [pack(self.uf, loop_info, permutation=uf_perm),
+                        pack(self.uc, loop_info, permutation=uc_perm),
+                        pack(self._weight, loop_info, permutation=uf_perm)]
+        restrict_args = [pack(self.uc, loop_info, permutation=uc_perm),
+                         pack(self.uf, loop_info, permutation=uf_perm),
+                         pack(self._weight, loop_info, permutation=uf_perm)]
+        coefficient_args = [pack(c, loop_info) for c in coefficients]
         prolong = op3.loop(
             loop_info.loop_index,
             prolong_kernel(*prolong_args, *coefficient_args),

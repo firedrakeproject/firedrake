@@ -31,7 +31,7 @@ from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_interpolator
-from firedrake.parloops import pack_tensor, pack_pyop3_tensor
+from firedrake.pack import pack
 from firedrake.petsc import PETSc
 from firedrake.mesh import get_iteration_spec
 from firedrake.slate import slac, slate
@@ -1988,22 +1988,22 @@ class ParloopBuilder:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(dat, V, self._iterset)
+            return pack(dat, V, self._iterset)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack_pyop3_tensor(mat, *Vs, self._iterset)
+            return pack(mat, *Vs, self._iterset)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
         coords = next(self._active_coordinates)
-        return pack_tensor(coords, self._iterset)
+        return pack(coords, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        return pack_tensor(coeff, self._iterset)
+        return pack(coeff, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
@@ -2013,12 +2013,12 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
         func = next(self._active_cell_orientations)
-        return pack_tensor(func, self._iterset)
+        return pack(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
     def _as_parloop_arg_cell_sizes(self, _, index):
         func = next(self._active_cell_sizes)
-        return pack_tensor(func, self._iterset)
+        return pack(func, self._iterset)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
