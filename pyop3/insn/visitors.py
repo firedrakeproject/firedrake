@@ -23,7 +23,7 @@ import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
-from pyop3.expr.tensor.base import ReshapeTensorTransform, TensorTransform
+from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
@@ -482,7 +482,7 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform, access
 
     # TODO: singledispatch
     if isinstance(transform, ReshapeTensorTransform):
-        prev_tensor = tensor.with_axes(transform.axis_trees)
+        prev_tensor = tensor.with_axes(*transform.axis_trees)
     else:
         prev_tensor = tensor
 
@@ -491,13 +491,28 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform, access
     insns = list(prev_insns)
 
     if isinstance(transform, ReshapeTensorTransform):
-        tensor = Dat.null_like(tensor)
-        tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
+        tensor = tensor.null_like()  # materialize() instead?
+
+        if isinstance(tensor, Dat):
+            tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
+        else:
+            assert isinstance(tensor, Mat)
+            tensor_reshaped = tensor.with_axes(
+                prev_tensor.row_axes.materialize(),
+                prev_tensor.column_axes.materialize(),
+            )
         if access_type == ArrayAccessType.READ:
             insns.insert(0, tensor_reshaped.assign(prev_tensor))
         else:
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
             insns.insert(0, prev_tensor.assign(tensor_reshaped))
+    elif isinstance(transform, OutOfPlaceCallableTensorTransform):
+        tensor = tensor.materialize()
+        if access_type == ArrayAccessType.READ:
+            insns = list(transform.transform_in(prev_tensor, tensor)) + insns
+        else:
+            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
+            insns = list(transform.transform_out(tensor, prev_tensor)) + insns
     else:
         raise NotImplementedError
 

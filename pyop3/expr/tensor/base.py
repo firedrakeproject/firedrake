@@ -186,12 +186,12 @@ class TensorTransform(abc.ABC):
         pass
 
 
-class FunctionTensorTransform(TensorTransform):
+class CallableTensorTransform(TensorTransform):
     ...
 
 
 @utils.frozenrecord()
-class OutOfPlaceFunctionTensorTransform(FunctionTensorTransform):
+class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # {{{ instance attrs
 

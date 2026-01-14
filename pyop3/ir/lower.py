@@ -357,7 +357,7 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
+        if len(self.loopy_code.callables_table) > 1 and "form_cell_integral" in str(self):
             breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
@@ -1270,10 +1270,7 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-    try:
-        return utils.just_one(iname_maps)[axis_var.axis.label]
-    except KeyError:
-        breakpoint()  # debug
+    return utils.just_one(iname_maps)[axis_var.axis.label]
 
 
 @_lower_expr.register(op3_expr.LoopIndexVar)

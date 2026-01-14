@@ -92,6 +92,8 @@ class Dat(Tensor):
         unindexed_axis_trees = collect_unindexed_axis_trees(axes)
         sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
             assert buffer_kwargs is None
@@ -101,12 +103,12 @@ class Dat(Tensor):
         else:
             if buffer_kwargs is None:
                 buffer_kwargs = {}
+            if "name" not in buffer_kwargs:
+                buffer_kwargs["name"] = f"{name}_buffer"
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
         assert buffer.size == axes.unindexed.local_max_size
-
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self.axes = axes
         self._buffer = buffer
@@ -121,6 +123,8 @@ class Dat(Tensor):
     def __post_init__(self) -> None:
         pass
 
+    def __str__(self) -> str:
+        return f"Dat({self.name})"
 
     # }}}
 
@@ -190,13 +194,16 @@ class Dat(Tensor):
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
+        name = utils.maybe_generate_name(kwargs.pop("name", None), kwargs.pop("prefix", None), cls.DEFAULT_PREFIX)
+        kwargs["name"] = name
+
+        buffer_kwargs = dict(buffer_kwargs)
+        if "name" not in buffer_kwargs:
+            buffer_kwargs["name"] = f"{name}_buffer"
+
         axes = as_axis_tree(axes)
         buffer = NullBuffer(axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def null_like(cls, dat: Dat, **kwargs) -> Dat:
-        return cls.null(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
     def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
@@ -586,7 +593,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, transform=ReshapeTensorTransform(self.axes, self.transform))
+        return self.__record_init__(axes=axes, transform=ReshapeTensorTransform((self.axes,), self.transform))
 
         # return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
 
@@ -607,6 +614,10 @@ class Dat(Tensor):
 
         """
         return self.__record_init__(axes=axes)
+
+    def null_like(self, **kwargs) -> Dat:
+        return self.null(self.axes, dtype=self.dtype, **kwargs)
+
 
 
 @utils.frozenrecord()

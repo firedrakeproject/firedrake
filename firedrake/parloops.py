@@ -491,9 +491,8 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, cell_index: op
                 #transform_out_kernel(orientations[cell_index], mat_work_array, transformed, untransformed, vec_work_array),
             )
 
-        transform = op3.OutOfPlaceTensorTransform(packed_dat, transform_in, transform_out)
-        temp = packed_dat.materialize()
-        packed_dat = temp.__record_init__(_parent=transform)
+        transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_dat.transform)
+        packed_dat = packed_dat.__record_init__(transform=transform)
 
     dat_sequence = [packed_dat]
 
@@ -536,9 +535,8 @@ def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_spa
                 transform_out_kernel(orientations[row_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
             )
 
-        transform = op3.OutOfPlaceTensorTransform(packed_mat, transform_in, transform_out)
-        temp = packed_mat.materialize()
-        packed_mat = temp.__record_init__(_parent=transform)
+        transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
+        packed_mat = packed_mat.__record_init__(transform=transform)
 
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes

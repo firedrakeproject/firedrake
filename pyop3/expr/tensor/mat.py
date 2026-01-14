@@ -16,7 +16,7 @@ from pyop3 import buffer
 
 from pyop3 import utils
 from pyop3.typing import KwargsT
-from .base import Tensor, IdentityTensorTransform
+from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
 from pyop3.tree.axis_tree import (
     AbstractAxisTree,
@@ -50,6 +50,7 @@ class Mat(Tensor):
     _buffer: AbstractBuffer
     _name: str
     _parent: Mat | None
+    transform: TensorTransform | None
 
     def __init__(
         self,
@@ -60,6 +61,7 @@ class Mat(Tensor):
         name=None,
         prefix=None,
         parent=None,
+        transform=None,
     ):
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
@@ -73,6 +75,7 @@ class Mat(Tensor):
         self._buffer = buffer
         self._name = name
         self._parent = parent
+        self.transform = None
 
         self.__post_init__()
 
@@ -246,6 +249,9 @@ class Mat(Tensor):
     def with_axes(self, row_axes, col_axes):
         return self.__record_init__(row_axes=row_axes, column_axes=col_axes)
 
+    def null_like(self, **kwargs) -> Mat:
+        return self.null(self.row_axes, self.column_axes, dtype=self.dtype, **kwargs)
+
     @property
     def leaf_layouts(self):
         assert False, "unused"
@@ -267,16 +273,19 @@ class Mat(Tensor):
 
     # }}}
 
-    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
+    def reshape(self, row_axes: AxisTree, column_axes: AxisTree) -> Mat:
         """Return a reshaped view of the `Mat`.
 
         TODO
 
         """
         assert isinstance(row_axes, AxisTree), "not indexed"
-        assert isinstance(col_axes, AxisTree), "not indexed"
-
-        return self.materialize().__record_init__(row_axes=row_axes, column_axes=col_axes, _parent=IdentityTensorTransform(self))
+        assert isinstance(column_axes, AxisTree), "not indexed"
+        return self.__record_init__(
+            row_axes=row_axes,
+            column_axes=column_axes,
+            transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
+        )
 
     @cached_property
     def size(self) -> Any:

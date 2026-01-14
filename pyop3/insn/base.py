@@ -204,12 +204,13 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
         old_insn = insn
         insn = expand_assignments(insn)
+        # if "form_cell_integral" in str(self):
+        #     breakpoint()
         while insn != old_insn:
             old_insn = insn
             insn = expand_assignments(insn)
-
-        # if "form" in str(self):
-        #     breakpoint()
+            # if "form_cell_integral" in str(self):
+            #     breakpoint()
 
         # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
@@ -228,8 +229,6 @@ class Instruction(Node, DistributedObject, abc.ABC):
         from pyop3.ir.lower import compile
 
         preprocessed = self.preprocess(compiler_parameters)
-        if "form" in str(preprocessed):
-            breakpoint()
         return compile(preprocessed, compiler_parameters=compiler_parameters)
 
 
@@ -821,9 +820,6 @@ class ArrayAssignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        if self.assignee.name == "dat_131":
-            breakpoint()
-
         pass
 
     # }}}
