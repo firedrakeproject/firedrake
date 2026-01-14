@@ -687,6 +687,9 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def comm(self) -> MPI.Comm:
         return self.mat_spec.comm
 
+    def zero(self) -> None:
+        self.mat.zeroEntries()
+
     # }}}
 
     @classmethod

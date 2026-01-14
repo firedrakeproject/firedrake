@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import abc
+from ctypes import Array
 import collections
 import functools
 import itertools
 from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
+from os import access
+from re import I
 from typing import Any
 
 import numpy as np
@@ -18,11 +21,14 @@ from pyop3.cache import memory_cache
 from pyop3.expr.buffer import MatArrayBufferExpression
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
+
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
+from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, BufferRef
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer, BufferRef
+
 from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 import pyop3.insn as insn_types
@@ -163,9 +169,23 @@ class ImplicitPackUnpackExpander(NodeTransformer):
         for (arg, intent), shape in zip(
             terminal.function_arguments, terminal.argument_shapes, strict=True
         ):
-            if isinstance(arg, DummyKernelArgument):
-                arguments.append(arg)
-                continue
+            # bare_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(arg, intent)
+            # gathers.extend(arg_pack_insns)
+            # scatters.extend(arg_unpack_insns)
+            #
+            #     if intent == READ:
+            #         gathers.extend(ArrayAssignment(temporary, arg, "write"))
+            #     elif intent == WRITE:
+            #         # This is currently necessary because some local kernels
+            #         # (interpolation) actually increment values instead of setting
+            #         # them directly. This should ideally be addressed.
+            #         gathers.append(ArrayAssignment(temporary, 0, "write"))
+            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+            #     elif intent == RW:
+            #         gathers.append(ArrayAssignment(temporary, arg, "write"))
+            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
+            #     else:
+            #         assert intent == INC
 
             # emit pack/unpack instructions
             if _requires_pack_unpack(arg):
@@ -241,12 +261,12 @@ def _(scalar: Scalar) -> bool:
 def _(dat: Dat) -> bool:
     # This is overly restrictive since we could pass something contiguous like
     # dat[i0, :] directly to a local kernel
-    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes))
+    return not (isinstance(dat.buffer, ConcreteBuffer) and _layouts_match(dat.axes) and not has_materialized_temporaries(dat))
 
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.column_axes))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.column_axes) and not has_materialized_temporaries(mat))
 
 
 def _layouts_match(axes: AxisTreeT) -> bool:
@@ -257,138 +277,172 @@ def _layouts_match(axes: AxisTreeT) -> bool:
 
 
 @functools.singledispatch
-def expand_assignments(obj: Any, /) -> insn_types.InstructionList:
+def expand_transforms(obj: Any, /) -> insn_types.InstructionList:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@expand_assignments.register(insn_types.InstructionList)
+@expand_transforms.register(insn_types.InstructionList)
 def _(insn_list: insn_types.InstructionList, /) -> insn_types.InstructionList:
-    return maybe_enlist((expand_assignments(insn) for insn in insn_list))
+    return maybe_enlist((expand_transforms(insn) for insn in insn_list))
 
 
-@expand_assignments.register(insn_types.Loop)
+@expand_transforms.register(insn_types.Loop)
 def _(loop: insn_types.Loop, /) -> insn_types.Loop:
     return insn_types.Loop(
         loop.index,
         [
-            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_assignments(stmt))
+            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_transforms(stmt))
         ],
     )
 
 
-@expand_assignments.register(insn_types.StandaloneCalledFunction)
+@expand_transforms.register(insn_types.StandaloneCalledFunction)
 # @expand_assignments.register(PetscMatAssignment)
-@expand_assignments.register(insn_types.NullInstruction)
-@expand_assignments.register(insn_types.Exscan)  # assume we are fine
+@expand_transforms.register(insn_types.NullInstruction)
+@expand_transforms.register(insn_types.Exscan)  # assume we are fine
 def _(func: insn_types.StandaloneCalledFunction, /) -> insn_types.StandaloneCalledFunction:
     return func
 
 
-@expand_assignments.register(insn_types.ArrayAssignment)
-def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
-    # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
-    # like
-    #
-    #     mat[f(p), f(p)] <- t0
-    #
-    # we don't want to expand it into
-    #
-    #     t1 <- t0
-    #     mat[f(p), f(p)] <- t1
-    # if assignment.is_mat_access:
-    #     raise NotImplementedError("think")
-    #     return op3_insn.InstructionList([assignment])
+def _intent_as_access_type(intent):
+    if intent == READ:
+        return ArrayAccessType.READ
+    if intent == WRITE:
+        return ArrayAccessType.WRITE
+    else:
+        assert intent == INC
+        return ArrayAccessType.INC
 
-    bare_expression, extra_input_insns = _expand_reshapes(
+
+
+@expand_transforms.register(insn_types.CalledFunction)
+def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
+    bare_func_args = []
+    pack_insns = []
+    unpack_insns = []
+
+    for func_arg, intent in zip(
+        called_func.arguments, called_func.function._access_descrs, strict=True
+    ):
+        arg_pack_insns = []
+        arg_unpack_insns = []
+
+        # function calls need materialised arrays
+        # FIXME: INC'd globals with transforms (ie parents) have to be materialised
+        if _requires_pack_unpack(func_arg):
+            local_tensor = func_arg.materialize()
+
+            if intent == READ:
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+            elif intent == WRITE:
+                # This is currently necessary because some local kernels
+                # (interpolation) actually increment values instead of setting
+                # them directly. This should ideally be addressed.
+                arg_pack_insns.append(local_tensor.assign(0))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
+            elif intent == RW:
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
+            else:
+                assert intent == INC
+                arg_pack_insns.append(local_tensor.assign(0))
+                arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
+
+            materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+        else:
+            materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
+
+        bare_func_args.append(materialized_arg)
+        pack_insns.extend(arg_pack_insns)
+        unpack_insns.extend(arg_unpack_insns)
+
+    bare_called_func = insn_types.StandaloneCalledFunction(called_func.function, bare_func_args)
+    return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
+
+
+@expand_transforms.register(insn_types.ArrayAssignment)
+def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
+    # This function is complete magic and deserves some serious exposition:
+    #
+    # To begin with, consider the assignment:
+    #
+    #     x <- y
+    #
+    # where 'y' is a transformed dat. To generate code for this assignment we
+    # need to traverse the hierarchy of transformations and emit something like:
+    #
+    #     t <- Y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     x <- u     -- original assignment
+    #
+    # where 'Y' is the global data structure at the top of the transform hierarchy.
+    #
+    # To make this happen, in this function we 'expand' the expression 'y',
+    # giving us back 'u' and the sequence of transformation instructions. Note
+    # that here we are expanding the assignment *expression* (as opposed to the
+    # assignee 'x') and so the transformation instructions are emitted in order
+    # from global to local data structures.
+    #
+    # Now let's imagine what happens for 'x <- y' where the assignee ('x') is
+    # the transformed object. We thus want to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X <- u
+    #
+    # where 'X' is the global data at the top of the transform hierarchy for 'x'.
+    # Expanding the assignee will return 't' and the subsequent transformations.
+    # Since the transformation here is applied to the assignee the transformation
+    # instructions go from local data structures to global ones.
+    #
+    # Lastly, if we consider incrementing instead of assigning (i.e. 'x += y'),
+    # then some changes are needed. We need to generate code like:
+    #
+    #     t <- y
+    #     f(t)       -- in-place transform
+    #     u <- g(t)  -- out-of-place transform
+    #     X += u
+    #
+    # To make this work we extract the increment by materialising 'u'.
+    bare_expression, expression_insns = expr_visitors.expand_transforms(
         assignment.expression, ArrayAccessType.READ
     )
 
     if assignment.assignment_type == AssignmentType.WRITE:
-        assignee_access_type = ArrayAccessType.WRITE
+        access_type = ArrayAccessType.WRITE
     else:
         assert assignment.assignment_type == AssignmentType.INC
-        assignee_access_type = ArrayAccessType.INC
-
-    bare_assignee, extra_output_insns = _expand_reshapes(
-        assignment.assignee, assignee_access_type
+        access_type = ArrayAccessType.INC
+    bare_assignee, assignee_insns = expr_visitors.expand_transforms(
+        assignment.assignee, access_type
     )
 
-    if bare_assignee == assignment.assignee:
-        # no extra assignments
-        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
-    else:
-        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type="write")
+    assignment_type = assignment.assignment_type
+    if assignment_type == AssignmentType.INC and assignee_insns:
+        # If we are emitting assignee transformation instruction for an
+        # increment assignment then the final instruction must be the
+        # increment into the global data structure. This means that we
+        # should only write here, not increment.
+        assert assignee_insns[-1].assignment_type == AssignmentType.INC
+        assignment_type = AssignmentType.WRITE
 
-    return maybe_enlist((*extra_input_insns, bare_assignment, *reversed(extra_output_insns)))
-
-
-# TODO: better word than "mode"? And use an enum.
-@functools.singledispatch
-def _expand_reshapes(expr: Any, /, mode):
-    raise TypeError(f"No handler provided for {type(expr).__name__}")
-
-
-@_expand_reshapes.register
-def _(op: expr_types.UnaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    return (type(op)(bare_a), a_insns)
+    bare_assignment = assignment.__record_init__(
+        _assignee=bare_assignee,
+        _expression=bare_expression,
+        _assignment_type=assignment_type,
+    )
+    return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
 
 
-@_expand_reshapes.register
-def _(op: expr_types.BinaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_insns = _expand_reshapes(op.b, access_type)
-    return (type(op)(bare_a, bare_b), a_insns + b_insns)
-
-
-@_expand_reshapes.register
-def _(op: expr_types.TernaryOperator, /, access_type):
-    bare_a, a_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_insns = _expand_reshapes(op.b, access_type)
-    bare_c, c_insns = _expand_reshapes(op.c, access_type)
-    return (type(op)(bare_a, bare_b, bare_c), a_insns + b_insns + c_insns)
-
-
-@_expand_reshapes.register(numbers.Number)
-@_expand_reshapes.register(expr_types.AxisVar)
-@_expand_reshapes.register(expr_types.LoopIndexVar)
-@_expand_reshapes.register(BufferExpression)
-@_expand_reshapes.register(expr_types.NaN)
-def _(var, /, access_type):
-    return (var, ())
-
-
-# TODO: Add intermediate type here to assert that there is no longer a parent attr
-@_expand_reshapes.register(Tensor)
-def _(array: Tensor, /, access_type):
-    if array.parent:
-        if isinstance(array, Dat):
-            temp_initial = Dat.null(
-                array.parent.axes.materialize(),
-                dtype=array.dtype,
-                prefix="t"
-            )
-            temp_reshaped = temp_initial.with_axes(array.axes)
+def has_materialized_temporaries(tensor: Tensor) -> bool:
+    while tensor.parent:
+        if isinstance(tensor.parent, OutOfPlaceTensorTransform):
+            return True
         else:
-            assert isinstance(array, Mat)
-            row_axes = array.parent.row_axes.materialize()
-            column_axes = array.parent.column_axes.materialize()
-            temp_initial = Mat.null(row_axes, column_axes, dtype=array.dtype, prefix="t")
-            temp_reshaped = temp_initial.with_axes(array.row_axes, array.column_axes)
-
-        transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
-
-        if access_type == ArrayAccessType.READ:
-            assignment = insn_types.ArrayAssignment(temp_initial, transformed_dat, "write")
-        elif access_type == ArrayAccessType.WRITE:
-            assignment = insn_types.ArrayAssignment(transformed_dat, temp_initial, "write")
-        else:
-            assert access_type == ArrayAccessType.INC
-            assignment = insn_types.ArrayAssignment(transformed_dat, temp_initial, "inc")
-
-        return (temp_reshaped, extra_insns + (assignment,))
-    else:
-        return (array, ())
+            tensor = tensor.parent.untransformed
+    return False
 
 
 @functools.singledispatch

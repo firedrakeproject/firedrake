@@ -16,7 +16,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from ..base import LoopIndexVar
-from .base import Tensor
+from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
 from pyop3.mpi import collective
 from pyop3.tree.axis_tree import (
     Axis,
@@ -67,6 +67,7 @@ class Dat(Tensor):
     _buffer: AbstractBuffer
     _name: str
     _parent: Dat | None
+    transform: TensorTransform | None = None
 
     def __init__(
         self,
@@ -78,6 +79,7 @@ class Dat(Tensor):
         prefix=None,
         parent=None,
         buffer_kwargs=None,
+        transform=None,
     ):
         """
         NOTE: buffer and data are equivalent options. Only one can be specified. I include both
@@ -90,6 +92,8 @@ class Dat(Tensor):
         unindexed_axis_trees = collect_unindexed_axis_trees(axes)
         sf = utils.single_valued(tree.sf for tree in unindexed_axis_trees)
 
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
             assert buffer_kwargs is None
@@ -99,17 +103,18 @@ class Dat(Tensor):
         else:
             if buffer_kwargs is None:
                 buffer_kwargs = {}
+            if "name" not in buffer_kwargs:
+                buffer_kwargs["name"] = f"{name}_buffer"
             assert buffer is None and data is not None
             buffer = ArrayBuffer(data, sf, **buffer_kwargs)
 
         assert buffer.size == axes.unindexed.local_max_size
 
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
         self.axes = axes
         self._buffer = buffer
         self._name = name
         self._parent = parent
+        self.transform = transform
 
         # self._cache = {}
 
@@ -118,21 +123,23 @@ class Dat(Tensor):
     def __post_init__(self) -> None:
         pass
 
+    def __str__(self) -> str:
+        return f"Dat({self.name})"
 
     # }}}
 
     # {{{ class attrs
 
-    DEFAULT_PREFIX: ClassVar[str] = "dat"
+    DEFAULT_PREFIX = "dat"
 
     # }}}
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    parent: ClassVar[property] = utils.attr("_parent")
-    buffer: ClassVar[property] = utils.attr("_buffer")
-    dim: ClassVar[int] = 1
+    name = utils.attr("_name")
+    parent = utils.attr("_parent")
+    buffer = utils.attr("_buffer")
+    dim = 1
 
     @property
     def axis_trees(self) -> tuple[AbstractAxisTree]:
@@ -187,6 +194,13 @@ class Dat(Tensor):
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs=idict(), **kwargs) -> Dat:
+        name = utils.maybe_generate_name(kwargs.pop("name", None), kwargs.pop("prefix", None), cls.DEFAULT_PREFIX)
+        kwargs["name"] = name
+
+        buffer_kwargs = dict(buffer_kwargs)
+        if "name" not in buffer_kwargs:
+            buffer_kwargs["name"] = f"{name}_buffer"
+
         axes = as_axis_tree(axes)
         buffer = NullBuffer(axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
@@ -287,10 +301,6 @@ class Dat(Tensor):
         name = f"{self.name}_copy"
         buffer = self._buffer.duplicate(copy=copy)
         return self.__record_init__(_name=name, _buffer=buffer)
-
-    @PETSc.Log.EventDecorator()
-    def zero(self, *, eager=False):
-        return self.assign(0, eager=eager)
 
     # TODO: dont do this here
     def with_context(self, context):
@@ -583,7 +593,9 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, _parent=self)
+        return self.__record_init__(axes=axes, transform=ReshapeTensorTransform((self.axes,), self.transform))
+
+        # return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -602,6 +614,10 @@ class Dat(Tensor):
 
         """
         return self.__record_init__(axes=axes)
+
+    def null_like(self, **kwargs) -> Dat:
+        return self.null(self.axes, dtype=self.dtype, **kwargs)
+
 
 
 @utils.frozenrecord()

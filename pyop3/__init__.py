@@ -42,7 +42,7 @@ import pyop3.ir
 import pyop3.insn.visitors as insn_visitors
 from pyop3.expr.tensor import (  # noqa: F401
     Tensor, FancyIndexWriteException, Dat, Scalar, Mat,
-    RowDatPythonMatContext, ColumnDatPythonMatContext,
+    RowDatPythonMatContext, ColumnDatPythonMatContext, OutOfPlaceCallableTensorTransform
 )
 from pyop3.expr import as_linear_buffer_expression, AxisVar
 from pyop3.tree.axis_tree import (  # noqa: F401
@@ -92,6 +92,7 @@ from pyop3.insn import (  # noqa: F401
     do_loop,
     loop_ as loop,
     exscan,
+    AssignmentType,
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf

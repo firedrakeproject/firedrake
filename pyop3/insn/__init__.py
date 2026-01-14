@@ -15,6 +15,7 @@ from .base import (  # noqa: F401
     InstructionList,
     Instruction,
     FunctionArgument,
+    AssignmentType,
     KernelArgument,
     Intent,
     AbstractAssignment,

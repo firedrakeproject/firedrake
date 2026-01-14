@@ -3,11 +3,12 @@ from __future__ import annotations
 import abc
 import numbers
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Callable
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
+from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.sf import DistributedObject
@@ -90,6 +91,10 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     def axis_trees(self) -> tuple[AbstractAxisTree, ...]:
         pass
 
+    @PETSc.Log.EventDecorator()
+    def zero(self, *, eager=False):
+        return self.assign(0, eager=eager)
+
     # }}}
 
     def __iadd__(self, other: ExpressionT, /) -> Self:
@@ -124,6 +129,8 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
 
     def _assign(self, other, mode, /, *, eager: bool, compiler_parameters):
         from pyop3.insn import ArrayAssignment
+        from .dat import Dat
+        from .mat import Mat
 
         if not eager and compiler_parameters:
             raise RuntimeError
@@ -133,6 +140,7 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
         # that nothing is indexed. This could also catch the case of x.assign(x).
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
+
         expr = ArrayAssignment(self, other, mode)
         return expr(compiler_parameters=compiler_parameters) if eager else expr
 
@@ -167,3 +175,55 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     @abc.abstractmethod
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
+
+
+# NOTE: No idea if this is where this should live, quite possibly this is wrong
+class TensorTransform(abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def prev(self) -> TensorTransform | None:
+        pass
+
+
+class CallableTensorTransform(TensorTransform):
+    ...
+
+
+@utils.frozenrecord()
+class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
+
+    # {{{ instance attrs
+
+    transform_in: Callable[[Tensor, Tensor], None]
+    transform_out: Callable[[Tensor, Tensor], None]
+    _prev: TensorTransform | None = None
+
+    # }}}
+
+    # {{{ interface impls
+
+    prev = utils.attr("_prev")
+
+    # }}}
+
+
+class IdentityTensorTransform(TensorTransform):
+    ...
+
+
+@utils.frozenrecord()
+class ReshapeTensorTransform(IdentityTensorTransform):
+
+    # {{{ instance attrs
+
+    axis_trees: tuple[AxisTree, ...]
+    _prev: TensorTransform | None = None
+
+    # }}}
+
+    # {{{ interface impls
+
+    prev = utils.attr("_prev")
+
+    # }}}

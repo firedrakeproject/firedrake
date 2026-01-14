@@ -190,7 +190,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
-            expand_assignments,
+            expand_transforms,
             materialize_indirections,
             concretize_layouts,
             insert_literals,
@@ -198,8 +198,21 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
         insn = self
         insn = expand_loop_contexts(insn)
-        insn = expand_implicit_pack_unpack(insn)
-        insn = expand_assignments(insn)  # specifically reshape bits
+
+        # bad name, this expands all transformations and pack/unpacks for called functions
+        # 'flatten?'
+        # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
+        old_insn = insn
+        insn = expand_transforms(insn)
+        # if "form_cell_integral" in str(self):
+        #     breakpoint()
+        while insn != old_insn:
+            old_insn = insn
+            insn = expand_transforms(insn)
+            # if "form_cell_integral" in str(self):
+            #     breakpoint()
+
+        # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
@@ -804,6 +817,10 @@ class ArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        pass
 
     # }}}
 
@@ -826,9 +843,6 @@ class ArrayAssignment(AbstractAssignment):
         # makes sense. For more complex things loops should be used.
         axis_trees = []
         for axis_obj in get_shape(self.assignee):
-            if isinstance(axis_obj, AxisForest):
-                # just take the first
-                axis_obj = axis_obj.trees[0]
             axis_trees.append(axis_obj)
         return tuple(axis_trees)
 
@@ -857,6 +871,10 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 
@@ -890,6 +908,10 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_comm", comm)
+        self.__post_init__()
+
+    def __post_init__(self):
+        pass
 
     # }}}
 
@@ -941,6 +963,7 @@ def exscan(*args, eager: bool = False, **kwargs):
 
 
 # TODO: With Python 3.11 can be made a StrEnum
+# The idea is basically RW isn't allowed here
 class ArrayAccessType(enum.Enum):
     READ = "read"
     WRITE = "write"
