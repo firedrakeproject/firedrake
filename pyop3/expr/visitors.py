@@ -1384,38 +1384,7 @@ def _(tensor: expr_types.Tensor, /, access_type):
 
 
 def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None, access_type: ArrayAccessType):
-    """
-
-    As an example, consider packing a tensor that has in-place and out-of-place
-    transformations.
-
-    I.e.
-
-    * given: 'T'
-    * want:
-
-        f(U)         # in-place transform
-        T <- g(U)    # out-of-place transform
-        ...
-        kernel(T)
-
-      and 'U'
-
-    """
-    """
-    I.e.
-
-    * given: 'T'
-    * want:
-
-        kernel(T, ...)
-        ...
-        f'(T)        # in-place transform
-        U <- g'(T)   # out-of-place transform
-
-      and 'U'
-
-    """
+    # For more exposition on this function refer to pyop3/insn/visitors.py::expand_transforms
     assert not tensor.transform, "Tensor transforms should already have been extracted"
 
     if not transform:
@@ -1429,43 +1398,50 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
             temporary = tensor.materialize()
             return temporary, (tensor.iassign(temporary),)
 
-    # TODO: singledispatch
+    prev_tensor = tensor
     if isinstance(transform, ReshapeTensorTransform):
-        # Since transformations are atomic we have to make sure that they
-        # are handled as distinct instructions. This means that we have to
-        # materialise them every time. As an example consider an in-place
-        # permutation followed by a reshape:
-        #
-        #   for i < 6
-        #     t1[i] = t0[perm[i]]
-        #   for j < 3
-        #     dat[f(j)] = t1[j]
-        #   for k < 3
-        #     dat[g(k)] = t1[k+3]
-        #
-        # This cannot be represented as:
-        #
-        #   for j < 3
-        #     dat[f(j)] += t0[perm[j]]
-        #   for k < 3
-        #     dat[g(k)] += t0[perm[k+3]]
-        #
-        # because the system is not that clever: the shapes of t0 and dat[???]
-        # do not match.
-        #
-        # TODO: This materialisation is not actually needed if we don't index
-        # the tensor.
         prev_tensor = tensor.with_axes(*transform.axis_trees)
-    else:
-        prev_tensor = tensor
 
+    # Start at the top of the transformation tree
     prev_tensor, prev_insns = _expand_transforms_tensor(prev_tensor, transform.prev, access_type)
 
-    insns = list(prev_insns)
-
     if isinstance(transform, ReshapeTensorTransform):
-        tensor = tensor.null_like()  # materialize() does not work because we need the axes
+        # Consider emitting code for the following operations
+        #
+        #     for i < 3
+        #       temp1[i] = dat[f(i)]
+        #     for j < 3
+        #       temp1[j+3] = dat[g(j)]
+        #     for k < 6
+        #       temp2[k] = temp1[h(k)]
+        #
+        # Here we use a reshape transformation to interpret 'dat' in 2 ways:
+        # first with a 2 component axis tree (each of size 3), and second as
+        # a single component with size 6. The permutation operation 'h(k)'
+        # cannot nicely compose with the former packing operations 'f(i)' and
+        # 'g(j)' so we handle it separately. This means that *reshape operations
+        # require intermediate temporaries*, which we handle here.
+        #
+        # This means that we need an instruction like
+        #
+        #     temp[i] = global[f(i)]
+        #
+        # for packing, or
+        #
+        #     global[f(i)] = temp[i]
+        #
+        # for unpacking. We already have 'global' and must form 'temp', which
+        # is then passed up to the caller. Critically note that 'temp' here must
+        # be interpretable in 2 ways, once as an unindexed temporary ('temp1[i]'
+        # and 'temp1[j+3]') above, and also with the indexing information
+        # encoded in its axis tree ('temp1[h(k)]' above).
 
+        # Make 'tensor' a temporary but retain its original axis tree, this is
+        # what we return to the caller
+        tensor = tensor.null_like()
+
+        # Produce an 'unindexed' version of this temporary with shape
+        # matching 'prev_tensor'
         if isinstance(tensor, Dat):
             tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
         else:
@@ -1474,19 +1450,29 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
                 prev_tensor.row_axes.materialize(),
                 prev_tensor.column_axes.materialize(),
             )
+
         if access_type == ArrayAccessType.READ:
-            insns.insert(0, tensor_reshaped.assign(prev_tensor))
+            insns = (tensor_reshaped.assign(prev_tensor),)
         else:
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns.insert(0, prev_tensor.assign(tensor_reshaped))
-    elif isinstance(transform, OutOfPlaceCallableTensorTransform):
+            insns = (prev_tensor.assign(tensor_reshaped),)
+    else:
+        assert isinstance(transform, OutOfPlaceCallableTensorTransform)
+        # Emit something like
+        #
+        #     f_in(global, temp)
+        #
+        # for packing, or
+        #
+        #     f_out(temp, global)
+        #
+        # for unpacking. We already have 'global' and must form 'temp', which
+        # is then passed up to the caller.
         tensor = tensor.materialize()
         if access_type == ArrayAccessType.READ:
-            insns = list(transform.transform_in(prev_tensor, tensor)) + insns
+            insns = transform.transform_in(prev_tensor, tensor)
         else:
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns = list(transform.transform_out(tensor, prev_tensor)) + insns
-    else:
-        raise NotImplementedError
+            insns = transform.transform_out(tensor, prev_tensor)
 
-    return tensor, insns
+    return tensor, insns + prev_insns
