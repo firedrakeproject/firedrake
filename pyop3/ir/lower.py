@@ -357,8 +357,8 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        if len(self.loopy_code.callables_table) > 1 and "form_cell_integral" in str(self):
-            breakpoint()
+        # if len(self.loopy_code.callables_table) > 1 and "form_cell_integral" in str(self):
+        #     breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
 

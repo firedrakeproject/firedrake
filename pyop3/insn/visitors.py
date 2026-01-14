@@ -277,29 +277,29 @@ def _layouts_match(axes: AxisTreeT) -> bool:
 
 
 @functools.singledispatch
-def expand_assignments(obj: Any, /) -> insn_types.InstructionList:
+def expand_transforms(obj: Any, /) -> insn_types.InstructionList:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@expand_assignments.register(insn_types.InstructionList)
+@expand_transforms.register(insn_types.InstructionList)
 def _(insn_list: insn_types.InstructionList, /) -> insn_types.InstructionList:
-    return maybe_enlist((expand_assignments(insn) for insn in insn_list))
+    return maybe_enlist((expand_transforms(insn) for insn in insn_list))
 
 
-@expand_assignments.register(insn_types.Loop)
+@expand_transforms.register(insn_types.Loop)
 def _(loop: insn_types.Loop, /) -> insn_types.Loop:
     return insn_types.Loop(
         loop.index,
         [
-            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_assignments(stmt))
+            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_transforms(stmt))
         ],
     )
 
 
-@expand_assignments.register(insn_types.StandaloneCalledFunction)
+@expand_transforms.register(insn_types.StandaloneCalledFunction)
 # @expand_assignments.register(PetscMatAssignment)
-@expand_assignments.register(insn_types.NullInstruction)
-@expand_assignments.register(insn_types.Exscan)  # assume we are fine
+@expand_transforms.register(insn_types.NullInstruction)
+@expand_transforms.register(insn_types.Exscan)  # assume we are fine
 def _(func: insn_types.StandaloneCalledFunction, /) -> insn_types.StandaloneCalledFunction:
     return func
 
@@ -315,7 +315,7 @@ def _intent_as_access_type(intent):
 
 
 
-@expand_assignments.register(insn_types.CalledFunction)
+@expand_transforms.register(insn_types.CalledFunction)
 def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
     bare_func_args = []
     pack_insns = []
@@ -360,7 +360,7 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
     return maybe_enlist((*pack_insns, bare_called_func, *unpack_insns))
 
 
-@expand_assignments.register(insn_types.ArrayAssignment)
+@expand_transforms.register(insn_types.ArrayAssignment)
 def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     # This function is complete magic and deserves some serious exposition:
     #
@@ -368,20 +368,21 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #
     #     x <- y
     #
-    # where 'y' is a dat with a parent. Having a parent means that 'y' is
-    # the result of a transformation applied to another dat. When we generate
-    # code for this assignment we therefore need to traverse the hierarchy of
-    # transformations and emit something like:
+    # where 'y' is a transformed dat. To generate code for this assignment we
+    # need to traverse the hierarchy of transformations and emit something like:
     #
     #     t <- Y
     #     f(t)       -- in-place transform
     #     u <- g(t)  -- out-of-place transform
-    #     x <- u
+    #     x <- u     -- original assignment
     #
-    # where 'Y' is the global data structure at the top of the parent hierarchy.
+    # where 'Y' is the global data structure at the top of the transform hierarchy.
     #
     # To make this happen, in this function we 'expand' the expression 'y',
-    # giving us back 'u' and the sequence of transformation instructions.
+    # giving us back 'u' and the sequence of transformation instructions. Note
+    # that here we are expanding the assignment *expression* (as opposed to the
+    # assignee 'x') and so the transformation instructions are emitted in order
+    # from global to local data structures.
     #
     # Now let's imagine what happens for 'x <- y' where the assignee ('x') is
     # the transformed object. We thus want to generate code like:
@@ -391,10 +392,12 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #     u <- g(t)  -- out-of-place transform
     #     X <- u
     #
-    # where 'X' is the global data at the top of the parent hierarchy for 'x'.
+    # where 'X' is the global data at the top of the transform hierarchy for 'x'.
     # Expanding the assignee will return 't' and the subsequent transformations.
+    # Since the transformation here is applied to the assignee the transformation
+    # instructions go from local data structures to global ones.
     #
-    # Lastly, if we consider incrementing, instead of assigning (i.e. 'x += y'),
+    # Lastly, if we consider incrementing instead of assigning (i.e. 'x += y'),
     # then some changes are needed. We need to generate code like:
     #
     #     t <- y
@@ -403,249 +406,34 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #     X += u
     #
     # To make this work we extract the increment by materialising 'u'.
-
-    bare_expression, expression_insns = _expand_transforms(assignment.expression, ArrayAccessType.READ)
+    bare_expression, expression_insns = expr_visitors.expand_transforms(
+        assignment.expression, ArrayAccessType.READ
+    )
 
     if assignment.assignment_type == AssignmentType.WRITE:
         access_type = ArrayAccessType.WRITE
     else:
         assert assignment.assignment_type == AssignmentType.INC
         access_type = ArrayAccessType.INC
+    bare_assignee, assignee_insns = expr_visitors.expand_transforms(
+        assignment.assignee, access_type
+    )
 
-    bare_assignee, assignee_insns = _expand_transforms(assignment.assignee, access_type)
-
-    # INC handled internally
-    if assignee_insns:
+    assignment_type = assignment.assignment_type
+    if assignment_type == AssignmentType.INC and assignee_insns:
+        # If we are emitting assignee transformation instruction for an
+        # increment assignment then the final instruction must be the
+        # increment into the global data structure. This means that we
+        # should only write here, not increment.
+        assert assignee_insns[-1].assignment_type == AssignmentType.INC
         assignment_type = AssignmentType.WRITE
-    else:
-        assignment_type = assignment.assignment_type
-    bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type=assignment_type)
+
+    bare_assignment = assignment.__record_init__(
+        _assignee=bare_assignee,
+        _expression=bare_expression,
+        _assignment_type=assignment_type,
+    )
     return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
-
-
-@functools.singledispatch
-def _expand_transforms(expr: Any, /, *args, **kwargs):
-    raise TypeError(f"No handler provided for {type(expr).__name__}")
-
-
-@_expand_transforms.register
-def _(op: expr_types.UnaryOperator, /, access_type):
-    bare_a, unpack_insns = _expand_transforms(op.a, access_type)
-    return (type(op)(bare_a), unpack_insns)
-
-
-@_expand_transforms.register
-def _(op: expr_types.BinaryOperator, /, access_type):
-    bare_a, a_unpack_insns = _expand_transforms(op.a, access_type)
-    bare_b, b_unpack_insns = _expand_transforms(op.b, access_type)
-    return (type(op)(bare_a, bare_b), a_unpack_insns+b_unpack_insns)
-
-
-@_expand_transforms.register
-def _(op: expr_types.TernaryOperator, /, access_type):
-    bare_operands = []
-    unpack_insns = []
-    for operand in op.operands:
-        bare_operand, operand_unpack_insns = _expand_transforms(operand, access_type)
-        bare_operands.append(bare_operand)
-        unpack_insns.extend(operand_unpack_insns)
-    return (type(op)(*bare_operands), tuple(unpack_insns))
-
-
-@_expand_transforms.register(numbers.Number)
-@_expand_transforms.register(expr_types.AxisVar)
-@_expand_transforms.register(expr_types.LoopIndexVar)
-@_expand_transforms.register(BufferExpression)
-@_expand_transforms.register(expr_types.NaN)
-def _(var, /, access_type):
-    return (var, ())
-
-
-# TODO: Add intermediate type here to assert that there is no longer a parent attr
-@_expand_transforms.register(Tensor)
-def _(tensor: Tensor, /, access_type):
-    if not tensor.transform:
-        return tensor, ()
-    return _expand_transforms_tensor(tensor.__record_init__(transform=None), tensor.transform, access_type)
-
-
-def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform, access_type: ArrayAccessType):
-    assert not tensor.transform, "Tensor transforms should already have been extracted"
-
-    if not transform:
-        if access_type in {ArrayAccessType.READ, ArrayAccessType.WRITE}:
-            return tensor, ()
-        else:
-            assert access_type == ArrayAccessType.INC
-            temporary = tensor.materialize()
-            return temporary, (tensor.iassign(temporary),)
-
-    # TODO: singledispatch
-    if isinstance(transform, ReshapeTensorTransform):
-        prev_tensor = tensor.with_axes(*transform.axis_trees)
-    else:
-        prev_tensor = tensor
-
-    prev_tensor, prev_insns = _expand_transforms_tensor(prev_tensor, transform.prev, access_type)
-
-    insns = list(prev_insns)
-
-    if isinstance(transform, ReshapeTensorTransform):
-        tensor = tensor.null_like()  # materialize() instead?
-
-        if isinstance(tensor, Dat):
-            tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
-        else:
-            assert isinstance(tensor, Mat)
-            tensor_reshaped = tensor.with_axes(
-                prev_tensor.row_axes.materialize(),
-                prev_tensor.column_axes.materialize(),
-            )
-        if access_type == ArrayAccessType.READ:
-            insns.insert(0, tensor_reshaped.assign(prev_tensor))
-        else:
-            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns.insert(0, prev_tensor.assign(tensor_reshaped))
-    elif isinstance(transform, OutOfPlaceCallableTensorTransform):
-        tensor = tensor.materialize()
-        if access_type == ArrayAccessType.READ:
-            insns = list(transform.transform_in(prev_tensor, tensor)) + insns
-        else:
-            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns = list(transform.transform_out(tensor, prev_tensor)) + insns
-    else:
-        raise NotImplementedError
-
-    return tensor, insns
-
-
-def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
-    """
-    I.e.
-
-    * given: 'T'
-    * want:
-
-        f(U)         # in-place transform
-        T <- g(U)    # out-of-place transform
-        ...
-        kernel(T)
-
-      and 'U'
-
-    """
-    current_tensor = tensor
-    pack_insns = ()
-    while current_tensor.parent:
-        parent_tensor = current_tensor.parent.untransformed
-
-        bare_current_tensor = current_tensor.__record_init__(_parent=None)
-        bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
-
-        if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            if isinstance(bare_current_tensor, Dat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.axes.materialize())
-            elif isinstance(bare_current_tensor, Mat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(bare_parent_tensor.raxes.materialize(), bare_parent_tensor.caxes.materialize())
-            else:
-                raise NotImplementedError
-            current_pack_insns = (
-                bare_current_tensor_reshaped.assign(bare_parent_tensor),
-                *current_tensor.parent.transform_in(bare_current_tensor),
-                )
-        else:
-            assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
-            current_pack_insns = current_tensor.parent.transform_in(bare_parent_tensor, bare_current_tensor)
-
-        pack_insns = (*pack_insns, *current_pack_insns)
-        current_tensor = parent_tensor
-
-    # for inputs return the first tensor (it's the local one)
-    return tensor.__record_init__(_parent=None), pack_insns
-
-def _expand_transforms_out(tensor: Tensor, access_type) -> tuple[Tensor, tuple[Instruction, ...]]:
-    """
-    I.e.
-
-    * given: 'T'
-    * want:
-
-        kernel(T, ...)
-        ...
-        f'(T)        # in-place transform
-        U <- g'(T)   # out-of-place transform
-
-      and 'U'
-
-    """
-    assert tensor.parent is None or access_type != ArrayAccessType.INC, "should handle this earlier..."
-
-    current_tensor = tensor
-    unpack_insns = ()
-    while current_tensor.parent:
-        parent_tensor = current_tensor.parent.untransformed
-
-        bare_current_tensor = current_tensor.__record_init__(_parent=None)
-        bare_parent_tensor = parent_tensor.__record_init__(_parent=None)
-
-        # Since transformations are atomic we have to make sure that they
-        # are handled as distinct instructions. This means that we have to
-        # materialise them every time. As an example consider an in-place
-        # permutation followed by a reshape:
-        #
-        #   for i < 6
-        #     t1[i] = t0[perm[i]]
-        #   for j < 3
-        #     dat[f(j)] = t1[j]
-        #   for k < 3
-        #     dat[g(k)] = t1[k+3]
-        #
-        # This cannot be represented as:
-        #
-        #   for j < 3
-        #     dat[f(j)] += t0[perm[j]]
-        #   for k < 3
-        #     dat[g(k)] += t0[perm[k+3]]
-        #
-        # because the system is not that clever: the shapes of t0 and dat[???]
-        # do not match.
-        #
-        # TODO: This materialisation is not actually needed if we don't index
-        # the tensor.
-        if isinstance(current_tensor.parent, InPlaceTensorTransform):
-            if isinstance(bare_current_tensor, Dat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(
-                    bare_parent_tensor.axes.materialize()
-                )
-            elif isinstance(bare_current_tensor, Mat):
-                bare_current_tensor_reshaped = bare_current_tensor.with_axes(
-                    bare_parent_tensor.row_axes.materialize(),
-                    bare_parent_tensor.column_axes.materialize(),
-                )
-            else:
-                raise NotImplementedError
-            # NOTE: It seems a bit weird to have an assignment given that this is 'inplace'
-            current_unpack_insns = [
-                *current_tensor.parent.transform_out(bare_current_tensor),
-            ]
-
-            # at the end of the traversal, maybe emit an INC
-            # NOTE: I don't know how much of this is needed any more
-            if not parent_tensor.parent and access_type == ArrayAccessType.INC:
-                current_unpack_insns.append(bare_parent_tensor.iassign(bare_current_tensor_reshaped))
-            else:
-                current_unpack_insns.append(bare_parent_tensor.assign(bare_current_tensor_reshaped))
-        else:
-            assert isinstance(current_tensor.parent, OutOfPlaceTensorTransform)
-            current_unpack_insns = current_tensor.parent.transform_out(bare_current_tensor, bare_parent_tensor)
-
-        unpack_insns = (*current_unpack_insns, *unpack_insns)
-        current_tensor = parent_tensor
-
-    # for inputs return the last tensor (it's the global one)
-    # return current_tensor, unpack_insns
-    # no, don't
-    return tensor.__record_init__(_parent=None), unpack_insns
 
 
 def has_materialized_temporaries(tensor: Tensor) -> bool:

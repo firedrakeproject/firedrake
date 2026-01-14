@@ -15,6 +15,7 @@ from petsc4py import PETSc
 
 from pyop3.cache import memory_cache
 from pyop3.config import config
+from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer
@@ -28,9 +29,9 @@ from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one, OrderedFrozenSet
 
 import pyop3.expr as expr_types
-from pyop3.insn.base import loop_
+from pyop3.insn.base import ArrayAccessType, loop_
 from .base import ExpressionT, conditional, loopified_shape
-from .tensor import Dat
+from .tensor import Dat, Mat
 
 if typing.TYPE_CHECKING:
     from pyop3.tree.axis_tree import AxisLabelT
@@ -1332,3 +1333,160 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
 
 def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
     return ExpressionLinearizer()(expr, path=path)
+
+
+@functools.singledispatch
+def expand_transforms(expr: Any, /, *args, **kwargs):
+    raise TypeError(f"No handler provided for {type(expr).__name__}")
+
+
+@expand_transforms.register
+def _(op: expr_types.UnaryOperator, /, access_type):
+    bare_a, unpack_insns = expand_transforms(op.a, access_type)
+    return (type(op)(bare_a), unpack_insns)
+
+
+@expand_transforms.register
+def _(op: expr_types.BinaryOperator, /, access_type):
+    bare_a, a_unpack_insns = expand_transforms(op.a, access_type)
+    bare_b, b_unpack_insns = expand_transforms(op.b, access_type)
+    return (type(op)(bare_a, bare_b), a_unpack_insns+b_unpack_insns)
+
+
+@expand_transforms.register
+def _(op: expr_types.TernaryOperator, /, access_type):
+    bare_operands = []
+    unpack_insns = []
+    for operand in op.operands:
+        bare_operand, operand_unpack_insns = expand_transforms(operand, access_type)
+        bare_operands.append(bare_operand)
+        unpack_insns.extend(operand_unpack_insns)
+    return (type(op)(*bare_operands), tuple(unpack_insns))
+
+
+@expand_transforms.register(numbers.Number)
+@expand_transforms.register(expr_types.AxisVar)
+@expand_transforms.register(expr_types.LoopIndexVar)
+@expand_transforms.register(expr_types.BufferExpression)
+@expand_transforms.register(expr_types.NaN)
+def _(var, /, access_type):
+    return (var, ())
+
+
+# TODO: Add intermediate type here to assert that there is no longer a parent attr
+@expand_transforms.register(expr_types.Tensor)
+def _(tensor: expr_types.Tensor, /, access_type):
+    if not tensor.transform:
+        return tensor, ()
+    else:
+        bare_tensor = tensor.__record_init__(transform=None)
+        return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
+
+
+def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None, access_type: ArrayAccessType):
+    """
+
+    As an example, consider packing a tensor that has in-place and out-of-place
+    transformations.
+
+    I.e.
+
+    * given: 'T'
+    * want:
+
+        f(U)         # in-place transform
+        T <- g(U)    # out-of-place transform
+        ...
+        kernel(T)
+
+      and 'U'
+
+    """
+    """
+    I.e.
+
+    * given: 'T'
+    * want:
+
+        kernel(T, ...)
+        ...
+        f'(T)        # in-place transform
+        U <- g'(T)   # out-of-place transform
+
+      and 'U'
+
+    """
+    assert not tensor.transform, "Tensor transforms should already have been extracted"
+
+    if not transform:
+        if access_type in {ArrayAccessType.READ, ArrayAccessType.WRITE}:
+            return tensor, ()
+        else:
+            assert access_type == ArrayAccessType.INC
+            # For increment access we only want the preceding transformations
+            # to apply to the incremental change, not the whole data structure.
+            # We therefore materialise and return a temporary to hold the change.
+            temporary = tensor.materialize()
+            return temporary, (tensor.iassign(temporary),)
+
+    # TODO: singledispatch
+    if isinstance(transform, ReshapeTensorTransform):
+        # Since transformations are atomic we have to make sure that they
+        # are handled as distinct instructions. This means that we have to
+        # materialise them every time. As an example consider an in-place
+        # permutation followed by a reshape:
+        #
+        #   for i < 6
+        #     t1[i] = t0[perm[i]]
+        #   for j < 3
+        #     dat[f(j)] = t1[j]
+        #   for k < 3
+        #     dat[g(k)] = t1[k+3]
+        #
+        # This cannot be represented as:
+        #
+        #   for j < 3
+        #     dat[f(j)] += t0[perm[j]]
+        #   for k < 3
+        #     dat[g(k)] += t0[perm[k+3]]
+        #
+        # because the system is not that clever: the shapes of t0 and dat[???]
+        # do not match.
+        #
+        # TODO: This materialisation is not actually needed if we don't index
+        # the tensor.
+        prev_tensor = tensor.with_axes(*transform.axis_trees)
+    else:
+        prev_tensor = tensor
+
+    prev_tensor, prev_insns = _expand_transforms_tensor(prev_tensor, transform.prev, access_type)
+
+    insns = list(prev_insns)
+
+    if isinstance(transform, ReshapeTensorTransform):
+        tensor = tensor.null_like()  # materialize() does not work because we need the axes
+
+        if isinstance(tensor, Dat):
+            tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
+        else:
+            assert isinstance(tensor, Mat)
+            tensor_reshaped = tensor.with_axes(
+                prev_tensor.row_axes.materialize(),
+                prev_tensor.column_axes.materialize(),
+            )
+        if access_type == ArrayAccessType.READ:
+            insns.insert(0, tensor_reshaped.assign(prev_tensor))
+        else:
+            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
+            insns.insert(0, prev_tensor.assign(tensor_reshaped))
+    elif isinstance(transform, OutOfPlaceCallableTensorTransform):
+        tensor = tensor.materialize()
+        if access_type == ArrayAccessType.READ:
+            insns = list(transform.transform_in(prev_tensor, tensor)) + insns
+        else:
+            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
+            insns = list(transform.transform_out(tensor, prev_tensor)) + insns
+    else:
+        raise NotImplementedError
+
+    return tensor, insns

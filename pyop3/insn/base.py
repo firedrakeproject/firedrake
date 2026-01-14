@@ -190,7 +190,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
         from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
-            expand_assignments,
+            expand_transforms,
             materialize_indirections,
             concretize_layouts,
             insert_literals,
@@ -203,12 +203,12 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # 'flatten?'
         # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
         old_insn = insn
-        insn = expand_assignments(insn)
+        insn = expand_transforms(insn)
         # if "form_cell_integral" in str(self):
         #     breakpoint()
         while insn != old_insn:
             old_insn = insn
-            insn = expand_assignments(insn)
+            insn = expand_transforms(insn)
             # if "form_cell_integral" in str(self):
             #     breakpoint()
 
