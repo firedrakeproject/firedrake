@@ -3,6 +3,7 @@ import functools
 import warnings
 from typing import Any
 
+import loopy as lp
 import numpy as np
 import pyop3 as op3
 import ufl
@@ -408,7 +409,7 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
     string += "\nswitch (dim) { \n"
 
     var_list += ["iden"]
-    args += [loopy.TemporaryVariable("iden", initializer=np.identity(n), dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+    args += [lp.TemporaryVariable("iden", initializer=np.identity(n), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
 
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
@@ -433,7 +434,7 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
                 string += indent*"\t" + "break;\n"
                 var_list += [matname]
                 mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
-                args += [loopy.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
+                args += [lp.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
                 indent -= 1
             indent -= 1
             string += indent*"\t" + "default: break;}break;\n"
@@ -478,65 +479,65 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
     matmuls = []
     if len(ns) == 1:
         # computes res = Ab
-        matmuls += [loopy.make_function(
+        matmuls += [lp.make_function(
           f"{{[{all_idx}]:0 <= {all_idx} < {ns[0]}}}",
           f"""
               res[{res_idx}] =  res[{res_idx}] + a[{a_idx}]*b[{b_idx}]
-          """, name=f"matmul0", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul0", target=lp.CWithGNULibcTarget())]
     else:
         # computes res = A^T B
-        matmuls += [loopy.make_function(
+        matmuls += [lp.make_function(
           f"{{[i,j,k]:0 <= i,k < {ns[0]} and 0 <= j < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + a[k,i]*b[k,j]
-          """, name=f"matmul0", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul0", target=lp.CWithGNULibcTarget())]
         # computes res = BA
-        matmuls += [loopy.make_function(
+        matmuls += [lp.make_function(
           f"{{[i,j,k]:0 <= i < {ns[0]} and 0 <= j,k < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + b[i,k]*a[k,j]
-          """, name=f"matmul1", target=loopy.CWithGNULibcTarget())]
+          """, name=f"matmul1", target=lp.CWithGNULibcTarget())]
         #for n1, n2, idx1, idx2 in zip(ns, reversed(ns), [a_idx, b_idx], [col_idx, row_idx]):
        #  
-       #     matmuls += [loopy.make_function(
+       #     matmuls += [lp.make_function(
        #     f"{{[{idx1+","+idx2}]:0 <= {idx1} < {n1} and 0 <= {idx2} < {n2}}}",
        #     f"""
        #        res[{res_idx}] =  res[{res_idx}] + a[{idx2 + "," + iter_idx}]*b[{iter_idx +}]
-       #     """, name="matmul", target=loopy.CWithGNULibcTarget())]
+       #     """, name="matmul", target=lp.CWithGNULibcTarget())]
 
-    inc_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
-    inc_knl = loopy.make_function(
+    inc_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
+                lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
+    inc_knl = lp.make_function(
         all_idxs,
         [f"b[{res_idx}] = b[{res_idx}] + res[{res_idx}]"],
         kernel_data=inc_args,
-        name="inc", target=loopy.CWithGNULibcTarget()
+        name="inc", target=lp.CWithGNULibcTarget()
     )
-    set_args = [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                loopy.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
-    set_knl = loopy.make_function(
+    set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
+                lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
+    set_knl = lp.make_function(
         all_idxs,
         [f"b[{res_idx}] = res[{res_idx}]"],
         kernel_data=set_args,
-        name="set", target=loopy.CWithGNULibcTarget()
+        name="set", target=lp.CWithGNULibcTarget()
     )
-    zero_knl = loopy.make_function(
+    zero_knl = lp.make_function(
         all_idxs,
         [f"res[{res_idx}] = 0"],
-        [loopy.GlobalArg("res", shape=ns, dtype=int, is_input=True, is_output=True)],
-        target=loopy.CWithGNULibcTarget(),
+        [lp.GlobalArg("res", shape=ns, dtype=int, is_input=True, is_output=True)],
+        target=lp.CWithGNULibcTarget(),
         name="zero",
     )
-        #     child_knls[0] = loopy.make_function(
+        #     child_knls[0] = lp.make_function(
         #         f"{{[i, j, k]:0<=i, k < {shapes[0]} and 0<= j < {shapes[1]}}}",
         #         """
         #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
-        #         """, name=f"matmul{0}", target=loopy.CWithGNULibcTarget())
-        #     child_knls[1] = loopy.make_function(
+        #         """, name=f"matmul{0}", target=lp.CWithGNULibcTarget())
+        #     child_knls[1] = lp.make_function(
         #         f"{{[i, j, k]:0<=k < {shapes[0]} and 0<=  j, i < {shapes[1]}}}",
         #         """
         #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
-        #         """, name=f"matmul{1}", target=loopy.CWithGNULibcTarget())
+        #         """, name=f"matmul{1}", target=lp.CWithGNULibcTarget())
     return matmuls + [set_knl, zero_knl, inc_knl], all_elems
 
 
@@ -566,25 +567,25 @@ def fuse_orientations(spaces: list[WithGeometry]):
         closures = [closures_dict[c] for c in sorted(closures_dict.keys())]
 
         utilities, all_elems = get_utility_kernels(ns) 
-        args = [loopy.ValueArg("d", dtype=utils.IntType),
-                loopy.ValueArg("closure_size_acc", dtype=utils.IntType),
-                loopy.ValueArg("o_val", dtype=utils.IntType),
-                loopy.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True)] + [loopy.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [loopy.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                          loopy.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True)]
+        args = [lp.ValueArg("d", dtype=utils.IntType),
+                lp.ValueArg("closure_size_acc", dtype=utils.IntType),
+                lp.ValueArg("o_val", dtype=utils.IntType),
+                lp.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True)] + [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
+                          lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True)]
 
         a_list = ",".join([f"a{i}[:,:]" for i in range(len(ns))])
         var_list = ["o", "d", "i", "o_val", "dim"]
 
         def switch(space, mats, n, i, args, var_list, all_elems, name, reverse=False):
-            dim_arg = [loopy.ValueArg("dim", dtype=utils.IntType)]
+            dim_arg = [lp.ValueArg("dim", dtype=utils.IntType)]
             switch_string, args, var_list = construct_switch_statement(fs, mats, n, i, args, var_list)
-            transform_insn = loopy.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
+            transform_insn = lp.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(var_list), id="assign", depends_on="zero")
             #arg_order = f"a{i}, b" if not reverse else f"b, a"
             matmul_insn = f"res[{all_elems}] = matmul{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign}}"
-            print_insn = loopy.CInstruction(tuple(),
+            print_insn = lp.CInstruction(tuple(),
                          "printf(\"res: %f, %f, %f\\n\", res[0], res[1], res[2]);",
                           assignees=(), read_variables=frozenset([]), within_inames=frozenset(["i"]), id="print", depends_on="matmul")
-            return loopy.make_function(
+            return lp.make_function(
                 "{[i]:0<= i < d}",
                 [f"res[{all_elems}] = zero(res) {{id=zero, inames=i}}",
                  transform_insn, matmul_insn,
@@ -592,12 +593,12 @@ def fuse_orientations(spaces: list[WithGeometry]):
                  ],
                 name=name + "_switch_on_o",
                 kernel_data=dim_arg + args,
-                target=loopy.CWithGNULibcTarget())
+                target=lp.CWithGNULibcTarget())
         in_switches = [switch(spaces[i], mats[i], ns[i],i, args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
         out_switches = [switch(spaces[i], reversed_mats[i], ns[i], i, args, var_list, all_elems, name="out"+str(i)) for i in range(len(spaces))]
 
-        closure_arg = [loopy.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=loopy.AddressSpace(1))]
-        printres_insn = loopy.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        closure_arg = [lp.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=lp.AddressSpace(1))]
+        printres_insn = lp.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
         def loop_dims(direction, all_elems):
             num_switch = len(all_elems.split(","))
@@ -605,30 +606,30 @@ def fuse_orientations(spaces: list[WithGeometry]):
             switches = [f"""
                          b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
                         for i in range(num_switch)]
-            return loopy.make_function(
+            return lp.make_function(
                 f"{{[dim]:{0} <= dim <= {mesh.dimension - 1}}}",
                 ["d = closure_sizes[dim] {id=closure}"] + switches +
                 [f"closure_size_acc = closure_size_acc + d {{id=replace, dep=switch{chr(65 + num_switch-1)}}}"],
                 name=f"{direction}_loop_over_dims",
                 kernel_data=closure_arg + args,
-                target=loopy.CWithGNULibcTarget())
+                target=lp.CWithGNULibcTarget())
 
-        print_insn = loopy.CInstruction(tuple(),
+        print_insn = lp.CInstruction(tuple(),
                      f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
                          printf(\"initial res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
                          printf(\"initial temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});
                          printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o[{j}]" for j in range(sum(closures)))});""", assignees=(), read_variables=frozenset([]), id="print")
         # ---- VERSION 1 ----
         # no manual increment - overwrites values
-        print_insn1 = loopy.CInstruction(tuple(),
+        print_insn1 = lp.CInstruction(tuple(),
                       f"""printf(\"final res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
                           printf(\"final temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});"""
                       , assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
         
         def overall(direction, all_elems):
-            tempArg = [loopy.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
-            return loopy.make_kernel(
+            tempArg = [lp.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+            return lp.make_kernel(
             "{:}",
             [print_insn, 
              f"temp[{all_elems}] = set(temp[{all_elems}], res[{all_elems}]) {{id=store, dep=print}}",
@@ -639,19 +640,19 @@ def fuse_orientations(spaces: list[WithGeometry]):
              print_insn1],
             name=f"{direction}_transform",
             kernel_data=args[3:] + tempArg,
-            target=loopy.CWithGNULibcTarget())
+            target=lp.CWithGNULibcTarget())
         # ---- VERSION 2 ----
         # manual increment - gets wrong numbers
-        #print_insn1 = loopy.CInstruction(tuple(),
+        #print_insn1 = lp.CInstruction(tuple(),
         #              f"""printf(\"final res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
         #                  printf(\"final temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});"""
         #              , assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
         #
         #def overall(direction, all_elems):
-        #    #tempArg = [loopy.GlobalArg("temp", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=False)]
-        #    tempArg = [loopy.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=loopy.AddressSpace(1))]
-        #    return loopy.make_kernel(
+        #    #tempArg = [lp.GlobalArg("temp", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=False)]
+        #    tempArg = [lp.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+        #    return lp.make_kernel(
         #    "{:}",
         #    [print_insn, 
         #     f"temp[{all_elems}] = set(temp[{all_elems}], res[{all_elems}]) {{id=store, dep=print}}",
@@ -663,10 +664,10 @@ def fuse_orientations(spaces: list[WithGeometry]):
         #     print_insn1],
         #    name=f"{direction}_transform",
         #    kernel_data=args[3:] + tempArg,
-        #    target=loopy.CWithGNULibcTarget())
+        #    target=lp.CWithGNULibcTarget())
         # ----------
-        in_knl = loopy.merge([overall("in", all_elems), loop_dims("in", all_elems)] + in_switches + utilities)
-        out_knl = loopy.merge([overall("out", all_elems), loop_dims("out", all_elems)] + out_switches + utilities)
+        in_knl = lp.merge([overall("in", all_elems), loop_dims("in", all_elems)] + in_switches + utilities)
+        out_knl = lp.merge([overall("out", all_elems), loop_dims("out", all_elems)] + out_switches + utilities)
         #print(in_knl) 
         #breakpoint()
 
