@@ -3921,14 +3921,18 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
 
     if subdm.comm.size == 1:
-        # Ghost points only make sense when the submesh is distributed
+        # Undistributed case: relabel every point as core
         for subp in range(subpStart, subpEnd):
             CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            if not has:
-                CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-                if has:
-                    CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-                    CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
+            if has:
+                continue
+            CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
+            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
+            CHKERR(DMLabelSetValue(lbl_core, subp, 1))
     else:
         ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
         ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
