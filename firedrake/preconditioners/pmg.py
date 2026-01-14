@@ -1,5 +1,6 @@
 from functools import partial
 from itertools import chain
+import textwrap
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
@@ -8,11 +9,16 @@ from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.utils import IntType_c, cached_property
+from firedrake.mesh import get_iteration_spec
+from firedrake.utils import IntType_c, cached_property, ScalarType
+from firedrake.pack import pack
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop3.cache import serial_cache
 from pyop3.pyop2_utils import as_tuple
+import pyop3 as op3
+import loopy as lp
+import tsfc
 
 import firedrake
 import finat
@@ -729,17 +735,6 @@ def get_permutation_to_nodal_elements(V):
     return dof_perm, unique_nodal_elements, shifts
 
 
-def get_permuted_map(V):
-    """
-    Return a PermutedMap with the same tensor product shape for
-    every component of H(div) or H(curl) tensor product elements
-    """
-    indices, _, _ = get_permutation_to_nodal_elements(V)
-    if numpy.all(indices[:-1] < indices[1:]):
-        return V.cell_node_map()
-    return op2.PermutedMap(V.cell_node_map(), indices)
-
-
 # Common kernel to compute y = kron(A3, kron(A2, A1)) * x
 # Vector and tensor field generalization from Deville, Fischer, and Mund section 8.3.1.
 kronmxv_code = """
@@ -1219,16 +1214,13 @@ class StandaloneInterpolationMatrix(object):
 
     @cached_property
     def _weight(self):
-        cell_set = self.Vf.mesh().topology.unique().cell_set
+        mesh = self.Vf.mesh().unique()
         weight = firedrake.Function(self.Vf)
-        wsize = self.Vf.finat_element.space_dimension() * self.Vf.block_size
-        kernel_code = f"""
-        void multiplicity(PetscScalar *restrict w) {{
-            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
-        }}"""
-        raise NotImplementedError
-        kernel = op2.Kernel(kernel_code, "multiplicity")
-        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, weight.cell_node_map()))
+        op3.loop(
+            c := mesh.cells.owned.iter(),
+            weight.dat[mesh.closure(c)].iassign(1),
+            eager=True,
+        )
         with weight.vec_rw as w:
             w.reciprocal()
         return weight
@@ -1262,21 +1254,26 @@ class StandaloneInterpolationMatrix(object):
     def _build_custom_interpolators(self):
         # We generate custom prolongation and restriction kernels because
         # dual evaluation of EnrichedElement is not yet implemented in FInAT
-        uf_map = get_permuted_map(self.Vf)
-        uc_map = get_permuted_map(self.Vc)
+        uf_perm, _, _ = get_permutation_to_nodal_elements(self.Vf)
+        uc_perm, _, _ = get_permutation_to_nodal_elements(self.Vc)
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
-        cell_set = self.Vf.mesh().topology.unique().cell_set
-        prolong_args = [prolong_kernel, cell_set,
-                        self.uf.dat(op2.INC, uf_map),
-                        self.uc.dat(op2.READ, uc_map),
-                        self._weight.dat(op2.READ, uf_map)]
-        restrict_args = [restrict_kernel, cell_set,
-                         self.uc.dat(op2.INC, uc_map),
-                         self.uf.dat(op2.READ, uf_map),
-                         self._weight.dat(op2.READ, uf_map)]
-        coefficient_args = [c.dat(op2.READ, c.cell_node_map()) for c in coefficients]
-        prolong = op2.ParLoop(*prolong_args, *coefficient_args)
-        restrict = op2.ParLoop(*restrict_args, *coefficient_args)
+        loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
+
+        prolong_args = [pack(self.uf, loop_info, permutation=uf_perm),
+                        pack(self.uc, loop_info, permutation=uc_perm),
+                        pack(self._weight, loop_info, permutation=uf_perm)]
+        restrict_args = [pack(self.uc, loop_info, permutation=uc_perm),
+                         pack(self.uf, loop_info, permutation=uf_perm),
+                         pack(self._weight, loop_info, permutation=uf_perm)]
+        coefficient_args = [pack(c, loop_info) for c in coefficients]
+        prolong = op3.loop(
+            loop_info.loop_index,
+            prolong_kernel(*prolong_args, *coefficient_args),
+        )
+        restrict = op3.loop(
+            loop_info.loop_index,
+            restrict_kernel(*restrict_args, *coefficient_args),
+        )
         return prolong, restrict
 
     def _prolong(self):
@@ -1325,6 +1322,8 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
+        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+
         cache = self._cache_kernels
         key = (Vf.ufl_element(), Vc.ufl_element())
         try:
@@ -1419,42 +1418,81 @@ class StandaloneInterpolationMatrix(object):
                 for({IntType_c} i=0; i<{fshape[0]}; i++)
                    y[i + {fshape[0]}*j] += t1[j + {fshape[1]}*i] * w[i + {fshape[0]}*j];
             """
-        kernel_code = f"""
-        {mapping_code}
 
-        {kronmxv_code}
-
-        void prolongation(PetscScalar *restrict y, const PetscScalar *restrict x,
-                          const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[3][{lwork}] = {{0.0E0}};
-            PetscScalar *t0 = work[0];
-            PetscScalar *t1 = work[1];
-            PetscScalar *t2 = work[2];
-            {operator_decl}
-            {coarse_read}
-            {prolong_code}
-            {fine_write}
-            return;
-        }}
-
-        void restriction(PetscScalar *restrict x, const PetscScalar *restrict y,
-                         const PetscScalar *restrict w{coef_decl}){{
-            PetscScalar work[3][{lwork}] = {{0.0E0}};
-            PetscScalar *t0 = work[0];
-            PetscScalar *t1 = work[1];
-            PetscScalar *t2 = work[2];
-            {operator_decl}
-            {fine_read}
-            {restrict_code}
-            {coarse_write}
-            return;
-        }}
+        prolong_c_code = f"""
+PetscScalar work[3][{lwork}] = {{0.0E0}};
+PetscScalar *t0 = work[0];
+PetscScalar *t1 = work[1];
+PetscScalar *t2 = work[2];
+{operator_decl}
+{coarse_read}
+{prolong_code}
+{fine_write}
+return;
         """
-        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
-        prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                    ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
-                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
+
+        restrict_c_code = f"""
+PetscScalar work[3][{lwork}] = {{0.0E0}};
+PetscScalar *t0 = work[0];
+PetscScalar *t1 = work[1];
+PetscScalar *t2 = work[2];
+{operator_decl}
+{fine_read}
+{restrict_code}
+{coarse_write}
+return;
+        """
+
+        coeff_names = tuple(f"c{i}" for i in range(len(coefficients)))
+
+        prolong_loopy_kernel = lp.make_kernel(
+            ["{ : }"],
+            [
+                lp.CInstruction((), prolong_c_code, frozenset({"y", "x", "w", *coeff_names}), ("y",)),
+            ],
+            [
+                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=True),
+                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=False),
+                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
+                *[
+                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
+                    for coeff_name in coeff_names
+                ],
+            ],
+            name="prolongation",
+            target=tsfc.parameters.target,
+            lang_version=op3.LOOPY_LANG_VERSION,
+            preambles=[
+                ("10_mapping", mapping_code),
+                ("10_kronmxv", kronmxv_code),
+            ],
+        )
+        restrict_loopy_kernel = lp.make_kernel(
+            ["{ : }"],
+            [
+                lp.CInstruction((), restrict_c_code, frozenset({"x", "y", "w", *coeff_names}), ("x",)),
+            ],
+            [
+                lp.GlobalArg("x", ScalarType, cshape, is_input=True, is_output=True),
+                lp.GlobalArg("y", ScalarType, fshape, is_input=True, is_output=False),
+                lp.GlobalArg("w", ScalarType, fshape, is_input=True, is_output=False),
+                *[
+                    lp.GlobalArg(coeff_name, ScalarType, None, is_input=True, is_output=False)
+                    for coeff_name in coeff_names
+                ],
+            ],
+            name="restriction",
+            target=tsfc.parameters.target,
+            lang_version=op3.LOOPY_LANG_VERSION,
+            preambles=[
+                ("10_mapping", mapping_code),
+                ("10_kronmxv", kronmxv_code),
+            ],
+        )
+
+        intents = [op3.INC, op3.READ, op3.READ] + [op3.READ] * len(coefficients)
+        prolong_kernel = op3.Function(prolong_loopy_kernel, intents)
+        restrict_kernel = op3.Function(restrict_loopy_kernel, intents)
         return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def multTranspose(self, mat, rf, rc):
@@ -1555,7 +1593,7 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
-    sizes = (Vf.template_vec.sizes, Vc.template_vec.sizes)
+    sizes = (Vf.ufl_function_space().template_vec.sizes, Vc.ufl_function_space().template_vec.sizes)
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf.comm)
     M_shll.setUp()
     return M_shll

@@ -109,6 +109,7 @@ from firedrake.output import VTKFile  # noqa: F401
 from firedrake.parameters import (  # noqa: F401
     Parameters, parameters
 )
+from firedrake.pack import pack  # noqa: F401
 from firedrake.parloops import (  # noqa: F401
     par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
 )

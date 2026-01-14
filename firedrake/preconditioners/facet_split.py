@@ -3,7 +3,7 @@ import pyop3 as op3
 from pyop3.mpi import MPI, temp_internal_comm
 from finat.ufl import MixedElement
 from firedrake.function import Function
-from firedrake.parloops import pack_tensor
+from firedrake.pack import pack
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
@@ -253,10 +253,12 @@ def get_restriction_indices(V, W):
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
     eperm_dat = op3.Dat.from_array(eperm, prefix="perm", buffer_kwargs={"constant": True})
 
+    # TODO: now we can pass permutation to pack do we need this?
+
     # debug
     c = V.mesh().cells.owned.iter()
-    b = pack_tensor(v_func, c, "cell")[eperm_dat]
-    a = pack_tensor(w_func, c, "cell").reshape(b.axes.materialize())
+    b = pack(v_func, c, "cell")[eperm_dat]
+    a = pack(w_func, c, "cell").reshape(b.axes.materialize())
 
     # import pyop3.extras.debug
     # pyop3.extras.debug.enable_conditional_breakpoints()

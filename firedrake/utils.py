@@ -19,6 +19,7 @@ from pyop3.utils import (  # noqa: F401
     pairwise,
     steps,
     just_one,
+    pretty_type,
     single_valued,
     is_single_valued,
     has_unique_entries,
@@ -31,6 +32,7 @@ from pyop3.utils import (  # noqa: F401
     invert,
     split_by,
     as_tuple,
+    is_sorted,
 )
 
 import petsctools

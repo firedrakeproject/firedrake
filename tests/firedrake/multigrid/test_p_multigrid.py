@@ -590,17 +590,17 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
         xc.setRandom()
     for bc in Vc_bcs:
         bc.zero(uc)
-    with uc.vec_ro as xc, uf.vec as xf:
+    with uc.dat.vec_ro as xc, uf.dat.vec_wo as xf:
         P.mult(xc, xf)
     assert norm(uf - uc) < 1E-12
 
     rc = Cofunction(Vc.dual())
     rf = Cofunction(Vf.dual())
-    with rf.vec_wo as xf:
+    with rf.dat.vec_wo as xf:
         xf.setRandom()
     for bc in Vf_bcs:
         bc.zero(rf)
-    with rf.vec_ro as xf, rc.vec as xc:
+    with rf.dat.vec_ro as xf, rc.dat.vec_wo as xc:
         P.multTranspose(xf, xc)
 
     assert abs(assemble(action(rf, uf)) - assemble(action(rc, uc))) < 1E-11

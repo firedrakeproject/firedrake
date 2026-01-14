@@ -2906,18 +2906,25 @@ class ExtrudedMeshTopology(MeshTopology):
     def flat_points(self):
         n_extr_cells = int(self.layers) - 1
 
-        base_mesh_axis = self._base_mesh.flat_points
-        npoints = base_mesh_axis.component.local_size * (2*n_extr_cells+1)
+        column_height = 2 * n_extr_cells
+        if not self.periodic:
+            column_height += 1
 
-        base_point_sf = base_mesh_axis.component.sf
-        section = PETSc.Section().create(comm=self._base_mesh.comm)
-        section.setChart(0, base_point_sf.size)
-        for pt in range(base_point_sf.size):
-            section.setDof(pt, 2*n_extr_cells+1)
-        point_sf = op3.StarForest(op3.sf.create_petsc_section_sf(base_point_sf.sf, section), self._base_mesh.comm)
+        base_mesh_axis = self._base_mesh.flat_points
+        npoints = base_mesh_axis.component.local_size * column_height
+
+        # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
+        # would be nice to avoid this branch.
+        if self.comm.size > 1:
+            point_sf = self.topology_dm.getPointSF()
+        else:
+            point_sf = op3.local_sf(self.num_points, self.comm).sf
+
+        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
+        point_sf_renum = op3.StarForest(point_sf_renum, self.comm)
 
         return op3.Axis(
-            [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],
+            [op3.AxisComponent(npoints, "mylabel", sf=point_sf_renum)],
             label="mesh",
         )
 
@@ -3004,7 +3011,11 @@ class ExtrudedMeshTopology(MeshTopology):
         # we always have 2n+1 entities when we extrude
         base_indices = self._base_mesh._old_to_new_point_renumbering.indices
         base_point_label = self.topology_dm.getLabel("base_point")
-        indices = np.empty(base_indices.size * (2*n_extr_cells+1), dtype=base_indices.dtype)
+
+        column_height = 2*n_extr_cells
+        if not self.periodic:
+            column_height += 1
+        indices = np.empty(base_indices.size * column_height, dtype=base_indices.dtype)
         for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
             cell_stratum = self.topology_dm.getDepthStratum(base_dim+1)
             vert_stratum = self.topology_dm.getDepthStratum(base_dim)
@@ -3012,15 +3023,18 @@ class ExtrudedMeshTopology(MeshTopology):
                 extruded_points = base_point_label.getStratumIS(base_pt)
                 extruded_cells = dmcommon.filter_is(extruded_points, *cell_stratum)
                 extruded_verts = dmcommon.filter_is(extruded_points, *vert_stratum)
-                assert extruded_verts.size == extruded_cells.size + 1
+                if self.periodic:
+                    assert extruded_verts.size == extruded_cells.size
+                else:
+                    assert extruded_verts.size == extruded_cells.size + 1
 
                 for i, ec in enumerate(extruded_cells.indices):
-                    indices[ec] = base_indices[base_pt] * (2*n_extr_cells+1) + (2*i+1)
+                    indices[ec] = base_indices[base_pt] * column_height + (2*i+1)
 
                 for i, ev in enumerate(extruded_verts.indices):
-                    indices[ev] = base_indices[base_pt] * (2*n_extr_cells+1) + 2*i
+                    indices[ev] = base_indices[base_pt] * column_height + 2*i
 
-        return PETSc.IS().createGeneral(indices, comm=self.comm)
+        return PETSc.IS().createGeneral(indices, comm=MPI.COMM_SELF)
 
     @cached_property
     def _entity_indices(self):
@@ -3410,15 +3424,18 @@ class ExtrudedMeshTopology(MeshTopology):
                 idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
 
                 num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
+                if self.periodic and extr_dest_dim == 0:
+                    real_column_height = num_extr_pts - 1
+                else:
+                    real_column_height = num_extr_pts
 
                 if extr_dest_dim == 0:
                     # 'vertex' extrusion, twice as many points in the closure
                     for ci in range(n_base_cells):
                         for j in range(nlayers):
-                            # for k in range(closure_size//2):
                             for k in range(base_closures.shape[1]):
-                                idxs[ci, j, 2*k] = base_closures[ci, k] * num_extr_pts + j
-                                idxs[ci, j, 2*k+1] = base_closures[ci, k] * num_extr_pts + j + 1
+                                idxs[ci, j, 2*k] = base_closures[ci, k] * real_column_height + j
+                                idxs[ci, j, 2*k+1] = base_closures[ci, k] * real_column_height + ((j + 1) % real_column_height)
                 else:
                     # 'edge' extrusion, only one point in the closure
                     for ci in range(n_base_cells):
@@ -4003,7 +4020,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         # The leaves have been ordered according to the pyop2 classes with non-halo
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
-        return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
+        return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cells.owned.local_size, dtype=IntType))
 
 
 class CellOrientationsRuntimeError(RuntimeError):
