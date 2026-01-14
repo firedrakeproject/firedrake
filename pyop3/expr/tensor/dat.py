@@ -16,7 +16,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from ..base import LoopIndexVar
-from .base import IdentityTensorTransform, Tensor
+from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
 from pyop3.mpi import collective
 from pyop3.tree.axis_tree import (
     Axis,
@@ -67,6 +67,7 @@ class Dat(Tensor):
     _buffer: AbstractBuffer
     _name: str
     _parent: Dat | None
+    transform: TensorTransform | None = None
 
     def __init__(
         self,
@@ -78,6 +79,7 @@ class Dat(Tensor):
         prefix=None,
         parent=None,
         buffer_kwargs=None,
+        transform=None,
     ):
         """
         NOTE: buffer and data are equivalent options. Only one can be specified. I include both
@@ -110,6 +112,7 @@ class Dat(Tensor):
         self._buffer = buffer
         self._name = name
         self._parent = parent
+        self.transform = transform
 
         # self._cache = {}
 
@@ -190,6 +193,10 @@ class Dat(Tensor):
         axes = as_axis_tree(axes)
         buffer = NullBuffer(axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def null_like(cls, dat: Dat, **kwargs) -> Dat:
+        return cls.null(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
     def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
@@ -579,7 +586,9 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
+        return self.__record_init__(axes=axes, transform=ReshapeTensorTransform(self.axes, self.transform))
+
+        # return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?

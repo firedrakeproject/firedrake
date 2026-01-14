@@ -228,6 +228,8 @@ class Instruction(Node, DistributedObject, abc.ABC):
         from pyop3.ir.lower import compile
 
         preprocessed = self.preprocess(compiler_parameters)
+        if "form" in str(preprocessed):
+            breakpoint()
         return compile(preprocessed, compiler_parameters=compiler_parameters)
 
 
@@ -819,6 +821,9 @@ class ArrayAssignment(AbstractAssignment):
         self.__post_init__()
 
     def __post_init__(self) -> None:
+        if self.assignee.name == "dat_131":
+            breakpoint()
+
         pass
 
     # }}}
@@ -842,9 +847,6 @@ class ArrayAssignment(AbstractAssignment):
         # makes sense. For more complex things loops should be used.
         axis_trees = []
         for axis_obj in get_shape(self.assignee):
-            if isinstance(axis_obj, AxisForest):
-                # just take the first
-                axis_obj = axis_obj.trees[0]
             axis_trees.append(axis_obj)
         return tuple(axis_trees)
 

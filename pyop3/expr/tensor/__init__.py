@@ -1,4 +1,4 @@
-from .base import Tensor, OutOfPlaceTensorTransform  # noqa: F401
+from .base import Tensor, OutOfPlaceFunctionTensorTransform # noqa: F401
 from .scalar import Scalar  # noqa: F401
 from .dat import (  # noqa: F401
     FancyIndexWriteException,

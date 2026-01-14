@@ -176,30 +176,54 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
 
+
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
 class TensorTransform(abc.ABC):
-    pass
+
+    @property
+    @abc.abstractmethod
+    def prev(self) -> TensorTransform | None:
+        pass
+
+
+class FunctionTensorTransform(TensorTransform):
+    ...
 
 
 @utils.frozenrecord()
-class OutOfPlaceTensorTransform(TensorTransform):
-    untransformed: Tensor
+class OutOfPlaceFunctionTensorTransform(FunctionTensorTransform):
+
+    # {{{ instance attrs
+
     transform_in: Callable[[Tensor, Tensor], None]
     transform_out: Callable[[Tensor, Tensor], None]
+    _prev: TensorTransform | None = None
+
+    # }}}
+
+    # {{{ interface impls
+
+    prev = utils.attr("_prev")
+
+    # }}}
 
 
-class InPlaceTensorTransform(TensorTransform):
-    pass
+class IdentityTensorTransform(TensorTransform):
+    ...
 
 
 @utils.frozenrecord()
-class IdentityTensorTransform(InPlaceTensorTransform):
-    untransformed: Tensor
+class ReshapeTensorTransform(IdentityTensorTransform):
 
-    @staticmethod
-    def transform_in(tensor):
-        return ()
+    # {{{ instance attrs
 
-    @staticmethod
-    def transform_out(tensor):
-        return ()
+    axis_trees: tuple[AxisTree, ...]
+    _prev: TensorTransform | None = None
+
+    # }}}
+
+    # {{{ interface impls
+
+    prev = utils.attr("_prev")
+
+    # }}}

@@ -23,7 +23,7 @@ import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
 from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
-from pyop3.expr.tensor.base import TensorTransform, InPlaceTensorTransform, OutOfPlaceTensorTransform
+from pyop3.expr.tensor.base import ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import merge_axis_trees
@@ -404,24 +404,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     #
     # To make this work we extract the increment by materialising 'u'.
 
-    if assignment.assignment_type == AssignmentType.INC and hasattr(assignment.assignee, "parent") and assignment.assignee.parent:
-        # if we have a transform then extract the increment and try again (in a subsequent pass)
-        # get the ultimate parent
-        current = assignment.assignee
-        while current.parent:
-            current = current.parent.untransformed
-        root_temp = current.materialize()
-
-        untransformed_assignee = current.__record_init__(_parent=None)
-        bare_root_temp = root_temp.__record_init__(_parent=None)
-        return insn_types.InstructionList((
-            root_temp.assign(assignment.expression),  # this still has all the transform info
-            untransformed_assignee.iassign(bare_root_temp),  # no transforms here, just the inc
-        ))
-
-    bare_expression, expression_transform_insns = _expand_reshapes(
-        assignment.expression, ArrayAccessType.READ
-    )
+    bare_expression, expression_insns = _expand_transforms(assignment.expression, ArrayAccessType.READ)
 
     if assignment.assignment_type == AssignmentType.WRITE:
         access_type = ArrayAccessType.WRITE
@@ -429,68 +412,96 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
         assert assignment.assignment_type == AssignmentType.INC
         access_type = ArrayAccessType.INC
 
-    bare_assignee, assignee_transform_insns = _expand_reshapes(
-        assignment.assignee, access_type
-    )
-    bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
+    bare_assignee, assignee_insns = _expand_transforms(assignment.assignee, access_type)
 
-    # NOTE: Don't think we need this if we handle INCs in advance...
-    if bare_assignee == assignment.assignee:
-        # no extra assignments
-        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
+    # INC handled internally
+    if assignee_insns:
+        assignment_type = AssignmentType.WRITE
     else:
-        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type=AssignmentType.WRITE)
-
-    return maybe_enlist((*expression_transform_insns, bare_assignment, *assignee_transform_insns))
+        assignment_type = assignment.assignment_type
+    bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type=assignment_type)
+    return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
 
 
 @functools.singledispatch
-def _expand_reshapes(expr: Any, /, *args, **kwargs):
+def _expand_transforms(expr: Any, /, *args, **kwargs):
     raise TypeError(f"No handler provided for {type(expr).__name__}")
 
 
-@_expand_reshapes.register
+@_expand_transforms.register
 def _(op: expr_types.UnaryOperator, /, access_type):
-    bare_a, unpack_insns = _expand_reshapes(op.a, access_type)
+    bare_a, unpack_insns = _expand_transforms(op.a, access_type)
     return (type(op)(bare_a), unpack_insns)
 
 
-@_expand_reshapes.register
+@_expand_transforms.register
 def _(op: expr_types.BinaryOperator, /, access_type):
-    bare_a, a_unpack_insns = _expand_reshapes(op.a, access_type)
-    bare_b, b_unpack_insns = _expand_reshapes(op.b, access_type)
+    bare_a, a_unpack_insns = _expand_transforms(op.a, access_type)
+    bare_b, b_unpack_insns = _expand_transforms(op.b, access_type)
     return (type(op)(bare_a, bare_b), a_unpack_insns+b_unpack_insns)
 
 
-@_expand_reshapes.register
+@_expand_transforms.register
 def _(op: expr_types.TernaryOperator, /, access_type):
     bare_operands = []
     unpack_insns = []
     for operand in op.operands:
-        bare_operand, operand_unpack_insns = _expand_reshapes(operand, access_type)
+        bare_operand, operand_unpack_insns = _expand_transforms(operand, access_type)
         bare_operands.append(bare_operand)
         unpack_insns.extend(operand_unpack_insns)
     return (type(op)(*bare_operands), tuple(unpack_insns))
 
 
-@_expand_reshapes.register(numbers.Number)
-@_expand_reshapes.register(expr_types.AxisVar)
-@_expand_reshapes.register(expr_types.LoopIndexVar)
-@_expand_reshapes.register(BufferExpression)
-@_expand_reshapes.register(expr_types.NaN)
+@_expand_transforms.register(numbers.Number)
+@_expand_transforms.register(expr_types.AxisVar)
+@_expand_transforms.register(expr_types.LoopIndexVar)
+@_expand_transforms.register(BufferExpression)
+@_expand_transforms.register(expr_types.NaN)
 def _(var, /, access_type):
     return (var, ())
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
-@_expand_reshapes.register(Tensor)
-def _(array: Tensor, /, access_type):
-    if access_type == ArrayAccessType.READ:
-        return _expand_transforms_in(array)
+@_expand_transforms.register(Tensor)
+def _(tensor: Tensor, /, access_type):
+    if not tensor.transform:
+        return tensor, ()
+    return _expand_transforms_tensor(tensor.__record_init__(transform=None), tensor.transform, access_type)
+
+
+def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform, access_type: ArrayAccessType):
+    assert not tensor.transform, "Tensor transforms should already have been extracted"
+
+    if not transform:
+        if access_type in {ArrayAccessType.READ, ArrayAccessType.WRITE}:
+            return tensor, ()
+        else:
+            assert access_type == ArrayAccessType.INC
+            temporary = tensor.materialize()
+            return temporary, (tensor.iassign(temporary),)
+
+    # TODO: singledispatch
+    if isinstance(transform, ReshapeTensorTransform):
+        prev_tensor = tensor.with_axes(transform.axis_trees)
     else:
-        # assert access_type == ArrayAccessType.WRITE
-        # return _expand_transforms_out(array, access_type)
-        return _expand_transforms_out(array, access_type)
+        prev_tensor = tensor
+
+    prev_tensor, prev_insns = _expand_transforms_tensor(prev_tensor, transform.prev, access_type)
+
+    insns = list(prev_insns)
+
+    if isinstance(transform, ReshapeTensorTransform):
+        tensor = Dat.null_like(tensor)
+        tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
+        if access_type == ArrayAccessType.READ:
+            insns.insert(0, tensor_reshaped.assign(prev_tensor))
+        else:
+            assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
+            insns.insert(0, prev_tensor.assign(tensor_reshaped))
+    else:
+        raise NotImplementedError
+
+    return tensor, insns
 
 
 def _expand_transforms_in(tensor: Tensor) -> tuple[Tensor, tuple[Instruction, ...]]:
