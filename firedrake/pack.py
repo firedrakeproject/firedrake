@@ -230,9 +230,13 @@ def transform_packed_cell_closure_mat(
         )
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
-        row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
-        column_nodal_axis_tree, column_dof_perm_slice = _static_node_permutation_slice(packed_mat.column_axes, column_space, column_depth)
-        packed_mat = packed_mat.reshape(row_nodal_axis_tree, column_nodal_axis_tree)[row_dof_perm_slice, column_dof_perm_slice]
+        rnodal_axis_tree, rnodal_axis = _packed_nodal_axes(packed_mat.row_axes, row_space, row_depth)
+        cnodal_axis_tree, cnodal_axis = _packed_nodal_axes(packed_mat.column_axes, column_space, column_depth)
+        packed_mat = packed_mat.reshape(rnodal_axis_tree, cnodal_axis_tree)
+
+        row_dof_perm_slice = _static_node_permutation_slice(rnodal_axis, row_space, row_depth)
+        column_dof_perm_slice = _static_node_permutation_slice(cnodal_axis, column_space, column_depth)
+        packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
 
