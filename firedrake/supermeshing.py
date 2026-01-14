@@ -20,15 +20,18 @@ from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
+from collections import defaultdict
 
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
+# TODO replace with KAIJ (we require petsc4py wrappers)
 class BlockMatrix(object):
-    def __init__(self, mat, dimension):
+    def __init__(self, mat, dimension, block_scale=None):
         self.mat = mat
         self.dimension = dimension
+        self.block_scale = block_scale
 
     def mult(self, mat, x, y):
         sizes = self.mat.getSizes()
@@ -41,6 +44,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[1], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[0], comm=y.comm)
             self.mat.mult(xi, yi)
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
     def multTranspose(self, mat, x, y):
@@ -54,6 +59,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[0], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[1], comm=y.comm)
             self.mat.multTranspose(xi, yi)
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
 
@@ -67,14 +74,6 @@ def assemble_mixed_mass_matrix(V_A, V_B):
 
     if len(V_A) > 1 or len(V_B) > 1:
         raise NotImplementedError("Sorry, only implemented for non-mixed spaces")
-
-    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
-        msg = """
-Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
-import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
-each supermesh cell.
-"""
-        raise NotImplementedError(msg)
 
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
@@ -116,15 +115,39 @@ each supermesh cell.
                 def likely(cell_A):
                     return cell_map[cell_A]
 
-    assert V_A.value_size == V_B.value_size
-    orig_value_size = V_A.value_size
-    if V_A.value_size > 1:
+    assert V_A.block_size == V_B.block_size
+    orig_block_size = V_A.block_size
+
+    # To deal with symmetry, each block of the mass matrix must be rescaled by the multiplicity
+    if V_A.ufl_element().mapping() == "symmetries":
+        symmetry = V_A.ufl_element().symmetry()
+        assert V_B.ufl_element().mapping() == "symmetries"
+        assert V_B.ufl_element().symmetry() == symmetry
+
+        multiplicity = defaultdict(int)
+        for idx in numpy.ndindex(V_A.value_shape):
+            idx = symmetry.get(idx, idx)
+            multiplicity[idx] += 1
+
+        block_scale = tuple(scale for idx, scale in multiplicity.items())
+    else:
+        block_scale = None
+
+    if V_A.block_size > 1:
         V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
-    if V_B.value_size > 1:
+    if V_B.block_size > 1:
         V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements[0])
 
-    assert V_A.value_size == 1
-    assert V_B.value_size == 1
+    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
+        msg = """
+Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
+import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
+each supermesh cell.
+"""
+        raise NotImplementedError(msg)
+
+    assert V_A.block_size == 1
+    assert V_B.block_size == 1
 
     preallocator = PETSc.Mat().create(comm=mesh_A.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
@@ -155,7 +178,7 @@ each supermesh cell.
     onnz = numpy.repeat(onnz, cset.cdim)
     preallocator.destroy()
 
-    assert V_A.value_size == V_B.value_size
+    assert V_A.block_size == V_B.block_size
     rdim = V_B.dof_dset.cdim
     cdim = V_A.dof_dset.cdim
 
@@ -445,16 +468,16 @@ each supermesh cell.
     lib.restype = ctypes.c_int
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-    if orig_value_size == 1:
+    if orig_block_size == 1:
         return mat
     else:
         (lrows, grows), (lcols, gcols) = mat.getSizes()
-        lrows *= orig_value_size
-        grows *= orig_value_size
-        lcols *= orig_value_size
-        gcols *= orig_value_size
+        lrows *= orig_block_size
+        grows *= orig_block_size
+        lcols *= orig_block_size
+        gcols *= orig_block_size
         size = ((lrows, grows), (lcols, gcols))
-        context = BlockMatrix(mat, orig_value_size)
+        context = BlockMatrix(mat, orig_block_size, block_scale=block_scale)
         blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
         blockmat.setUp()
         return blockmat
