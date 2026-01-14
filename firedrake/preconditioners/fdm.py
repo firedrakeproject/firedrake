@@ -270,7 +270,7 @@ class FDMPC(PCBase):
             assembly_callables.append(P.zeroEntries)
             assembly_callables.append(partial(self.set_values, P, Vrow, Vcol))
             if on_diag:
-                own = Vrow.dof_dset.layout_vec.getLocalSize()
+                own = Vrow.template_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 if assemble_sparsity:
                     Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
@@ -419,7 +419,7 @@ class FDMPC(PCBase):
             K = kernels[Vsub]
             x = Function(Vsub)
             y = Function(Vsub)
-            sizes = (Vsub.dof_dset.layout_vec.getSizes(),) * 2
+            sizes = (Vsub.template_vec.getSizes(),) * 2
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
                                   op2.PassthroughArg(op2.OpaqueType(K.result.klass), K.result.handle),
                                   *args_acc,
@@ -691,7 +691,7 @@ class FDMPC(PCBase):
 
     def setup_block(self, Vrow, Vcol):
         """Preallocate the auxiliary sparse operator."""
-        sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
+        sizes = tuple(Vsub.template_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
         cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
@@ -1748,7 +1748,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if mat_type == "is":
         lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
 
-    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
+    sizes = tuple(V.template_vec.getSizes() for V in spaces)
     preallocator = get_preallocator(comm, sizes, *lgmaps)
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")

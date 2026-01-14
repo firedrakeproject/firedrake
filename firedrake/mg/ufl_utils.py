@@ -492,7 +492,7 @@ def create_injection(dmc, dmf):
         # PETSc will apply the transpose of the injection.
         # It does not make sense to implement Injection.multTranspose,
         # instead we return a concrete identity matrix.
-        dvec = V_c.dof_dset.layout_vec.duplicate()
+        dvec = V_c.template_vec.duplicate()
         dvec.set(1.0)
         return PETSc.Mat().createDiagonal(dvec)
 

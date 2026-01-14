@@ -182,30 +182,6 @@ class Mat(Tensor):
         "The number of local columns in the matrix (including ghosts)."
         return self.column_axes.local_size
 
-    @cached_property
-    def nblock_rows(self):
-        """The number "block" rows in the matrix (local to this process).
-
-        This is equivalent to the number of rows in the matrix divided
-        by the dimension of the row :class:`DataSet`.
-        """
-        raise NotImplementedError
-        assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
-        layout_vec = self.sparsity.dsets[0].layout_vec
-        return layout_vec.local_size // layout_vec.block_size
-
-    @cached_property
-    def nblock_cols(self):
-        """The number of "block" columns in the matrix (local to this process).
-
-        This is equivalent to the number of columns in the matrix
-        divided by the dimension of the column :class:`DataSet`.
-        """
-        raise NotImplementedError
-        assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
-        layout_vec = self.sparsity.dsets[1].layout_vec
-        return layout_vec.local_size // layout_vec.block_size
-
     @utils.cached_method()
     def getitem(self, row_index, column_index, *, strict=False):
         # (old comment, still useful exposition)
