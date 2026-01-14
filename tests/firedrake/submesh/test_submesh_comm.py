@@ -26,14 +26,20 @@ def assert_local_equality(A, Asub, V, Vsub):
 
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("reorder", [False, True])
-def test_create_submesh_comm_self(reorder):
+@pytest.mark.parametrize("ignore_halo", [False, True])
+def test_create_submesh_comm_self(reorder, ignore_halo):
     subdomain_id = None
     nx = 4
-    mesh = UnitSquareMesh(nx, nx, quadrilateral=True, reorder=reorder)
-    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=True, reorder=reorder, comm=COMM_SELF)
+    mesh = UnitSquareMesh(nx, nx, quadrilateral=True, reorder=reorder, distribution_parameters={"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)})
+    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=ignore_halo, reorder=reorder, comm=COMM_SELF)
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
-    assert submesh.cell_set.size == mesh.cell_set.size
+    # Submesh on COMM_SELF should not have halo
+    assert submesh.cell_set.total_size == submesh.cell_set.size
+    # Submesh on COMM_SELF should exclude the halo from the parent mesh if ignore_halo = True
+    expected_size = mesh.cell_set.size if ignore_halo else mesh.cell_set.total_size
+    assert submesh.cell_set.size == expected_size
+
     x = Function(submesh.coordinates.function_space())
     x.assign(mesh.coordinates)
     assert np.allclose(submesh.coordinates.dat.data_ro, x.dat.data_ro)
