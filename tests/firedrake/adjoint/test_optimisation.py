@@ -90,9 +90,35 @@ def minimize_tao_nls(rf):
     return solver.solve()
 
 
+def minimize_rol(rf):
+    problem = MinimizationProblem(rf)
+    params = {
+        "General": {
+            "Krylov": {
+                "Absolute Tolerance": 1e-5,
+            },
+            "Secant": {
+                "Type": "Limited-Memory BFGS",
+                "Maximum Storage": 10,
+                "Use as Hessian": True,
+            },
+        },
+        "Step": {
+            "Type": "Trust Region",
+        },
+        "Status Test": {
+            "Relative Gradient Tolerance": 0.0,
+            "Gradient Tolerance": 1e-6,
+        },
+    }
+    solver = ROLSolver(problem, params, inner_product="L2")
+    return solver.solve()
+
+
 @pytest.mark.parametrize("minimize", [minimize,
                                       minimize_tao_lmvm,
-                                      minimize_tao_nls])
+                                      minimize_tao_nls,
+                                      minimize_rol])
 @pytest.mark.skipcomplex
 def test_optimisation_constant_control(minimize):
     """This tests a list of controls in a minimisation"""
@@ -152,11 +178,12 @@ def test_simple_inversion(riesz_representation):
 
 
 @pytest.mark.parametrize("minimize", [minimize_tao_lmvm,
-                                      minimize_tao_nls])
+                                      minimize_tao_nls,
+                                      minimize_rol])
 @pytest.mark.parametrize("riesz_representation", [None, "l2", "L2", "H1"])
 @pytest.mark.skipcomplex
-def test_tao_simple_inversion(minimize, riesz_representation):
-    """Test inversion of source term in helmholtz eqn using TAO."""
+def test_external_simple_inversion(minimize, riesz_representation):
+    """Test inversion of source term in helmholtz eqn using external optimisation packages."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
     source_ref = Function(V)
@@ -363,6 +390,47 @@ def test_tao_bounds():
                                  "tao_gatol": 1.0e-7,
                                  "tao_grtol": 0.0,
                                  "tao_gttol": 0.0})
+    u_opt = solver.solve()
+
+    u_ref_bound = u_ref.copy(deepcopy=True)
+    u_ref_bound.dat.data[:] = np.maximum(u_ref_bound.dat.data_ro, lb)
+    assert_allclose(u_opt.dat.data_ro, u_ref_bound.dat.data_ro, rtol=1.0e-2)
+
+
+@pytest.mark.skipcomplex
+def test_rol_bounds():
+    mesh = UnitIntervalMesh(11)
+    X = SpatialCoordinate(mesh)
+    space = FunctionSpace(mesh, "Lagrange", 1)
+    u = Function(space, name="u")
+    u_ref = Function(space, name="u_ref").interpolate(0.5 - X[0])
+
+    J = assemble((u - u_ref) ** 2 * dx)
+    rf = ReducedFunctional(J, Control(u))
+
+    lb = 0.5 - 7.0 / 11.0
+    ub = 10.0  # ROL doesn't support None as bounds
+    problem = MinimizationProblem(rf, bounds=(lb, ub))
+    params = {
+        "General": {
+            "Krylov": {
+                "Absolute Tolerance": 1e-7,
+            },
+            "Secant": {
+                "Type": "Limited-Memory BFGS",
+                "Maximum Storage": 10,
+                "Use as Hessian": True,
+            },
+        },
+        "Step": {
+            "Type": "Trust Region",
+        },
+        "Status Test": {
+            "Relative Gradient Tolerance": 0.0,
+            "Gradient Tolerance": 0.0,
+        },
+    }
+    solver = ROLSolver(problem, params, inner_product="L2")
     u_opt = solver.solve()
 
     u_ref_bound = u_ref.copy(deepcopy=True)
