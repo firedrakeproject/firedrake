@@ -3906,52 +3906,71 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         DMLabel lbl_core, lbl_owned, lbl_ghost
         PetscBool has
 
-    if subdm.comm.size == 1:
+    if dm.comm.size == 1:
         return
+
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
-    CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-    assert nroots == pEnd - pStart
     assert pStart == 0
-    ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
-    ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        ownership_loss[p] = 1
-    unit = MPI._typedict[np.dtype(IntType).char]
-    ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    subpoint_is = subdm.getSubpointIS()
-    CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
-    assert nsubpoints == subpEnd - subpStart
     assert subpStart == 0
-    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_core", &lbl_core))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_owned", &lbl_owned))
     CHKERR(DMGetLabel(subdm.dm, b"pyop2_ghost", &lbl_ghost))
     CHKERR(DMLabelCreateIndex(lbl_core, subpStart, subpEnd))
     CHKERR(DMLabelCreateIndex(lbl_owned, subpStart, subpEnd))
     CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
-    for subp in range(subpStart, subpEnd):
-        p = subpoint_indices[subp]
-        if ownership_loss[p] == 1:
+
+    if subdm.comm.size == 1:
+        # Undistributed case: relabel every point as core
+        for subp in range(subpStart, subpEnd):
             CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
-        if ownership_gain[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
+            if has:
+                continue
             CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
+            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
+            if has:
+                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
+            CHKERR(DMLabelSetValue(lbl_core, subp, 1))
+    else:
+        ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
+        ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
+        CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+        assert nroots == pEnd - pStart
+        for i in range(nleaves):
+            p = ilocal[i] if ilocal else i
+            ownership_loss[p] = 1
+        unit = MPI._typedict[np.dtype(IntType).char]
+        ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+        ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+
+        subpoint_is = subdm.getSubpointIS()
+        CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
+        assert nsubpoints == subpEnd - subpStart
+        CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+
+        for subp in range(subpStart, subpEnd):
+            p = subpoint_indices[subp]
+            if ownership_loss[p] == 1:
+                CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
+                assert has == PETSC_FALSE
+                CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
+                assert has == PETSC_TRUE
+                CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
+                CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
+            if ownership_gain[p] == 1:
+                CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
+                assert has == PETSC_FALSE
+                CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
+                assert has == PETSC_TRUE
+                CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
+                CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
+
+        CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMLabelDestroyIndex(lbl_core))
     CHKERR(DMLabelDestroyIndex(lbl_owned))
     CHKERR(DMLabelDestroyIndex(lbl_ghost))
-    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
 
 
 @cython.boundscheck(False)
