@@ -1,5 +1,6 @@
 import pytest
-from os.path import abspath, dirname, join, exists, getenv
+import os
+from os.path import abspath, dirname, join, exists
 from firedrake import *
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.utils import IntType
@@ -274,7 +275,7 @@ def test_io_backward_compat_timestepping_save(version):
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('version', ["2024_01_27"])
 def test_io_backward_compat_timestepping_load(version):
-    if getenv("FIREDRAKE_CI") == "1":
+    if os.getenv("FIREDRAKE_CI") == "1":
         pytest.skip("Skipping on CI to avoid unidentified timeout")
     filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
     with CheckpointFile(filename, "r") as afile:
@@ -291,7 +292,7 @@ def test_io_backward_compat_timestepping_load(version):
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.parametrize('version', ["2024_01_27"])
 def test_io_backward_compat_timestepping_append(version, tmpdir):
-    if getenv("FIREDRAKE_CI") == "1":
+    if os.getenv("FIREDRAKE_CI") == "1":
         pytest.skip("Skipping on CI to avoid unidentified timeout")
     filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
     copyname = join(str(tmpdir), "test_io_backward_compat_timestepping_append_dump.h5")
