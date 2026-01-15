@@ -1047,7 +1047,7 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
 
     axes, loop_var_replace_map = loopified_shape(expr)
     expr = replace(expr, loop_var_replace_map)
-    loop_index = axes.index()
+    loop_index = axes.iter()
 
     # NOTE: might hit issues if things aren't linear
     loop_var_replace_map = {

@@ -2951,34 +2951,34 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _old_to_new_facet_horiz_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._facet_horiz_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._facet_horiz_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     # Maybe this is better as a match-case thing, instead of lots and lots of properties (cached on the mesh)
     # TODO: This is a bad name, needs to point out that we map between entities here, not plex points
     @cached_property
     def _old_to_new_exterior_facet_top_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_top_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_top_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_exterior_facet_bottom_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_bottom_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_bottom_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_exterior_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     # Maybe this is better as a match-case thing, instead of lots and lots of properties (cached on the mesh)
     @cached_property
     def _old_to_new_interior_facet_horiz_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._interior_facet_horiz_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._interior_facet_horiz_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_interior_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._interior_facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._interior_facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _exterior_facet_top_support_dat(self) -> op3.Dat:
@@ -3198,7 +3198,7 @@ class ExtrudedMeshTopology(MeshTopology):
             axis = iterset.owned.as_axis()
             from_path = idict({axis.label: axis.component.label})
             supports[from_path] = [[
-                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label="XXX"),
+                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label=None),
             ]]
         return op3.Map(supports, name="support")
 
@@ -6476,11 +6476,20 @@ def get_iteration_spec(
             valid_plex_indices = mesh._interior_facet_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_numbering
         case "exterior_facet_top":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_top.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_top_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_top_numbering
         case "exterior_facet_bottom":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_bottom.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_bottom_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_bottom_numbering
         case "exterior_facet_vert":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_vert.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_vert_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_vert_numbering
         case "interior_facet_horiz":
             iterset = mesh.interior_facets_horiz.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL

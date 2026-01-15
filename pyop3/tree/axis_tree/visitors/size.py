@@ -108,7 +108,7 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
 
         component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize()
 
-        i = all_axes.index()
+        i = all_axes.iter()
 
         # Replace AxisVars with LoopIndexVars in the size expression so we can
         # access them in a loop

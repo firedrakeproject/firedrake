@@ -346,7 +346,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     parallel_assert(errornorm(urecv, u_expect) < 1e-12)
 
 
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(6)
 def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     """
     this test uses linearity of the equation to solve two problems

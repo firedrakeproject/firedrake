@@ -1113,7 +1113,7 @@ class FunctionSpace:
     def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
-        from firedrake.parloops import transform_packed_cell_closure_dat
+        from firedrake.pack import transform_packed_cell_closure_dat
 
         mesh = self.mesh()
 
@@ -1231,7 +1231,7 @@ class FunctionSpace:
         :attr:`dim` times the :attr:`node_count`."""
         if self.boundary_set:
             raise NotImplementedError
-        return self.nodal_axes.size
+        return self.nodal_axes.local_size
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
@@ -1241,7 +1241,7 @@ class FunctionSpace:
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.axes.size
+        return self.axes.local_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -1301,27 +1301,9 @@ class FunctionSpace:
         if target_integral_type == "cell":
             def self_map(index):
                 return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet_top":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet_bottom":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "interior_facet_horiz":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet":
-            def self_map(index):
-                return self.mesh().closure(self.mesh().support(index))
-        elif target_integral_type == "exterior_facet_vert":
+        elif "facet" in target_integral_type:
             def self_map(index):
                 return mesh.closure(mesh.support(index))
-        elif target_integral_type == "interior_facet":
-            def self_map(index):
-                return mesh.closure(mesh.support(index))
-        elif target_integral_type == "interior_facet_vert":
-            raise NotImplementedError
-            self_map = self.interior_facet_node_map()
         else:
             raise ValueError(f"Unknown integral_type: {target_integral_type}")
 

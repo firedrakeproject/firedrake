@@ -1640,7 +1640,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # for some reason I need to do this first, is this still the case?
             mat.assemble()
 
-            p = V.nodal_axes[bc.node_set].index()
+            p = V.nodal_axes[bc.node_set].iter()
             assignee = mat[index, index][p, p]
             # If setting a block then use an identity matrix
             size = utils.single_valued((
@@ -2038,15 +2038,17 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
     def _(self, _, index):
-        raise NotImplementedError
-        next()
-        return self._topology.exterior_facet_vert_local_facet_indices[index]
+        mesh = next(self._active_exterior_facets)
+        if mesh is not self._mesh:
+            raise NotImplementedError
+        return mesh.exterior_facet_vert_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetVertKernelArg)
     def _(self, _, index):
-        raise NotImplementedError
-        next()
-        return self._topology.interior_facet_vert_local_facet_indices[index]
+        mesh = next(self._active_interior_facets)
+        if mesh is not self._mesh:
+            raise NotImplementedError
+        return mesh.interior_facet_vert_local_facet_indices[index]
 
     @_as_parloop_arg.register(kernel_args.OrientationsCellKernelArg)
     def _(self, _, index):
