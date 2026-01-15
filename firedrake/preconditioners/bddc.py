@@ -1,5 +1,4 @@
 from itertools import repeat
-from functools import partial
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
