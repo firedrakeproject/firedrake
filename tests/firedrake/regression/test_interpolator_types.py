@@ -163,8 +163,8 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
                 # Always seqaij for scalar
                 assert sub_mat.type == "seqaij"
             else:
-                # matnest sub_mat_type defaults to baij
-                assert sub_mat.type == "seq" + (sub_mat_type if sub_mat_type else "baij")
+                # matnest sub_mat_type defaults to aij
+                assert sub_mat.type == "seq" + (sub_mat_type if sub_mat_type else "aij")
 
     with pytest.raises(NotImplementedError):
         assemble(interp, mat_type="baij")
