@@ -652,4 +652,48 @@ class CompositeDat(Terminal):
 
     # }}}
 
-    dtpe = IntType
+    dtype = IntType
+
+
+@utils.record()
+class AggregateDat:
+    """A dat formed of multiple subdats concatenated together."""
+    subdats: np.ndarray[Dat]
+
+    @property
+    def subtensors(self):
+        return self.subdats
+
+    def with_context(self, context):
+        cf_submats = np.empty_like(self.subdats)
+        for loc, submat in np.ndenumerate(self.subdats):
+            cf_submats[loc] = submat.with_context(context)
+        return type(self)(cf_submats)
+
+    @cached_property
+    def axes(self) -> AxisTree:
+        sub_axess = tuple(
+            row_submat.axes.materialize()
+            for row_submat in self.subdats
+        )
+        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
+            axes = axes.add_subtree(leaf_path, subtree)
+        return axes
+
+    @property
+    def dtype(self):
+        return utils.single_valued(submat.dtype for submat in self.subdats)
+
+    def materialize(self):
+        return Dat.null(self.axes, dtype=self.dtype)
+
+    def assign(self, other):
+        from pyop3.insn import ArrayAssignment
+
+        return ArrayAssignment(self, other, "write")
+
+    def iassign(self, other):
+        from pyop3.insn import ArrayAssignment
+
+        return ArrayAssignment(self, other, "inc")

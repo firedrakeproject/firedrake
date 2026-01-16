@@ -19,6 +19,7 @@ from immutabledict import immutabledict as idict
 import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
 from pyop3.expr.buffer import MatArrayBufferExpression
+from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
@@ -270,6 +271,7 @@ def _(mat: Mat) -> bool:
     return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.column_axes) and not has_materialized_temporaries(mat))
 
 
+@_requires_pack_unpack.register(AggregateDat)
 @_requires_pack_unpack.register(AggregateMat)
 def _(amat) -> bool:
     return True

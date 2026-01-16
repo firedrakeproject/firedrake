@@ -44,21 +44,34 @@ def _(
 ):
     mesh = space.mesh()
 
-    if len(space) > 1:
-        # do a loop
-        raise NotImplementedError
-        # This is tricky. Consider the case where you have a mixed space with hexes and
-        # each space needs a different (non-permutation) transform. That means that we
-        # have to generate code like:
-        #
-        # t0 = dat[:, closure(cell)]
-        # t1 = transform0(t0[0])  # (field 0)
-        # t2 = transform1(t0[1])  # (field 1)
-        # t3[0] = t1
-        # t3[1] = t2
-        #
-        # I think that the easiest approach here is to index the full thing before passing it
-        # down. We can then combine everything at the top-level
+    # This is tricky. Consider the case where you have a mixed space with hexes and
+    # each space needs a different (non-permutation) transform. That means that we
+    # have to generate code like:
+    #
+    # t0 = dat[:, closure(cell)]
+    # t1 = transform0(t0[0])  # (field 0)
+    # t2 = transform1(t0[1])  # (field 1)
+    # t3[0] = t1
+    # t3[1] = t2
+    packed_dats = np.empty(len(space), dtype=object)
+    for i, (index, subspace) in enumerate(iter_space(space)):
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info)
+
+    if packed_dats.size == 1:
+        return packed_dats.item()
+    else:
+        return op3.AggregateDat(packed_dats)
+
+
+def _pack_dat_nonmixed(
+    dat: op3.Dat,
+    space: WithGeometry,
+    loop_info: IterationSpec,
+    *,
+    nodes: bool = False,
+    permutation: collections.abc.Iterable | None = None,
+):
+    mesh = space.mesh()
 
     if not nodes:
         map_ = space.entity_node_map(loop_info)

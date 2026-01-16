@@ -630,6 +630,10 @@ class AggregateMat:
     """A matrix formed of multiple submatrices concatenated together."""
     submats: np.ndarray[Mat]
 
+    @property
+    def subtensors(self):
+        return self.submats
+
     def with_context(self, context):
         cf_submats = np.empty_like(self.submats)
         for loc, submat in np.ndenumerate(self.submats):

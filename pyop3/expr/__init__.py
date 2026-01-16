@@ -4,6 +4,6 @@ from .base import (  # noqa: F401
 )
 from .buffer import BufferExpression, as_linear_buffer_expression, LinearDatBufferExpression, LinearBufferExpression, NonlinearDatBufferExpression, MatBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, ScalarBufferExpression, DatBufferExpression  # noqa: F401
 from .tensor import (  #noqa: F401
-        Scalar, Tensor, AggregateMat,
+        Scalar, Tensor, AggregateMat, AggregateDat,
         Dat, Mat, CompositeDat
 )

@@ -1373,24 +1373,25 @@ def _(var, /, access_type):
     return (var, ())
 
 
+@expand_transforms.register(expr_types.AggregateDat)
 @expand_transforms.register(expr_types.AggregateMat)
 def _(agg_mat: expr_types.AggregateMat, /, access_type):
     temporary = agg_mat.materialize()
     if access_type == ArrayAccessType.READ:
         insns = tuple(
             temporary[ix].assign(submat)
-            for ix, submat in np.ndenumerate(agg_mat.submats)
+            for ix, submat in np.ndenumerate(agg_mat.subtensors)
         )
     elif access_type == ArrayAccessType.WRITE:
         insns = tuple(
             submat.assign(temporary[ix])
-            for ix, submat in np.ndenumerate(agg_mat.submats)
+            for ix, submat in np.ndenumerate(agg_mat.subtensors)
         )
     else:
         assert access_type == ArrayAccessType.INC
         insns = tuple(
             submat.iassign(temporary[ix])
-            for ix, submat in np.ndenumerate(agg_mat.submats)
+            for ix, submat in np.ndenumerate(agg_mat.subtensors)
         )
     return temporary, insns
 
