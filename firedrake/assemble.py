@@ -1,5 +1,3 @@
-import time  # undo me
-
 import abc
 import contextlib
 import functools

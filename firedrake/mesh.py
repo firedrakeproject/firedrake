@@ -1112,7 +1112,7 @@ class AbstractMeshTopology(abc.ABC):
                     self.name,
                     self.cell_label,
                     self._facet_support_dat("exterior"),
-                    label="XXX",  # needed?
+                    label=0,
                 ),
             ),
         )
@@ -1124,7 +1124,7 @@ class AbstractMeshTopology(abc.ABC):
                     self.name,
                     self.cell_label,
                     self._facet_support_dat("interior"),
-                    label="XXX",  # needed?
+                    label=0,
                 ),
             ),
         )
@@ -1936,16 +1936,16 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        raise NotImplementedError
         cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
-                                                   self._cell_numbering,
+                                                   self._old_to_new_cell_numbering,
                                                    self.cell_closure)
-        if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
-        else:
-            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
-        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
-                       name="cell-to-local-facet-dat")
+        axes = op3.AxisTree.from_iterable([self.cells.root, *cell_facets.shape[1:]])
+        return op3.Dat(axes, data=cell_facets, name="cell-to-local-facet-dat")
+
+    @cached_property
+    def cell_closure(self):
+        # old attribute, keeping around for now
+        return self._fiat_cell_closures[self._new_to_old_cell_numbering]
 
     @property
     def dimension(self):
