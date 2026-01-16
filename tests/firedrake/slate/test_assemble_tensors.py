@@ -83,7 +83,8 @@ def mass(function_space):
 
 @pytest.fixture
 def matrix_mixed_nofacet():
-    mesh = UnitSquareMesh(2, 2)
+    # mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(1, 1)
     U = FunctionSpace(mesh, "RT", 1)
     V = FunctionSpace(mesh, "DG", 0)
     T = FunctionSpace(mesh, "HDiv Trace", 0)

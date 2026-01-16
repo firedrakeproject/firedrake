@@ -436,6 +436,18 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
         assert assignee_insns[-1].assignment_type == AssignmentType.INC
         assignment_type = AssignmentType.WRITE
 
+    # PETSc matrix assignment requires the expression to be a materialised
+    # temporary. Note that we expand literals at a later point, which is silly.
+    # We should do this together.
+    if (
+        isinstance(bare_assignee.buffer, PetscMatBuffer)
+        and isinstance(bare_expression, Mat)
+        and not all(isinstance(tree, AxisTree) for tree in {bare_expression.row_axes, bare_expression.column_axes})
+    ):
+        expression_temp = bare_expression.materialize()
+        expression_insns += (expression_temp.assign(bare_expression),)
+        bare_expression = expression_temp
+
     bare_assignment = assignment.__record_init__(
         _assignee=bare_assignee,
         _expression=bare_expression,

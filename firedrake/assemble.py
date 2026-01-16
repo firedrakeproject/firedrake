@@ -2067,7 +2067,6 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
-        raise NotImplementedError
         return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)
