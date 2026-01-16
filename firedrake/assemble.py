@@ -1509,71 +1509,62 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for iter_index, row_map, column_map, indices in maps_and_regions:
-            rindex, cindex = indices
-            if rindex is None:
-                rindex = Ellipsis
-            if cindex is None:
-                cindex = Ellipsis
+        for loop_info, (trial_index, test_index) in maps_and_regions:
+            # If indices are 'None' then this means all to allocate for all spaces
+            if trial_index == None:
+                if len(trial.function_space()) > 1:
+                    trial_spaces = tuple(trial.function_space())
+                    trial_indices = range(len(trial_spaces))
+                else:
+                    trial_spaces = trial.function_space()
+                    trial_indices = (Ellipsis,)
+            else:
+                trial_spaces = (trial.function_space()[trial_index],)
+                trial_indices = (trial_index,)
+            if test_index == None:
+                if len(test.function_space()) > 1:
+                    test_spaces = tuple(test.function_space())
+                    test_indices = range(len(test_spaces))
+                else:
+                    test_spaces = (test.function_space(),)
+                    test_indices = (Ellipsis,)
+            else:
+                test_spaces = (test.function_space()[test_index],)
+                test_indices = (test_index,)
 
-            op3.loop(
-                iter_index,
-                sparsity[rindex, cindex][row_map, column_map].assign(666),
-                eager=True,
-            )
+            for (trial_index_, trial_space), (test_index_, test_space) in itertools.product(
+                zip(trial_indices, trial_spaces), zip(test_indices, test_spaces)
+            ):
+                trial_map = trial_space.entity_node_map(loop_info)
+                test_map = test_space.entity_node_map(loop_info)
+                op3.loop(
+                    loop_info.loop_index,
+                    sparsity[trial_index_, test_index_][trial_map, test_map].assign(666),
+                    eager=True,
+                )
 
         sparsity.assemble()
         return sparsity
 
     def _make_maps_and_regions(self):
+        # Used to build the sparsity
         test, trial = self._form.arguments()
 
         if self._allocation_integral_types is not None:
             return ExplicitMatrixAssembler._make_maps_and_regions_default(
                 test, trial, self._allocation_integral_types
             )
-
-        # elif utils.strictly_all(
-        #     local_kernel.indices == (None, None)
-        #     for assembler in self._all_assemblers
-        #     for local_kernel, _ in assembler.local_kernels
-        # ):
-        #     # Handle special cases: slate or split=False
-        #     allocation_integral_types = utils.OrderedSet([
-        #         local_kernel.kinfo.integral_type
-        #         for assembler in self._all_assemblers
-        #         for local_kernel, _ in assembler.local_kernels
-        #     ])
-        #     return ExplicitMatrixAssembler._make_maps_and_regions_default(
-        #         test, trial, allocation_integral_types
-        #     )
-
         else:
             loops = []
             for assembler in self._all_assemblers:
                 all_meshes = extract_domains(assembler._form)
                 for local_kernel, subdomain_id in assembler.local_kernels:
-                    i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
-                    # Make Sparsity independent of the subdomain of integration for better reusability;
-                    # subdomain_id is passed here only to determine the integration_type on the target domain
-                    # (see ``entity_node_map``).
-                    iter_spec = get_iteration_spec(mesh, integral_type, subdomain_id)
-
-                    test_space = test.function_space()
-                    if i is not None:
-                        test_space = test_space[i]
-                    trial_space = trial.function_space()
-                    if j is not None:
-                        trial_space = trial_space[j]
-
-                    rmap = test_space.entity_node_map(iter_spec)
-                    cmap = trial_space.entity_node_map(iter_spec)
-
-                    loop = (iter_spec.loop_index, rmap, cmap, local_kernel.indices)
-                    loops.append(loop)
+                    # Make sparsity independent of the subdomain of integration
+                    # for better reusability
+                    loop_info = get_iteration_spec(mesh, integral_type)
+                    loops.append((loop_info, local_kernel.indices))
             return tuple(loops)
 
     @staticmethod
@@ -1587,11 +1578,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         for integral_type in allocation_integral_types:
             for i, Vrow in enumerate(test.function_space()):
                 if len(test.function_space()) == 1:
-                    i = None
+                    i = Ellipsis
 
                 for j, Vcol in enumerate(trial.function_space()):
                     if len(trial.function_space()) == 1:
-                        j = None
+                        j = Ellipsis
                     mesh = Vrow.mesh()
                     # NOTE: This means that we are always looping over the 'row mesh' - is this
                     # always the right thing to do?

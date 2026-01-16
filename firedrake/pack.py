@@ -96,6 +96,27 @@ def _(
         dat = mat_context.dat
         return pack(dat, space, loop_info, nodes=nodes)
 
+    packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
+    for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
+        for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
+            packed_mats[ir, ic] = _pack_mat_nonmixed(
+                mat[row_index, column_index], row_subspace, column_subspace, loop_info
+            )
+
+    if packed_mats.size == 1:
+        return packed_mats.item()
+    else:
+        return op3.AggregateMat(packed_mats)
+
+
+def _pack_mat_nonmixed(
+    mat: op3.Mat,
+    row_space: WithGeometry,
+    column_space: WithGeometry,
+    loop_info: IterationSpec,
+    *,
+    nodes: bool = False,
+):
     row_map = row_space.entity_node_map(loop_info)
     column_map = column_space.entity_node_map(loop_info)
     packed_mat = mat[row_map, column_map]
@@ -191,6 +212,29 @@ def transform_packed_cell_closure_mat(
         packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
+
+
+def _make_closure_map_tree(space: WithGeometry, loop_info: IterationSpec) -> op3.IndexTree:
+    if len(space) == 1:
+        return space.entity_node_map(loop_info)
+
+    # mixed, need a closure per subspace and a full slice over the top
+    # TODO: This is full slice, need nice API for that
+    space_axis = space.plex_axes.root
+    space_slice = op3.Slice(
+        space_axis.name,
+        [
+            op3.AffineSliceComponent(space_index, label=space_index)
+            for space_index in space_axis.component_labels
+        ],
+        label=space_axis.name,
+    )
+    index_tree = op3.IndexTree(space_slice)
+    for leaf_path, subspace in zip(index_tree.leaf_paths, space, strict=True):
+        index_tree = index_tree.add_subtree(
+            leaf_path, _make_closure_map_tree(subspace, loop_info)
+        )
+    return index_tree
 
 
 @functools.singledispatch
@@ -352,3 +396,11 @@ def _needs_static_permutation(element) -> bool:
 
 def _requires_orientation(space: WithGeometry) -> bool:
     return space.finat_element.fiat_equivalent.dual.entity_permutations is not None
+
+
+def iter_space(space: WithGeometry):
+    """Index-friendly iterator for function spaces."""
+    if len(space) == 1:
+        yield (Ellipsis, space)
+    else:
+        yield from enumerate(space)

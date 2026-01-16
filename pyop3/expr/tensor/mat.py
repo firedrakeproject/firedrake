@@ -22,6 +22,7 @@ from pyop3.tree.axis_tree import (
     AbstractAxisTree,
     AxisForest,
     AxisTree,
+    Axis,
     ContextSensitiveAxisTree,
     as_axis_tree_type,
 )
@@ -35,9 +36,6 @@ from pyop3.utils import (
     strictly_all,
     unique,
 )
-
-
-import pyop3.extras.debug
 
 
 @utils.record()
@@ -624,3 +622,60 @@ class ColumnDatPythonMatContext(DatPythonMatContext):
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         return ((None, 1), (self.dat.axes.unindexed.owned.local_size, None))
+
+
+# TODO: Should inherit from SymbolicTensor/SymbolicMat
+@utils.record()
+class AggregateMat:
+    """A matrix formed of multiple submatrices concatenated together."""
+    submats: np.ndarray[Mat]
+
+    def with_context(self, context):
+        cf_submats = np.empty_like(self.submats)
+        for loc, submat in np.ndenumerate(self.submats):
+            cf_submats[loc] = submat.with_context(context)
+        return type(self)(cf_submats)
+
+    @cached_property
+    def row_axes(self) -> AxisTree:
+        sub_axess = tuple(
+            utils.single_valued(
+                row_submat.row_axes.materialize() for row_submat in row_submats
+            )
+            for row_submats in self.submats
+        )
+        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
+            axes = axes.add_subtree(leaf_path, subtree)
+        return axes
+
+    @cached_property
+    def column_axes(self) -> AxisTree:
+        sub_axess = tuple(
+            utils.single_valued(
+                column_submat.column_axes.materialize()
+                for column_submat in column_submats
+            )
+            for column_submats in self.submats.T
+        )
+        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
+            axes = axes.add_subtree(leaf_path, subtree)
+        return axes
+
+    @property
+    def dtype(self):
+        return utils.single_valued(submat.dtype for submat in self.submats.flatten())
+
+    def materialize(self):
+        return Mat.null(self.row_axes, self.column_axes, dtype=self.dtype)
+
+    def assign(self, other):
+        from pyop3.insn import ArrayAssignment
+
+        return ArrayAssignment(self, other, "write")
+
+    def iassign(self, other):
+        from pyop3.insn import ArrayAssignment
+
+        return ArrayAssignment(self, other, "inc")

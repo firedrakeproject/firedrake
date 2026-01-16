@@ -1287,12 +1287,12 @@ class FunctionSpace:
             Entity node map.
 
         """
-        mesh = self.mesh()
+        mesh = self.mesh().unique()
         if iteration_spec.mesh.topology is mesh.topology:
             composed_map = None
             target_integral_type = iteration_spec.integral_type
         elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
-            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
+            composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
         else:
             # No shared topology, must be using a vertex-only mesh
             composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
@@ -1300,7 +1300,7 @@ class FunctionSpace:
 
         if target_integral_type == "cell":
             def self_map(index):
-                return self.mesh().closure(index)
+                return mesh.closure(index)
         elif "facet" in target_integral_type:
             def self_map(index):
                 return mesh.closure(mesh.support(index))
@@ -1821,31 +1821,6 @@ class MixedFunctionSpace:
             ises.append(is_)
             start += size
         return tuple(ises)
-
-    def cell_node_map(self):
-        r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
-        underlying mesh to the :attr:`node_set` of this
-        :class:`MixedFunctionSpace`. This is composed of the
-        :attr:`FunctionSpace.cell_node_map`\s of the underlying
-        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
-        composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
-
-    def interior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.MixedMap` from interior facets to
-        function space nodes."""
-        return op2.MixedMap(s.interior_facet_node_map() for s in self)
-
-    def exterior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
-        function space nodes."""
-        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
-
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-        r"""Return a map from process local dof numbering to global dof numbering.
-
-        If BCs is provided, mask out those dofs which match the BC nodes."""
-        raise NotImplementedError("Not for mixed maps right now sorry!")
 
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
     def make_dat(self, val=None, valuetype=None, name=None):
