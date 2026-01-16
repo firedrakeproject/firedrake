@@ -1373,6 +1373,28 @@ def _(var, /, access_type):
     return (var, ())
 
 
+@expand_transforms.register(expr_types.AggregateMat)
+def _(agg_mat: expr_types.AggregateMat, /, access_type):
+    temporary = agg_mat.materialize()
+    if access_type == ArrayAccessType.READ:
+        insns = tuple(
+            temporary[ix].assign(submat)
+            for ix, submat in np.ndenumerate(agg_mat.submats)
+        )
+    elif access_type == ArrayAccessType.WRITE:
+        insns = tuple(
+            submat.assign(temporary[ix])
+            for ix, submat in np.ndenumerate(agg_mat.submats)
+        )
+    else:
+        assert access_type == ArrayAccessType.INC
+        insns = tuple(
+            submat.iassign(temporary[ix])
+            for ix, submat in np.ndenumerate(agg_mat.submats)
+        )
+    return temporary, insns
+
+
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
 @expand_transforms.register(expr_types.Tensor)
 def _(tensor: expr_types.Tensor, /, access_type):
