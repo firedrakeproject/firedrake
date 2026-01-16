@@ -1,14 +1,42 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+
+# TODO: use functools.cached_property directly everywhere
+from functools import cached_property  # noqa: F401
+
 from decorator import decorator
-from pyop2.utils import cached_property  # noqa: F401
-from pyop2.datatypes import ScalarType, as_cstr
-from pyop2.datatypes import RealType     # noqa: F401
-from pyop2.datatypes import IntType      # noqa: F401
-from pyop2.datatypes import as_ctypes    # noqa: F401
-from pyop2.mpi import MPI
+from petsc4py import PETSc
+
+from pyop3.dtypes import ScalarType, as_cstr
+from pyop3.dtypes import RealType     # noqa: F401
+from pyop3.dtypes import IntType      # noqa: F401
+from pyop3.dtypes import as_ctypes    # noqa: F401
+from pyop3.mpi import MPI
+from pyop3.utils import (  # noqa: F401
+    OrderedSet,
+    readonly,
+    pairwise,
+    steps,
+    just_one,
+    pretty_type,
+    single_valued,
+    is_single_valued,
+    has_unique_entries,
+    strictly_all,
+    debug_assert,
+    freeze,
+    strict_int,
+    StrictlyUniqueDict,
+    StrictlyUniqueDefaultDict,
+    invert,
+    split_by,
+    as_tuple,
+    is_sorted,
+)
+
 import petsctools
+
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -30,17 +58,6 @@ def _new_uid(comm):
         uid = 0
     comm.Set_attr(FIREDRAKE_UID, uid + 1)
     return uid
-
-
-def _init():
-    """Cause :func:`pyop2.init` to be called in case the user has not done it
-    for themselves. The result of this is that the user need only call
-    :func:`pyop2.init` if she wants to set a non-default option, for example
-    to switch the debug or log level."""
-    from pyop2 import op2
-    from firedrake.parameters import parameters
-    if not op2.initialised():
-        op2.init(**parameters["pyop2_options"])
 
 
 def unique(iterable):
@@ -72,28 +89,6 @@ def unique_name(name, nameset):
             return newname
 
 
-def known_pyop2_safe(f):
-    """Decorator to mark a function as being PyOP2 type-safe.
-
-    This switches the current PyOP2 type checking mode to the value
-    given by the parameter "type_check_safe_par_loops", and restores
-    it after the function completes."""
-    from firedrake.parameters import parameters
-
-    def wrapper(f, *args, **kwargs):
-        opts = parameters["pyop2_options"]
-        check = opts["type_check"]
-        safe = parameters["type_check_safe_par_loops"]
-        if check == safe:
-            return f(*args, **kwargs)
-        opts["type_check"] = safe
-        try:
-            return f(*args, **kwargs)
-        finally:
-            opts["type_check"] = check
-    return decorator(wrapper, f)
-
-
 def tuplify(item):
     """Convert an object into a hashable equivalent.
 
@@ -112,25 +107,6 @@ def tuplify(item):
     if not isinstance(item, dict):
         raise ValueError(f"tuplify does not know how to handle objects of type {type(item)}")
     return tuple((k, tuplify(item[k])) for k in sorted(item))
-
-
-def split_by(condition, items):
-    """Split an iterable in two according to some condition.
-
-    :arg condition: Callable applied to each item in ``items``, returning ``True``
-        or ``False``.
-    :arg items: Iterable to split apart.
-    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
-        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
-        of those where ``condition`` is ``False``.
-    """
-    result = [], []
-    for item in items:
-        if condition(item):
-            result[0].append(item)
-        else:
-            result[1].append(item)
-    return tuple(result[0]), tuple(result[1])
 
 
 def assert_empty(iterator):
@@ -169,6 +145,15 @@ def deprecated(prefer=None, internal=False):
         return wrapper
     return decorator
 
+
+def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
+    """Return a non-null index set.
+
+    This function is useful because sometimes petsc4py returns index sets that
+    are not correctly initialised.
+
+    """
+    return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()
 
 def check_netgen_installed() -> None:
     """Check that netgen and ngsPETSc are available.

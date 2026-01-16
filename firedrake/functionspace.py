@@ -8,7 +8,7 @@ import itertools
 import ufl
 import finat.ufl
 
-from pyop2.utils import flatten
+from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
@@ -57,6 +57,9 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     cell = topology.ufl_cell()
     if isinstance(family, finat.ufl.FiniteElementBase):
         return family.reconstruct(cell=cell)
+
+    if family in {"Real", "R"} and degree is None:
+        degree = 0
 
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
@@ -320,7 +323,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
+def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters

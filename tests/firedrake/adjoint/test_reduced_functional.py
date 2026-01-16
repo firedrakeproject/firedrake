@@ -262,7 +262,7 @@ def test_real_space_assign_numpy():
     mesh = UnitSquareMesh(1, 1)
     R = FunctionSpace(mesh, "R", 0)
     dst = Function(R)
-    src = dst.dat.dataset.layout_vec.array_r.copy()
+    src = R.template_vec.array_r.copy()
     data = 1 + np.arange(src.shape[0])
     src[:] = data
     dst._ad_assign_numpy(dst, src, offset=0)
