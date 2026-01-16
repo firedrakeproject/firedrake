@@ -1,9 +1,13 @@
 import itertools
+from numbers import Complex
 import ufl
 
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from firedrake.constant import Constant
 
 
 class DummyOP2Mat:
@@ -106,17 +110,58 @@ class MatrixBase(ufl.Matrix):
 
     def __add__(self, other):
         if isinstance(other, MatrixBase):
-            mat = self.petscmat + other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
+            if self.arguments() != other.arguments():
+                raise ValueError("Arguments in matrix addition must match.")
+            return ufl.FormSum((self, 1.), (other, 1.))
         else:
             return NotImplemented
 
     def __sub__(self, other):
         if isinstance(other, MatrixBase):
-            mat = self.petscmat - other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
+            if self.arguments() != other.arguments():
+                raise ValueError("Arguments in matrix subtraction must match.")
+            return ufl.FormSum((self, 1.), (other, -1.))
         else:
             return NotImplemented
+
+    def __matmul__(self, other):
+        if isinstance(other, MatrixBase | Function | Cofunction):
+            return ufl.Action(self, other)
+        else:
+            return NotImplemented
+
+    def __rmatmul__(self, other):
+        if isinstance(other, MatrixBase):
+            return ufl.Action(other, self)
+        elif isinstance(other, Cofunction):
+            return ufl.Action(ufl.Adjoint(self), other)
+        else:
+            return NotImplemented
+
+    def __mul__(self, other):
+        # Scalar multiplication
+        if isinstance(other, Complex | Constant):
+            return ufl.FormSum((self, other))
+        else:
+            return NotImplemented
+
+    def __rmul__(self, other):
+        # Scalar multiplication from the left
+        if isinstance(other, Complex | Constant):
+            return ufl.FormSum((self, other))
+        else:
+            return NotImplemented
+
+    def __truediv__(self, other):
+        # Scalar division
+        if isinstance(other, Complex | Constant):
+            other = other.values().item() if isinstance(other, Constant) else other
+            return ufl.FormSum((self, 1.0/other))
+        else:
+            return NotImplemented
+
+    def __neg__(self):
+        return ufl.FormSum((self, -1.))
 
     def assign(self, val):
         """Set matrix entries."""
