@@ -3123,12 +3123,11 @@ values from f.)"""
             pyop2_index.extend(cell_node_map.values[ngidx])
 
         # Find the correct coordinate permutation for each cell
-        # NB: Coordinates must be cast to real when running Firedrake in complex mode
         permutation = find_permutation(
             physical_space_points,
-            new_coordinates.dat.data[pyop2_index].reshape(
+            new_coordinates.dat.data[pyop2_index].real.reshape(
                 physical_space_points.shape
-            ).astype(np.float64, copy=False),
+            ),
             tol=permutation_tol
         )
 
