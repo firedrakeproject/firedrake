@@ -71,7 +71,8 @@ pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 
 [project.optional-dependencies]
 check = [
-  "mpi-pytest>=2025.7",
+  # TODO RELEASE
+  "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@main",
   "pytest",
 ]
 docs = [
@@ -112,7 +113,8 @@ ci = [
   "ipympl",  # needed for notebook testing
   "jax",
   "matplotlib",
-  "mpi-pytest>=2025.7",
+  # TODO RELEASE
+  "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@main",
   "nbval",
   "networkx",
   # TODO RELEASE
@@ -133,7 +135,8 @@ ci = [
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
   "matplotlib",
-  "mpi-pytest>=2025.7",
+  # TODO RELEASE
+  "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@main",
   "nbval",
   "networkx",
   "pdf2image",

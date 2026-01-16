@@ -364,7 +364,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             block on the Pyadjoint tape.
         **kwargs
             Any extra kwargs are passed on to the interpolate function.
-            For details see `firedrake.interpolation.interpolate`.
+            For details see :func:`firedrake.interpolation.interpolate`.
 
         Returns
         -------
