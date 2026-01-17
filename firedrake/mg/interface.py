@@ -246,11 +246,6 @@ def inject(fine, coarse):
                 ),
                 eager=True,
             )
-            # op2.par_loop(kernel, Vc.mesh().cell_set,
-            #              next.dat(op2.INC, next.cell_node_map()),
-            #              fine.dat(op2.READ, coarse_cell_to_fine_nodes),
-            #              fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
-            #              coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
         fine = next
         Vf = Vc
     return coarse

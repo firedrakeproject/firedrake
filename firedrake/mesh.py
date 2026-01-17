@@ -6413,7 +6413,7 @@ class IterationSpec:
             iterset_axis = self.iterset.as_axis()
             # TODO: Ideally should be able to avoid creating these here and just index
             # with the array
-            subset_dat = op3.Dat.from_array(self.indices.indices)
+            subset_dat = op3.Dat.from_array(self.indices.indices, prefix="subset")
             return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
 
     @cached_property

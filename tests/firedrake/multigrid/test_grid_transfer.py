@@ -110,6 +110,9 @@ def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
+            if degree == 3:
+                import pyop3
+                pyop3.extras.debug.enable_conditional_breakpoints()
             expect = assemble(interpolate(exact(mesh, shape, degree), V))
             tmp = Function(V)
             inject(actual, tmp)

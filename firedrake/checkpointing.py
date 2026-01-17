@@ -584,22 +584,7 @@ class CheckpointFile(object):
                 self.require_group(path)
                 self.set_attr(path, PREFIX_EXTRUDED + "_base_mesh", base_tmesh.name)
                 self.set_attr(path, PREFIX_EXTRUDED + "_periodic", tmesh.extruded_periodic)
-                self.set_attr(path, PREFIX_EXTRUDED + "_variable_layers", tmesh.variable_layers)
-                if tmesh.variable_layers:
-                    # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
-                    # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
-                    cell = base_tmesh.ufl_cell()
-                    element = finat.ufl.VectorElement("DP" if cell.is_simplex else "DQ", cell, 0, dim=2)
-                    layers_tV = impl.FunctionSpace(base_tmesh, element)
-                    self._save_function_space_topology(layers_tV)
-                    # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
-                    layers_iset = PETSc.IS().createGeneral(tmesh.layers[:tmesh.cell_set.size, :], comm=tmesh.comm)
-                    layers_iset.setName("_".join([PREFIX_EXTRUDED, "layers_iset"]))
-                    self.viewer.pushGroup(path)
-                    layers_iset.view(self.viewer)
-                    self.viewer.popGroup()
-                else:
-                    self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
+                self.set_attr(path, PREFIX_EXTRUDED + "_layers", tmesh.layers)
             # -- Save mesh --
             path = self._path_to_meshes(tmesh.name)
             if mesh.name not in self.require_group(path):

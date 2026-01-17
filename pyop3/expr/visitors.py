@@ -277,6 +277,7 @@ def _(axis_var: expr_types.AxisVar, /, replace_map) -> ExpressionT:
 @_replace_terminals.register(numbers.Number)
 @_replace_terminals.register(np.bool)
 @_replace_terminals.register(expr_types.NaN)
+@_replace_terminals.register(expr_types.LoopIndexVar)
 def _(var: ExpressionT, /, replace_map) -> ExpressionT:
     return var
 
@@ -1461,24 +1462,32 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 
         # Make 'tensor' a temporary but retain its original axis tree, this is
         # what we return to the caller
-        tensor = tensor.null_like()
+        # tensor = tensor.null_like()
+        temp = prev_tensor.materialize()
 
         # Produce an 'unindexed' version of this temporary with shape
         # matching 'prev_tensor'
         if isinstance(tensor, Dat):
-            tensor_reshaped = tensor.with_axes(prev_tensor.axes.materialize())
+            temp_reshaped = temp.with_axes(tensor.axes)
         else:
             assert isinstance(tensor, Mat)
-            tensor_reshaped = tensor.with_axes(
-                prev_tensor.row_axes.materialize(),
-                prev_tensor.column_axes.materialize(),
+            temp_reshaped = temp.with_axes(
+                tensor.row_axes,
+                tensor.column_axes,
             )
 
         if access_type == ArrayAccessType.READ:
-            insns = (tensor_reshaped.assign(prev_tensor),)
+            insns = prev_insns + (
+                temp.assign(prev_tensor),
+            )
+            return temp_reshaped, insns
         else:
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns = (prev_tensor.assign(tensor_reshaped),)
+            insns = (
+                prev_tensor.assign(temp),
+            ) + prev_insns
+            return temp_reshaped, insns
+
     else:
         assert isinstance(transform, OutOfPlaceCallableTensorTransform)
         # Emit something like
@@ -1493,9 +1502,8 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
         # is then passed up to the caller.
         tensor = tensor.materialize()
         if access_type == ArrayAccessType.READ:
-            insns = transform.transform_in(prev_tensor, tensor)
+            insns = prev_insns + transform.transform_in(prev_tensor, tensor)
         else:
             assert access_type in {ArrayAccessType.WRITE, ArrayAccessType.INC}
-            insns = transform.transform_out(tensor, prev_tensor)
-
-    return tensor, insns + prev_insns
+            insns = transform.transform_out(tensor, prev_tensor) + prev_insns
+        return tensor, insns

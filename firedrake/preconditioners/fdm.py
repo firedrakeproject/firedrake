@@ -2257,7 +2257,7 @@ class PoissonFDMPC(FDMPC):
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
-            extruded = mesh.cell_set._extruded
+            extruded = mesh.extruded
             dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
             area = ufl.FacetArea(mesh)
             ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
@@ -2425,7 +2425,7 @@ def extrude_interior_facet_maps(V):
     facet_to_nodes = facet_node_map.values
     nbase = facet_to_nodes.shape[0]
 
-    if mesh.cell_set._extruded:
+    if mesh.extruded:
         facet_offset = facet_node_map.offset
         local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
 

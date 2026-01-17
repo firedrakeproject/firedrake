@@ -343,10 +343,6 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
             if intent == READ:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
             elif intent == WRITE:
-                # This is currently necessary because some local kernels
-                # (interpolation) actually increment values instead of setting
-                # them directly. This should ideally be addressed.
-                arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
             elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))

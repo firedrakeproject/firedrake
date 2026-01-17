@@ -163,8 +163,8 @@ def transform_packed_cell_closure_dat(
 ) -> op3.Dat:
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # if not space.extruded:
-    if space.mesh().ufl_cell() == ufl.hexahedron:
-        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    # if space.mesh().ufl_cell() == ufl.hexahedron:
+    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     # FIXME: This is awful!
     if _needs_static_permutation(space.finat_element) or permutation is not None:
@@ -304,8 +304,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
     new_targets = {
-        k: (path, dict(exprs))
-        for k, (path, exprs) in axes.targets[0].items()
+        path: [list(targets) for targets in targetss]
+        for (path, targetss) in axes.targets.items()
     }
     point_axis = axes.node_map[outer_path]
     for dim_axis_component in point_axis.components:
@@ -324,19 +324,22 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 
         # Now replace 'i_which' with 'ort[i0, i1]'
         orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(dim_label,)])
-        selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis_label == "which")
+        selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis.label == "which")
         perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr})
 
         # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
         # now plug into 'packed_dat'
 
         path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
-        before = new_targets[path][1]["dof"]
-        new_targets[path][1]["dof"] = op3.replace(new_targets[path][1]["dof"], {op3.AxisVar(dof_axis): perm_expr})
-        assert new_targets[path][1]["dof"] != before
+        before = utils.just_one(new_targets[path][0])  # hack to get the right one...
+        assert before.axis == "dof"
+        new_targets[path] = [[before.__record_init__(
+            expr=op3.replace(before.expr, {op3.AxisVar(dof_axis): perm_expr}, assert_modified=True)
+        )]]
 
-    # TODO: respect the fact that targets can contain multiple entries
-    return axes.__record_init__(targets=(new_targets,))
+    new_targets = utils.freeze(new_targets)
+
+    return axes.__record_init__(_targets=new_targets)
 
 
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))

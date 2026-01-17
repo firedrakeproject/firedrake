@@ -211,6 +211,13 @@ class Dat(Tensor):
 
         buffer_kwargs = buffer_kwargs or {}
 
+        name = utils.maybe_generate_name(kwargs.pop("name", None), kwargs.pop("prefix", None), cls.DEFAULT_PREFIX)
+        kwargs["name"] = name
+
+        buffer_kwargs = dict(buffer_kwargs)
+        if "name" not in buffer_kwargs:
+            buffer_kwargs["name"] = f"{name}_buffer"
+
         # NOTE: Should this size *always* be a Scalar?
         axes = Axis(Scalar(array.size))
         buffer = ArrayBuffer(array, **buffer_kwargs)
