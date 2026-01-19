@@ -27,8 +27,9 @@ def amh(request):
         geo = OCCGeometry(cube, dim=3)
         maxh = 0.5
 
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     ngmesh = geo.GenerateMesh(maxh=maxh)
-    base = Mesh(ngmesh, distribution_parameters={"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)})
+    base = Mesh(ngmesh, distribution_parameters=dparams)
     amh_test = AdaptiveMeshHierarchy(base)
 
     rg = RandomGenerator(PCG64(seed=0))
@@ -46,8 +47,7 @@ def amh(request):
             el.refine = 1 if should_refine[i] < 0.5 else 0
 
         ngmesh.Refine(adaptive=True)
-        mesh = Mesh(ngmesh)
-
+        mesh = Mesh(ngmesh, distribution_parameters=dparams)
         amh_test.add_mesh(mesh)
     return amh_test
 
@@ -87,7 +87,7 @@ def tm():
     return TransferManager()
 
 
-@pytest.mark.parallel([1])
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_DG0(amh, atm, operator):  # pylint: disable=W0621
@@ -121,7 +121,7 @@ def test_DG0(amh, atm, operator):  # pylint: disable=W0621
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
-@pytest.mark.parallel([1])
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_CG1(amh, atm, operator):  # pylint: disable=W0621
@@ -149,6 +149,7 @@ def test_CG1(amh, atm, operator):  # pylint: disable=W0621
         assert errornorm(xc, u_coarse) <= 1e-12
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
     """
@@ -195,6 +196,7 @@ def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
     ) <= 1e-12
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
     """
@@ -220,6 +222,7 @@ def test_restrict_CG1(amh, atm):  # pylint: disable=W0621
     )
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
     """
@@ -245,6 +248,7 @@ def test_restrict_DG0(amh, atm):  # pylint: disable=W0621
     )
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
     """
@@ -283,6 +287,7 @@ def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
     assert errornorm(u_ex, u) <= 1e-8
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("params", ["jacobi", "asm", "patch"])
 def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
