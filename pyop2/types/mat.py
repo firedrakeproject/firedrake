@@ -1080,7 +1080,7 @@ class _DatMatPayload:
                 # Row matrix
                 out = v.dot(x)
                 if y.comm.rank == 0:
-                    y.array[0] = out
+                    y.array[...] = out
                 else:
                     y.array[...]
             else:
@@ -1089,7 +1089,7 @@ class _DatMatPayload:
                     v.copy(y)
                     a = np.zeros(1, dtype=dtypes.ScalarType)
                     if x.comm.rank == 0:
-                        a[0] = x.array_r
+                        a[...] = x.array_r
                     else:
                         x.array_r
                     with mpi.temp_internal_comm(x.comm) as comm:
@@ -1106,7 +1106,7 @@ class _DatMatPayload:
                     v.copy(y)
                     a = np.zeros(1, dtype=dtypes.ScalarType)
                     if x.comm.rank == 0:
-                        a[0] = x.array_r
+                        a[...] = x.array_r
                     else:
                         x.array_r
                     with mpi.temp_internal_comm(x.comm) as comm:
@@ -1118,7 +1118,7 @@ class _DatMatPayload:
                 # Column matrix
                 out = v.dot(x)
                 if y.comm.rank == 0:
-                    y.array[0] = out
+                    y.array[...] = out
                 else:
                     y.array[...]
 
@@ -1131,7 +1131,7 @@ class _DatMatPayload:
                     v.copy(z)
                     a = np.zeros(1, dtype=dtypes.ScalarType)
                     if x.comm.rank == 0:
-                        a[0] = x.array_r
+                        a[...] = x.array_r
                     else:
                         x.array_r
                     with mpi.temp_internal_comm(x.comm) as comm:
@@ -1156,7 +1156,7 @@ class _DatMatPayload:
                 out = v.dot(x)
                 y = y.array_r
                 if z.comm.rank == 0:
-                    z.array[0] = out + y[0]
+                    z.array[...] = out + y
                 else:
                     z.array[...]
 
