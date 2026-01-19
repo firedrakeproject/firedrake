@@ -64,6 +64,8 @@ Cyrus Cheng
 
 Teodoro Fields Collin
 
+Leo Collins
+
 Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
@@ -72,7 +74,7 @@ Daiane I. Dolci...............<https://www.imperial.ac.uk/people/d.dolci>
 
 Patrick E. Farrell............<https://pefarrell.org>
 
-Simon W. Funke................<http://www.simonfunke.com>
+Simon W. Funke
 
 Melina Giagiozis
 
@@ -104,7 +106,7 @@ Robert C. Kirby...............<https://www.baylor.edu/math/index.php?id=90540>
 
 Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
-Tuomas Kärnä..................<https://www.tuomaskarna.com>
+Tuomas Kärnä
 
 Michael Lange.................<https://www.linkedin.com/in/michael-lange-56675994/>
 

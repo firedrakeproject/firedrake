@@ -11,7 +11,7 @@ Firedrake offers highly flexible capabilities for interpolating expressions
 (functions of space) into finite element :py:class:`~.Function`\s.
 Interpolation is often used to set up initial conditions and/or boundary
 conditions. Mathematically, if :math:`e(x)` is a function of space and
-:math:`V` is a finite element functionspace then
+:math:`V` is a finite element function space then
 :math:`\operatorname{interpolate}(e, V)` is the :py:class:`~.Function`
 :math:`v_i \phi_i\in V` such that:
 
@@ -45,6 +45,9 @@ The basic syntax for interpolation is:
    :dedent:
    :start-after: [test_interpolate_operator 1]
    :end-before: [test_interpolate_operator 2]
+
+Here, the :py:func:`~.interpolate` function returned a **symbolic** UFL_ :py:class:`~ufl.Interpolate`
+expression. To calculate a concrete numerical result, we need to call :py:func:`~.assemble` on this expression.
 
 It is also possible to interpolate an expression directly into an existing
 :py:class:`~.Function`:
@@ -89,8 +92,7 @@ Here is an example demonstrating some of these features:
    :start-after: [test_interpolate_operator 7]
    :end-before: [test_interpolate_operator 8]
 
-This also works as expected when interpolating into a a space defined on the facets
-of the mesh:
+This also works when interpolating into a space defined on the facets of the mesh:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -105,6 +107,157 @@ of the mesh:
    interpolate into spaces defined by higher-continuity elements such as
    Argyris and Hermite.
 
+
+Semantics of symbolic interpolation
+--------------------------------------------
+
+Let :math:`U` and :math:`V` be finite element spaces with DoFs :math:`\{\psi^{*}_{i}\}` and :math:`\{\phi^{*}_{i}\}`
+and basis functions :math:`\{\psi_{i}\}` and :math:`\{\phi_{i}\}`, respectively.
+The interpolation operator between :math:`U` and :math:`V` is defined
+
+.. math::
+
+   \mathcal{I}_{V} : U &\to V \\ \mathcal{I}_{V}(u)(x) &= \phi^{*}_{i}(u)\phi_{i}(x).
+
+We define the following bilinear form
+
+.. math::
+
+   I : U \times V^{*} &\to \mathbb{R} \\ I(u, v^*) &= v^{*}(u)
+
+where :math:`v^{*}\in V^{*}` is a linear functional in the dual space to :math:`V`, extended so that
+it can act on functions in :math:`U`. If we choose :math:`v^{*} = \phi^{*}_{i}` then 
+:math:`I(u, \phi^{*}_{i}) = \phi^{*}_{i}(u)` gives the coefficients of the interpolation of :math:`u` into :math:`V`.
+This allows us to represent the interpolation as a form in UFL_. This is exactly the 
+:py:class:`~ufl.Interpolate` UFL_ object. Note that this differs from typical bilinear forms since one of the
+arguments is in a dual space. For more information on dual spaces in Firedrake, 
+see :ref:`the relevant section of the manual <duals>`.
+
+Interpolation operators
+~~~~~~~~~~~~~~~~~~~~~~~
+
+2-forms are assembled into matrices, and we can do the same with the interpolation form.
+If we let :math:`u` be a ``TrialFunction(U)`` (i.e. an argument in slot 1) and :math:`v^*` be a
+``TestFunction(V.dual())`` (i.e. a :py:class:`~ufl.Coargument` in slot 0) then
+
+.. math::
+
+   I(u, v^*) = I(\psi_{j},\phi_{i}^*)=\phi_{i}^*(\psi_{j})=:A_{ij}
+
+The matrix :math:`A` is the interpolation matrix from :math:`U` to :math:`V`. In Firedrake, we can
+assemble this matrix by doing
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 11]
+   :end-before: [test_interpolate_operator 12]
+
+Passing a :py:class:`~.FunctionSpace` into the dual slot of :py:func:`~.interpolate` is
+syntactic sugar for ``TestFunction(V.dual())``.
+
+If :math:`g\in U` is a :py:class:`~.Function`, then we can write it as :math:`g = g_j \psi_j` for
+some coefficients :math:`g_j`. Interpolating :math:`g` into :math:`V` gives
+
+.. math::
+
+   I(g, v^*) = \phi^{*}_{i}(g_j \psi_j)= A_{ij} g_j,
+
+so we can multiply the vector of coefficients of :math:`g` by the interpolation matrix to obtain the
+coefficients of the interpolated function. In Firedrake, we can do this by
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 12]
+   :end-before: [test_interpolate_operator 13]
+
+:math:`h` is a :py:class:`~.Function` in :math:`V` representing the interpolation of :math:`g` into :math:`V`.
+
+.. note::
+
+   When interpolating a :py:class:`~.Function` directly, for example
+
+   .. code-block:: python3
+
+      assemble(interpolate(Function(U), V))
+
+   Firedrake does not explicitly assemble the interpolation matrix. Instead, the interpolation
+   is performed matrix-free.
+
+Adjoint interpolation
+~~~~~~~~~~~~~~~~~~~~~
+The adjoint of the interpolation operator is defined as
+
+.. math::
+
+   \mathcal{I}_{V}^{*} : V^{*} \to U^{*}.
+
+This operator interpolates :py:class:`~.Cofunction`\s in the dual space :math:`V^{*}` into
+the dual space :math:`U^{*}`. The associated form is
+
+.. math::
+
+   I^{*} : V^{*} \times U \to \mathbb{R}.
+
+So to obtain the adjoint interpolation operator, we swap the arguments of the :py:class:`~ufl.Interpolate` 
+form. In Firedrake, we can accomplish this in two ways. The first is to swap the argument numbers to the form:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 14]
+   :end-before: [test_interpolate_operator 15]
+
+The second way is to use UFL_'s :py:func:`~ufl.adjoint` operator, which takes a form and returns its adjoint:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 15]
+   :end-before: [test_interpolate_operator 16]
+
+If :math:`g^*` is a :py:class:`~.Cofunction` in :math:`V^{*}` then we can interpolate it into :math:`U^{*}` by doing
+
+.. math::
+
+   I^{*}(g^*, u) = g^*_i \phi_i^*(\psi_j) = g^*_i A_{ij}.
+
+This is the product of the adjoint interpolation matrix :math:`A^{*}` and the coefficients of :math:`g^*`. 
+In Firedrake, we can do this by
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 16]
+   :end-before: [test_interpolate_operator 17]
+
+Again, Firedrake does not explicitly assemble the adjoint interpolation matrix, but performs the
+interpolation matrix-free. To perform the interpolation with the assembled adjoint interpolation operator,
+we can take the :py:func:`~ufl.action` of the operator on the :py:class:`~.Cofunction`:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 17]
+   :end-before: [test_interpolate_operator 18]
+
+The final case is when we interpolate a :py:class:`~.Function` into :py:class:`~.Cofunction`:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_operator 19]
+   :end-before: [test_interpolate_operator 20]
+
+This interpolation has zero arguments and hence is assembled into a number. Mathematically, we have
+
+.. math::
+
+   I^{*}(g^*, u) = g^*_i \phi_i^*(u_{j}\psi_j) = g^*_i A_{ij} u_j.
+
+which indeed contracts into a number.
+
 Interpolation across meshes
 ---------------------------
 
@@ -112,12 +265,12 @@ The interpolation API supports interpolation between meshes where the target
 function space has finite elements (as given in the list of
 :ref:`supported elements <supported_elements>`)
 
-* **Lagrange/CG** (also known a Continuous Galerkin or P elements),
+* **Lagrange/CG** (also known as Continuous Galerkin or P elements),
 * **Q** (i.e. Lagrange/CG on lines, quadrilaterals and hexahedra),
 * **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements) and
 * **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra).
 
-Vector, tensor and mixed function spaces can also be interpolated into from
+Vector, tensor, and mixed function spaces can also be interpolated into from
 other meshes as long as they are constructed from these spaces.
 
 .. note::
@@ -142,7 +295,7 @@ of the source mesh. Volume, surface and line integrals can therefore be
 calculated by interpolating onto the mesh or
 :ref:`immersed manifold <immersed_manifolds>` which defines the volume,
 surface or line of interest in the domain. The integral itself is calculated
-by calling :py:func:`~.assemble` on an approriate form over the target mesh
+by calling :py:func:`~.assemble` on an appropriate form over the target mesh
 function space:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -178,7 +331,7 @@ interpolation will raise a :py:class:`~.DofNotDefinedError`.
    :start-after: [test_cross_mesh 3]
    :end-before: [test_cross_mesh 4]
 
-This can be overriden with the optional ``allow_missing_dofs`` keyword
+This can be overridden with the optional ``allow_missing_dofs`` keyword
 argument:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -217,8 +370,8 @@ we set them to be ``nan`` ('not a number') for easy identification:
 If we specify an output :py:class:`~.Function`, this overwrites the missing
 DoFs.
 
-When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
-argument is set at construction:
+If we don't set ``default_missing_val`` then any missing DoFs are left as 
+they were prior to interpolation:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -226,36 +379,20 @@ argument is set at construction:
    :start-after: [test_cross_mesh 13]
    :end-before: [test_cross_mesh 14]
 
-The ``default_missing_val`` keyword argument is then set whenever we call
-:py:meth:`~.Interpolator.interpolate`:
-
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 15]
    :end-before: [test_cross_mesh 16]
 
-If we supply an output :py:class:`~.Function` and don't set
-``default_missing_val`` then any missing DoFs are left as they were prior to
-interpolation:
+Similarly, using the :py:meth:`~.Function.interpolate` method on a :py:class:`~.Function` will not overwrite
+the pre-existing values if ``default_missing_val`` is not set:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 17]
    :end-before: [test_cross_mesh 18]
-
-.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
-   :language: python3
-   :dedent:
-   :start-after: [test_cross_mesh 19]
-   :end-before: [test_cross_mesh 20]
-
-.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
-   :language: python3
-   :dedent:
-   :start-after: [test_cross_mesh 21]
-   :end-before: [test_cross_mesh 22]
 
 .. _external_interpolation:
 
@@ -264,7 +401,7 @@ Interpolation from external data
 
 Unfortunately, UFL interpolation is not applicable if some of the
 source data is not yet available as a Firedrake :py:class:`~.Function`
-or UFL expression.  Here we describe a recipe for moving external to
+or UFL expression.  Here we describe a recipe for moving external data to
 Firedrake fields.
 
 Let us assume that there is some function ``mydata(X)`` which takes as

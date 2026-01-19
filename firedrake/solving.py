@@ -22,7 +22,6 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
-from firedrake.matrix import MatrixBase
 import firedrake.variational_solver as vs
 from firedrake.function import Function
 from firedrake.adjoint_utils import annotate_solve
@@ -164,7 +163,10 @@ def _solve_varproblem(*args, **kwargs):
     form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
-    if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
+    if not isinstance(eq.lhs, ufl.BaseForm):
+        raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
+
+    if len(eq.lhs.arguments()) == 2:
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
@@ -173,7 +175,7 @@ def _solve_varproblem(*args, **kwargs):
     else:
         # Create nonlinear variational problem
         if eq.rhs != 0:
-            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
+            raise ValueError(f"RHS of nonlinear Equation must be `0`, not {eq.rhs}")
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
                                                  restrict=restrict)
@@ -263,7 +265,7 @@ def _extract_linear_solver_args(*args, **kwargs):
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
-    solver_parameters = kwargs.get("solver_parameters", {})
+    solver_parameters = kwargs.get("solver_parameters", {}) or {}
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)

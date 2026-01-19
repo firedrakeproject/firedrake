@@ -74,8 +74,7 @@ def test_interpolate_with_arguments(rg):
     x, y = SpatialCoordinate(mesh)
     expr = x + y
     f = assemble(interpolate(expr, V1))
-    interpolator = Interpolator(TestFunction(V1), V2)
-    u = assemble(interpolator.interpolate(f))
+    u = assemble(interpolate(f, V2))
 
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
@@ -113,8 +112,8 @@ def test_interpolate_scalar_valued(rg):
 def test_interpolate_vector_valued():
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
-    V2 = VectorFunctionSpace(mesh, "DG", 0)
-    V3 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = VectorFunctionSpace(mesh, "CG", 2)
+    V3 = VectorFunctionSpace(mesh, "CG", 3)
 
     x = SpatialCoordinate(mesh)
     f = assemble(interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1))
@@ -125,7 +124,7 @@ def test_interpolate_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1).assign(1)
+    h = Function(V1).assign(1.)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -145,7 +144,7 @@ def test_interpolate_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1).assign(1)
+    h = Function(V1).assign(1.)
     f.block_variable.tlm_value = h
 
     tape = get_working_tape()
@@ -260,7 +259,7 @@ def test_interpolate_to_function_space_cross_mesh():
     mesh_src = UnitSquareMesh(2, 2)
     mesh_dest = UnitSquareMesh(3, 3, quadrilateral=True)
     V = FunctionSpace(mesh_src, "CG", 1)
-    W = FunctionSpace(mesh_dest, "DG", 1)
+    W = FunctionSpace(mesh_dest, "DQ", 1)
     R = FunctionSpace(mesh_src, "R", 0)
     u = Function(V)
 
@@ -291,7 +290,7 @@ def test_interpolate_hessian_linear_expr(rg):
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W).assign(5)
+    f = Function(W).assign(5.)
     # Note that we interpolate from a linear expression
     expr_interped = Function(V).interpolate(2*f)
 
@@ -346,7 +345,7 @@ def test_interpolate_hessian_nonlinear_expr(rg):
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W).assign(5)
+    f = Function(W).assign(5.)
     # Note that we interpolate from a nonlinear expression
     expr_interped = Function(V).interpolate(f**2)
 
@@ -401,8 +400,8 @@ def test_interpolate_hessian_nonlinear_expr_multi(rg):
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W).assign(5)
-    w = Function(W).assign(4)
+    f = Function(W).assign(5.)
+    w = Function(W).assign(4.)
     c = Function(R, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -461,8 +460,8 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     mesh_src = UnitSquareMesh(11, 11)
     R_src = FunctionSpace(mesh_src, "R", 0)
     W = FunctionSpace(mesh_src, "Lagrange", 2)
-    f = Function(W).assign(5)
-    w = Function(W).assign(4)
+    f = Function(W).assign(5.)
+    w = Function(W).assign(4.)
     c = Function(R_src, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -730,7 +729,7 @@ def test_copy_function():
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
-    a = assemble(Interpolate(-one, V))
+    a = assemble(interpolate(-one, V))
     assert np.isclose(rf(a), -J)
 
 
@@ -1036,8 +1035,9 @@ def test_bdy_control():
     tape = get_working_tape()
     # Check the checkpointed boundary conditions are not updating the
     # user-defined boundary conditions ``bc_left`` and ``bc_right``.
-    assert isinstance(tape._blocks[0], DirichletBCBlock) and \
-        tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    assert isinstance(tape._blocks[0], DirichletBCBlock)
+    assert tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+
     # tape._blocks[1] is the DirichletBC block for the right boundary
-    assert isinstance(tape._blocks[1], DirichletBCBlock) and \
-        tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+    assert isinstance(tape._blocks[1], DirichletBCBlock)
+    assert tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg

@@ -5,10 +5,6 @@
 PETSc annual user meeting and Firedrake '26
 -------------------------------------------
 
-.. warning::
-   This page is for the Firedrake workshop to be held in 2026. For the
-   2025 workshop please see :doc:`here <firedrake_25>`.
-
 The eleventh Firedrake user and developer workshop will be held jointly
 with the `PETSc annual user meeting <https://petsc.org/release/community/meetings/meeting/#upcoming-meetings>`__
 near London between 1-5 June 2026.
@@ -25,6 +21,10 @@ Organising committee
 
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`__, Imperial College London
 * `Connor Ward <https://www.imperial.ac.uk/people/c.ward20>`__, Imperial College London
+* Matthew Knepley, University at Buffalo
+* Jemma Shipton, University of Exeter
+* Hussam Al Daas, STFC
+* Pablo Brubeck, University of Oxford
 
 Further details
 ---------------

@@ -6,6 +6,13 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
+def mat_equals(a, b):
+    """Check that two Matrices are equal."""
+    a = a.petscmat.copy()
+    a.axpy(-1.0, b.petscmat)
+    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
+
+
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))
@@ -313,70 +320,6 @@ def test_lvalue_rvalue():
     assert np.allclose(u.dat.data_ro, 2.0)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_interpolator_Pk(degree):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=False)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", degree)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-@pytest.mark.parametrize("variant", ("spectral", "equispaced"))
-@pytest.mark.parametrize("quads", (True, False), ids=("quads", "triangles"))
-def test_interpolator(quads, degree, variant):
-    mesh = UnitSquareMesh(10, 10, quadrilateral=quads)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", degree, variant=variant)
-    P2 = FunctionSpace(mesh, "CG", degree + 1)
-
-    expr = x[0]**degree + x[1]**degree
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-def test_interpolator_tets():
-    mesh = UnitTetrahedronMesh()
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
-
-    expr = x[0] + x[1]
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
-def test_interpolator_extruded():
-    mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
-    x = SpatialCoordinate(mesh)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
-
-    expr = x[0] + x[1]
-    x_P1 = assemble(interpolate(expr, P1))
-    interpolator = Interpolator(TestFunction(P1), P2)
-    x_P2 = assemble(interpolator.interpolate(x_P1))
-    x_P2_direct = assemble(interpolate(expr, P2))
-
-    assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
-
-
 def test_trace():
     mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
@@ -391,33 +334,48 @@ def test_trace():
     assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_adjoint_Pk(degree):
-    mesh = UnitSquareMesh(10, 10)
-    Pkp1 = FunctionSpace(mesh, "CG", degree+1)
-    Pk = FunctionSpace(mesh, "CG", degree)
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("rank", (0, 1))
+@pytest.mark.parametrize("mat_type", ("matfree", "aij"))
+@pytest.mark.parametrize("degree", (1, 3))
+@pytest.mark.parametrize("cell", ["triangle", "quadrilateral"])
+@pytest.mark.parametrize("shape", ("scalar", "vector", "tensor"))
+def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
+    quad = (cell == "quadrilateral")
+    mesh = UnitSquareMesh(5, 5, quadrilateral=quad)
 
-    v = conj(TestFunction(Pkp1))
-    u_Pk = assemble(conj(TestFunction(Pk)) * dx)
-    v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
+    x = SpatialCoordinate(mesh)
+    expr = {"scalar": x[0], "vector": x, "tensor": outer(x, x)}[shape]
+    fs = {"scalar": FunctionSpace, "vector": VectorFunctionSpace, "tensor": TensorFunctionSpace}[shape]
+    Pk = fs(mesh, "CG", degree)
+    Pkp1 = fs(mesh, "CG", degree+1)
 
-    assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
+    v = assemble(inner(expr, TestFunction(Pkp1)) * dx)
 
-    v_adj_form = assemble(interpolate(TestFunction(Pk), v * dx))
+    if rank == 0:
+        operand = Function(Pk).interpolate(expr)
+        dual_arg = TestFunction(Pkp1.dual())
+    else:
+        operand = TestFunction(Pk)
+        dual_arg = TrialFunction(Pkp1.dual())
 
-    assert np.allclose(v_adj_form.dat.data, v_adj.dat.data)
+    if mat_type == "matfree":
+        interp = interpolate(operand, v)
+    else:
+        adj_interp = assemble(interpolate(operand, dual_arg))
+        if rank == 0:
+            interp = action(v, adj_interp)
+        else:
+            interp = action(adj_interp, v)
 
-
-def test_adjoint_quads():
-    mesh = UnitSquareMesh(10, 10)
-    P1 = FunctionSpace(mesh, "CG", 1)
-    P2 = FunctionSpace(mesh, "CG", 2)
-
-    v = conj(TestFunction(P2))
-    u_P1 = assemble(conj(TestFunction(P1)) * dx)
-    v_adj = assemble(interpolate(TestFunction(P1), assemble(v * dx)))
-
-    assert np.allclose(u_P1.dat.data, v_adj.dat.data)
+    result = assemble(interp)
+    expect = assemble(inner(expr, operand) * dx)
+    if rank == 0:
+        assert np.allclose(result, expect)
+    else:
+        assert expect.function_space() == result.function_space()
+        for x, y in zip(result.subfunctions, expect.subfunctions):
+            assert np.allclose(x.dat.data, y.dat.data)
 
 
 def test_adjoint_dg():
@@ -425,9 +383,9 @@ def test_adjoint_dg():
     cg1 = FunctionSpace(mesh, "CG", 1)
     dg1 = FunctionSpace(mesh, "DG", 1)
 
-    v = conj(TestFunction(dg1))
+    L = conj(TestFunction(dg1)) * dx
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
-    v_adj = assemble(interpolate(TestFunction(cg1), assemble(v * dx)))
+    v_adj = assemble(interpolate(TestFunction(cg1), L))
 
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
@@ -569,3 +527,199 @@ def test_interpolate_logical_not():
     a = assemble(interpolate(conditional(Not(x < .2), 1, 0), V))
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
+
+
+@pytest.mark.parametrize("mode", ("forward", "adjoint"))
+@pytest.mark.parametrize("mat_type", (None, "nest"))
+def test_mixed_matrix(mode, mat_type):
+    nx = 3
+    mesh = UnitSquareMesh(nx, nx)
+
+    V1 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = FunctionSpace(mesh, "CG", 1)
+    V3 = FunctionSpace(mesh, "CG", 1)
+    V4 = FunctionSpace(mesh, "DG", 1)
+
+    Z = V1 * V2
+    W = V3 * V3 * V4
+
+    if mode == "forward":
+        I = Interpolate(TrialFunction(Z), TestFunction(W.dual()))
+        a = assemble(I, mat_type=mat_type)
+        assert a.arguments()[0].function_space() == W.dual()
+        assert a.arguments()[1].function_space() == Z
+        assert a.petscmat.getSize() == (W.dim(), Z.dim())
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
+
+        u = Function(Z)
+        u.subfunctions[0].sub(0).assign(1)
+        u.subfunctions[0].sub(1).assign(2)
+        u.subfunctions[1].assign(3)
+        result_matfree = assemble(Interpolate(u, TestFunction(W.dual())))
+    elif mode == "adjoint":
+        I = Interpolate(TestFunction(Z), TrialFunction(W.dual()))
+        a = assemble(I, mat_type=mat_type)
+        assert a.arguments()[1].function_space() == W.dual()
+        assert a.arguments()[0].function_space() == Z
+        assert a.petscmat.getSize() == (Z.dim(), W.dim())
+        assert a.petscmat.getType() == (mat_type if mat_type else "seqaij")
+
+        u = Function(W.dual())
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        u.subfunctions[2].assign(3)
+        result_matfree = assemble(Interpolate(TestFunction(Z), u))
+    else:
+        raise ValueError(f"Unrecognized mode {mode}")
+
+    result_explicit = assemble(action(a, u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
+
+
+@pytest.mark.parallel(2)
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+@pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
+def test_interpolator_reuse(family, degree, mode):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, family, degree)
+    rg = RandomGenerator(PCG64(seed=123456789))
+    if mode == "forward":
+        u = Function(V)
+        expr = interpolate(u, V)
+
+    elif mode == "adjoint":
+        u = Function(V.dual())
+        expr = interpolate(TestFunction(V), u)
+
+    I = get_interpolator(expr)
+
+    for k in range(3):
+        u.assign(rg.uniform(u.function_space()))
+        expected = u.dat.data.copy()
+
+        tensor = Function(expr.function_space())
+        result = I.assemble(tensor=tensor)
+        assert result is tensor
+
+        # Test that the input was not modified
+        assert np.allclose(u.dat.data, expected)
+
+        # Test for correctness
+        assert np.allclose(result.dat.data, expected)
+
+
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs[:-1]:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_interpolate_composition(mode):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+
+    V5 = FunctionSpace(mesh, "CG", 5)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    if mode == "forward":
+        u5 = Function(V5).interpolate(sin(x + y))
+        u4 = interpolate(u5, V4)
+        u3 = interpolate(u4, V3)
+        u2 = interpolate(u3, V2)
+        u1 = interpolate(u2, V1)
+
+        assert u1.function_space() == V1
+
+        res = assemble(u1)
+        res2 = assemble(interpolate(sin(x + y), V1))
+        assert np.allclose(res.dat.data_ro, res2.dat.data_ro)
+
+    if mode == "adjoint":
+        u1 = conj(TestFunction(V1)) * dx
+        u2 = interpolate(TestFunction(V2), u1)
+        u3 = interpolate(TestFunction(V3), u2)
+        u4 = interpolate(TestFunction(V4), u3)
+        u5 = interpolate(TestFunction(V5), u4)
+
+        assert u5.function_space() == V5.dual()
+
+        res_adj = assemble(u5)
+        res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
+        assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form():
+    mesh = UnitSquareMesh(5, 5)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+
+    V3_trial = TrialFunction(V3)
+    V2_test = TestFunction(V2)
+    V1_test = TestFunction(V1)
+    V2_dual_trial = TrialFunction(V2.dual())
+
+    two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
+    interp = interpolate(V1_test, two_form)  # V3 x V1 -> R, equiv V3 -> V1^*
+    assert interp.arguments() == (V1_test, V3_trial)
+    res1 = assemble(interp)
+
+    I = interpolate(V1_test, V2_dual_trial)  # V2^* x V1 -> R, equiv V2^* -> V1^*
+    interp2 = action(I, two_form)  # V3 -> V1^*
+    assert interp2.arguments() == (V1_test, V3_trial)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(V3_trial, V1_test) * dx)  # V3 x V1 -> R
+    assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form_mixed():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+    V4 = FunctionSpace(mesh, "CG", 4)
+    V = V3 * V4
+    W = V1 * V2
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    q = TestFunction(W)
+
+    form = inner(u, v) * dx  # V x V -> R, equiv V -> V^*
+    interp = interpolate(q, form)  # V -> W^*, equiv V x W -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    I = interpolate(q, TrialFunction(V.dual()))  # V^* x W -> R, equiv V^* -> W^*
+    interp2 = action(I, form)  # V -> W^*
+    assert interp2.arguments() == (q, u)
+    res2 = assemble(interp2)
+    assert mat_equals(res1, res2)
+
+    res3 = assemble(inner(u, q) * dx)  # V x W -> R
+    assert mat_equals(res1, res3)

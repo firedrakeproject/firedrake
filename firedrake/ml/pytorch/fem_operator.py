@@ -15,13 +15,14 @@ except ImportError:
     else:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
+import numpy as np
 import collections
 from functools import partial
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -106,8 +107,8 @@ def fem_operator(F):
     firedrake.ml.pytorch.fem_operator.FiredrakeTorchOperator
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2023")
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2023")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
@@ -174,10 +175,11 @@ def to_torch(x, gather=False, batched=True, **kwargs):
     if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = torch.tensor(x.dat.global_data, **kwargs)
+            x_P = torch.tensor(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = torch.tensor(x.dat.data_ro, **kwargs)
+            with x.dat.vec_ro as vec:
+                x_P = torch.tensor(np.ravel(vec.buffer_r), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to PyTorch
             return x_P[None, :]
@@ -217,5 +219,7 @@ def from_torch(x, V=None):
             val = val[0]
         return Constant(val)
     else:
-        x_F = Function(V, val=x.detach().numpy())
+        x_F = Function(V)
+        with x_F.dat.vec_wo as vec:
+            vec.array_w = x.detach().numpy()
         return x_F

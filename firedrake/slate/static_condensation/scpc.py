@@ -49,15 +49,10 @@ class SCPC(SCBase):
         if len(W) > 3:
             raise NotImplementedError("Only supports up to three function spaces.")
 
-        elim_fields = PETSc.Options().getString((pc.getOptionsPrefix() or "")
-                                                + "pc_sc_eliminate_fields",
-                                                None)
-        if elim_fields:
-            elim_fields = [int(i) for i in elim_fields.split(',')]
-        else:
-            # By default, we condense down to the last field in the
-            # mixed space.
-            elim_fields = [i for i in range(0, len(W) - 1)]
+        elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
+        # By default, we condense down to the last field in the mixed space.
+        elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
+        elim_fields = list(map(int, elim_fields))
 
         condensed_fields = list(set(range(len(W))) - set(elim_fields))
         if len(condensed_fields) != 1:
@@ -67,7 +62,7 @@ class SCPC(SCBase):
 
         # Need to duplicate a space which is NOT
         # associated with a subspace of a mixed space.
-        Vc = FunctionSpace(W.mesh(), W[c_field].ufl_element())
+        Vc = FunctionSpace(W.mesh()[c_field], W[c_field].ufl_element())
         bcs = []
         cxt_bcs = self.cxt.row_bcs
         for bc in cxt_bcs:
@@ -117,9 +112,8 @@ class SCPC(SCBase):
         if A != P:
             self.cxt_pc = P.getPythonContext()
             P_tensor = Tensor(self.cxt_pc.a)
-            P_reduced_sys, _ = self.condensed_system(P_tensor,
-                                                     self.residual,
-                                                     elim_fields)
+            P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
+                                                     prefix, pc)
             S_pc_expr = P_reduced_sys.lhs
             self.S_pc_expr = S_pc_expr
 

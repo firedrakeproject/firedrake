@@ -1,17 +1,15 @@
 import abc
 import numpy
 
+import petsctools
 from pyop2.utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
-from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
-from firedrake_citations import Citations
-from firedrake.interpolation import Interpolator
+from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
 import firedrake.utils as utils
@@ -141,12 +139,11 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        Citations().register("Hiptmair1998")
+        petsctools.cite("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
         a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
-        mesh = V.mesh()
         element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
@@ -161,9 +158,9 @@ class HiptmairPC(TwoLevelPC):
         opts = PETSc.Options(options_prefix)
         domain = opts.getString("mg_coarse_restriction_domain", "")
         if domain:
-            celement = restrict(celement, domain)
+            celement = celement[domain]
 
-        coarse_space = FunctionSpace(mesh, celement)
+        coarse_space = V.reconstruct(element=celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
@@ -204,7 +201,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = chop(assemble(interpolate(dminus(trial), V), bcs=bcs + coarse_space_bcs).petscmat)
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 
@@ -212,14 +209,12 @@ class HiptmairPC(TwoLevelPC):
 
 
 def curl_to_grad(ele):
-    if isinstance(ele, finat.ufl.VectorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
-    elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        return ele.reconstruct(curl_to_grad(ele._sub_element))
     elif isinstance(ele, finat.ufl.MixedElement):
-        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
+        return type(ele)(*map(curl_to_grad, ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
-        return finat.ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
+        return ele.reconstruct(element=curl_to_grad(ele._element))
     else:
         cell = ele.cell
         family = ele.family()
@@ -232,25 +227,23 @@ def curl_to_grad(ele):
                 degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
-                cells = ele.cell.sub_cells()
+                cells = ele.cell.sub_cells
                 elems = [finat.ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
                 return finat.ufl.TensorProductElement(*elems, cell=cell)
         return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
 
 
 def div_to_curl(ele):
-    if isinstance(ele, finat.ufl.VectorElement):
-        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
-    elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    if isinstance(ele, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        return ele.reconstruct(sub_element=div_to_curl(ele._sub_element))
     elif isinstance(ele, finat.ufl.MixedElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
-    elif isinstance(ele, finat.ufl.RestrictedElement):
-        return finat.ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
+        return type(ele)(*map(div_to_curl, ele.sub_elements))
     elif isinstance(ele, finat.ufl.EnrichedElement):
-        return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
+        return type(ele)(*map(div_to_curl, reversed(ele._elements)))
     elif isinstance(ele, finat.ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.factor_elements), cell=ele.cell)
+        return type(ele)(*map(div_to_curl, ele.factor_elements), cell=ele.cell)
+    elif isinstance(ele, finat.ufl.RestrictedElement):
+        return ele.reconstruct(element=div_to_curl(ele._element))
     elif isinstance(ele, finat.ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
     elif isinstance(ele, finat.ufl.BrokenElement):
@@ -263,7 +256,7 @@ def div_to_curl(ele):
         degree = ele.degree()
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
-            family = "DG" if ele.cell.is_simplex() else "DQ"
+            family = "DG" if ele.cell.is_simplex else "DQ"
             degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"

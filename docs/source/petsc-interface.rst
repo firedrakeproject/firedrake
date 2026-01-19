@@ -375,8 +375,8 @@ Accordingly, set
 
 .. code-block:: python3
 
-    dim = mesh.topological_dimension()
-    gdim = mesh.geometrical_dimension()
+    dim = mesh.topological_dimension
+    gdim = mesh.geometric_dimension
     entity_dofs = np.zeros(dim+1, dtype=np.int32)
     entity_dofs[0] = gdim
     entity_dofs[1] = gdim*(p-1)

@@ -58,7 +58,7 @@ def X_isub_dX(topological_dimension):
 
 
 def is_affine(ufl_element):
-    return ufl_element.cell.is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
+    return ufl_element.cell.is_simplex and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
 
 
 def inside_check(fiat_cell, eps, X="X"):
@@ -130,7 +130,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     # Set up UFL form
     cell = ufl_coordinate_element.cell
     domain = ufl.Mesh(ufl_coordinate_element)
-    gdim = domain.geometric_dimension()
+    gdim = domain.geometric_dimension
     K = ufl.JacobianInverse(domain)
     x = ufl.SpatialCoordinate(domain)
     x0_element = finat.ufl.VectorElement("Real", cell, 0, dim=gdim)
@@ -143,8 +143,9 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     expr = ufl_utils.simplify_abs(expr, complex_mode)
 
     builder = firedrake_interface.KernelBuilderBase(ScalarType)
+    builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     builder.domain_coordinate[domain] = C
-
     Cexpr = builder._coefficient(C, "C")
     x0_expr = builder._coefficient(x0, "x0")
     loopy_args = [
@@ -156,13 +157,12 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
         ),
     ]
 
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     loopy_args.append(lp.GlobalArg("X", dtype=ScalarType, shape=(dim,)))
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
-        integral_type="cell",
         point_indices=(),
         point_expr=point,
         scalar_type=parameters["scalar_type"]
@@ -224,15 +224,15 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
     element = finat.element_factory.create_element(ufl_coordinate_element)
 
     code = {
-        "geometric_dimension": mesh.geometric_dimension(),
-        "topological_dimension": mesh.topological_dimension(),
+        "geometric_dimension": mesh.geometric_dimension,
+        "topological_dimension": mesh.topological_dimension,
         "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(mesh.topological_dimension()),
-        "X_isub_dX": X_isub_dX(mesh.topological_dimension()),
+        "dX_norm_square": dX_norm_square(mesh.topological_dimension),
+        "X_isub_dX": X_isub_dX(mesh.topological_dimension),
         "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
         "extr_comment_out": "//" if mesh.extruded else "",
         "non_extr_comment_out": "//" if not mesh.extruded else "",

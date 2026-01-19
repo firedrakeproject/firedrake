@@ -60,9 +60,19 @@ firedrake-configure
 -------------------
 
 To simplify the installation process, Firedrake provides a utility script called
-``firedrake-configure``. This script can be downloaded by executing::
+``firedrake-configure``. This script can be downloaded by executing:
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/main/scripts/firedrake-configure
+.. only:: release
+
+   .. code-block:: text
+
+      $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
+
+.. only:: main
+
+   .. code-block:: text
+
+      $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/main/scripts/firedrake-configure
 
 Note that ``firedrake-configure`` **does not install Firedrake for you**. It
 is simply a helper script that emits the configuration options that Firedrake
@@ -160,6 +170,17 @@ For the default build, running ``firedrake-configure`` with
 .. literalinclude:: petsc_configure_options.txt
    :language: text
 
+.. note::
+   If you install MPI through PETSc by passing ``--download-openmpi`` or
+   ``--download-mpich`` it is helpful to run the command::
+
+      $ export PATH=$PETSC_DIR/$PETSC_ARCH:$PATH
+
+
+   where ``PETSC_DIR=/path/to/petsc`` and ``PETSC_ARCH=arch-firedrake-default``.
+   This will allow the MPI executables (``mpicc``, ``mpiexec``, etc) installed by
+   PETSc to be found before any other versions installed on your machine.
+
 
 .. _install_firedrake:
 
@@ -205,7 +226,7 @@ install Firedrake. To do this perform the following steps:
 
    .. code-block:: text
 
-      CC=mpicc CXX=mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
+      PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
    .. note::
       This command will only work if you have the right starting directory.
@@ -213,6 +234,11 @@ install Firedrake. To do this perform the following steps:
       of the current working directory* (i.e. ``<cwd>/petsc``). If
       you have exactly followed the instructions up to this point this should
       already be the case.
+
+   .. note::
+      If you are using a non-system MPI it may be necessary to set ``LD_LIBRARY_PATH``
+      so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
+      for more information.
 
 #. Install Firedrake::
 
@@ -408,11 +434,12 @@ dependency. For example::
 
    $ pip install --no-binary h5py 'firedrake[check,vtk]'
 
-At present VTK wheels are not available for ARM Linux machines. Depending on your
-Python version you may be able to work around this by downloading and pip installing
-the appropriate ``.whl`` file from
-`here <https://github.com/scientificcomputing/vtk-aarch64/releases>`__.
+.. warning::
 
+   VTK make releases sporadically so will not always support the latest version
+   of Python. This is commonly an issue on macOS where homebrew will use the
+   latest Python very soon after it is released. To fix this you should use
+   an older version of Python (e.g. 3.13 instead of 3.14).
 
 PyTorch
 ~~~~~~~
@@ -593,7 +620,7 @@ should be followed:
 
 #. Install Firedrake in editable mode without build isolation::
 
-   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check,docs]'
 
 
 Editing subpackages
