@@ -6,7 +6,6 @@ and AdaptiveTransferManager
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.utils import complex_mode
 
 
 @pytest.fixture(params=[2, 3])
@@ -112,12 +111,8 @@ def test_DG0(amh, atm, operator):  # pylint: disable=W0621
     if operator == "inject":
         u_fine.interpolate(stepf)
         assert errornorm(stepf, u_fine) <= 1e-12
-        if complex_mode:
-            with pytest.raises(NotImplementedError):
-                atm.inject(u_fine, u_coarse)
-            return
-        else:
-            atm.inject(u_fine, u_coarse)
+
+        atm.inject(u_fine, u_coarse)
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
