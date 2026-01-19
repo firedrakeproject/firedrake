@@ -632,6 +632,8 @@ class CalledFunction(AbstractCalledFunction):
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
 
+        function = self._fixup_function_argument_shapes(function, arguments)
+
         object.__setattr__(self, "_function", function)
         object.__setattr__(self, "_arguments", arguments)
 
@@ -643,6 +645,22 @@ class CalledFunction(AbstractCalledFunction):
     arguments: ClassVar[property] = utils.attr("_arguments")
 
     # }}}
+
+    @classmethod
+    def _fixup_function_argument_shapes(cls, function, arguments):
+        loopy_kernel = function.code.default_entrypoint
+        if all(a.shape is not None for a in loopy_kernel.args):
+            return function
+
+        new_loopy_args = []
+        for loopy_arg, arg in zip(loopy_kernel.args, arguments, strict=True):
+            if loopy_arg.shape is None:
+                loopy_arg = loopy_arg.copy(shape=(arg.size,))
+            new_loopy_args.append(loopy_arg)
+        new_loopy_args = tuple(new_loopy_args)
+        return function.__record_init__(
+            code=function.code.with_kernel(loopy_kernel.copy(args=new_loopy_args))
+        )
 
 
 
