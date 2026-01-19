@@ -3,7 +3,6 @@ Tests for AdaptiveMeshHierarchy
 and AdaptiveTransferManager
 """
 
-import random
 import pytest
 import numpy as np
 from firedrake import *
@@ -17,34 +16,38 @@ def amh(request):
     """
     from netgen.occ import WorkPlane, OCCGeometry, Box, Pnt
     dim = request.param
-    random.seed(1234)
     if dim == 2:
         wp = WorkPlane()
-        wp.Rectangle(2, 2)
+        wp.Rectangle(1, 1)
         face = wp.Face()
         geo = OCCGeometry(face, dim=2)
         maxh = 0.5
     else:
-        cube = Box(Pnt(0, 0, 0), Pnt(2, 2, 2))
+        cube = Box(Pnt(0, 0, 0), Pnt(1, 1, 1))
         geo = OCCGeometry(cube, dim=3)
         maxh = 0.5
 
     ngmesh = geo.GenerateMesh(maxh=maxh)
-    base = Mesh(ngmesh)
+    base = Mesh(ngmesh, distribution_parameters={"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)})
     amh_test = AdaptiveMeshHierarchy(base)
 
-    if dim == 2:
-        els = ngmesh.Elements2D()
-    else:
-        els = ngmesh.Elements3D()
+    rg = RandomGenerator(PCG64(seed=0))
+    for l in range(2):
+        mesh = amh_test[-1]
+        DG = FunctionSpace(mesh, "DG", 0)
+        should_refine = rg.uniform(DG, 0, 1).dat.global_data
 
-    for _ in range(2):
-        for _, el in enumerate(els):
-            el.refine = 0
-            if random.random() < 0.5:
-                el.refine = 1
+        ngmesh = mesh.netgen_mesh
+        if dim == 2:
+            els = ngmesh.Elements2D()
+        else:
+            els = ngmesh.Elements3D()
+        for i, el in enumerate(els):
+            el.refine = 1 if should_refine[i] < 0.5 else 0
+
         ngmesh.Refine(adaptive=True)
         mesh = Mesh(ngmesh)
+
         amh_test.add_mesh(mesh)
     return amh_test
 
@@ -63,7 +66,7 @@ def mh_res():
     ngmesh = geo.GenerateMesh(maxh=maxh)
     base = Mesh(ngmesh)
     mesh2 = Mesh(ngmesh)
-    amh_unif = AdaptiveMeshHierarchy([base])
+    amh_unif = AdaptiveMeshHierarchy(base)
     for _ in range(2):
         refs = np.ones(len(ngmesh.Elements2D()))
         amh_unif.refine(refs)
@@ -84,6 +87,7 @@ def tm():
     return TransferManager()
 
 
+@pytest.mark.parallel([1])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_DG0(amh, atm, operator):  # pylint: disable=W0621
@@ -117,6 +121,7 @@ def test_DG0(amh, atm, operator):  # pylint: disable=W0621
         assert errornorm(stepc, u_coarse) <= 1e-12
 
 
+@pytest.mark.parallel([1])
 @pytest.mark.skipnetgen
 @pytest.mark.parametrize("operator", ["prolong", "inject"])
 def test_CG1(amh, atm, operator):  # pylint: disable=W0621

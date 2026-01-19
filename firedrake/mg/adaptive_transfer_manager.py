@@ -6,6 +6,7 @@ import numpy as np
 from firedrake.function import Function
 from firedrake.mg.embedded import TransferManager
 from firedrake.mg.utils import get_level
+from firedrake.petsc import PETSc
 
 
 __all__ = ("AdaptiveTransferManager",)
@@ -67,7 +68,7 @@ class AdaptiveTransferManager(TransferManager):
                 source_function_splits = amh.split_function(curr_source, child=True)
                 target_function_splits = amh.split_function(curr_target, child=False)
 
-            for split_label, _ in source_function_splits.items():
+            for split_label in source_function_splits:
                 if split_label == 1:
                     # we don't want to transfer across unsplit parts,
                     # instead we copy dofs
@@ -122,10 +123,11 @@ class AdaptiveTransferManager(TransferManager):
         except KeyError:
             source_nodes = Function(key[0])
             permutation = Function(key[1])
-            source_nodes.dat.data[:] = np.arange(len(source_nodes.dat.data))
+            source_nodes.dat.data_wo[:] = np.arange(len(source_nodes.dat.data_ro))
             transfer_op(source_nodes, permutation)
+
             return self.perm_cache.setdefault(
-                key, np.rint(permutation.dat.data_ro).astype(int)
+                key, np.rint(permutation.dat.data_ro).astype(PETSc.IntType)
             )
 
     def prolong(self, uc, uf):

@@ -13,7 +13,7 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, Submesh, RelabeledMesh
 from firedrake.mg import HierarchyBase
 from firedrake.mg.utils import set_level, get_level
-from ufl import conditional, gt
+from firedrake.petsc import PETSc
 
 __all__ = ["AdaptiveMeshHierarchy"]
 
@@ -22,17 +22,16 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     """
     HierarchyBase for hierarchies of adaptively refined meshes
     """
-
-    def __init__(self, mesh, refinements_per_level=1, nested=True):
-        self.meshes = tuple(mesh)
-        self._meshes = tuple(mesh)
+    def __init__(self, base_mesh, refinements_per_level=1, nested=True):
+        self.meshes = (base_mesh,)
+        self._meshes = (base_mesh,)
         self.submesh_hierarchies = []
         self.coarse_to_fine_cells = {}
         self.fine_to_coarse_cells = {}
         self.fine_to_coarse_cells[Fraction(0, 1)] = None
         self.refinements_per_level = refinements_per_level
         self.nested = nested
-        set_level(mesh[0], self, 0)
+        set_level(base_mesh, self, 0)
         self.split_cache = {}
 
     def add_mesh(self, mesh):
@@ -41,13 +40,10 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         Then computes the coarse_to_fine and fine_to_coarse mappings.
         Constructs intermediate submesh hierarchies with this.
         """
-        if mesh.topological_dimension <= 2:
-            max_children = 4
-        else:
-            max_children = 16
-        self._meshes += tuple(mesh)
-        self.meshes += tuple(mesh)
-        coarse_mesh = self.meshes[-2]
+        max_children = 2 ** mesh.topological_dimension
+        coarse_mesh = self.meshes[-1]
+        self._meshes += (mesh,)
+        self.meshes += (mesh,)
         level = len(self.meshes)
         set_level(self.meshes[-1], self, level - 1)
         self._shared_data_cache = defaultdict(dict)
@@ -67,11 +63,14 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             coarse_mesh.mark_entities(coarse_splits[i], i)
             mesh.mark_entities(fine_splits[i], int(f"10{i}"))
 
-        coarse_indicators = [
-            coarse_splits[i]
-            for i in range(1, max_children + 1)
-        ]
         coarse_labels = list(range(1, max_children + 1))
+        coarse_indicators = [coarse_splits[i] for i in coarse_labels]
+
+        has_children = {}
+        for label in coarse_labels:
+            with coarse_splits[label].dat.vec as v:
+                has_children[label] = v.norm() > 1E-12
+
         coarse_mesh = RelabeledMesh(
             coarse_mesh,
             coarse_indicators,
@@ -79,35 +78,35 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             name="Relabeled_coarse",
         )
         c_subm = {
-            j: Submesh(coarse_mesh, coarse_mesh.topology_dm.getDimension(), j)
+            j: Submesh(coarse_mesh, coarse_mesh.topological_dimension, j)
             for j in range(1, max_children + 1)
-            if any(num_children == j)
+            if has_children[j]
         }
         set_level(coarse_mesh, self, level - 2)
 
-        fine_indicators = [
-            fine_splits[i]
-            for i in range(1, max_children + 1)
-        ]
         fine_labels = list(range(1, max_children + 1))
+        fine_indicators = [fine_splits[i] for i in fine_labels]
         mesh = RelabeledMesh(
             mesh,
             fine_indicators,
             fine_labels,
+            name="Relabeled_fine",
         )
         f_subm = {
-            int(str(j)[-2:]): Submesh(mesh, mesh.topology_dm.getDimension(), j)
+            int(str(j)[-2:]): Submesh(mesh, mesh.topological_dimension, j)
             for j in [int("10" + str(i)) for i in range(1, max_children + 1)]
-            if any(num_children == int(str(j)[-2:]))
+            if has_children[int(str(j)[-2:])]
         }
         set_level(mesh, self, level - 1)
 
-        # update c2f and f2c for submeshes by mapping numberings
-        # on full mesh to numberings on coarse mesh
+        # stores number of parents for each amount of children
         parents_per_child_count = [
             len([el for el in c2f if len(el) == j])
             for j in range(1, max_children + 1)
-        ]  # stores number of parents for each amount of children
+        ]
+
+        # update c2f and f2c for submeshes by mapping numberings
+        # on full mesh to numberings on coarse mesh
         c2f_adjusted = {
             j: np.zeros((num_parents, j))
             for j, num_parents in enumerate(parents_per_child_count, 1)
@@ -120,30 +119,30 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         }
 
         coarse_full_to_sub_map = {
-            i: full_to_sub(coarse_mesh, c_subm[i])
+            i: get_full_to_sub_numbering(coarse_mesh, c_subm[i])
             for i in c_subm
         }
         fine_full_to_sub_map = {
-            j: full_to_sub(mesh, f_subm[j])
+            j: get_full_to_sub_numbering(mesh, f_subm[j])
             for j in f_subm
         }
 
         for i, children in enumerate(c2f):
             n = len(children)
-            if 1 <= n <= max_children:
+            if n in coarse_full_to_sub_map:
                 coarse_id_sub = coarse_full_to_sub_map[n][i]
                 fine_id_sub = fine_full_to_sub_map[n][np.array(children)]
                 c2f_adjusted[n][coarse_id_sub] = fine_id_sub
 
         for j, parent in enumerate(f2c):
             n = num_children[parent].item()
-            if 1 <= n <= max_children:
-                fine_id_sub = fine_full_to_sub_map[n][j]
+            if n in coarse_full_to_sub_map:
                 coarse_id_sub = coarse_full_to_sub_map[n][parent.item()]
+                fine_id_sub = fine_full_to_sub_map[n][j]
                 f2c_adjusted[n][fine_id_sub, 0] = coarse_id_sub
 
         c2f_subm = {
-            i: {Fraction(0, 1): c2f_adjusted[i].astype(int)}
+            i: {Fraction(0, 1): c2f_adjusted[i].astype(PETSc.IntType)}
             for i in c2f_adjusted
         }
         f2c_subm = {i: {Fraction(1, 1): f2c_adjusted[i]} for i in f2c_adjusted}
@@ -168,16 +167,16 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         mesh = Mesh(ngmesh)
         self.add_mesh(mesh)
 
-    def adapt(self, eta, theta):
+    def adapt(self, eta: Function | Cofunction, theta: float):
         """
-        Add the next refinement level to the MeshHierarchy by local refinement
+        Add a refinement level to the hierarchy by local refinement
         with a simplified variant of Dorfler marking.
 
         Parameters
         ----------
-        eta : Function
-            A DG0 `Function` with the local error estimator.
-        theta : float
+        eta
+            A DG0 :class:`~firedrake.function.Function` with the local error estimator.
+        theta
             The threshold for marking as a fraction of the maximum error.
 
         Note
@@ -185,19 +184,28 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         Dorfler marking involves sorting all of the elements by decreasing
         error estimator and taking the minimal set that exceeds some fixed
         fraction of the total error. What this code implements is the simpler
-        variant that doesn't have a proof of convergence (as far as I know) 
+        variant that doesn't have a proof of convergence (as far as I know)
         but works as well in practice.
+
         """
+        if not isinstance(eta, (Function, Cofunction)):
+            raise TypeError(f"eta must be a Function or Cofunction, not a {type(eta).__name__}")
+        M = eta.function_space()
+        if M.finat_element.space_dimension() != 1:
+            raise ValueError("eta must be a Function or Cofunction in DG0")
         mesh = self.meshes[-1]
-        W = FunctionSpace(mesh, "DG", 0)
-        markers = Function(W)
+        if M.mesh() is not mesh:
+            raise ValueError("eta must be defined on the finest mesh of the hierarchy")
 
         # Take the maximum over all processes
         with eta.dat.vec_ro as eta_:
             eta_max = eta_.max()[1]
 
-        should_refine = conditional(gt(eta, theta * eta_max), 1, 0)
-        markers.interpolate(should_refine)
+        threshold = theta * eta_max
+        should_refine = eta.dat.data_ro > threshold
+
+        markers = Function(M)
+        markers.dat.data_wo[should_refine] = 1
 
         refined_mesh = mesh.refine_marked_elements(markers)
         self.add_mesh(refined_mesh)
@@ -213,7 +221,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
         ind = 1 if child else 0
         hierarchy_dict = self.submesh_hierarchies[int(level) - ind]
-        parent_mesh = hierarchy_dict[[*hierarchy_dict][0]].meshes[ind].submesh_parent
+        parent_mesh = tuple(hierarchy_dict.values())[0].meshes[ind].submesh_parent
         parent_space = V.reconstruct(parent_mesh)
         u_corr_space = Function(parent_space, val=u.dat)
         key = (u, child)
@@ -261,10 +269,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             split_funcs[[*split_funcs][0]].function_space().mesh().submesh_parent
         )
         V_label = V.reconstruct(mesh=parent_mesh)
-        if isinstance(f, Function):
-            f_label = Function(V_label, val=f.dat)
-        elif isinstance(f, Cofunction):
-            f_label = Cofunction(V_label, val=f.dat)
+        f_label = Function(V_label, val=f.dat)
 
         for split_label, val in split_funcs.items():
             assert val.function_space().mesh().submesh_parent == parent_mesh
@@ -280,55 +285,45 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         return f
 
 
-def get_c2f_f2c_fd(mesh, coarse_mesh):
+def get_c2f_f2c_fd(fine_mesh, coarse_mesh):
     """
     Construct coarse->fine and fine->coarse relations by mapping netgen elements to firedrake ones
     """
-    ngmesh = mesh.netgen_mesh
-    num_parents = coarse_mesh.num_cells()
-
-    if mesh.topology_dm.getDimension() == 2:
+    fine_dm = fine_mesh.topology_dm
+    tdim = fine_dm.getDimension()
+    ngmesh = fine_mesh.netgen_mesh
+    if tdim == 2:
         parents = ngmesh.parentsurfaceelements.NumPy()
-        elements = ngmesh.Elements2D()
-    elif mesh.topology_dm.getDimension() == 3:
+    elif tdim == 3:
         parents = ngmesh.parentelements.NumPy()
-        elements = ngmesh.Elements3D()
     else:
         raise RuntimeError("Adaptivity not implemented in dimension of mesh")
 
-    c2f = [[] for _ in range(num_parents)]
-    f2c = [[] for _ in range(mesh.num_cells())]
+    fstart, fend = fine_mesh.topology_dm.getDepthStratum(tdim)
+    cstart, cend = coarse_mesh.topology_dm.getDepthStratum(tdim)
+    total_coarse_cells = FunctionSpace(coarse_mesh, "DG", 0).dim()
+
+    c2f = [[] for _ in range(cstart, cend)]
+    f2c = [[] for _ in range(fstart, fend)]
 
     if parents.shape[0] == 0:
         raise RuntimeError("Added mesh has not refined any cells from previous mesh")
-    for l, _ in enumerate(elements):
-        if parents[l][0] == -1 or l < num_parents:
-            f2c[mesh._cell_numbering.getOffset(l)].append(
-                coarse_mesh._cell_numbering.getOffset(l)
-            )
-            c2f[coarse_mesh._cell_numbering.getOffset(l)].append(
-                mesh._cell_numbering.getOffset(l)
-            )
 
-        elif parents[l][0] < num_parents:
-            fine_ind = mesh._cell_numbering.getOffset(l)
-            coarse_ind = coarse_mesh._cell_numbering.getOffset(parents[l][0])
-            f2c[fine_ind].append(coarse_ind)
-            c2f[coarse_ind].append(fine_ind)
+    for l in range(fstart, fend):
+        a = l
+        while a >= total_coarse_cells:
+            a = parents[a][0]
 
-        else:
-            a = parents[parents[l][0]][0]
-            while a >= num_parents:
-                a = parents[a][0]
+        fine_ind = fine_mesh._cell_numbering.getOffset(l)
+        coarse_ind = coarse_mesh._cell_numbering.getOffset(a)
 
-            f2c[mesh._cell_numbering.getOffset(l)].append(
-                coarse_mesh._cell_numbering.getOffset(a)
-            )
-            c2f[coarse_mesh._cell_numbering.getOffset(a)].append(
-                mesh._cell_numbering.getOffset(l)
-            )
+        fine_ind -= fstart
+        coarse_ind -= cstart
 
-    return c2f, np.array(f2c).astype(int)
+        f2c[fine_ind].append(coarse_ind)
+        c2f[coarse_ind].append(fine_ind)
+
+    return c2f, np.array(f2c, dtype=PETSc.IntType)
 
 
 def split_to_submesh(mesh, coarse_mesh, c2f, f2c):
@@ -337,10 +332,7 @@ def split_to_submesh(mesh, coarse_mesh, c2f, f2c):
     Returns splits which are Functions denoting whether elements
     belong to the corresponing submesh (bool)
     """
-    if mesh.topological_dimension <= 2:
-        max_children = 4
-    else:
-        max_children = 16
+    max_children = 2 ** mesh.topological_dimension
     V = FunctionSpace(mesh, "DG", 0)
     V2 = FunctionSpace(coarse_mesh, "DG", 0)
     coarse_splits = {
@@ -349,29 +341,28 @@ def split_to_submesh(mesh, coarse_mesh, c2f, f2c):
     fine_splits = {
         i: Function(V, name=f"{i}_elements") for i in range(1, max_children + 1)
     }
-    num_children = np.zeros((len(c2f)))
-
+    num_children = np.zeros((len(c2f),))
     for i, children in enumerate(c2f):
         n = len(children)
         if 1 <= n <= max_children:
-            coarse_splits[n].dat.data[i] = 1
             num_children[i] = n
 
     for i in range(1, max_children + 1):
-        fine_splits[i].dat.data[num_children[f2c.squeeze()] == i] = 1
+        coarse_splits[i].dat.data_wo_with_halos[num_children == i] = 1
+        fine_splits[i].dat.data_wo_with_halos[num_children[f2c.squeeze()] == i] = 1
 
     return coarse_splits, fine_splits, num_children
 
 
-def full_to_sub(mesh, submesh):
+def get_full_to_sub_numbering(mesh, submesh):
     """
-    Returns the submesh element id associated with the full mesh element id
+    Returns the submesh cell id associated with the full mesh cell id
     """
     V1 = FunctionSpace(mesh, "DG", 0)
     V2 = FunctionSpace(submesh, "DG", 0)
     u1 = Function(V1)
     u2 = Function(V2)
-    u2.dat.data[:] = np.arange(len(u2.dat.data))
+    u2.dat.data_wo[:] = np.arange(submesh.cell_set.size)
     u1.assign(u2, allow_missing_dofs=True)
 
-    return u1.dat.data.astype(int)
+    return u1.dat.data_ro_with_halos.astype(PETSc.IntType)
