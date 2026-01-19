@@ -120,7 +120,7 @@ class MatrixBase(ufl.Matrix):
             self._bcs = ()
 
     def __repr__(self):
-        return f"{type(self).__name__}(a={repr(self.a)}, bcs={repr(self.bcs)})"
+        return f"{type(self).__name__}(a={self.a!r}, bcs={self.bcs!r})"
 
     def __str__(self):
         return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
