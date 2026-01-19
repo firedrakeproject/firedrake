@@ -1089,7 +1089,7 @@ class _DatMatPayload:
                     v.copy(y)
                     a = np.zeros(1, dtype=dtypes.ScalarType)
                     if x.comm.rank == 0:
-                        a[0] = x.array_r
+                        a[0] = x.array_r.item()
                     else:
                         x.array_r
                     with mpi.temp_internal_comm(x.comm) as comm:
