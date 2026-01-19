@@ -630,10 +630,9 @@ def _(op: expr_types.Operator, /, visited_axes, loop_indices, *, compress: bool)
         # Only do this when the cost is large as small arrays will fit in cache
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            # op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
-            op_axes = utils.just_one(op.shape)
-            op_loop_axes = op.loop_axes
-            compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op}, loop_indices)
+            op_axes = utils.just_one(get_shape(op))
+            op_loop_axes = get_loop_axes(op)
+            compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
 
             op_cost = op_axes.size
             for loop_axes in op_loop_axes.values():

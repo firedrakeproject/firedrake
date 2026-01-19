@@ -1706,6 +1706,16 @@ class UnitIndexedAxisTree(DistributedObject):
     def materialize(self):
         return UNIT_AXIS_TREE
 
+    def localize(self):
+        return self._localized
+
+    @cached_property
+    def _localized(self):
+        return type(self)(
+            targets=self.targets,
+            unindexed=self.unindexed.localize(),
+        )
+
     size = 1
     is_linear = True
     is_empty = False

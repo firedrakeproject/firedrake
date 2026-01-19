@@ -615,7 +615,7 @@ class AbstractMeshTopology(abc.ABC):
         offsets = np.cumsum(num_entities)
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
-        map_from_cell_to_facet_orientations = self.entity_orientations[:, local_facet_start:local_facet_end]
+        map_from_cell_to_facet_orientations = self.entity_orientations_renum[:, local_facet_start:local_facet_end]
 
         # but shuffle to use the cell renumbering
         # NOTE: I am guessing that it is this way around
@@ -1804,7 +1804,12 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations(self):
+        # old attribute, keeping around for now
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+
+    @cached_property
+    def entity_orientations_renum(self):
+        return self.entity_orientations[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):
@@ -1818,7 +1823,7 @@ class MeshTopology(AbstractMeshTopology):
         closure_axis = self.closure(self.cells.iter()).axes.root
         axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
         assert axis_tree.local_size == self.entity_orientations.size
-        return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
+        return op3.Dat(axis_tree, data=self.entity_orientations_renum.flatten(), prefix="orientations")
 
     @cached_property
     def local_cell_orientation_dat(self):
@@ -3202,8 +3207,8 @@ class ExtrudedMeshTopology(MeshTopology):
             ]]
         return op3.Map(supports, name="support")
 
-    @utils.cached_property
-    def entity_orientations(self):
+    @cached_property
+    def entity_orientations_renum(self):
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)
 
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
