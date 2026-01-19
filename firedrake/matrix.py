@@ -1,17 +1,21 @@
 from __future__ import annotations
-from typing import Any, Iterable, TYPE_CHECKING
+
+from typing import Any, TYPE_CHECKING
+from collections.abc import Iterable
 import itertools
 
-if TYPE_CHECKING:
-    from firedrake.bcs import BCBase
-    from firedrake.matrix_free.operators import ImplicitMatrixContext
-    from firedrake.slate.slate import TensorBase
-
 import ufl
-from ufl.argument import BaseArgument
-from pyop2 import op2
+import pyop2
+from pyop2.op2 import Mat
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
+
+if TYPE_CHECKING:
+    from firedrake.bcs import DirichletBC
+    from firedrake.matrix_free import ImplicitMatrixContext
+    from firedrake.slate import slate
+
+__all__ = ("MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix")
 
 
 class DummyOP2Mat:
@@ -29,15 +33,17 @@ def _get_mat_type(petscmat: PETSc.Mat) -> str:
 
 
 class MatrixBase(ufl.Matrix):
+    """A representation of the linear operator associated with a bilinear form and bcs.
+    Explicitly assembled matrices and matrix-free .matrix classes will derive from this.
+    """
 
     def __init__(
         self,
-        a: ufl.BaseForm | TensorBase | tuple[BaseArgument, BaseArgument],
-        bcs: Iterable[BCBase] | None = None,
+        a: ufl.BaseForm | slate.TensorBase | tuple[ufl.argument.BaseArgument, ufl.argument.BaseArgument],
+        bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
     ):
-        """A representation of the linear operator associated with a bilinear form and bcs.
-        Explicitly assembled matrices and matrix-free .matrix classes will derive from this.
+        """Initialise a :class:`MatrixBase`.
 
         Parameters
         ----------
@@ -50,7 +56,7 @@ class MatrixBase(ufl.Matrix):
             An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
             None by default.
         """
-        from firedrake.slate.slate import TensorBase
+        from firedrake.slate import TensorBase
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
@@ -76,7 +82,7 @@ class MatrixBase(ufl.Matrix):
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
 
-        self.bcs = () if bcs is None else bcs
+        self.bcs = bcs
         self.form_compiler_parameters = {} if fc_params is None else fc_params
 
     def arguments(self):
@@ -118,7 +124,7 @@ class MatrixBase(ufl.Matrix):
         return f"{type(self).__name__}(a={repr(self.a)}, bcs={repr(self.bcs)})"
 
     def __str__(self):
-        return f"assembled {type(self).__name__}(a={str(self.a)}, bcs={str(self.bcs)})"
+        return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
 
     def __add__(self, other):
         if isinstance(other, MatrixBase):
@@ -149,34 +155,35 @@ class MatrixBase(ufl.Matrix):
 
 
 class Matrix(MatrixBase):
+    """A representation of an assembled bilinear form."""
 
     def __init__(
         self,
         a: ufl.BaseForm,
-        mat: op2.Mat | PETSc.Mat,
-        bcs: Iterable[BCBase] | None = None,
+        mat: pyop2.op2.Mat | PETSc.Mat,
+        bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,
     ):
-        """A representation of an assembled bilinear form.
+        """Initialise a :class:`Matrix`.
 
         Parameters
         ----------
         a
             The bilinear form this :class:`Matrix` represents.
-        mat : op2.Mat | PETSc.Mat
+        mat
             The underlying matrix object. Either a PyOP2 Mat or a PETSc Mat.
-        bcs : Iterable[DirichletBC] | None, optional
+        bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply.
             By default None.
-        fc_params : dict[str, Any] | None, optional
+        fc_params
             A dictionary of form compiler parameters for this matrix, by default None.
-        options_prefix : str | None, optional
+        options_prefix
             PETSc options prefix to apply, by default None.
         """
         super().__init__(a, bcs=bcs, fc_params=fc_params)
-        if isinstance(mat, op2.Mat):
+        if isinstance(mat, Mat):
             self.M = mat
         else:
             assert isinstance(mat, PETSc.Mat)
@@ -193,26 +200,27 @@ class Matrix(MatrixBase):
 
 
 class ImplicitMatrix(MatrixBase):
+    """A representation of the action of bilinear form operating without
+    explicitly assembling the associated matrix. This class wraps the
+    relevant information for Python PETSc matrix."""
 
     def __init__(
         self,
         a: ufl.BaseForm,
         ctx: ImplicitMatrixContext,
-        bcs: Iterable[BCBase] | None = None,
+        bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,
     ):
-        """A representation of the action of bilinear form operating without
-        explicitly assembling the associated matrix. This class wraps the
-        relevant information for Python PETSc matrix.
+        """Initialise a :class:`ImplicitMatrix`.
 
         Parameters
         ----------
         a
             The bilinear form this :class:`ImplicitMatrix` represents.
         ctx
-            An :class:`ImplicitMatrixContext` that defines the operations
-            of the matrix.
+            An :class:`firedrake.matrix_free.operators.ImplicitMatrixContext` that 
+            defines the operations of the matrix.
         bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply.
@@ -243,15 +251,16 @@ class ImplicitMatrix(MatrixBase):
 
 
 class AssembledMatrix(MatrixBase):
+    """A representation of a matrix that doesn't require knowing the underlying form."""
 
     def __init__(
         self,
-        args: tuple[BaseArgument, BaseArgument],
+        args: tuple[ufl.argument.BaseArgument, ufl.argument.BaseArgument],
         petscmat: PETSc.Mat,
-        bcs: Iterable[BCBase] | None = None,
+        bcs: Iterable[DirichletBC] = (),
         options_prefix: str | None = None,
     ):
-        """A representation of a matrix that doesn't require knowing the underlying form.
+        """Initialise an :class:`AssembledMatrix`.
 
         Parameters
         ----------
