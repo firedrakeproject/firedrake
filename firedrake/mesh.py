@@ -1253,18 +1253,6 @@ class AbstractMeshTopology(abc.ABC):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    # delete?
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof (may be None).
-        """
-        return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, entity_permutations, offsets)
-
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
         i.e. [#dofs / plex vertices, #dofs / plex edges, ...].

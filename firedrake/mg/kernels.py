@@ -295,17 +295,16 @@ def prolong_kernel(expression):
            "tdim": mesh.topological_dimension})
 
     # Now build a pyop3 'Function' wrapping this
-    eval_args = {a.name: a for a in eval_kernel.default_entrypoint.args}
     loopy_kernel = lp.make_kernel(
         "{ [i]: 0 < i < 1 }",
         [
             lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
         ],
         [
-            lp.GlobalArg("R", ScalarType, eval_args["R"].shape, is_input=True, is_output=True),
-            lp.GlobalArg("f", ScalarType, eval_args["f"].shape, is_input=True, is_output=False),
-            lp.GlobalArg("X", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
-            lp.GlobalArg("Xc", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
         ],
         name="pyop3_kernel_prolong",
         preambles=[
@@ -401,17 +400,16 @@ def restrict_kernel(Vf, Vc):
 
     # Now build a pyop3 'Function' wrapping this
     # sniff arg sizes from the inner kernel
-    eval_args = {a.name: a for a in evaluate_kernel.default_entrypoint.args}
     loopy_kernel = lp.make_kernel(
         "{ [i]: 0 < i < 1 }",
         [
             lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
         ],
         [
-            lp.GlobalArg("R", ScalarType, eval_args["R"].shape, is_input=True, is_output=True),
-            lp.GlobalArg("b", ScalarType, eval_args["b"].shape, is_input=True, is_output=False),
-            lp.GlobalArg("X", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
-            lp.GlobalArg("Xc", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("b", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
         ],
         name="pyop3_kernel_restrict",
         preambles=[
@@ -512,17 +510,12 @@ def inject_kernel(Vf, Vc):
     })
 
     # Now build a pyop3 'Function' wrapping this
-    eval_args = {a.name: a for a in evaluate_kernel.default_entrypoint.args}
     loopy_kernel = lp.make_kernel(
         "{ [i]: 0 < i < 1 }",
         [
             lp.CInstruction((), kernel, frozenset({"R", "X", "f", "Xf"}), ("R",)),
         ],
         [
-            # lp.GlobalArg("R", ScalarType, eval_args["R"].shape, is_input=True, is_output=True),
-            # lp.GlobalArg("X", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
-            # lp.GlobalArg("f", ScalarType, eval_args["f"].shape, is_input=True, is_output=False),
-            # lp.GlobalArg("Xf", ScalarType, eval_args["X"].shape, is_input=True, is_output=False),
             lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
             lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
             lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),

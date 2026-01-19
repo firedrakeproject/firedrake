@@ -629,7 +629,14 @@ def _(op: expr_types.Operator, /, visited_axes, loop_indices, *, compress: bool)
         # into a Dat. The cost for this is simply the size of the resulting array.
         # Only do this when the cost is large as small arrays will fit in cache
         # and not benefit from the optimisation.
-        if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
+        # if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
+        if any(
+            (
+                not isinstance(cost, numbers.Integral)
+                or cost > MINIMUM_COST_TABULATION_THRESHOLD
+            )
+            for _, cost in candidates
+        ):
             op_axes = utils.just_one(get_shape(op))
             op_loop_axes = get_loop_axes(op)
             compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
@@ -637,9 +644,7 @@ def _(op: expr_types.Operator, /, visited_axes, loop_indices, *, compress: bool)
             op_cost = op_axes.size
             for loop_axes in op_loop_axes.values():
                 for loop_axis in loop_axes:
-                    # NOTE: This makes (and asserts) a strong assumption that loops are
-                    # linear by now. It may be good to encode this into the type system.
-                    op_cost *= loop_axis.component.local_max_size
+                    op_cost *= loop_axis.component.size
             candidates.append((compressed_expr, op_cost))
 
     return tuple(candidates)
@@ -658,9 +663,7 @@ def _(expr: expr_types.LinearDatBufferExpression, /, visited_axes, loop_indices,
     dat_cost = dat_axes.size
     for loop_axes in dat_loop_axes.values():
         for loop_axis in loop_axes:
-            # NOTE: This makes (and asserts) a strong assumption that loops are
-            # linear by now. It may be good to encode this into the type system.
-            dat_cost *= loop_axis.component.local_max_size
+            dat_cost *= loop_axis.component.size
 
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_indices, compress=compress):
@@ -672,7 +675,13 @@ def _(expr: expr_types.LinearDatBufferExpression, /, visited_axes, loop_indices,
         candidates.append((candidate_expr, candidate_cost))
 
     if compress:
-        if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
+        if any(
+            (
+                not isinstance(cost, numbers.Integral)
+                or cost > MINIMUM_COST_TABULATION_THRESHOLD
+            )
+            for _, cost in candidates
+        ):
             candidates.append((expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost))
 
     return tuple(candidates)

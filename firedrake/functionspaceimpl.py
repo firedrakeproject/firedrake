@@ -859,7 +859,7 @@ class FunctionSpace:
         return self.layout_axes[index_tree]
 
     @cached_property
-    def nodes(self) -> op3.Axis:
+    def _nodes_axis(self) -> op3.Axis:
         scalar_axis_tree = self.layout_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
         return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
@@ -867,7 +867,7 @@ class FunctionSpace:
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
         # Create the axis tree without index information
-        axis_tree = self.nodes.as_tree()
+        axis_tree = self._nodes_axis.as_tree()
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
         assert axis_tree.sf == self.layout_axes.sf
@@ -891,7 +891,7 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because the mappings are compressed during compilation.
-        node_point_map_array = numpy.full(self.nodes.local_size, -1, dtype=IntType)
+        node_point_map_array = numpy.full(self._nodes_axis.local_size, -1, dtype=IntType)
         node_dof_map_array = node_point_map_array.copy()
 
         dof_axis = utils.just_one(
@@ -907,8 +907,8 @@ class FunctionSpace:
                 node += 1
         assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
-        node_point_map_dat = op3.Dat(self.nodes, data=node_point_map_array)
-        node_dof_map_dat = op3.Dat(self.nodes, data=node_dof_map_array)
+        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_point_map_array)
+        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_dof_map_array)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)

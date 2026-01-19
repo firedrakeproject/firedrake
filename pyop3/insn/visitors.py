@@ -512,6 +512,8 @@ MAX_COST_CONSIDERATION_FACTOR = 5
 
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
+    from pyop3 import evaluate
+
     expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
     if not expr_candidates:
@@ -519,51 +521,81 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         # to think about so we can stop early
         return insn
 
-    # Combine the best per-arg candidates into the initial overall best candidate
-    best_candidate = {}
-    max_cost = 0
-    for arg_id, arg_candidates in expr_candidates.items():
-        expr, expr_cost = min(arg_candidates, key=lambda item: item[1])
-        best_candidate[arg_id] = (expr, expr_cost)
-        max_cost += expr_cost
+    # Convert parallel-safe costs (where the cost is given as an array) into
+    # integers.
+    expr_candidates = {
+        key: [
+            (candidate, evaluate(cost))
+            for candidate, cost in candidatess
+        ]
+        for key, candidatess in expr_candidates.items()
+    }
 
-    # Optimise by dropping any immediately bad candidates
-    trimmed_expr_candidates = {}
-    for arg_id, arg_candidates in expr_candidates.items():
-        trimmed_arg_candidates = []
-        min_arg_cost = min((cost for _, cost in arg_candidates))
-        for arg_candidate, cost in arg_candidates:
-            if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
-                trimmed_arg_candidates.append((arg_candidate, cost))
-        trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
-    expr_candidates = trimmed_expr_candidates
+    # This optimisation is collective but since the array size is part of the
+    # heuristic one can get differing optimisation choices on different ranks. We
+    # therefore perform all the heuristics on rank 0 and broadcast the selections.
+    if insn.comm.rank == 0:
+        # Combine the best per-arg candidates into the initial overall best candidate
+        best_candidate = {}
+        max_cost = 0
+        for arg_id, arg_candidates in expr_candidates.items():
+            expr, expr_cost = min(arg_candidates, key=lambda item: item[1])
+            best_candidate[arg_id] = (expr, expr_cost)
+            max_cost += expr_cost
 
-    # Now select the combination with the lowest combined cost. We can make savings here
-    # by sharing indirection maps between different arguments. For example, if we have
-    #
-    #     dat1[mapA[mapB[mapC[i]]]]
-    #     dat2[mapB[mapC[i]]]
-    #
-    # then we can (sometimes) minimise the data cost by having
-    #     dat1[mapA[mapBC[i]]]
-    #     dat2[mapBC[i]]
-    #
-    # instead of
-    #
-    #     dat1[mapABC[i]]
-    #     dat2[mapBC[i]]
-    min_cost = max_cost
-    for shared_candidate in utils.expand_collection_of_iterables(expr_candidates):
-        cost = 0
-        seen_exprs = set()
-        for expr, expr_cost in shared_candidate.values():
-            if expr not in seen_exprs:
-                cost += expr_cost
-                seen_exprs.add(expr)
+        # Optimise by dropping any immediately bad candidates
+        trimmed_expr_candidates = {}
+        for arg_id, arg_candidates in expr_candidates.items():
+            trimmed_arg_candidates = []
+            min_arg_cost = min((cost for _, cost in arg_candidates))
+            for arg_candidate, cost in arg_candidates:
+                if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
+                    trimmed_arg_candidates.append((arg_candidate, cost))
+            trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
 
-        if cost < min_cost:
-            best_candidate = shared_candidate
-            min_cost = cost
+        # Now select the combination with the lowest combined cost. We can make savings here
+        # by sharing indirection maps between different arguments. For example, if we have
+        #
+        #     dat1[mapA[mapB[mapC[i]]]]
+        #     dat2[mapB[mapC[i]]]
+        #
+        # then we can (sometimes) minimise the data cost by having
+        #     dat1[mapA[mapBC[i]]]
+        #     dat2[mapBC[i]]
+        #
+        # instead of
+        #
+        #     dat1[mapABC[i]]
+        #     dat2[mapBC[i]]
+        min_cost = max_cost
+        for shared_candidate in utils.expand_collection_of_iterables(trimmed_expr_candidates):
+            cost = 0
+            seen_exprs = set()
+            for expr, expr_cost in shared_candidate.values():
+                if expr not in seen_exprs:
+                    cost += expr_cost
+                    seen_exprs.add(expr)
+
+            if cost < min_cost:
+                best_candidate = shared_candidate
+                min_cost = cost
+
+        selected = np.empty(len(expr_candidates), dtype=np.uint8)
+        for i, (selected_candidate, all_candidates) in enumerate(zip(
+            best_candidate.values(), expr_candidates.values(), strict=True
+        )):
+            selected[i] = all_candidates.index(selected_candidate)
+        insn.comm.Bcast(selected)
+
+    else:
+        selected = np.empty(len(expr_candidates), dtype=np.uint8)
+        insn.comm.Bcast(selected)
+
+        best_candidate = {}
+        for (arg_id, all_candidates), selected_index in zip(
+            expr_candidates.items(), selected, strict=True
+        ):
+            best_candidate[arg_id] = all_candidates[selected_index]
 
     # Drop cost information from 'best_candidate'
     best_candidate = {key: expr for key, (expr, _) in best_candidate.items()}
