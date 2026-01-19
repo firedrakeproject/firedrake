@@ -28,7 +28,7 @@ from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
-from pyop3.tree.axis_tree.tree import merge_axis_trees
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer, BufferRef
 
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -438,7 +438,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
     if (
         isinstance(bare_assignee.buffer, PetscMatBuffer)
         and isinstance(bare_expression, Mat)
-        and not all(isinstance(tree, AxisTree) for tree in {bare_expression.row_axes, bare_expression.column_axes})
+        and not all(isinstance(tree, AxisTree | type(UNIT_AXIS_TREE)) for tree in {bare_expression.row_axes, bare_expression.column_axes})
     ):
         expression_temp = bare_expression.materialize()
         expression_insns += (expression_temp.assign(bare_expression),)

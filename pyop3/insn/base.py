@@ -205,15 +205,10 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
         old_insn = insn
         insn = expand_transforms(insn)
-        # if "form_cell_integral" in str(self):
-        #     breakpoint()
         while insn != old_insn:
             old_insn = insn
             insn = expand_transforms(insn)
-            # if "form_cell_integral" in str(self):
-            #     breakpoint()
 
-        # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)

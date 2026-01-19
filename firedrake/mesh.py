@@ -1802,15 +1802,15 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def entity_orientations_dat(self):
         # FIXME: the following does not work because the labels change
-        # cell_axis = self.cells.root
-        # so instead we do
-        cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+        cell_axis = self.cells.root
+        # # so instead we do
+        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
         closure_axis = self.closure(self.cells.iter()).axes.root
         axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
-        assert axis_tree.local_size == self.entity_orientations.size
+        assert axis_tree.local_size == self.entity_orientations_renum.size
         return op3.Dat(axis_tree, data=self.entity_orientations_renum.flatten(), prefix="orientations")
 
     @cached_property
@@ -2720,6 +2720,19 @@ class ExtrudedMeshTopology(MeshTopology):
             for extr_dim in range(2)
         )
 
+    @cached_property
+    def entity_orientations_renum(self):
+        num_extr_cells = self.layers - 1
+        return np.repeat(
+            np.repeat(
+                self._base_mesh.entity_orientations_renum,
+                3,  # per-cell closure is 3 times larger
+                axis=1,
+            ),
+            num_extr_cells,
+            axis=0,
+        )
+
     # {{{ facet iteration
 
     @cached_property
@@ -3194,30 +3207,6 @@ class ExtrudedMeshTopology(MeshTopology):
                 op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label=None),
             ]]
         return op3.Map(supports, name="support")
-
-    @cached_property
-    def entity_orientations_renum(self):
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
-
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof.
-        """
-        if entity_permutations is None:
-            # FInAT entity_permutations not yet implemented
-            entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-            return super().make_cell_node_list(global_numbering, entity_dofs, None, offsets)
-        assert sorted(entity_dofs.keys()) == sorted(entity_permutations.keys()), "Mismatching dimension tuples"
-        for key in entity_dofs.keys():
-            assert sorted(entity_dofs[key].keys()) == sorted(entity_permutations[key].keys()), "Mismatching entity tuples"
-        assert all(v in {0, 1} for _, v in entity_permutations), "Vertical dim index must be in [0, 1]"
-        entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-        entity_permutations = eutils.flat_entity_permutations(entity_permutations)
-        return super().make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
