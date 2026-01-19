@@ -170,12 +170,29 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
     def adapt(self, eta, theta):
         """
-        Implement Dorfler marking, refines mesh from error estimator
+        Add the next refinement level to the MeshHierarchy by local refinement
+        with a simplified variant of Dorfler marking.
+
+        Parameters
+        ----------
+        eta : Function
+            A DG0 `Function` with the local error estimator.
+        theta : float
+            The threshold for marking as a fraction of the maximum error.
+
+        Note
+        ----
+        Dorfler marking involves sorting all of the elements by decreasing
+        error estimator and taking the minimal set that exceeds some fixed
+        fraction of the total error. What this code implements is the simpler
+        variant that doesn't have a proof of convergence (as far as I know) 
+        but works as well in practice.
         """
         mesh = self.meshes[-1]
         W = FunctionSpace(mesh, "DG", 0)
         markers = Function(W)
 
+        # Take the maximum over all processes
         with eta.dat.vec_ro as eta_:
             eta_max = eta_.max()[1]
 
@@ -236,7 +253,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
 
     def recombine(self, split_funcs, f, child=True):
         """
-        Recombines functions on submeshes back full mesh
+        Recombines functions on submeshes back to the parent mesh
         """
         V = f.function_space()
         f.zero()
