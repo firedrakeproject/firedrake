@@ -14,7 +14,6 @@ from pyop2 import exceptions
 from pyop2.utils import as_tuple
 
 import firedrake
-import firedrake.matrix as matrix
 import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
@@ -186,7 +185,8 @@ class BCBase(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        from firedrake.matrix import MatrixBase
+        if isinstance(r, MatrixBase):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
         for idx in self._indices:
@@ -411,7 +411,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        from firedrake.matrix import MatrixBase
+        if isinstance(r, MatrixBase):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space
