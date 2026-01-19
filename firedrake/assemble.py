@@ -16,7 +16,7 @@ from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import finat.ufl
-from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
+from firedrake import (extrusion_utils as eutils, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
@@ -474,7 +474,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Out-of-place Hermitian transpose
             mat.petscmat.hermitianTranspose(out=result)
             if tensor is None:
-                tensor = Matrix(expr, result, bcs=bcs, 
+                tensor = Matrix(expr, result, bcs=bcs,
                                 options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
             return tensor
         elif isinstance(expr, ufl.Action):
@@ -1383,7 +1383,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
             dtype=ScalarType
         )
-        return Matrix(self._form, op2mat, bcs=self._bcs, 
+        return Matrix(self._form, op2mat, bcs=self._bcs,
                       fc_params=self._form_compiler_params, options_prefix=self._options_prefix)
 
     @staticmethod

@@ -6,7 +6,6 @@ import itertools
 
 import ufl
 import pyop2
-from pyop2.op2 import Mat
 from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 
@@ -183,7 +182,7 @@ class Matrix(MatrixBase):
             PETSc options prefix to apply, by default None.
         """
         super().__init__(a, bcs=bcs, fc_params=fc_params)
-        if isinstance(mat, Mat):
+        if isinstance(mat, pyop2.op2.Mat):
             self.M = mat
         else:
             assert isinstance(mat, PETSc.Mat)
@@ -219,7 +218,7 @@ class ImplicitMatrix(MatrixBase):
         a
             The bilinear form this :class:`ImplicitMatrix` represents.
         ctx
-            An :class:`firedrake.matrix_free.operators.ImplicitMatrixContext` that 
+            An :class:`firedrake.matrix_free.operators.ImplicitMatrixContext` that
             defines the operations of the matrix.
         bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
