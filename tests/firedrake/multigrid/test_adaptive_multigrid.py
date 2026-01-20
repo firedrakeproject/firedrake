@@ -26,8 +26,9 @@ def amh(request):
         geo = OCCGeometry(cube, dim=3)
         maxh = 0.5
 
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     ngmesh = geo.GenerateMesh(maxh=maxh)
+
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     base = Mesh(ngmesh, distribution_parameters=dparams)
     amh_test = AdaptiveMeshHierarchy(base)
 
@@ -52,7 +53,7 @@ def amh(request):
 
 
 @pytest.fixture
-def mh_res():
+def mh_uniform():
     """
     Generate MeshHierarchy for reference
     """
@@ -63,15 +64,20 @@ def mh_res():
     geo = OCCGeometry(face, dim=2)
     maxh = 0.5
     ngmesh = geo.GenerateMesh(maxh=maxh)
-    base = Mesh(ngmesh)
-    mesh2 = Mesh(ngmesh)
-    amh_unif = AdaptiveMeshHierarchy(base)
-    for _ in range(2):
-        refs = np.ones(len(ngmesh.Elements2D()))
-        amh_unif.refine(refs)
-    mh = MeshHierarchy(mesh2, 2)
 
-    return amh_unif, mh
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base1 = Mesh(ngmesh, distribution_parameters=dparams)
+    mh = MeshHierarchy(base1, 2)
+
+    base2 = Mesh(ngmesh, distribution_parameters=dparams)
+    amh = AdaptiveMeshHierarchy(base2)
+    for _ in range(2):
+        mesh = amh[-1]
+        ngmesh = mesh.netgen_mesh
+        ngmesh.Refine()
+        mesh = Mesh(ngmesh, distribution_parameters=dparams)
+        amh.add_mesh(mesh)
+    return amh, mh
 
 
 @pytest.fixture
@@ -146,12 +152,11 @@ def test_CG1(amh, atm, operator):  # pylint: disable=W0621
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.skipnetgen
-def test_restrict_consistency(mh_res, atm, tm):  # pylint: disable=W0621
+def test_restrict_consistency(mh_uniform, atm, tm):  # pylint: disable=W0621
     """
     Test restriction consistency of amh with uniform refinement vs mh
     """
-    amh_unif = mh_res[0]
-    mh = mh_res[1]
+    amh_unif, mh = mh_uniform
 
     V_coarse = FunctionSpace(amh_unif[0], "DG", 0)
     V_fine = FunctionSpace(amh_unif[-1], "DG", 0)
