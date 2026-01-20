@@ -245,19 +245,14 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     complex_mode = is_complex(parameters["scalar_type"])
 
     orig_coefficients = extract_coefficients(expression)
-    v, operand = expression.argument_slots()
+    if isinstance(expression, ufl.Interpolate):
+        v, operand = expression.argument_slots()
+    else:
+        operand = expression
+        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
 
     # Map into reference space
     operand = apply_mapping(operand, ufl_element, domain)
-
-    if ufl_element.mapping() != "identity":
-        # Need to map dual argument for adjoint interpolation
-        ref_element = finat.ufl.WithMapping(ufl_element, "identity")
-        V = ufl.FunctionSpace(domain, ref_element)
-        if isinstance(v, ufl.Coargument):
-            v = ufl.Coargument(V.dual(), v.number())
-        else:
-            v = ufl.Cofunction(V.dual())
 
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
@@ -278,6 +273,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     assert len(argument_multiindices) == len(arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
+    if domain is None:
+        domain = extract_unique_domain(expression)
+    assert domain is not None
     builder._domain_integral_type_map = {domain: "cell"}
     builder._entity_ids = {domain: (0,)}
 
