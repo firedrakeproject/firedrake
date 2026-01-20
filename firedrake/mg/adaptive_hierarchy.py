@@ -34,26 +34,12 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     def add_mesh(self, mesh):
         """
         Adds newly refined mesh into hierarchy.
-        Then computes the coarse_to_fine and fine_to_coarse mappings.
-        Constructs intermediate submesh hierarchies with this.
         """
         self._meshes += (mesh,)
         self.meshes += (mesh,)
         level = len(self.meshes)
         set_level(self.meshes[-1], self, level - 1)
         self._shared_data_cache = defaultdict(dict)
-
-    def refine(self, refinements):
-        """
-        Refines and adds mesh if input a boolean vector corresponding to cells
-        """
-        ngmesh = self.meshes[-1].netgen_mesh
-        for i, el in enumerate(ngmesh.Elements2D()):
-            el.refine = refinements[i]
-
-        ngmesh.Refine(adaptive=True)
-        mesh = Mesh(ngmesh)
-        self.add_mesh(mesh)
 
     def adapt(self, eta: Function | Cofunction, theta: float):
         """
