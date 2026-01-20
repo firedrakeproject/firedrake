@@ -1,18 +1,15 @@
-from __future__ import annotations
-
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from collections.abc import Iterable
 import itertools
 
 import ufl
-import pyop2
+from ufl.argument import BaseArgument
 from pyop2.utils import as_tuple
+from pyop2 import op2
 from firedrake.petsc import PETSc
-
-if TYPE_CHECKING:
-    from firedrake.bcs import DirichletBC
-    from firedrake.matrix_free import ImplicitMatrixContext
-    from firedrake.slate import slate
+from firedrake.bcs import DirichletBC
+from firedrake.matrix_free import ImplicitMatrixContext
+from firedrake.slate import slate
 
 __all__ = ("MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix")
 
@@ -38,7 +35,7 @@ class MatrixBase(ufl.Matrix):
 
     def __init__(
         self,
-        a: ufl.BaseForm | slate.TensorBase | tuple[ufl.argument.BaseArgument, ufl.argument.BaseArgument],
+        a: ufl.BaseForm | slate.TensorBase | tuple[BaseArgument, BaseArgument],
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
     ):
@@ -55,13 +52,12 @@ class MatrixBase(ufl.Matrix):
             An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
             None by default.
         """
-        from firedrake.slate import TensorBase
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
             arguments = a
         else:
-            assert isinstance(a, ufl.BaseForm | TensorBase)
+            assert isinstance(a, ufl.BaseForm | slate.TensorBase)
             self.a = a
             test, trial = a.arguments()
             arguments = None
@@ -159,7 +155,7 @@ class Matrix(MatrixBase):
     def __init__(
         self,
         a: ufl.BaseForm,
-        mat: pyop2.op2.Mat | PETSc.Mat,
+        mat: op2.Mat | PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,
@@ -182,7 +178,7 @@ class Matrix(MatrixBase):
             PETSc options prefix to apply, by default None.
         """
         super().__init__(a, bcs=bcs, fc_params=fc_params)
-        if isinstance(mat, pyop2.op2.Mat):
+        if isinstance(mat, op2.Mat):
             self.M = mat
         else:
             assert isinstance(mat, PETSc.Mat)
@@ -254,7 +250,7 @@ class AssembledMatrix(MatrixBase):
 
     def __init__(
         self,
-        args: tuple[ufl.argument.BaseArgument, ufl.argument.BaseArgument],
+        args: tuple[BaseArgument, BaseArgument],
         petscmat: PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         options_prefix: str | None = None,
