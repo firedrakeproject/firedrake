@@ -135,6 +135,7 @@ class Interpolate(UFLInterpolate):
         super().__init__(expr, V)
 
         self._options = InterpolateOptions(**kwargs)
+        self._interpolator = None
 
     function_space = UFLInterpolate.ufl_function_space
 
@@ -214,6 +215,7 @@ class Interpolator(abc.ABC):
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         self.access = expr.options.access
+        expr._interpolator = self
 
     @abc.abstractmethod
     def _get_callable(
@@ -353,6 +355,9 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
         An appropriate :class:`Interpolator` subclass for the given
         interpolation expression.
     """
+    if expr._interpolator is not None:
+        return expr._interpolator
+
     arguments = expr.arguments()
     has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
     if len(arguments) == 2 and has_mixed_arguments:
