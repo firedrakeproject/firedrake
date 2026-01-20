@@ -41,10 +41,10 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
     with pytest.raises(NotImplementedError):
         project(d1, target)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh3))
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         assemble(inner(d1, TestFunction(V2))*dx(domain=mesh1))
 
 
@@ -150,6 +150,7 @@ def test_multi_domain_solve():
     bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
     bc2 = DirichletBC(V.sub(1), 0, "on_boundary")
     u_sol = Function(V)
+
     solve(a == L, u_sol, bcs=[bc1, bc2])
     u1_sol, u2_sol = u_sol.subfunctions
 
@@ -177,29 +178,29 @@ def test_multi_domain_assemble():
 
     for i, j in [(0, 1), (1, 0)]:
         a1 = inner(u[i], v[j])*dx(domain=mesh1)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError):
             assemble(a1)
         a2 = inner(u[i], v[j])*dx(domain=mesh2)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError):
             assemble(a2)
         l1 = inner(f[i], v[j])*dx(domain=mesh1)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError):
             assemble(l1)
         l2 = inner(f[i], v[j])*dx(domain=mesh2)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError):
             assemble(l2)
 
     for i, j in [(0, 0), (1, 1)]:
         a = inner(u[i], v[j])*dx(domain=mesh1)
         if i == 1:
-            with pytest.raises(NotImplementedError):
+            with pytest.raises(ValueError):
                 assemble(a)
             continue
         A = assemble(a)
         assert A.M.values.shape == (V.dim(), V.dim())
 
     a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[0], v[1])*dx(domain=mesh2)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         assemble(a)
 
     a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[1], v[1])*dx(domain=mesh2)

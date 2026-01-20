@@ -89,6 +89,10 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         ),
         complex_mode=complex_mode,
     )
+
+    # Validate domains
+    validate_domains(form_data.preprocessed_form)
+
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
     # Create local kernels.
     kernels = []
@@ -139,10 +143,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     all_meshes = extract_domains(form_data.original_form)
     domain_number = all_meshes.index(mesh)
 
-    if any(extract_unique_domain(arg) not in integral_data.domain_integral_type_map for arg in arguments):
-        raise NotImplementedError("Assembly of forms over unrelated meshes is not supported. "
-                                  "Try using Submeshes or cross-mesh interpolation.")
-
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
@@ -177,6 +177,31 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+
+
+def validate_domains(form):
+    if len(extract_domains(form)) == 1:
+        # Not a multi-domain form, we do not need to keep checking
+        return
+
+    for itg in form.integrals():
+        # Check that all domains are related to each other
+        domain = itg.ufl_domain()
+        for other_domain in itg.extra_domain_integral_type_map():
+            if domain.submesh_youngest_common_ancester(other_domain) is None:
+                raise ValueError("Assembly of forms over unrelated meshes is not supported. "
+                                 "Try using Submeshes or cross-mesh interpolation.")
+
+        # Check that all Arguments and Coefficients are defined on the valid domains
+        valid_domains = set(itg.extra_domain_integral_type_map())
+        valid_domains.add(domain)
+
+        itg_domains = set(extract_domains(itg))
+        if len(itg_domains - valid_domains) > 0:
+            raise ValueError("Argument or Coefficient domain not found in integral. "
+                             "Possibly, the form contains coefficients on different meshes "
+                             "and requires measure intersection, for example: "
+                             'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
 
 
 def preprocess_parameters(parameters):

@@ -57,13 +57,9 @@ class KernelBuilderBase(KernelInterface):
         expressions."""
         kernel_arg = self.coefficient_map[ufl_coefficient]
         domain = extract_unique_domain(ufl_coefficient)
+        assert self._domain_integral_type_map[domain] is not None
         if ufl_coefficient.ufl_element().family() == 'Real':
             return kernel_arg
-        elif self._domain_integral_type_map[domain] is None:
-            raise NotImplementedError("Coefficient domain not found in integral. "
-                                      "Possibly, the form contains coefficients on different meshes "
-                                      "and requires measure intersection, for example: "
-                                      'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
         elif not self._domain_integral_type_map[domain].startswith("interior_facet"):
             return kernel_arg
         else:
