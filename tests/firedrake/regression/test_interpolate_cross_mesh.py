@@ -339,12 +339,18 @@ def test_exact_refinement():
     expr_in_V_fine = x**2 + y**2 + 1
     f_fine = Function(V_fine).interpolate(expr_in_V_fine)
 
+    # Build interpolation matrices in both directions
+    coarse_to_fine = assemble(interpolate(TrialFunction(V_coarse), V_fine))
+    coarse_to_fine_adjoint = assemble(interpolate(TestFunction(V_coarse), TrialFunction(V_fine.dual())))
+
     # If we now interpolate f_coarse into V_fine we should get a function
     # which has no interpolation error versus f_fine because we were able to
     # exactly represent expr_in_V_coarse in V_coarse and V_coarse is a subset
     # of V_fine
     f_coarse_on_fine = assemble(interpolate(f_coarse, V_fine))
     assert np.allclose(f_coarse_on_fine.dat.data_ro, f_fine.dat.data_ro)
+    f_coarse_on_fine_mat = assemble(coarse_to_fine @ f_coarse)
+    assert np.allclose(f_coarse_on_fine_mat.dat.data_ro, f_fine.dat.data_ro)
 
     # Adjoint interpolation takes us from V_fine^* to V_coarse^* so we should
     # also get an exact result here.
@@ -353,6 +359,10 @@ def test_exact_refinement():
     cofunction_fine_on_coarse = assemble(interpolate(TestFunction(V_coarse), cofunction_fine))
     assert np.allclose(
         cofunction_fine_on_coarse.dat.data_ro, cofunction_coarse.dat.data_ro
+    )
+    cofunction_fine_on_coarse_mat = assemble(action(coarse_to_fine_adjoint, cofunction_fine))
+    assert np.allclose(
+        cofunction_fine_on_coarse_mat.dat.data_ro, cofunction_coarse.dat.data_ro
     )
 
     # Now we test with expressions which are NOT exactly representable in the
@@ -396,11 +406,12 @@ def test_exact_refinement():
     )
 
 
-def test_interpolate_unitsquare_tfs_shape():
+@pytest.mark.parametrize("shape,symmetry", [((1, 2, 3), None), ((3, 3), True)])
+def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     m_src = UnitSquareMesh(2, 3)
     m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
-    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=(1, 2, 3))
-    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=(1, 2, 3))
+    V_src = TensorFunctionSpace(m_src, "CG", 3, shape=shape, symmetry=symmetry)
+    V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=shape, symmetry=symmetry)
     f_src = Function(V_src)
     assemble(interpolate(f_src, V_dest))
 
@@ -550,7 +561,7 @@ def test_missing_dofs():
     V_src = FunctionSpace(m_src, "CG", 2)
     V_dest = FunctionSpace(m_dest, "CG", 3)
     with pytest.raises(DofNotDefinedError):
-        Interpolator(TestFunction(V_src), V_dest)
+        assemble(interpolate(TrialFunction(V_src), V_dest))
     f_src = Function(V_src).interpolate(expr)
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     dest_eval = PointEvaluator(m_dest, coords)
@@ -656,9 +667,9 @@ def test_interpolate_matrix_cross_mesh():
     f_at_points2 = assemble(interpolate(f, P0DG))
     assert np.allclose(f_at_points.dat.data_ro, f_at_points2.dat.data_ro)
     # To get the points in the correct order in V we interpolate into vom.input_ordering
-    # We pass matfree=False which constructs the permutation matrix instead of using SFs
+    # We pass mat_type='aij' which constructs the permutation matrix instead of using SFs
     P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
-    B = assemble(interpolate(TrialFunction(P0DG), P0DG_io, matfree=False))
+    B = assemble(interpolate(TrialFunction(P0DG), P0DG_io), mat_type='aij')
     f_at_points_correct_order = assemble(B @ f_at_points)
     f_at_points_correct_order2 = assemble(interpolate(f_at_points, P0DG_io))
     assert np.allclose(f_at_points_correct_order.dat.data_ro, f_at_points_correct_order2.dat.data_ro)
@@ -679,6 +690,32 @@ def test_interpolate_matrix_cross_mesh():
     f_interp2 = Function(V)
     f_interp2.dat.data_wo[:] = f_at_points_correct_order3.dat.data_ro[:]
     assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
+
+    interp_mat2 = assemble(interpolate(TrialFunction(U), V))
+    assert interp_mat2.arguments() == (TestFunction(V.dual()), TrialFunction(U))
+    f_interp3 = assemble(interp_mat2 @ f)
+    assert f_interp3.function_space() == V
+    assert np.allclose(f_interp3.dat.data_ro, g.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_matrix_cross_mesh_adjoint():
+    mesh_fine = UnitSquareMesh(4, 4)
+    mesh_coarse = UnitSquareMesh(2, 2)
+
+    V_coarse = FunctionSpace(mesh_coarse, "CG", 1)
+    V_fine = FunctionSpace(mesh_fine, "CG", 1)
+
+    cofunc_fine = assemble(conj(TestFunction(V_fine)) * dx)
+
+    interp = assemble(interpolate(TestFunction(V_coarse), TrialFunction(V_fine.dual())))
+    cofunc_coarse = assemble(Action(interp, cofunc_fine))
+    assert interp.arguments() == (TestFunction(V_coarse), TrialFunction(V_fine.dual()))
+    assert cofunc_coarse.function_space() == V_coarse.dual()
+
+    # Compare cofunc_fine with direct interpolation
+    cofunc_coarse_direct = assemble(conj(TestFunction(V_coarse)) * dx)
+    assert np.allclose(cofunc_coarse.dat.data_ro, cofunc_coarse_direct.dat.data_ro)
 
 
 @pytest.mark.parallel([2, 3, 4])

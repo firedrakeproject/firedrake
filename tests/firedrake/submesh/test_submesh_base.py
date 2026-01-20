@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 
 
@@ -249,7 +250,7 @@ def test_submesh_base_entity_maps():
         assert (mesh.exterior_facets.facets == np.array([9, 10, 11, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all
         assert (submesh.exterior_facets.facets == np.array([6, 7, 5, 8])).all()
-    composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "cell", None, None)
+    composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "cell", "everywhere", None)
     assert integral_type == "cell"
     if rank == 0:
         assert (composed_map.maps_[0].values_with_halo == np.array([0])).all()

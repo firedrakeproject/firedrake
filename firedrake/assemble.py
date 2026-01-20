@@ -23,6 +23,7 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -364,7 +365,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                                     sub_mat_type=self._sub_mat_type,
+                                     options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -500,6 +503,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
+                elif isinstance(rhs, matrix.MatrixBase):
+                    # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                    petsc_mat = rhs.petscmat
+                    (_, col) = rhs.arguments()
+                    res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                    with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.multHermitian(v_vec, res_vec)
+                    return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             else:
@@ -611,17 +622,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
-            # Get the target space
-            V = v.function_space().dual()
-
-            # Get the interpolator
-            interp_data = expr.interp_data.copy()
-            default_missing_val = interp_data.pop('default_missing_val', None)
-            if rank == 1 and isinstance(tensor, firedrake.Function):
-                V = tensor
-            interpolator = firedrake.Interpolator(expr, V, bcs=bcs, **interp_data)
-            # Assembly
-            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
+            interpolator = get_interpolator(expr)
+            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
@@ -836,6 +838,12 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Replace arguments
                 return ufl.replace(right, replace_map)
 
+            # Action(Adjoint(A), w*) -> Action(w*, A)
+            if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
+                # TODO: ufl.action(Coefficient, Form) currently fails. When it is fixed, we can remove the
+                # `not isinstance(right, firedrake.Function)` check.
+                return ufl.action(right, left.form())
+
         # -- Case (4) -- #
         if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
             B = expr.form()
@@ -861,6 +869,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
+
+        # If F: V3 x V2 -> R, then
+        # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
+        # The result is a two-form V3 x V1 -> R.
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+            form, operand = expr.argument_slots()
+            vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
+            expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
+            return ufl.action(expr, form)
         return expr
 
     @staticmethod
@@ -1090,17 +1107,6 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        try:
-            topology, = set(d.topology.submesh_ancesters[-1] for d in self._form.ufl_domains())
-        except ValueError:
-            raise NotImplementedError("All integration domains must share a mesh topology")
-
-        for o in itertools.chain(self._form.arguments(), self._form.coefficients()):
-            domains = extract_domains(o)
-            for domain in domains:
-                if domain is not None and domain.topology.submesh_ancesters[-1] != topology:
-                    raise NotImplementedError("Assembly with multiple meshes is not supported")
-
         if isinstance(self._form, ufl.Form):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
@@ -1165,13 +1171,13 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def allocate(self):
         # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0]._comm seems the most robust method
+        # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0]._comm
+            comm=self._form.ufl_domains()[0].comm
         )
 
     def _apply_bc(self, tensor, bc, u=None):
@@ -1249,6 +1255,9 @@ class OneFormAssembler(ParloopFormAssembler):
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
+            if isinstance(bc.f, ufl.ZeroBaseForm) or bc.f.empty():
+                # form is empty, do nothing
+                return
             OneFormAssembler(bc.f, bcs=bc.bcs,
                              form_compiler_parameters=self._form_compiler_params,
                              needs_zeroing=False,
@@ -1324,12 +1333,12 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
                for arg in arguments
                for V in arg.function_space()):
             mat_type = "nest"
-    if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
+    if mat_type not in {"matfree", "aij", "baij", "nest", "dense", "is"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in {"aij", "baij"}:
-        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
+    if sub_mat_type not in {"aij", "baij", "is"}:
+        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
 
@@ -1373,6 +1382,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                             sub_mat_type=self._sub_mat_type,
                              options_prefix=self._options_prefix,
                              fc_params=self._form_compiler_params)
 
@@ -1490,8 +1500,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
+            if op2tensor.handle.getType() == "is":
+                # Flag the entire matrix as assembled before indexing the diagonal block
+                op2tensor.handle.assemble()
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
-
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.
@@ -1661,6 +1673,7 @@ class _GlobalKernelBuilder:
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
         self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
         self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_cell = _FormHandler.iter_active_orientations_cell(form, local_knl.kinfo)
         self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
         self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
@@ -1683,6 +1696,7 @@ class _GlobalKernelBuilder:
         assert_empty(self._constants)
         assert_empty(self._active_exterior_facets)
         assert_empty(self._active_interior_facets)
+        assert_empty(self._active_orientations_cell)
         assert_empty(self._active_orientations_exterior_facet)
         assert_empty(self._active_orientations_interior_facet)
 
@@ -1880,6 +1894,17 @@ def _as_global_kernel_arg_interior_facet(_, self):
         return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
+@_as_global_kernel_arg.register(kernel_args.OrientationsCellKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_cell)
+    if mesh is self._mesh:
+        return op2.DatKernelArg((1,))
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "cell"
+        return op2.DatKernelArg((1,), m._global_kernel_arg)
+
+
 @_as_global_kernel_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
 def _(_, self):
     mesh = next(self._active_orientations_exterior_facet)
@@ -1951,6 +1976,7 @@ class ParloopBuilder:
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
         self._active_exterior_facets = _FormHandler.iter_active_exterior_facets(form, local_knl.kinfo)
         self._active_interior_facets = _FormHandler.iter_active_interior_facets(form, local_knl.kinfo)
+        self._active_orientations_cell = _FormHandler.iter_active_orientations_cell(form, local_knl.kinfo)
         self._active_orientations_exterior_facet = _FormHandler.iter_active_orientations_exterior_facet(form, local_knl.kinfo)
         self._active_orientations_interior_facet = _FormHandler.iter_active_orientations_interior_facet(form, local_knl.kinfo)
 
@@ -2053,16 +2079,18 @@ class ParloopBuilder:
                 row_bcs, col_bcs = self._filter_bcs(i, j)
                 # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                mat_type = self._tensor.handle.getType()
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
                 return ((rlgmap, clgmap),)
             else:
                 lgmaps = []
                 for i, j in self.get_indicess():
                     row_bcs, col_bcs = self._filter_bcs(i, j)
                     rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
-                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                    mat_type = self._tensor[i, j].handle.getType()
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
                     lgmaps.append((rlgmap, clgmap))
                 return tuple(lgmaps)
         else:
@@ -2216,6 +2244,17 @@ def _as_parloop_arg_interior_facet(_, self):
     return op2.DatParloopArg(mesh.interior_facets.local_facet_dat, m)
 
 
+@_as_parloop_arg.register(kernel_args.OrientationsCellKernelArg)
+def _(_, self):
+    mesh = next(self._active_orientations_cell)
+    if mesh is self._mesh:
+        m = None
+    else:
+        m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        assert integral_type == "cell"
+    return op2.DatParloopArg(mesh.local_cell_orientation_dat, m)
+
+
 @_as_parloop_arg.register(kernel_args.OrientationsExteriorFacetKernelArg)
 def _(_, self):
     mesh = next(self._active_orientations_exterior_facet)
@@ -2309,6 +2348,14 @@ class _FormHandler:
         """Yield the form interior facets referenced in ``kinfo``."""
         all_meshes = extract_domains(form)
         for i in kinfo.active_domain_numbers.interior_facets:
+            mesh = all_meshes[i]
+            yield mesh
+
+    @staticmethod
+    def iter_active_orientations_cell(form, kinfo):
+        """Yield the form cell orientations referenced in ``kinfo``."""
+        all_meshes = extract_domains(form)
+        for i in kinfo.active_domain_numbers.orientations_cell:
             mesh = all_meshes[i]
             yield mesh
 

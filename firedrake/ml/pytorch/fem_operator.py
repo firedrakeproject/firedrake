@@ -178,7 +178,8 @@ def to_torch(x, gather=False, batched=True, **kwargs):
             x_P = torch.tensor(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = torch.tensor(np.ravel(x.dat.data_ro), **kwargs)
+            with x.dat.vec_ro as vec:
+                x_P = torch.tensor(np.ravel(vec.buffer_r), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to PyTorch
             return x_P[None, :]
@@ -218,5 +219,7 @@ def from_torch(x, V=None):
             val = val[0]
         return Constant(val)
     else:
-        x_F = Function(V, val=x.detach().numpy())
+        x_F = Function(V)
+        with x_F.dat.vec_wo as vec:
+            vec.array_w = x.detach().numpy()
         return x_F

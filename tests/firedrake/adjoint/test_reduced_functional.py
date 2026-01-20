@@ -1,9 +1,9 @@
 import pytest
+import numpy as np
 
 from firedrake import *
 from firedrake.adjoint import *
-
-from numpy.random import rand
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +65,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -214,7 +214,7 @@ def test_interpolate():
 
     f = Function(V)
     f.dat.data[:] = 2
-    J = assemble(Interpolate(f**2, c))
+    J = assemble(interpolate(f**2, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
@@ -244,10 +244,69 @@ def test_interpolate_mixed():
     f1, f2 = split(f)
     exprs = [f2 * div(f1)**2, grad(f2) * div(f1)]
     expr = as_vector([e[i] for e in exprs for i in np.ndindex(e.ufl_shape)])
-    J = assemble(Interpolate(expr, c))
+    J = assemble(interpolate(expr, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
     h.subfunctions[0].dat.data[:] = 5
     h.subfunctions[1].dat.data[:] = 6
     assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_assign_numpy():
+    """Check that Function._ad_assign_numpy correctly handles
+    zero length arrays on some ranks for Real space in parallel.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    dst = Function(R)
+    src = dst.dat.dataset.layout_vec.array_r.copy()
+    data = 1 + np.arange(src.shape[0])
+    src[:] = data
+    dst._ad_assign_numpy(dst, src, offset=0)
+    parallel_assert(np.allclose(dst.dat.data_ro, data))
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(2)
+def test_real_space_parallel():
+    """Check that scipy.optimize works for Real space in parallel
+    despite dat.data array having zero length on some ranks.
+    """
+    mesh = UnitSquareMesh(1, 1)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R)
+    J = assemble((m-1)**2*dx)
+    Jhat = ReducedFunctional(J, Control(m))
+    opt = minimize(Jhat)
+    parallel_assert(np.allclose(opt.dat.data_ro, 1))
+
+
+@pytest.mark.parametrize("riesz_representation", ["l2", "L2", "H1"])
+@pytest.mark.skipcomplex
+def test_ad_dot(riesz_representation):
+    mesh = IntervalMesh(10, 0, 1)
+    V = FunctionSpace(mesh, "Lagrange", 1)
+
+    c = Constant(1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(x[0])
+
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Constant(1), "on_boundary")
+
+    F = inner(grad(u), grad(v))*dx - f**2*v*dx
+    solve(F == 0, u, bc)
+
+    J = assemble(c**2*u*dx)
+    Jhat = ReducedFunctional(J, Control(f, riesz_map=riesz_representation))
+    dJhat = Jhat.derivative(apply_riesz=True)
+
+    h = Function(V)
+    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
+    assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9
