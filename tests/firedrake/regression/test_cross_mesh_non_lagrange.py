@@ -4,6 +4,8 @@ import numpy as np
 from finat.quadrature import QuadratureRule
 from functools import partial
 
+from ufl.compound_expressions import deviatoric_expr_2x2
+
 
 def fs_shape(V):
     shape = V.ufl_function_space().value_shape
@@ -30,14 +32,14 @@ def make_quadrature_space(V):
     return fs_shape(V)(V.mesh(), element)
 
 
-@pytest.fixture(params=[("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1), ("BDM", 2), ("BDM", 3),
-                        ("BDFM", 2), ("HHJ", 2),("N1curl", 1), ("N1curl", 2), ("N1curl", 3),
-                        ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 1), ("GLS", 2),
-                        ("GLS", 3), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
+@pytest.fixture(params=[("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
+                        ("BDFM", 2), ("HHJ", 2),("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
+                        ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 2), ("GLS", 3),
+                        ("GLS", 4), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
                         ids=lambda x: f"{x[0]}_{x[1]}")
 def V(request):
     element, degree = request.param
-    mesh = UnitSquareMesh(3, 3)
+    mesh = UnitSquareMesh(8, 8)
     return FunctionSpace(mesh, element, degree)
 
 # V_source -> Q -> V_target
@@ -83,14 +85,24 @@ def test_cross_mesh_oneform(V):
 def test_cross_mesh_oneform_adjoint(V):
     # Can already do Lagrange -> RT adjoint
     # V^* -> Q^* -> V_target^*
-    mesh1 = UnitSquareMesh(7, 7)
+    mesh1 = UnitSquareMesh(2, 2)
     x1 = SpatialCoordinate(mesh1)
-    V_target = fs_shape(V)(mesh1, "CG", 2)
+    V_target = fs_shape(V)(mesh1, "CG", 1)
 
     mesh2 = V.mesh()
     x2 = SpatialCoordinate(mesh2)
 
-    oneform_V = inner(x2, TestFunction(V)) * dx
+    if len(V.value_shape) > 1:
+        expr = outer(x2, x2)
+        target_expr = outer(x1, x1)
+        if V.ufl_element().mapping() == "covariant contravariant Piola":
+            expr = deviatoric_expr_2x2(expr)
+            target_expr = deviatoric_expr_2x2(target_expr)
+    else:
+        expr = x2
+        target_expr = x1
+
+    oneform_V = inner(expr, TestFunction(V)) * dx
 
     Q_target = make_quadrature_space(V)
 
@@ -104,9 +116,8 @@ def test_cross_mesh_oneform_adjoint(V):
 
     # cofunc_V = assemble(interpolate(TestFunction(V_target), oneform_target))  # V^* -> V_target^*
 
-    cofunc_V_direct = assemble(inner(x1, TestFunction(V_target)) * dx)
-
+    cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
     assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
 
 if __name__ == "__main__":
-    pytest.main([__file__ + "::test_cross_mesh_oneform_adjoint[RT_1]"])
+    pytest.main([__file__ + "::test_cross_mesh_oneform_adjoint[GLS_3]"])
