@@ -259,46 +259,30 @@ def PeriodicIntervalMesh(
            when checkpointing; if `None`, the name is automatically
            generated.
     """
+    plex = PETSc.DMPlex().createBoxMesh(
+        (ncells,),
+        lower=(0.,),
+        upper=(length,),
+        simplex=False,
+        periodic=True,
+        interpolate=True,
+        sparseLocalize=False,
+        comm=comm
+    )
 
-    if ncells < 3:
-        raise ValueError(
-            "1D periodic meshes with fewer than 3 \
-cells are not currently supported"
-        )
-    m = CircleManifoldMesh(
-        ncells,
-        distribution_parameters=distribution_parameters_no_overlap,
-        reorder=reorder_noop,
-        comm=comm,
+    # Create boundary ID label but do not set any values because
+    # there is no boundary to mark
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+
+    return Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        comm=comm,
     )
-    indicator = Function(FunctionSpace(m, "DG", 0))
-    coord_fs = VectorFunctionSpace(
-        m, FiniteElement("DG", interval, 1, variant="equispaced"), dim=1
-    )
-    new_coordinates = Function(
-        coord_fs, name=_generate_default_mesh_coordinates_name(name)
-    )
-    x, y = SpatialCoordinate(m)
-    eps = 1.e-14
-    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
-    new_coordinates.interpolate(
-        as_vector((conditional(
-            gt(real(x), real(1. - eps)), indicator,  # Periodic break.
-            # Unwrap rest of circle.
-            atan2(real(-y), real(-x))/(2 * pi) + 0.5
-        ) * length,))
-    )
-
-    return _postprocess_periodic_mesh(new_coordinates,
-                                      comm,
-                                      distribution_parameters,
-                                      reorder,
-                                      name,
-                                      distribution_name,
-                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -950,8 +934,39 @@ def PeriodicRectangleMesh(
 
     if direction not in ("both", "x", "y"):
         raise ValueError(
-            "Cannot have a periodic mesh with periodicity '%s'" % direction
+            f"Cannot have a periodic mesh with periodicity 'direction'"
         )
+
+    if direction == "both":
+        periodic = (True, True)
+    elif direction == "x":
+        periodic = (True, False)
+    else:
+        periodic = (False, True)
+
+    plex = PETSc.DMPlex().createBoxMesh(
+        (nx, ny),
+        lower=(0., 0.),
+        upper=(Lx, Ly),
+        simplex=False,
+        periodic=periodic,
+        interpolate=True,
+        sparseLocalize=False,
+        comm=comm
+    )
+
+    # Add boundary labels
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+
+    return Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+    )
     if direction != "both":
         return PartiallyPeriodicRectangleMesh(
             nx,
@@ -967,10 +982,6 @@ def PeriodicRectangleMesh(
             name=name,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
-        )
-    if nx < 3 or ny < 3:
-        raise ValueError(
-            "2D periodic meshes with fewer than 3 cells in each direction are not currently supported"
         )
 
     m = TorusMesh(
