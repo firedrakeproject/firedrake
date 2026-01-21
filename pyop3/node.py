@@ -51,12 +51,17 @@ class Visitor(abc.ABC):
         self._visited_cache = {} if visited_cache is None else visited_cache
         self._result_cache = {} if result_cache is None else result_cache
         self._seen_nodes = set()
+        self.index = -1
 
     # {{{ overrideable interface
 
     def __call__(self, *args, **kwargs):
         """Maybe overload this if you want to set some things up"""
-        return self._call(*args, **kwargs)
+        # assert self.index == -1  # FIXME: This fails because we sometimes have traversals within traversals
+        try:
+            return self._call(*args, **kwargs)
+        finally:
+            self.index = -1
 
     def get_cache_key(self, node, **kwargs) -> Hashable:
         """Maybe overload this if you want to set some things up"""
@@ -65,6 +70,7 @@ class Visitor(abc.ABC):
     def preprocess_node(self, node) -> tuple[Any, ...]:
         return (node,)
 
+    # TODO: Make this 'process_invalid' and make process an abstract method
     def process(self, o: Expr, **kwargs) -> Expr:
         """Process node by type.
 
@@ -95,6 +101,7 @@ class Visitor(abc.ABC):
 
     # }}}
 
+    # TODO: allow *args
     def _call(self, node: Expr, **kwargs) -> Expr:
         """Perform memoised DAG traversal with ``process`` singledispatch method.
 
@@ -108,6 +115,7 @@ class Visitor(abc.ABC):
             Processed Expression.
 
         """
+        self.index += 1
         self._seen_nodes.add(node)
 
         cache_key = self.get_cache_key(node, **kwargs)
@@ -132,6 +140,7 @@ class Visitor(abc.ABC):
 
     def _safe_call(self, node, default=None, **kwargs):
         # doesnt really work
+        # return self._call(*args, **kwargs)
         return self(node, **kwargs)
         if node in self._seen_nodes:
             return default
@@ -168,9 +177,10 @@ class LabelledTreeVisitor(Visitor):
     # {{{ interface impls
 
     def __call__(self, tree: AxisTree, **kwargs):
+        assert self._tree is None
         try:
             self._tree = tree
-            return self._call(idict(), **kwargs)
+            return super().__call__(idict(), **kwargs)
         finally:
             self._tree = None
 
@@ -221,7 +231,7 @@ class NodeVisitor(Visitor):
                         for key, value in child_attr.items()
                     })
                 else:
-                    new_children[attr_name] = self(child_attr, **kwargs)
+                    new_children[attr_name] = self._call(child_attr, **kwargs)
             new_children = idict(new_children)
             return method(self, node, new_children, **kwargs)
         return wrapper
