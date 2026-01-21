@@ -150,7 +150,6 @@ def test_multi_domain_solve():
     bc1 = DirichletBC(V.sub(0), 0, "on_boundary")
     bc2 = DirichletBC(V.sub(1), 0, "on_boundary")
     u_sol = Function(V)
-
     solve(a == L, u_sol, bcs=[bc1, bc2])
     u1_sol, u2_sol = u_sol.subfunctions
 

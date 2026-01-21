@@ -90,7 +90,6 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         complex_mode=complex_mode,
     )
 
-    # Validate domains
     validate_domains(form_data.preprocessed_form)
 
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
