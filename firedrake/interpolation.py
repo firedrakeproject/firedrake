@@ -585,14 +585,15 @@ class CrossMeshInterpolator(Interpolator):
 
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
+        f = tensor or Function(V_dest)
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
-        if into_quadrature_space := V_dest.ufl_element().mapping() != "identity":
+        if into_quadrature_space := self.target_space.ufl_element().mapping() != "identity":
             Q_dest = self._get_quadrature_space(V_dest)
         else:
             Q_dest = None
-        target_space = Q_dest or V_dest
-        f = tensor or Function(target_space)
+        target_space = Q_dest or self.target_space
+        
 
         point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -611,11 +612,11 @@ class CrossMeshInterpolator(Interpolator):
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if into_quadrature_space:
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(Q_dest, 0), Argument(V_dest.dual(), 1)), None, res)
-                        return assemble(action(interpolate(TestFunction(V_dest), Q_dest))).petscmat
+                        I = AssembledMatrix((Argument(Q_dest, 0), Argument(target_space.dual(), 1)), None, res)
+                        return assemble(action(interpolate(TestFunction(target_space), Q_dest), I)).petscmat
                     else:
-                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(V_dest, 1)), None, res)  # V_dest x Q_dest^* -> R
-                        return assemble(action(interpolate(TrialFunction(Q_dest), V_dest), I)).petscmat  # Q_dest x V_dest^* -> R
+                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(target_space, 1)), None, res)  # target_space x Q_dest^* -> R
+                        return assemble(action(interpolate(TrialFunction(Q_dest), target_space), I)).petscmat  # Q_dest x target_space^* -> R
                 else:
                     return res
 
