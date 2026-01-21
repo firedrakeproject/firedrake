@@ -268,7 +268,7 @@ def test_cell_orientation_curve():
     f = assemble(interpolate(CellNormal(m), V))
 
     expected = np.asarray([[1/2, sqrt(3)/2], [-1, 0], [1/2, -sqrt(3)/2]])
-    assert np.allclose(f.dat.data_ro, expected.flatten())
+    assert np.allclose(f.dat.data_ro, expected)
 
 
 def test_cellvolume():

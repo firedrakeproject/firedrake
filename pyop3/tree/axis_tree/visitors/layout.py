@@ -205,7 +205,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
             # Add the global offset to the values in this region
             if starts[i] != 0:  # don't bother adding 0 to things
-                loop_(ix := regioned_axes.index(), offset_dat[ix].iassign(starts[i]), eager=True)
+                loop_(ix := regioned_axes.iter(), offset_dat[ix].iassign(starts[i]), eager=True)
 
             # Figure out how large the looped-over part of the tree is (including subaxes)
             # as this will inform the stride size.
@@ -428,7 +428,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
 
     if not outer_loop_tree.is_empty:
-        ix = outer_loop_tree.index()
+        ix = outer_loop_tree.iter()
 
         axis_to_loop_var_replace_map = {
             AxisVar(ax): LoopIndexVar(ix, ax)

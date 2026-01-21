@@ -47,21 +47,34 @@ def _(
 ):
     mesh = space.mesh()
 
-    if len(space) > 1:
-        # do a loop
-        raise NotImplementedError
-        # This is tricky. Consider the case where you have a mixed space with hexes and
-        # each space needs a different (non-permutation) transform. That means that we
-        # have to generate code like:
-        #
-        # t0 = dat[:, closure(cell)]
-        # t1 = transform0(t0[0])  # (field 0)
-        # t2 = transform1(t0[1])  # (field 1)
-        # t3[0] = t1
-        # t3[1] = t2
-        #
-        # I think that the easiest approach here is to index the full thing before passing it
-        # down. We can then combine everything at the top-level
+    # This is tricky. Consider the case where you have a mixed space with hexes and
+    # each space needs a different (non-permutation) transform. That means that we
+    # have to generate code like:
+    #
+    # t0 = dat[:, closure(cell)]
+    # t1 = transform0(t0[0])  # (field 0)
+    # t2 = transform1(t0[1])  # (field 1)
+    # t3[0] = t1
+    # t3[1] = t2
+    packed_dats = np.empty(len(space), dtype=object)
+    for i, (index, subspace) in enumerate(iter_space(space)):
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info)
+
+    if packed_dats.size == 1:
+        return packed_dats.item()
+    else:
+        return op3.AggregateDat(packed_dats)
+
+
+def _pack_dat_nonmixed(
+    dat: op3.Dat,
+    space: WithGeometry,
+    loop_info: IterationSpec,
+    *,
+    nodes: bool = False,
+    permutation: collections.abc.Iterable | None = None,
+):
+    mesh = space.mesh()
 
     if not nodes:
         map_ = space.entity_node_map(loop_info)
@@ -99,6 +112,27 @@ def _(
         dat = mat_context.dat
         return pack(dat, space, loop_info, nodes=nodes)
 
+    packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
+    for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
+        for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
+            packed_mats[ir, ic] = _pack_mat_nonmixed(
+                mat[row_index, column_index], row_subspace, column_subspace, loop_info
+            )
+
+    if packed_mats.size == 1:
+        return packed_mats.item()
+    else:
+        return op3.AggregateMat(packed_mats)
+
+
+def _pack_mat_nonmixed(
+    mat: op3.Mat,
+    row_space: WithGeometry,
+    column_space: WithGeometry,
+    loop_info: IterationSpec,
+    *,
+    nodes: bool = False,
+):
     row_map = row_space.entity_node_map(loop_info)
     column_map = column_space.entity_node_map(loop_info)
     packed_mat = mat[row_map, column_map]
@@ -131,9 +165,14 @@ def transform_packed_cell_closure_dat(
     permutation=None,
 ) -> op3.Dat:
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    # NOTE: This is now a special case of the fuse stuff below
-    # if space.mesh().ufl_cell() == ufl.hexahedron:
-    #     packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    # if not space.extruded:
+    # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
+    # defined. This makes no sense for simplex and quad meshes because they are already
+    # oriented. In effect we just arbitrarily permute the DoFs in the cell-node map for
+    # no reason. This orientation work should really only be necessary for hexes but I'm
+    # leaving as is for now because we otherwise get small inconsistencies between the
+    # old and new 'cell_node_list's which I want to avoid.
+    # packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
@@ -242,6 +281,29 @@ def transform_packed_cell_closure_mat(
     return packed_mat
 
 
+def _make_closure_map_tree(space: WithGeometry, loop_info: IterationSpec) -> op3.IndexTree:
+    if len(space) == 1:
+        return space.entity_node_map(loop_info)
+
+    # mixed, need a closure per subspace and a full slice over the top
+    # TODO: This is full slice, need nice API for that
+    space_axis = space.plex_axes.root
+    space_slice = op3.Slice(
+        space_axis.name,
+        [
+            op3.AffineSliceComponent(space_index, label=space_index)
+            for space_index in space_axis.component_labels
+        ],
+        label=space_axis.name,
+    )
+    index_tree = op3.IndexTree(space_slice)
+    for leaf_path, subspace in zip(index_tree.leaf_paths, space, strict=True):
+        index_tree = index_tree.add_subtree(
+            leaf_path, _make_closure_map_tree(subspace, loop_info)
+        )
+    return index_tree
+
+
 @functools.singledispatch
 def _orient_dofs(packed_tensor: op3.Tensor, *args, **kwargs) -> op3.Tensor:
     raise TypeError(f"No handler defined for '{utils.pretty_type(packed_tensor)}'")
@@ -271,14 +333,29 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
         i_dof -> perm[ort[i_cell, i_edge], i_dof]
 
     """
-    permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
-    return packed_dat.with_axes(permuted_axis_tree)
+    try:
+        space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        return packed_dat
+    else:
+        permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
+        return packed_dat.with_axes(permuted_axis_tree)
 
 
 @_orient_dofs.register(op3.Mat)
 def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
-    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
-    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
+    try:
+        row_space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        permuted_row_axes = packed_mat.row_axes
+    else:
+        permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
+    try:
+        column_space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        permuted_column_axes = packed_mat.column_axes
+    else:
+        permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
@@ -296,8 +373,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
     new_targets = {
-        k: (path, dict(exprs))
-        for k, (path, exprs) in axes.targets[0].items()
+        path: [list(targets) for targets in targetss]
+        for (path, targetss) in axes.targets.items()
     }
     point_axis = axes.node_map[outer_path]
     for dim_axis_component in point_axis.components:
@@ -315,20 +392,23 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
-        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(dim_label,)])
-        selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis_label == "which")
+        orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.as_slice(dim_label),)])
+        selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis.label == "which")
         perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr})
 
         # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
         # now plug into 'packed_dat'
 
         path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
-        before = new_targets[path][1]["dof"]
-        new_targets[path][1]["dof"] = op3.replace(new_targets[path][1]["dof"], {op3.AxisVar(dof_axis): perm_expr})
-        assert new_targets[path][1]["dof"] != before
+        before = utils.just_one(new_targets[path][0])  # hack to get the right one...
+        assert before.axis == "dof"
+        new_targets[path] = [[before.__record_init__(
+            expr=op3.replace(before.expr, {op3.AxisVar(dof_axis): perm_expr}, assert_modified=True)
+        )]]
 
-    # TODO: respect the fact that targets can contain multiple entries
-    return axes.__record_init__(targets=(new_targets,))
+    new_targets = utils.freeze(new_targets)
+
+    return axes.__record_init__(_targets=new_targets)
 
 
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
@@ -666,3 +746,11 @@ def fuse_orientations(spaces: list[WithGeometry]):
         raise ValueError("If a fuse space is used, all spaces must be fuse spaces")
     else:
         return None, None
+
+
+def iter_space(space: WithGeometry):
+    """Index-friendly iterator for function spaces."""
+    if len(space) == 1:
+        yield (Ellipsis, space)
+    else:
+        yield from enumerate(space)

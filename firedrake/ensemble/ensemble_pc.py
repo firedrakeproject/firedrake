@@ -44,12 +44,12 @@ class EnsemblePCBase(petsctools.PCBase):
         self.y = EnsembleFunction(self.col_space)
 
     def apply(self, pc, x, y):
-        with self.x.vec_wo as v:
+        with self.x.vec_wo() as v:
             x.copy(result=v)
 
         self.apply_impl(pc, self.x, self.y)
 
-        with self.y.vec_ro as v:
+        with self.y.vec_ro() as v:
             v.copy(result=y)
 
     def apply_impl(self, pc, x, y):

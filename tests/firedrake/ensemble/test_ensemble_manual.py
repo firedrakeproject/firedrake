@@ -82,6 +82,6 @@ def test_ensemble_manual_example():
     # [test_ensemble_manual_example 7 <]
 
     # [test_ensemble_manual_example 8 >]
-    with efunc.vec_ro as vec:
+    with efunc.vec_ro() as vec:
         PETSc.Sys.Print(f"{vec.norm()=}")
     # [test_ensemble_manual_example 8 <]

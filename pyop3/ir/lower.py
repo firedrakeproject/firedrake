@@ -357,10 +357,10 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "form_cell_integral" in str(self):
-        #     breakpoint()
-        # pyop3.extras.debug.maybe_breakpoint()
+        if len(self.loopy_code.callables_table) > 1 and "inject" in str(self):
+            pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
+        #     pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
@@ -919,15 +919,9 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         if not isinstance(loopy_arg, lp.ArrayArg):
             raise NotImplementedError
 
-        if loopy_arg.shape is not None:
-            shape = loopy_arg.shape
-        else:
-            raise NotImplementedError
-            shape = (np.prod(*(axis_tree.size for axis_tree in arg.shape), dtype=int),)
-
         # subarrayref nonsense/magic
         indices = []
-        for s in shape:
+        for s in loopy_arg.shape:
             iname = context.unique_name("i")
             context.add_domain(iname, s)
             indices.append(pym.var(iname))

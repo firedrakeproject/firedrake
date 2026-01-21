@@ -166,13 +166,13 @@ class EnsembleFunctionSpaceBase:
     def nlocal_rank_dofs(self):
         """The total number of dofs across all subspaces on the local MPI rank.
         """
-        return self._full_local_space.dof_dset.layout_vec.getLocalSize()
+        return self._full_local_space.template_vec.getLocalSize()
 
     @cached_property
     def nlocal_comm_dofs(self):
         """The total number of dofs across all subspaces on the local ensemble.comm.
         """
-        return self._full_local_space.dof_dset.layout_vec.getSize()
+        return self._full_local_space.template_vec.getSize()
 
     @cached_property
     def nglobal_dofs(self):

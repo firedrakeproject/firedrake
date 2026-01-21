@@ -125,8 +125,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded:
             level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
         else:
@@ -136,7 +134,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         iterset = Vc.mesh().cells
         arity = Vf.finat_element.space_dimension() * ncell
         coarse_to_fine_nodes = numpy.full((iterset.local_size, arity*level_ratio), -1, dtype=IntType)
-        values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.size, arity)
+        values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.local_size, arity)
 
         if Vc.extruded:
             off = numpy.tile(Vf.offset, ncell)

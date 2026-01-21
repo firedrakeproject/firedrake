@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import abc
-from ctypes import Array
 import collections
 import functools
 import itertools
-from itertools import zip_longest
 import numbers
 from collections.abc import Iterable, Mapping
 from os import access
-from re import I
 from typing import Any
 
 import numpy as np
@@ -19,6 +16,9 @@ from immutabledict import immutabledict as idict
 import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
 from pyop3.expr.buffer import MatArrayBufferExpression
+from pyop3.expr.tensor import mat
+from pyop3.expr.tensor.dat import AggregateDat
+from pyop3.expr.tensor.mat import AggregateMat
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
@@ -26,7 +26,7 @@ from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
-from pyop3.tree.axis_tree.tree import merge_axis_trees
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer, BufferRef
 
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -269,6 +269,12 @@ def _(mat: Mat) -> bool:
     return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.row_axes) and _layouts_match(mat.column_axes) and not has_materialized_temporaries(mat))
 
 
+@_requires_pack_unpack.register(AggregateDat)
+@_requires_pack_unpack.register(AggregateMat)
+def _(amat) -> bool:
+    return True
+
+
 def _layouts_match(axes: AxisTreeT) -> bool:
     if isinstance(axes, AxisForest):
         return utils.strictly_all(map(_layouts_match, axes.trees))
@@ -335,10 +341,6 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
             if intent == READ:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
             elif intent == WRITE:
-                # This is currently necessary because some local kernels
-                # (interpolation) actually increment values instead of setting
-                # them directly. This should ideally be addressed.
-                arg_pack_insns.append(local_tensor.assign(0))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
             elif intent == RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
@@ -428,6 +430,18 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
         assert assignee_insns[-1].assignment_type == AssignmentType.INC
         assignment_type = AssignmentType.WRITE
 
+    # PETSc matrix assignment requires the expression to be a materialised
+    # temporary. Note that we expand literals at a later point, which is silly.
+    # We should do this together.
+    if (
+        isinstance(bare_assignee.buffer, PetscMatBuffer)
+        and isinstance(bare_expression, Mat)
+        and not all(isinstance(tree, AxisTree | type(UNIT_AXIS_TREE)) for tree in {bare_expression.row_axes, bare_expression.column_axes})
+    ):
+        expression_temp = bare_expression.materialize()
+        expression_insns += (expression_temp.assign(bare_expression),)
+        bare_expression = expression_temp
+
     bare_assignment = assignment.__record_init__(
         _assignee=bare_assignee,
         _expression=bare_expression,
@@ -496,61 +510,70 @@ MAX_COST_CONSIDERATION_FACTOR = 5
 
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = False) -> insn_types.Instruction:
-    expr_candidates = collect_candidate_indirections(insn, compress=compress)
+    # This optimisation is collective but since the array size is part of the
+    # heuristic one can get differing optimisation choices on different ranks. We
+    # therefore perform all the heuristics on rank 0 and broadcast the selections.
+    if insn.comm.rank == 0:
+        expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
-    if not expr_candidates:
-        # For things like null instructions there are no expression candidates
-        # to think about so we can stop early
-        return insn
+        # Combine the best per-arg candidates into the initial overall best candidate
+        best_candidate = {}
+        max_cost = 0
+        for arg_id, arg_candidates in expr_candidates.items():
+            expr, expr_cost, materialize_idxs = min(arg_candidates, key=lambda item: item[1])
+            best_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
+            max_cost += expr_cost
 
-    # Combine the best per-arg candidates into the initial overall best candidate
-    best_candidate = {}
-    max_cost = 0
-    for arg_id, arg_candidates in expr_candidates.items():
-        expr, expr_cost = min(arg_candidates, key=lambda item: item[1])
-        best_candidate[arg_id] = (expr, expr_cost)
-        max_cost += expr_cost
+        # Optimise by dropping any immediately bad candidates
+        trimmed_expr_candidates = {}
+        for arg_id, arg_candidates in expr_candidates.items():
+            trimmed_arg_candidates = []
+            min_arg_cost = min((cost for _, cost, _ in arg_candidates))
+            for arg_candidate, cost, materialize_idxs in arg_candidates:
+                if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
+                    trimmed_arg_candidates.append((arg_candidate, cost, materialize_idxs))
+            trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
 
-    # Optimise by dropping any immediately bad candidates
-    trimmed_expr_candidates = {}
-    for arg_id, arg_candidates in expr_candidates.items():
-        trimmed_arg_candidates = []
-        min_arg_cost = min((cost for _, cost in arg_candidates))
-        for arg_candidate, cost in arg_candidates:
-            if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
-                trimmed_arg_candidates.append((arg_candidate, cost))
-        trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
-    expr_candidates = trimmed_expr_candidates
+        # Now select the combination with the lowest combined cost. We can make savings here
+        # by sharing indirection maps between different arguments. For example, if we have
+        #
+        #     dat1[mapA[mapB[mapC[i]]]]
+        #     dat2[mapB[mapC[i]]]
+        #
+        # then we can (sometimes) minimise the data cost by having
+        #     dat1[mapA[mapBC[i]]]
+        #     dat2[mapBC[i]]
+        #
+        # instead of
+        #
+        #     dat1[mapABC[i]]
+        #     dat2[mapBC[i]]
+        min_cost = max_cost
+        for shared_candidate in utils.expand_collection_of_iterables(trimmed_expr_candidates):
+            cost = 0
+            seen_exprs = set()
+            for expr, expr_cost, _ in shared_candidate.values():
+                if expr not in seen_exprs:
+                    cost += expr_cost
+                    seen_exprs.add(expr)
 
-    # Now select the combination with the lowest combined cost. We can make savings here
-    # by sharing indirection maps between different arguments. For example, if we have
-    #
-    #     dat1[mapA[mapB[mapC[i]]]]
-    #     dat2[mapB[mapC[i]]]
-    #
-    # then we can (sometimes) minimise the data cost by having
-    #     dat1[mapA[mapBC[i]]]
-    #     dat2[mapBC[i]]
-    #
-    # instead of
-    #
-    #     dat1[mapABC[i]]
-    #     dat2[mapBC[i]]
-    min_cost = max_cost
-    for shared_candidate in utils.expand_collection_of_iterables(expr_candidates):
-        cost = 0
-        seen_exprs = set()
-        for expr, expr_cost in shared_candidate.values():
-            if expr not in seen_exprs:
-                cost += expr_cost
-                seen_exprs.add(expr)
+            if cost < min_cost:
+                best_candidate = shared_candidate
+                min_cost = cost
 
-        if cost < min_cost:
-            best_candidate = shared_candidate
-            min_cost = cost
+        # Identify and broadcast the materialisation indices
+        materialize_idxss = {key: idxs for key, (_, _, idxs) in best_candidate.items()}
+        insn.comm.bcast(materialize_idxss)
 
-    # Drop cost information from 'best_candidate'
-    best_candidate = {key: expr for key, (expr, _) in best_candidate.items()}
+        # Drop cost information from 'best_candidate'
+        best_candidate = {key: expr for key, (expr, _, _) in best_candidate.items()}
+
+
+    else:
+        materialize_idxss = insn.comm.bcast()
+
+        # identify the dat expressions to materialise using 'materialize_idxss'
+        best_candidate = collect_candidate_indirections(insn, selector=materialize_idxss)
 
     # Materialise any symbolic (composite) dats
     composite_dats = OrderedFrozenSet.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
@@ -558,90 +581,105 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
     }
-    best_candidate = {
+    best_candidate = idict({
         key: expr_visitors.replace(expr, replace_map)
         for key, expr in best_candidate.items()
-    }
+    })
 
     # Lastly propagate the materialised indirections back through the instruction tree
     return concretize_materialized_indirections(insn, best_candidate)
 
 
 
-def collect_candidate_indirections(insn: insn_types.Instruction, /, *, compress: bool) -> idict:
-    return _collect_candidate_indirections(insn, compress=compress, loop_indices=())
+class CandidateIndirectionsCollector(NodeVisitor):
+
+    @functools.singledispatchmethod
+    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
+        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register(insn_types.NullInstruction)
+    @process.register(insn_types.Exscan)  # assume we are fine
+    def _(self, null: insn_types.InstructionList, /, **kwargs) -> idict:
+        return idict()
 
 
-@functools.singledispatch
-def _collect_candidate_indirections(obj: Any, /, **kwargs) -> idict:
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@_collect_candidate_indirections.register(insn_types.NullInstruction)
-@_collect_candidate_indirections.register(insn_types.Exscan)  # assume we are fine
-def _(null: insn_types.InstructionList, /, **kwargs) -> idict:
-    return idict()
-
-
-@_collect_candidate_indirections.register(insn_types.InstructionList)
-def _(insn_list: insn_types.InstructionList, /, **kwargs) -> idict:
-    return utils.merge_dicts(
-        (_collect_candidate_indirections(insn, **kwargs) for insn in insn_list),
-    )
-
-
-@_collect_candidate_indirections.register(insn_types.Loop)
-def _(loop: insn_types.Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> idict:
-    loop_indices_ = loop_indices + (loop.index,)
-    return utils.merge_dicts(
-        (
-            _collect_candidate_indirections(stmt, compress=compress, loop_indices=loop_indices_)
-            for stmt in loop.statements
-        ),
-    )
-
-
-@_collect_candidate_indirections.register(insn_types.NonEmptyTerminal)
-def _(terminal: insn_types.NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
-    candidates = {}
-    for i, arg in enumerate(terminal.arguments):
-        per_arg_candidates = expr_visitors.collect_tensor_candidate_indirections(
-            arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress
+    @process.register(insn_types.InstructionList)
+    def _(self, insn_list: insn_types.InstructionList, /, **kwargs) -> idict:
+        return utils.merge_dicts(
+            (self._call(insn, **kwargs) for insn in insn_list),
         )
-        for arg_key, value in per_arg_candidates.items():
-            candidates[(terminal, i, arg_key)] = value
-    return idict(candidates)
+
+    @process.register(insn_types.Loop)
+    def _(self, loop: insn_types.Loop, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
+        loop_indices_ = loop_indices + (loop.index,)
+        return utils.merge_dicts(
+            (
+                self._call(stmt, loop_indices=loop_indices_, **kwargs)
+                for stmt in loop.statements
+            ),
+        )
+
+    @process.register(insn_types.NonEmptyTerminal)
+    def _(self, terminal: insn_types.NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
+        candidates = {}
+        for i, arg in enumerate(terminal.arguments):
+            if selector is not None:
+                # drop some of the key
+                selector_ = {
+                    key[2:]: value
+                    for key, value in selector.items()
+                    if key[:2] == (terminal, i)
+                }
+                breakpoint()
+            else:
+                selector_ = None
+
+            per_arg_candidates = expr_visitors.collect_tensor_candidate_indirections(
+                arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress, selector=selector_
+            )
+            for arg_key, value in per_arg_candidates.items():
+                candidates[self.index, i, arg_key] = value
+        return idict(candidates)
 
 
-@functools.singledispatch
+def collect_candidate_indirections(insn: Any, *, compress: bool, selector=None) -> tuple[tuple[Any, int], ...]:
+    return CandidateIndirectionsCollector()(insn, compress=compress, loop_indices=(), selector=selector)
+
+
+class MaterializedIndirectionsConcretizer(NodeVisitor):
+
+    @functools.singledispatchmethod
+    def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
+        raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register(insn_types.InstructionList)
+    def _(self, insn_list: insn_types.InstructionList, /, layouts: Mapping[Any, Any]) -> insn_types.InstructionList:
+        return maybe_enlist(self._call(insn, layouts=layouts) for insn in insn_list)
+
+
+    @process.register(insn_types.Loop)
+    def _(self, loop: insn_types.Loop, /, layouts: Mapping[Any, Any]) -> insn_types.Loop:
+        return loop.__record_init__(statements=tuple(self._call(stmt, layouts=layouts) for stmt in loop.statements))
+
+
+    @process.register(insn_types.StandaloneCalledFunction)
+    def _(self, func: insn_types.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> insn_types.StandaloneCalledFunction:
+        return func
+
+
+    @process.register(insn_types.NonEmptyArrayAssignment)
+    def _(self, assignment: insn_types.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> insn_types.ConcretizedNonEmptyArrayAssignment:
+        assignee, expression = (
+            expr_visitors.concretize_materialized_tensor_indirections(arg, layouts, (self.index, i))
+            for i, arg in enumerate(assignment.arguments)
+        )
+        return insn_types.ConcretizedNonEmptyArrayAssignment(
+            assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
+        )
+
+
 def concretize_materialized_indirections(obj, layouts) -> insn_types.Instruction:
-    raise TypeError
-
-
-@concretize_materialized_indirections.register(insn_types.InstructionList)
-def _(insn_list: insn_types.InstructionList, /, layouts: Mapping[Any, Any]) -> insn_types.InstructionList:
-    return maybe_enlist(concretize_materialized_indirections(insn, layouts) for insn in insn_list)
-
-
-@concretize_materialized_indirections.register(insn_types.Loop)
-def _(loop: insn_types.Loop, /, layouts: Mapping[Any, Any]) -> insn_types.Loop:
-    return loop.__record_init__(statements=tuple(concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements))
-
-
-@concretize_materialized_indirections.register(insn_types.StandaloneCalledFunction)
-def _(func: insn_types.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> insn_types.StandaloneCalledFunction:
-    return func
-
-
-@concretize_materialized_indirections.register(insn_types.NonEmptyArrayAssignment)
-def _(assignment: insn_types.NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> insn_types.ConcretizedNonEmptyArrayAssignment:
-    assignee, expression = (
-        expr_visitors.concretize_materialized_tensor_indirections(arg, layouts, (assignment, i))
-        for i, arg in enumerate(assignment.arguments)
-    )
-    return insn_types.ConcretizedNonEmptyArrayAssignment(
-        assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.comm
-    )
+    return MaterializedIndirectionsConcretizer()(obj, layouts=layouts)
 
 
 # does this live here?

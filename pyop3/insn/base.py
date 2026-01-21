@@ -6,6 +6,7 @@ from collections.abc import Hashable, Mapping
 import dataclasses
 import enum
 import functools
+import itertools
 import numbers
 from os import stat
 import textwrap
@@ -22,7 +23,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
 from pyop3.expr import BufferExpression
 from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits
@@ -204,15 +205,10 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
         old_insn = insn
         insn = expand_transforms(insn)
-        # if "form_cell_integral" in str(self):
-        #     breakpoint()
         while insn != old_insn:
             old_insn = insn
             insn = expand_transforms(insn)
-            # if "form_cell_integral" in str(self):
-            #     breakpoint()
 
-        # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
@@ -631,6 +627,8 @@ class CalledFunction(AbstractCalledFunction):
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
 
+        function = self._fixup_function_argument_shapes(function, arguments)
+
         object.__setattr__(self, "_function", function)
         object.__setattr__(self, "_arguments", arguments)
 
@@ -642,6 +640,22 @@ class CalledFunction(AbstractCalledFunction):
     arguments: ClassVar[property] = utils.attr("_arguments")
 
     # }}}
+
+    @classmethod
+    def _fixup_function_argument_shapes(cls, function, arguments):
+        loopy_kernel = function.code.default_entrypoint
+        if all(a.shape is not None for a in loopy_kernel.args):
+            return function
+
+        new_loopy_args = []
+        for loopy_arg, arg in zip(loopy_kernel.args, arguments, strict=True):
+            if loopy_arg.shape is None:
+                loopy_arg = loopy_arg.copy(shape=(arg.size,))
+            new_loopy_args.append(loopy_arg)
+        new_loopy_args = tuple(new_loopy_args)
+        return function.__record_init__(
+            code=function.code.with_kernel(loopy_kernel.copy(args=new_loopy_args))
+        )
 
 
 
@@ -839,11 +853,32 @@ class ArrayAssignment(AbstractAssignment):
     def shape(self) -> tuple[AxisTree, ...]:
         from pyop3.expr.visitors import get_shape
 
+        assignee_shapes = get_shape(self.assignee)
+        expr_shapes = get_shape(self.expression)
+        if expr_shapes == (UNIT_AXIS_TREE,):
+            expr_shapes = itertools.repeat(UNIT_AXIS_TREE, len(assignee_shapes))
+
         # The shape of the assignment is simply the shape of the assignee, nothing else
         # makes sense. For more complex things loops should be used.
+        # FIXME: This logic is dreadful
         axis_trees = []
-        for axis_obj in get_shape(self.assignee):
-            axis_trees.append(axis_obj)
+        for assignee_shape, expr_shape in zip(assignee_shapes, expr_shapes, strict=True):
+            if isinstance(assignee_shape, AxisForest):
+                if isinstance(expr_shape, AxisForest):
+                    # take the first match
+                    assignee_shape = [
+                            shape
+                            for shape in assignee_shape.trees
+                            if any(axis_tree_is_valid_subset(es, shape) for es in expr_shape.trees)
+                        ][0]
+                else:
+                    # take the first match
+                    assignee_shape = [
+                            shape
+                            for shape in assignee_shape.trees
+                            if axis_tree_is_valid_subset(expr_shape, shape)
+                        ][0]  
+            axis_trees.append(assignee_shape)
         return tuple(axis_trees)
 
     # }}}

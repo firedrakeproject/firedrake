@@ -945,7 +945,7 @@ class AbstractMeshTopology(abc.ABC):
         offsets = np.cumsum(num_entities)
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
-        map_from_cell_to_facet_orientations = self.entity_orientations[:, local_facet_start:local_facet_end]
+        map_from_cell_to_facet_orientations = self.entity_orientations_renum[:, local_facet_start:local_facet_end]
 
         # but shuffle to use the cell renumbering
         # NOTE: I am guessing that it is this way around
@@ -1442,7 +1442,7 @@ class AbstractMeshTopology(abc.ABC):
                     self.name,
                     self.cell_label,
                     self._facet_support_dat("exterior"),
-                    label="XXX",  # needed?
+                    label=0,
                 ),
             ),
         )
@@ -1454,7 +1454,7 @@ class AbstractMeshTopology(abc.ABC):
                     self.name,
                     self.cell_label,
                     self._facet_support_dat("interior"),
-                    label="XXX",  # needed?
+                    label=0,
                 ),
             ),
         )
@@ -1582,17 +1582,6 @@ class AbstractMeshTopology(abc.ABC):
         :returns: the number of nodes in each of core, owned, and ghost classes.
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
-
-    # delete?
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof (may be None).
-        """
-        return dmcommon.get_cell_nodes(self, global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -2135,6 +2124,7 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension+1)
         )
 
+    # old attribute, keeping around for now, use entity_orientations_renum usually
     @cached_property
     def entity_orientations(self):
         entity_orientations = dmcommon.entity_orientations(self, self._fiat_cell_closures)
@@ -2146,21 +2136,24 @@ class MeshTopology(AbstractMeshTopology):
         for row,i in zip(entity_orientations, cell_numbering):
             res[i] = row
         return np.array(res)
-        #return entity_orientations[self._cell_numbering]
+
+    @cached_property
+    def entity_orientations_renum(self):
+        return self.entity_orientations[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):
         # FIXME: the following does not work because the labels change
-        # cell_axis = self.cells.root
-        # so instead we do
-        cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+        cell_axis = self.cells.root
+        # # so instead we do
+        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
         closure_axis = self.closure(self.cells.iter()).axes.root
         axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
-        assert axis_tree.local_size == self.entity_orientations.size
-        return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
+        assert axis_tree.local_size == self.entity_orientations_renum.size
+        return op3.Dat(axis_tree, data=self.entity_orientations_renum.flatten(), prefix="orientations")
 
     @cached_property
     def local_cell_orientation_dat(self):
@@ -2278,16 +2271,16 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        raise NotImplementedError
         cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
-                                                   self._cell_numbering,
+                                                   self._old_to_new_cell_numbering,
                                                    self.cell_closure)
-        if isinstance(self.cell_set, op2.ExtrudedSet):
-            dataset = op2.DataSet(self.cell_set.parent, dim=cell_facets.shape[1:])
-        else:
-            dataset = op2.DataSet(self.cell_set, dim=cell_facets.shape[1:])
-        return op2.Dat(dataset, cell_facets, dtype=cell_facets.dtype,
-                       name="cell-to-local-facet-dat")
+        axes = op3.AxisTree.from_iterable([self.cells.root, *cell_facets.shape[1:]])
+        return op3.Dat(axes, data=cell_facets, name="cell-to-local-facet-dat")
+
+    @cached_property
+    def cell_closure(self):
+        # old attribute, keeping around for now
+        return self._fiat_cell_closures[self._new_to_old_cell_numbering]
 
     @property
     def dimension(self):
@@ -3069,6 +3062,19 @@ class ExtrudedMeshTopology(MeshTopology):
             for extr_dim in range(2)
         )
 
+    @cached_property
+    def entity_orientations_renum(self):
+        num_extr_cells = self.layers - 1
+        return np.repeat(
+            np.repeat(
+                self._base_mesh.entity_orientations_renum,
+                3,  # per-cell closure is 3 times larger
+                axis=1,
+            ),
+            num_extr_cells,
+            axis=0,
+        )
+
     # {{{ facet iteration
 
     @cached_property
@@ -3293,34 +3299,34 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _old_to_new_facet_horiz_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._facet_horiz_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._facet_horiz_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     # Maybe this is better as a match-case thing, instead of lots and lots of properties (cached on the mesh)
     # TODO: This is a bad name, needs to point out that we map between entities here, not plex points
     @cached_property
     def _old_to_new_exterior_facet_top_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_top_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_top_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_exterior_facet_bottom_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_bottom_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_bottom_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_exterior_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._exterior_facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._exterior_facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     # Maybe this is better as a match-case thing, instead of lots and lots of properties (cached on the mesh)
     @cached_property
     def _old_to_new_interior_facet_horiz_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._interior_facet_horiz_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._interior_facet_horiz_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _old_to_new_interior_facet_vert_numbering(self) -> PETSc.IS:
-        return dmcommon.entity_numbering(self._interior_facet_vert_plex_indices, self._new_to_old_point_renumbering)
+        return dmcommon.entity_numbering(self._interior_facet_vert_plex_indices, self._new_to_old_point_renumbering, self.comm)
 
     @cached_property
     def _exterior_facet_top_support_dat(self) -> op3.Dat:
@@ -3540,33 +3546,9 @@ class ExtrudedMeshTopology(MeshTopology):
             axis = iterset.owned.as_axis()
             from_path = idict({axis.label: axis.component.label})
             supports[from_path] = [[
-                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label="XXX"),
+                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label=None),
             ]]
         return op3.Map(supports, name="support")
-
-    @utils.cached_property
-    def entity_orientations(self):
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
-
-    def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg entity_dofs: FInAT element entity DoFs
-        :arg entity_permutations: FInAT element entity permutations
-        :arg offsets: layer offsets for each entity dof.
-        """
-        if entity_permutations is None:
-            # FInAT entity_permutations not yet implemented
-            entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-            return super().make_cell_node_list(global_numbering, entity_dofs, None, offsets)
-        assert sorted(entity_dofs.keys()) == sorted(entity_permutations.keys()), "Mismatching dimension tuples"
-        for key in entity_dofs.keys():
-            assert sorted(entity_dofs[key].keys()) == sorted(entity_permutations[key].keys()), "Mismatching entity tuples"
-        assert all(v in {0, 1} for _, v in entity_permutations), "Vertical dim index must be in [0, 1]"
-        entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-        entity_permutations = eutils.flat_entity_permutations(entity_permutations)
-        return super().make_cell_node_list(global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -6754,7 +6736,7 @@ class IterationSpec:
             iterset_axis = self.iterset.as_axis()
             # TODO: Ideally should be able to avoid creating these here and just index
             # with the array
-            subset_dat = op3.Dat.from_array(self.indices.indices)
+            subset_dat = op3.Dat.from_array(self.indices.indices, prefix="subset")
             return op3.Slice(iterset_axis.label, [op3.Subset(iterset_axis.component.label, subset_dat)])
 
     @cached_property
@@ -6817,11 +6799,20 @@ def get_iteration_spec(
             valid_plex_indices = mesh._interior_facet_plex_indices
             old_to_new_entity_numbering = mesh._old_to_new_interior_facet_numbering
         case "exterior_facet_top":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_top.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_top_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_top_numbering
         case "exterior_facet_bottom":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_bottom.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_bottom_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_bottom_numbering
         case "exterior_facet_vert":
-            raise NotImplementedError
+            iterset = mesh.exterior_facets_vert.owned
+            dmlabel_name = dmcommon.FACE_SETS_LABEL
+            valid_plex_indices = mesh._exterior_facet_vert_plex_indices
+            old_to_new_entity_numbering = mesh._old_to_new_exterior_facet_vert_numbering
         case "interior_facet_horiz":
             iterset = mesh.interior_facets_horiz.owned
             dmlabel_name = dmcommon.FACE_SETS_LABEL

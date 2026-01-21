@@ -425,8 +425,11 @@ def popwhen(predicate, iterable):
     raise KeyError("Predicate does not hold for any items in iterable")
 
 
-def steps(sizes, *, drop_last=True):
-    steps_ = np.concatenate([[0], np.cumsum(sizes)])
+def steps(sizes, *, drop_last=True, dtype=None):
+    if isinstance(sizes, np.ndarray):
+        assert dtype is None
+        dtype = sizes.dtype
+    steps_ = np.concatenate([[0], np.cumsum(sizes)], dtype=dtype)
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 
 

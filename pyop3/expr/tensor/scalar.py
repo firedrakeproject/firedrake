@@ -23,7 +23,7 @@ class Scalar(Tensor):
     _name: str
     _buffer: AbstractBuffer
 
-    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm=MPI.COMM_SELF, *, buffer: AbstractBuffer | None = None, constant: bool | None = None, name: str | None = None, prefix: str | None = None):
+    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, constant: bool | None = None, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
@@ -32,6 +32,9 @@ class Scalar(Tensor):
             if value is not None or comm is not None:
                 raise ValueError("Since 'buffer' is given, 'value' and 'comm' should not be passed")
         else:
+            if comm is None:
+                comm = MPI.COMM_SELF
+
             sf = single_star_sf(comm)
 
             buffer_kwargs = {"sf": sf}

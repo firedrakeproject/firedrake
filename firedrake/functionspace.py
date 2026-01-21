@@ -22,7 +22,7 @@ __all__ = ("MixedFunctionSpace", "FunctionSpace",
 
 
 @PETSc.Log.EventDecorator()
-def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
+def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme):
     """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.
 
     Parameters
@@ -33,14 +33,16 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
         The finite element family.
     degree :
         The degree of the finite element.
-    variant :
-        The variant of the finite element.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
     vdegree :
         The degree of the element in the vertical dimension (extruded
         meshes only).
+    variant :
+        The variant of the finite element.
+    quad_scheme :
+        The quadrature scheme used to evaluate integral-type degrees of freedom.
 
     Notes
     -----
@@ -64,20 +66,24 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,
                                      cell=cell.sub_cells[0],
-                                     degree=degree, variant=variant)
+                                     degree=degree,
+                                     variant=variant,
+                                     quad_scheme=quad_scheme)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
                                      cell=as_cell("interval"),
-                                     degree=vdegree, variant=variant)
+                                     degree=vdegree,
+                                     variant=variant,
+                                     quad_scheme=quad_scheme)
         # Now make the TensorProductElement
         return finat.ufl.TensorProductElement(la, lb)
     else:
-        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
+        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant, quad_scheme=quad_scheme)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, **kwargs):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -98,6 +104,10 @@ def FunctionSpace(mesh, family, degree=None, name=None,
         meshes only).
     variant :
         The variant of the finite element.
+        For more details see the :ref:`manual section on element variants <element_variants>`.
+    quad_scheme :
+        The quadrature scheme used to evaluate integral-type degrees of freedom.
+        For more details see the :ref:`manual section on quadrature schemes <element_quad_scheme>`.
 
     Notes
     -----
@@ -106,13 +116,13 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     are ignored and the appropriate :class:`.FunctionSpace` is returned.
 
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name, **kwargs)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def DualSpace(mesh, family, degree=None, name=None,
-              vfamily=None, vdegree=None, variant=None):
+              vfamily=None, vdegree=None, variant=None, quad_scheme=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -133,6 +143,10 @@ def DualSpace(mesh, family, degree=None, name=None,
         meshes only).
     variant :
         The variant of the finite element.
+        For more details see the :ref:`manual section on element variants <element_variants>`.
+    quad_scheme :
+        The quadrature scheme used to evaluate integral-type degrees of freedom.
+        For more details see the :ref:`manual section on quadrature schemes <element_quad_scheme>`.
 
     Notes
     -----
@@ -141,13 +155,13 @@ def DualSpace(mesh, family, degree=None, name=None,
     other arguments are ignored and the appropriate :class:`.FunctionSpace` is
     returned.
     """
-    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
     return impl.FiredrakeDualSpace.make_function_space(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
-def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None, variant=None, **kwargs):
+def VectorFunctionSpace(mesh, family, degree=None, dim=None, name=None,
+                        vfamily=None, vdegree=None, variant=None, quad_scheme=None):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -171,6 +185,10 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
         meshes only).
     variant :
         The variant of the finite element.
+        For more details see the :ref:`manual section on element variants <element_variants>`.
+    quad_scheme :
+        The quadrature scheme used to evaluate integral-type degrees of freedom.
+        For more details see the :ref:`manual section on quadrature schemes <element_quad_scheme>`.
 
     Notes
     -----
@@ -183,19 +201,19 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     pass it to :class:`.FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
     if dim is None:
         dim = mesh.geometric_dimension
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = finat.ufl.VectorElement(sub_element, dim=dim)
-    return FunctionSpace(mesh, element, name=name, **kwargs)
+    return FunctionSpace(mesh, element, name=name)
 
 
 @PETSc.Log.EventDecorator()
 def TensorFunctionSpace(mesh, family, degree=None, shape=None,
                         symmetry=None, name=None, vfamily=None,
-                        vdegree=None, variant=None):
+                        vdegree=None, variant=None, quad_scheme=None):
     """Create a rank-2 FunctionSpace.
 
     Parameters
@@ -222,6 +240,10 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
         meshes only).
     variant :
         The variant of the finite element.
+        For more details see the :ref:`manual section on element variants <element_variants>`.
+    quad_scheme :
+        The quadrature scheme used to evaluate integral-type degrees of freedom.
+        For more details see the :ref:`manual section on quadrature schemes <element_quad_scheme>`.
 
     Notes
     -----
@@ -235,7 +257,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     `FunctionSpace` directly instead.
 
     """
-    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
+    sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
     if shape is None:
         shape = (mesh.geometric_dimension,) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
@@ -243,7 +265,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
+def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a MixedFunctionSpace.
 
     Parameters

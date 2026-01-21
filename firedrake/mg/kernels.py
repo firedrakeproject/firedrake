@@ -213,7 +213,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         impero_c, loopy_args, ScalarType,
         kernel_name="pyop3_kernel_"+name, index_names={})
 
-    return lp.generate_code_v2(kernel_code).device_code()
+    return kernel_code
 
 
 def prolong_kernel(expression):
@@ -238,7 +238,8 @@ def prolong_kernel(expression):
         pass
 
     mesh = extract_unique_domain(coordinates)
-    eval_code = compile_element(expression)
+    eval_kernel = compile_element(expression)
+    eval_code = lp.generate_code_v2(eval_kernel).device_code()
     to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
     element = create_element(expression.ufl_element())
     coords_element = create_element(coordinates.ufl_element())
@@ -340,7 +341,9 @@ def restrict_kernel(Vf, Vc):
 
     assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
     mesh = extract_unique_domain(coordinates)
-    evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
+    evaluate_kernel = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
+    # TODO: This doesn't have to be literal-inserted
+    evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
     to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
     coords_element = create_element(coordinates.ufl_element())
     element = create_element(Vc.ufl_element())
@@ -396,6 +399,7 @@ def restrict_kernel(Vf, Vc):
            "tdim": mesh.topological_dimension})
 
     # Now build a pyop3 'Function' wrapping this
+    # sniff arg sizes from the inner kernel
     loopy_kernel = lp.make_kernel(
         "{ [i]: 0 < i < 1 }",
         [
@@ -448,7 +452,8 @@ def inject_kernel(Vf, Vc):
         return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
     coordinates = Vf.mesh().coordinates
-    evaluate_code = compile_element(ufl.Coefficient(Vf))
+    evaluate_kernel = compile_element(ufl.Coefficient(Vf))
+    evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
     to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
     coords_element = create_element(coordinates.ufl_element())
@@ -511,10 +516,10 @@ def inject_kernel(Vf, Vc):
             lp.CInstruction((), kernel, frozenset({"R", "X", "f", "Xf"}), ("R",)),
         ],
         [
-            lp.GlobalArg("R", ScalarType, numpy.prod(Vf.value_shape, dtype=int), is_input=True, is_output=True),
-            lp.GlobalArg("X", ScalarType, Vc.finat_element.cell.get_spatial_dimension(), is_input=True, is_output=False),
-            lp.GlobalArg("f", ScalarType, 1, is_input=True, is_output=False),
-            lp.GlobalArg("Xf", ScalarType, Vf.finat_element.cell.get_spatial_dimension(), is_input=True, is_output=False),
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xf", ScalarType, None, is_input=True, is_output=False),
         ],
         name="pyop3_kernel_inject",
         preambles=[

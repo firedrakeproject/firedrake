@@ -3969,40 +3969,50 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         DMLabel is_ghost
         PetscBool has
 
-    if subdm.comm.size == 1:
+    if dm.comm.size == 1:
         return
+
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
-    CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-    assert nroots == pEnd - pStart
     assert pStart == 0
-    ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
-    ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        ownership_loss[p] = 1
-    unit = MPI._typedict[np.dtype(IntType).char]
-    ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    subpoint_is = subdm.getSubpointIS()
-    CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
-    assert nsubpoints == subpEnd - subpStart
     assert subpStart == 0
-    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMGetLabel(subdm.dm, b"firedrake_is_ghost", &is_ghost))
     CHKERR(DMLabelCreateIndex(is_ghost, subpStart, subpEnd))
-    for subp in range(subpStart, subpEnd):
-        p = subpoint_indices[subp]
-        if ownership_loss[p] == 1:
-            CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
-            assert has == 0
-            CHKERR(DMLabelSetValue(is_ghost, subp, 1))
-        if ownership_gain[p] == 1:
-            CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
-            assert has == 1
+
+    if subdm.comm.size == 1:
+        # Undistributed case: relabel every point as core
+        for subp in range(subpStart, subpEnd):
             CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+    else:
+        ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
+        ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
+        CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+        assert nroots == pEnd - pStart
+        for i in range(nleaves):
+            p = ilocal[i] if ilocal else i
+            ownership_loss[p] = 1
+        unit = MPI._typedict[np.dtype(IntType).char]
+        ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+        ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+
+        subpoint_is = subdm.getSubpointIS()
+        CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
+        assert nsubpoints == subpEnd - subpStart
+        CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+
+        for subp in range(subpStart, subpEnd):
+            p = subpoint_indices[subp]
+            if ownership_loss[p] == 1:
+                CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+                assert not has
+                CHKERR(DMLabelSetValue(is_ghost, subp, 1))
+            if ownership_gain[p] == 1:
+                CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+                assert has
+                CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+
+        CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(DMLabelDestroyIndex(is_ghost))
-    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
 
 
 @cython.boundscheck(False)

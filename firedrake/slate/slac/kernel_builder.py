@@ -201,8 +201,8 @@ class LocalLoopyKernelBuilder:
 
     def facet_integral_predicates(self, mesh, integral_type, kinfo, subdomain_id):
         self.bag.needs_cell_facets = True
-        # Number of recerence cell facets
-        if mesh.cell_set._extruded:
+        # Number of reference cell facets
+        if mesh.extruded:
             self.num_facets = mesh._base_mesh.ufl_cell().num_facets
         else:
             self.num_facets = mesh.ufl_cell().num_facets

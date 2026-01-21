@@ -6,6 +6,7 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType, ScalarType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
+from firedrake.mesh import IterationSpec
 from firedrake.pack import pack
 from firedrake.ufl_expr import extract_domains
 from firedrake import utils
@@ -69,18 +70,23 @@ def matrix_funptr(form, state):
         args = []
 
         if kinfo.integral_type == "cell":
-            subset_size_buffer = op3.ArrayBuffer(data=numpy.empty(1, dtype=IntType))
-            subset_size = op3.Scalar(buffer=subset_size_buffer)
+            # subset_size_buffer = op3.ArrayBuffer(data=numpy.empty(1, dtype=IntType))
+            # subset_size = op3.Scalar(buffer=subset_size_buffer)
+            #
+            # # clean this up
+            # # subset_dat = op3.Dat.empty(subset_size, dtype=IntType, buffer_kwargs={"name": "subset"})
+            # subset_axes = op3.AxisTree(op3.Axis([op3.AxisComponent([op3.AxisComponentRegion(subset_size)])]))
+            # subset_dat = op3.Dat.empty(subset_axes, dtype=IntType, buffer_kwargs={"name": "subset"})
+            #
+            # cells = mesh.cells.owned
+            #
+            # subset = op3.Slice(cells.root.label, [op3.Subset(cells.root.component.label, subset_dat)])
+            # loop_index = cells[subset].iter()
 
-            # clean this up
-            # subset_dat = op3.Dat.empty(subset_size, dtype=IntType, buffer_kwargs={"name": "subset"})
-            subset_axes = op3.AxisTree(op3.Axis([op3.AxisComponent([op3.AxisComponentRegion(subset_size)])]))
-            subset_dat = op3.Dat.empty(subset_axes, dtype=IntType, buffer_kwargs={"name": "subset"})
+            loop_info = IterationSpec(
+                mesh, "cell", mesh.cells.owned,
+                PETSc.IS().createGeneral(numpy.empty(1, dtype=IntType), COMM_SELF), mesh._old_to_new_cell_numbering)
 
-            cells = mesh.cells.owned
-
-            subset = op3.Slice(cells.root.label, [op3.Subset(cells.root.component.label, subset_dat)])
-            loop_index = cells[subset].iter()
             kernels = cell_kernels
         else:
             assert kinfo.integral_type == "interior_facet"
@@ -106,7 +112,8 @@ def matrix_funptr(form, state):
         #
         # The size of the matrix doesn't matter as it's just a pointer
         mat = op3.Mat.empty(test.axes, trial.axes, buffer_kwargs={"name": "out"})
-        arg = pack(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
+        # arg = pack(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
+        arg = pack(mat, test, trial, loop_info)
         args.append(arg)
 
         # NOT IMPLEMENTED
@@ -117,15 +124,15 @@ def matrix_funptr(form, state):
         # statearg = statedat(op2.READ, state_entity_node_map)
 
         for i in kinfo.active_domain_numbers.coordinates:
-            arg = pack(all_meshes[i].coordinates, loop_index, kinfo.integral_type)
+            arg = pack(all_meshes[i].coordinates, loop_info)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_orientations:
             c = all_meshes[i].cell_orientations()
-            arg = pack(c, loop_index, kinfo.integral_type)
+            arg = pack(c, loop_info)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_sizes:
             c = all_meshes[i].cell_sizes
-            arg = pack(c, loop_index, kinfo.integral_type)
+            arg = pack(c, loop_info)
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
@@ -137,7 +144,7 @@ def matrix_funptr(form, state):
                 continue
             for ind in indices:
                 c_ = c.subfunctions[ind]
-                arg = pack(c_, loop_index, kinfo.integral_type)
+                arg = pack(c_, loop_info)
                 args.append(arg)
 
         all_constants = extract_firedrake_constants(form)
@@ -148,7 +155,7 @@ def matrix_funptr(form, state):
             arg = mesh.interior_facets.local_facet_dat
             args.append(arg)
 
-        mod = op3.loop(loop_index, kinfo.kernel(*args))
+        mod = op3.loop(loop_info.loop_index, kinfo.kernel(*args))
         # wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         # mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
         kernels.append(CompiledKernel(mod.compile(), kinfo))
@@ -556,7 +563,7 @@ def extract_argument_indices(code):
     # Currently this value is very hard to introspect, use the fact that this is always the
     # first argument. This is very fragile though.
     npoints_index = 0
-    subset_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "subset")
+    subset_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name.startswith("subset"))
     out_index = utils.just_one(i for i, buffer in enumerate(buffers) if buffer.name == "out")
     coeff_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.ScalarType and i != out_index)
     map_indices = tuple(i for i, buffer in enumerate(buffers) if buffer.dtype == utils.IntType and i != subset_index)

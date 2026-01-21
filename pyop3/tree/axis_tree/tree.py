@@ -686,9 +686,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     def owned(self):
         return self._tree.owned.root
 
-    def index(self):
-        return self._tree.index()
-
     def iter(self, **kwargs) -> LoopIndex | GeneratorType[IteratorIndexT]:
         return self._tree.iter(**kwargs)
 
@@ -1611,7 +1608,7 @@ class IndexedAxisTree(AbstractAxisTree):
         indices_dat = Dat.empty(self.materialize().localize(), dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
-            p = iterset.index()
+            p = iterset.iter()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro
@@ -1708,6 +1705,16 @@ class UnitIndexedAxisTree(DistributedObject):
 
     def materialize(self):
         return UNIT_AXIS_TREE
+
+    def localize(self):
+        return self._localized
+
+    @cached_property
+    def _localized(self):
+        return type(self)(
+            targets=self.targets,
+            unindexed=self.unindexed.localize(),
+        )
 
     size = 1
     is_linear = True

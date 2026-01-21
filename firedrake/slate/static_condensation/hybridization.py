@@ -127,7 +127,7 @@ class HybridizationPC(SCBase):
         n = ufl.FacetNormal(mesh_unique)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        if mesh_unique.cell_set._extruded:
+        if mesh_unique.extruded:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
                      + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
@@ -161,7 +161,7 @@ class HybridizationPC(SCBase):
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
-            if mesh_unique.cell_set._extruded:
+            if mesh_unique.extruded:
                 ds = ufl.ds_v
                 for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
@@ -187,7 +187,7 @@ class HybridizationPC(SCBase):
             # the exterior boundary. Extruded cells will have both
             # horizontal and vertical facets
             trace_subdomains = ["on_boundary"]
-            if mesh_unique.cell_set._extruded:
+            if mesh_unique.extruded:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 

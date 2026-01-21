@@ -112,7 +112,7 @@ class Ensemble:
         """
         self._check_function(f, f_reduced)
 
-        with f_reduced.vec_wo as vout, f.vec_ro as vin:
+        with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
             self._ensemble_comm.Allreduce(vin.array_r, vout.array, op=op)
         return f_reduced
 
@@ -125,14 +125,13 @@ class Ensemble:
         :arg f: The a :class:`.Function` to allreduce.
         :arg f_reduced: the result of the reduction.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
+        :returns: MPI.Request object.
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
-        return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
-                for fdat, rdat in zip(f.dat, f_reduced.dat)]
+        return self._ensemble_comm.Iallreduce(f.dat.data_ro, f_reduced.dat.data_rw, op=op)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -150,10 +149,10 @@ class Ensemble:
         self._check_function(f, f_reduced)
 
         if self.ensemble_comm.rank == root:
-            with f_reduced.vec_wo as vout, f.vec_ro as vin:
+            with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
                 self._ensemble_comm.Reduce(vin.array_r, vout.array, op=op, root=root)
         else:
-            with f.vec_ro as vin:
+            with f.dat.vec_ro as vin:
                 self._ensemble_comm.Reduce(vin.array_r, None, op=op, root=root)
 
         return f_reduced
@@ -168,14 +167,13 @@ class Ensemble:
         :arg f_reduced: the result of the reduction on rank root.
         :arg op: MPI reduction operator. Defaults to MPI.SUM.
         :arg root: rank to reduce to. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
+        :returns: MPI.Request object.
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
         self._check_function(f, f_reduced)
 
-        return [self._ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
-                for fdat, rdat in zip(f.dat, f_reduced.dat)]
+        return self._ensemble_comm.Ireduce(f.dat.data_ro, f_reduced.dat.data_rw, op=op, root=root)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -188,7 +186,7 @@ class Ensemble:
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        with f.vec as vec:
+        with f.dat.vec_rw as vec:
             self._ensemble_comm.Bcast(vec.array, root=root)
 
         return f
@@ -201,12 +199,11 @@ class Ensemble:
 
         :arg f: The :class:`.Function` to broadcast.
         :arg root: rank to broadcast from. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
+        :returns: MPI.Request object.
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Ibcast(dat.data, root=root)
-                for dat in f.dat]
+        return self._ensemble_comm.Ibcast(f.dat.data_rw, root=root)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -221,12 +218,11 @@ class Ensemble:
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        for dat in f.dat:
-            self._ensemble_comm.Send(dat.data_ro, dest=dest, tag=tag)
+        self._ensemble_comm.Send(f.dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
+    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=None):
         """
         Receive (blocking) a function f over ``ensemble_comm`` from
         another ensemble rank.
@@ -234,14 +230,11 @@ class Ensemble:
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :arg statuses: MPI.Status objects (one for each of f.subfunctions or None).
+        :arg status: MPI.Status object or None.
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        if statuses is not None and len(statuses) != len(f.dat):
-            raise ValueError("Need to provide enough status objects for all parts of the Function")
-        for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
-            self._ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
+        self._ensemble_comm.Recv(f.dat.data_wo, source=source, tag=tag, status=status)
         return f
 
     @PETSc.Log.EventDecorator()
@@ -254,12 +247,11 @@ class Ensemble:
         :arg f: The a :class:`.Function` to send
         :arg dest: the rank to send to
         :arg tag: the tag of the message. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
+        :returns: MPI.Request object.
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
-                for dat in f.dat]
+        return self._ensemble_comm.Isend(f.dat.data_ro, dest=dest, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -271,12 +263,11 @@ class Ensemble:
         :arg f: The a :class:`.Function` to receive into
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
+        :returns: MPI.Request object.
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-        return [self._ensemble_comm.Irecv(dat.data, source=source, tag=tag)
-                for dat in f.dat]
+        return self._ensemble_comm.Irecv(f.dat.data_wo, source=source, tag=tag)
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -297,7 +288,7 @@ class Ensemble:
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
-        with fsend.vec_ro as sendvec, frecv.vec_wo as recvvec:
+        with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
             self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                          recvbuf=recvvec, source=source, recvtag=recvtag,
                                          status=status)
@@ -316,15 +307,14 @@ class Ensemble:
         :arg frecv: The a :class:`.Function` to receive into.
         :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
         :arg recvtag: the tag of the received message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of fsend.subfunctions and frecv.subfunctions).
+        :returns: MPI.Request objects (one for each of fsend and frecv).
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
-        requests = []
-        requests.extend([self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=sendtag)
-                         for dat in fsend.dat])
-        requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
-                         for dat in frecv.dat])
+        requests = [
+            self._ensemble_comm.Isend(fsend.dat.data_ro, dest=dest, tag=sendtag),
+            self._ensemble_comm.Irecv(frecv.dat.data_wo, source=source, tag=recvtag),
+        ]
         return requests

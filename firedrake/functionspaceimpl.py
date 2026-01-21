@@ -859,7 +859,7 @@ class FunctionSpace:
         return self.layout_axes[index_tree]
 
     @cached_property
-    def nodes(self) -> op3.Axis:
+    def _nodes_axis(self) -> op3.Axis:
         scalar_axis_tree = self.layout_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
         return op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
@@ -867,7 +867,7 @@ class FunctionSpace:
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
         # Create the axis tree without index information
-        axis_tree = self.nodes.as_tree()
+        axis_tree = self._nodes_axis.as_tree()
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
         assert axis_tree.sf == self.layout_axes.sf
@@ -891,7 +891,7 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because the mappings are compressed during compilation.
-        node_point_map_array = numpy.full(self.nodes.local_size, -1, dtype=IntType)
+        node_point_map_array = numpy.full(self._nodes_axis.local_size, -1, dtype=IntType)
         node_dof_map_array = node_point_map_array.copy()
 
         dof_axis = utils.just_one(
@@ -907,8 +907,8 @@ class FunctionSpace:
                 node += 1
         assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
 
-        node_point_map_dat = op3.Dat(self.nodes, data=node_point_map_array)
-        node_dof_map_dat = op3.Dat(self.nodes, data=node_dof_map_array)
+        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_point_map_array)
+        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_dof_map_array)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
@@ -1113,7 +1113,7 @@ class FunctionSpace:
     def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
-        from firedrake.parloops import transform_packed_cell_closure_dat
+        from firedrake.pack import transform_packed_cell_closure_dat
 
         mesh = self.mesh()
 
@@ -1231,7 +1231,7 @@ class FunctionSpace:
         :attr:`dim` times the :attr:`node_count`."""
         if self.boundary_set:
             raise NotImplementedError
-        return self.nodal_axes.size
+        return self.nodal_axes.local_size
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
@@ -1241,7 +1241,7 @@ class FunctionSpace:
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.axes.size
+        return self.axes.local_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -1287,12 +1287,12 @@ class FunctionSpace:
             Entity node map.
 
         """
-        mesh = self.mesh()
+        mesh = self.mesh().unique()
         if iteration_spec.mesh.topology is mesh.topology:
             composed_map = None
             target_integral_type = iteration_spec.integral_type
         elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
-            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(iteration_spec)
+            composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
         else:
             # No shared topology, must be using a vertex-only mesh
             composed_map = iteration_spec.mesh.cell_parent_cell_map(iteration_spec.loop_index)
@@ -1300,28 +1300,10 @@ class FunctionSpace:
 
         if target_integral_type == "cell":
             def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet_top":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet_bottom":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "interior_facet_horiz":
-            def self_map(index):
-                return self.mesh().closure(index)
-        elif target_integral_type == "exterior_facet":
-            def self_map(index):
-                return self.mesh().closure(self.mesh().support(index))
-        elif target_integral_type == "exterior_facet_vert":
+                return mesh.closure(index)
+        elif "facet" in target_integral_type:
             def self_map(index):
                 return mesh.closure(mesh.support(index))
-        elif target_integral_type == "interior_facet":
-            def self_map(index):
-                return mesh.closure(mesh.support(index))
-        elif target_integral_type == "interior_facet_vert":
-            raise NotImplementedError
-            self_map = self.interior_facet_node_map()
         else:
             raise ValueError(f"Unknown integral_type: {target_integral_type}")
 
@@ -1839,31 +1821,6 @@ class MixedFunctionSpace:
             ises.append(is_)
             start += size
         return tuple(ises)
-
-    def cell_node_map(self):
-        r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
-        underlying mesh to the :attr:`node_set` of this
-        :class:`MixedFunctionSpace`. This is composed of the
-        :attr:`FunctionSpace.cell_node_map`\s of the underlying
-        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
-        composed."""
-        return op2.MixedMap(s.cell_node_map() for s in self._spaces)
-
-    def interior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.MixedMap` from interior facets to
-        function space nodes."""
-        return op2.MixedMap(s.interior_facet_node_map() for s in self)
-
-    def exterior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
-        function space nodes."""
-        return op2.MixedMap(s.exterior_facet_node_map() for s in self)
-
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
-        r"""Return a map from process local dof numbering to global dof numbering.
-
-        If BCs is provided, mask out those dofs which match the BC nodes."""
-        raise NotImplementedError("Not for mixed maps right now sorry!")
 
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
     def make_dat(self, val=None, valuetype=None, name=None):

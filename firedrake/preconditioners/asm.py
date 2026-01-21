@@ -158,7 +158,7 @@ class ASMStarPC(ASMPatchPC):
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
         mesh_dm = mesh_unique.topology_dm
-        if mesh_unique.cell_set._extruded:
+        if mesh_unique.extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -314,7 +314,7 @@ class ASMLinesmoothPC(ASMPatchPC):
             mesh_unique = mesh.unique()
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        assert mesh_unique.cell_set._extruded
+        assert mesh_unique.extruded
         dm = mesh_unique.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
@@ -426,7 +426,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             raise NotImplementedError("Not implemented for general mixed meshes")
         mesh_dm = mesh_unique.topology_dm
         nlayers = mesh_unique.layers
-        if not mesh_unique.cell_set._extruded:
+        if not mesh_unique.extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
         periodic = mesh.extruded_periodic
 
