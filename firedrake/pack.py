@@ -279,14 +279,29 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
         i_dof -> perm[ort[i_cell, i_edge], i_dof]
 
     """
-    permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
-    return packed_dat.with_axes(permuted_axis_tree)
+    try:
+        space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        return packed_dat
+    else:
+        permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
+        return packed_dat.with_axes(permuted_axis_tree)
 
 
 @_orient_dofs.register(op3.Mat)
 def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
-    permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
-    permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
+    try:
+        row_space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        permuted_row_axes = packed_mat.row_axes
+    else:
+        permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
+    try:
+        column_space.finat_element.entity_permutations  # noqa: F401
+    except NotImplementedError:
+        permuted_column_axes = packed_mat.column_axes
+    else:
+        permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
