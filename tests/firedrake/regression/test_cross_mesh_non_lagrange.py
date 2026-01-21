@@ -182,10 +182,10 @@ def test_cross_mesh_twoform_adjoint(V):
     I2 = interpolate(TestFunction(V_target), Q)  # Q^* x V_target -> R
     I = assemble(action(I2, I1))  # V^* x V_target -> R
 
-    # I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
-    # assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
+    I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
+    assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
 
-    cofunc_V = assemble(action(I, oneform_V))
+    cofunc_V = assemble(action(I_direct, oneform_V))
     cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
 
     assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
