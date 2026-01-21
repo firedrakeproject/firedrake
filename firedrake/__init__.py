@@ -67,7 +67,7 @@ from firedrake.checkpointing import (  # noqa: F401
 from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
 from firedrake.constant import Constant  # noqa: F401
 from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
-from firedrake.exceptions import ConvergenceError  # noqa: F401
+from firedrake.exceptions import ConvergenceError, MismatchingDomainError  # noqa: F401
 from firedrake.function import (  # noqa: F401
     Function, PointNotInDomainError,
     CoordinatelessFunction, PointEvaluator
