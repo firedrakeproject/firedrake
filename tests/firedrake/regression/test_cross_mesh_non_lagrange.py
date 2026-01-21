@@ -181,6 +181,7 @@ def test_cross_mesh_twoform_adjoint(V):
     I1 = interpolate(TestFunction(Q), V)  # V^* x Q -> R
     I2 = interpolate(TestFunction(V_target), Q)  # Q^* x V_target -> R
     I = assemble(action(I2, I1))  # V^* x V_target -> R
+    assert I.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
 
     I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
     assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
@@ -193,4 +194,4 @@ def test_cross_mesh_twoform_adjoint(V):
 
 
 if __name__ == "__main__":
-    pytest.main([__file__ + "::test_cross_mesh_twoform[RT_2]"])
+    pytest.main([__file__ + "::test_cross_mesh_twoform_adjoint[RT_2]"])
