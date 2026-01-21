@@ -89,10 +89,10 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         ),
         complex_mode=complex_mode,
     )
+    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     validate_domains(form_data.preprocessed_form)
 
-    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
     # Create local kernels.
     kernels = []
     for integral_data in form_data.integral_data:
