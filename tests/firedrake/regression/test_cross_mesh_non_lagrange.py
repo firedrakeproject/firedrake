@@ -70,16 +70,52 @@ def test_cross_mesh_oneform(V):
     Q_target = make_quadrature_space(V)
 
     # Interp V_source -> Q
-    I1 = interpolate(f_source, Q_target)
+    I1 = interpolate(f_source, Q_target)  # CrossMeshInterpolator
     f_quadrature = assemble(I1)
 
     # Interp Q -> V_target
-    I2 = interpolate(f_quadrature, V)
+    I2 = interpolate(f_quadrature, V)  # SameMeshInterpolator
     f_target = assemble(I2)
 
     f_direct = Function(V).interpolate(expr2)
 
     assert np.allclose(f_target.dat.data_ro, f_direct.dat.data_ro)
+
+
+def test_cross_mesh_twoform(V):
+    mesh1 = UnitSquareMesh(5, 5)
+    mesh2 = V.mesh()
+    x, y = SpatialCoordinate(mesh1)
+    x1, y1 = SpatialCoordinate(mesh2)
+
+    shape = V.ufl_function_space().value_shape
+    if len(shape) == 1:
+        fs_type = partial(VectorFunctionSpace, dim=shape[0])
+        expr1 = as_vector([x, y])
+        expr2 = as_vector([x1, y1])
+    elif len(shape) == 2:
+        fs_type = partial(TensorFunctionSpace, shape=shape)
+        expr1 = as_tensor([[x, x*y], [x*y, y]])
+        expr2 = as_tensor([[x1, x1*y1], [x1*y1, y1]])
+    else:
+        raise ValueError("Unsupported target space shape")
+    
+    V_source = fs_type(mesh1, "CG", 2)
+    Q_target = make_quadrature_space(V)
+
+    I1 = interpolate(TrialFunction(V_source), Q_target)  # V_source x Q_target^* -> R
+    I2 = interpolate(TrialFunction(Q_target), V)  # Q_target x V^* -> R
+
+    I = assemble(action(I2, I1))  # V_source x V^* -> R
+
+    I_direct = assemble(interpolate(TrialFunction(V_source), V))  # V_source x V^* -> R
+
+    f_source = Function(V_source).interpolate(expr1)
+    f_direct = Function(V).interpolate(expr2)
+
+    f_interpolated = assemble(action(I_direct, f_source))
+    assert np.allclose(f_interpolated.dat.data_ro, f_direct.dat.data_ro)
+
 
 
 def test_cross_mesh_oneform_adjoint(V):
@@ -119,5 +155,42 @@ def test_cross_mesh_oneform_adjoint(V):
     cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
     assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
 
+
+def test_cross_mesh_twoform_adjoint(V):
+    # V^* -> Q^* -> V_target^*
+    mesh1 = UnitSquareMesh(2, 2)
+    x1 = SpatialCoordinate(mesh1)
+    V_target = fs_shape(V)(mesh1, "CG", 1)
+    mesh2 = V.mesh()
+    x2 = SpatialCoordinate(mesh2)
+
+    if len(V.value_shape) > 1:
+        expr = outer(x2, x2)
+        target_expr = outer(x1, x1)
+        if V.ufl_element().mapping() == "covariant contravariant Piola":
+            expr = deviatoric_expr_2x2(expr)
+            target_expr = deviatoric_expr_2x2(target_expr)
+    else:
+        expr = x2
+        target_expr = x1
+
+    oneform_V = inner(expr, TestFunction(V)) * dx
+
+    Q = make_quadrature_space(V)
+
+    I1 = interpolate(TestFunction(Q), V)  # V^* x Q -> R
+    I2 = interpolate(TestFunction(V_target), Q)  # Q^* x V_target -> R
+    I = assemble(action(I2, I1))  # V^* x V_target -> R
+
+    # I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
+    # assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
+
+    cofunc_V = assemble(action(I, oneform_V))
+    cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
+
+    assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
+
+
+
 if __name__ == "__main__":
-    pytest.main([__file__ + "::test_cross_mesh_oneform_adjoint[GLS_3]"])
+    pytest.main([__file__ + "::test_cross_mesh_twoform[RT_2]"])

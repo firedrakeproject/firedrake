@@ -22,7 +22,7 @@ from pyop2.caching import memory_and_disk_cache
 from FIAT.reference_element import Point
 
 from finat.element_factory import create_element, as_fiat_cell
-from finat.ufl import TensorElement, VectorElement, MixedElement
+from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElement, FiniteElementBase
 from finat.fiat_elements import ScalarFiatElement
 from finat.quadrature import QuadratureRule
 from finat.quadrature_element import QuadratureElement
@@ -36,7 +36,7 @@ from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
-from firedrake.ufl_expr import Argument, Coargument, action
+from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
@@ -432,7 +432,21 @@ class CrossMeshInterpolator(Interpolator):
         if self.source_mesh.geometric_dimension != self.target_mesh.geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
-        dest_element = self.target_space.ufl_element()
+    def _get_element(self, V: WithGeometry) -> FiniteElementBase:
+        """Return the element of the function space V. If V is tensor/vector valued,
+        return the base scalar element.
+
+        Parameters
+        ----------
+        V
+            A :class:`.WithGeometry` function space.
+
+        Returns
+        -------
+        FiniteElementBase
+            The base element of V.
+        """
+        dest_element = V.ufl_element()
         if isinstance(dest_element, MixedElement):
             if isinstance(dest_element, VectorElement | TensorElement):
                 # In this case all sub elements are equal
@@ -442,16 +456,68 @@ class CrossMeshInterpolator(Interpolator):
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements "
                         "or TensorElements made from sub elements with value shape other than ()."
                     )
-                self.dest_element = base_element
+                return base_element
             else:
                 raise NotImplementedError("Interpolation with MixedFunctionSpace requires MixedInterpolator.")
         else:
             # scalar fiat/finat element
-            self.dest_element = dest_element
+            return dest_element
 
-    def _get_symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
-        """Return the symbolic ``Interpolate`` expressions for point evaluation and
-        re-ordering into the input-ordering VertexOnlyMesh.
+    def _fs_type(self, V: WithGeometry) -> Callable[..., WithGeometry]:
+        """Returns a callable which returns a function space matching the type of V.
+
+        Parameters
+        ----------
+        V
+            A :class:`.WithGeometry` function space.
+
+        Returns
+        -------
+        Callable
+            A callable which returns a :class:`.WithGeometry` matching the type of V.
+        """
+        # Get the correct type of function space
+        shape = V.ufl_function_space().value_shape
+        if len(shape) == 0:
+            return FunctionSpace
+        elif len(shape) == 1:
+            return partial(VectorFunctionSpace, dim=shape[0])
+        else:
+            symmetry = V.ufl_element().symmetry()
+            return partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
+
+    def _get_quadrature_space(self, V: WithGeometry) -> WithGeometry:
+        """Return a FunctionSpace whose element is a quadrature element with 
+        points at the quadrature points of V's element.
+
+        Used as an intermediate space for interpolating into a space which doesn't
+        have point evaluation dofs.
+
+        Parameters
+        ----------
+        V : WithGeometry
+            A :class:`.WithGeometry` function space to build the quadrature space for.
+
+        Returns
+        -------
+        WithGeometry
+            A :class:`.WithGeometry` function space with quadrature element.
+        """  
+        V_element = V.finat_element
+        _, points = V_element.dual_basis
+        weights = numpy.full(len(points.points), numpy.nan)  # These can be any number since we never integrate
+        quad_scheme = QuadratureRule(points, weights, ref_el=V_element.cell)
+        element = FiniteElement("Quadrature", degree=V_element.degree, quad_scheme=quad_scheme)
+        return self._fs_type(V)(V.mesh(), element)
+
+    def _get_symbolic_expressions(self, target_space: WithGeometry) -> tuple[Interpolate, Interpolate]:
+        """Return symbolic ``Interpolate`` expressions for point evaluation of the `target_space`s
+        dofs in the source mesh, and the corresponding input-ordering interpolation.
+
+        Parameters
+        ----------
+        target_space
+            The :class:`.WithGeometry` function space which we are interpolating into.
 
         Returns
         -------
@@ -462,13 +528,19 @@ class CrossMeshInterpolator(Interpolator):
         Raises
         ------
         DofNotDefinedError
-            If any DoFs in the target mesh cannot be defined in the source mesh.
+            If any of the target spaces dofs cannot be defined in the source mesh.
+        ValueError
+            If the target space does not have point-evaluation dofs.
         """
         from firedrake.assemble import assemble
+        if target_space.ufl_element().mapping() != "identity":
+            raise ValueError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
+
         # Immerse coordinates of target space point evaluation dofs in src_mesh
-        target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
-        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
+        target_mesh = target_space.mesh().unique()
+        target_space_vec = VectorFunctionSpace(target_mesh, self._get_element(target_space))
+        f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, target_mesh.geometric_dimension)
         try:
             vom = VertexOnlyMesh(
                 self.source_mesh,
@@ -494,6 +566,7 @@ class CrossMeshInterpolator(Interpolator):
             fs_type = partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
         # Get expression for point evaluation at the dest_node_coords
+        fs_type = self._fs_type(target_space)
         P0DG_vom = fs_type(vom, "DG", 0)
         point_eval = interpolate(self.operand, P0DG_vom)
 
@@ -512,9 +585,16 @@ class CrossMeshInterpolator(Interpolator):
 
         # self.ufl_interpolate.function_space() is None in the 0-form case
         V_dest = self.ufl_interpolate.function_space() or self.target_space
-        f = tensor or Function(V_dest)
 
-        point_eval, point_eval_input_ordering = self._get_symbolic_expressions()
+        # Interpolate into intermediate quadrature space for non-identity mapped elements
+        if into_quadrature_space := V_dest.ufl_element().mapping() != "identity":
+            Q_dest = self._get_quadrature_space(V_dest)
+        else:
+            Q_dest = None
+        target_space = Q_dest or V_dest
+        f = tensor or Function(target_space)
+
+        point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
 
         if self.rank == 2:
@@ -523,12 +603,22 @@ class CrossMeshInterpolator(Interpolator):
             # `self.point_eval_interpolate` and the permutation
             # given by `self.to_input_ordering_interpolate`.
             if self.ufl_interpolate.is_adjoint:
-                symbolic = action(point_eval, point_eval_input_ordering)
+                interp_expr = action(point_eval, point_eval_input_ordering)
             else:
-                symbolic = action(point_eval_input_ordering, point_eval)
+                interp_expr = action(point_eval_input_ordering, point_eval)
 
             def callable() -> PETSc.Mat:
-                return assemble(symbolic, mat_type=mat_type).petscmat
+                res = assemble(interp_expr, mat_type=mat_type).petscmat
+                if into_quadrature_space:
+                    if self.ufl_interpolate.is_adjoint:
+                        I = AssembledMatrix((Argument(Q_dest, 0), Argument(V_dest.dual(), 1)), None, res)
+                        return assemble(action(interpolate(TestFunction(V_dest), Q_dest))).petscmat
+                    else:
+                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(V_dest, 1)), None, res)  # V_dest x Q_dest^* -> R
+                        return assemble(action(interpolate(TrialFunction(Q_dest), V_dest), I)).petscmat  # Q_dest x V_dest^* -> R
+                else:
+                    return res
+
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
             # f_src is a cofunction on V_dest.dual
