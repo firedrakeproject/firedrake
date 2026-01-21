@@ -163,7 +163,12 @@ def transform_packed_cell_closure_dat(
 ) -> op3.Dat:
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # if not space.extruded:
-    # if space.mesh().ufl_cell() == ufl.hexahedron:
+    # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
+    # defined. This makes no sense for simplex and quad meshes because they are already
+    # oriented. In effect we just arbitrarily permute the DoFs in the cell-node map for
+    # no reason. This orientation work should really only be necessary for hexes but I'm
+    # leaving as is for now because we otherwise get small inconsistencies between the
+    # old and new 'cell_node_list's which I want to avoid.
     packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     # FIXME: This is awful!
