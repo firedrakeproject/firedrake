@@ -587,7 +587,7 @@ class CrossMeshInterpolator(Interpolator):
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
         if into_quadrature_space := self.target_space.ufl_element().mapping() != "identity":
-            Q_dest = self._get_quadrature_space(V_dest)
+            Q_dest = self._get_quadrature_space(self.target_space)
         else:
             Q_dest = None
         target_space = Q_dest or self.target_space
@@ -611,10 +611,10 @@ class CrossMeshInterpolator(Interpolator):
                 if into_quadrature_space:
                     if self.ufl_interpolate.is_adjoint:
                         I = AssembledMatrix((Argument(Q_dest, 0), Argument(target_space.dual(), 1)), None, res)
-                        return assemble(action(interpolate(TestFunction(target_space), Q_dest), I)).petscmat
+                        return assemble(action(I, interpolate(TestFunction(Q_dest), self.target_space))).petscmat
                     else:
-                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(target_space, 1)), None, res)  # target_space x Q_dest^* -> R
-                        return assemble(action(interpolate(TrialFunction(Q_dest), target_space), I)).petscmat  # Q_dest x target_space^* -> R
+                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(target_space, 1)), None, res)
+                        return assemble(action(interpolate(TrialFunction(Q_dest), self.target_space), I)).petscmat
                 else:
                     return res
 
