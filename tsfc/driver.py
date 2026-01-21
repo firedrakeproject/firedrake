@@ -3,7 +3,7 @@ import time
 import sys
 import numpy
 from itertools import chain
-from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
+from finat.physically_mapped import DirectlyDefinedElement, NeedsCoordinateMappingElement
 
 import ufl
 from ufl.algorithms import extract_coefficients
@@ -22,7 +22,9 @@ from tsfc import fem, ufl_utils
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
+from tsfc.modified_terminals import analyse_modified_terminal
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -226,7 +228,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
 
-    if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
+    if isinstance(to_element, DirectlyDefinedElement):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
     orig_coefficients = extract_coefficients(expression)
@@ -314,7 +316,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
-    evaluation, basis_indices = to_element.dual_evaluation(fn)
+    if isinstance(to_element, NeedsCoordinateMappingElement):
+        ctx = fem.PointSetContext(**kernel_cfg)
+        mt = analyse_modified_terminal(ufl.Coefficient(dual_arg.ufl_function_space().dual()))
+        coordinate_mapping = fem.CoordinateMapping(mt, ctx)
+    else:
+        coordinate_mapping = None
+    evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
 
     # Compute the action against the dual argument
     if dual_arg in coefficients:
