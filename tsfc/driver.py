@@ -23,6 +23,8 @@ from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+from tsfc.exceptions import MismatchingDomainError
+
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -188,8 +190,8 @@ def validate_domains(form):
         domain = itg.ufl_domain()
         for other_domain in itg.extra_domain_integral_type_map():
             if domain.submesh_youngest_common_ancester(other_domain) is None:
-                raise ValueError("Assembly of forms over unrelated meshes is not supported. "
-                                 "Try using Submeshes or cross-mesh interpolation.")
+                raise MismatchingDomainError("Assembly of forms over unrelated meshes is not supported. "
+                                             "Try using Submeshes or cross-mesh interpolation.")
 
         # Check that all Arguments and Coefficients are defined on the valid domains
         valid_domains = set(itg.extra_domain_integral_type_map())
@@ -197,10 +199,10 @@ def validate_domains(form):
 
         itg_domains = set(extract_domains(itg))
         if len(itg_domains - valid_domains) > 0:
-            raise ValueError("Argument or Coefficient domain not found in integral. "
-                             "Possibly, the form contains coefficients on different meshes "
-                             "and requires measure intersection, for example: "
-                             'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
+            raise MismatchingDomainError("Argument or Coefficient domain not found in integral. "
+                                         "Possibly, the form contains coefficients on different meshes "
+                                         "and requires measure intersection, for example: "
+                                         'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
 
 
 def preprocess_parameters(parameters):

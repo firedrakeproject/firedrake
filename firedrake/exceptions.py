@@ -1,3 +1,4 @@
+from tsfc.exceptions import MismatchingDomainError  # noqa: F401
 
 
 class ConvergenceError(Exception):
