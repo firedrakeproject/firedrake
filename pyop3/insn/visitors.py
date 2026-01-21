@@ -524,6 +524,8 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
             best_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
             max_cost += expr_cost
 
+        assert isinstance(max_cost, numbers.Integral)
+
         # Optimise by dropping any immediately bad candidates
         trimmed_expr_candidates = {}
         for arg_id, arg_candidates in expr_candidates.items():
@@ -570,10 +572,10 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
 
 
     else:
-        materialize_idxss = insn.comm.bcast()
+        materialize_idxss = insn.comm.bcast(None)
 
         # identify the dat expressions to materialise using 'materialize_idxss'
-        best_candidate = collect_candidate_indirections(insn, selector=materialize_idxss)
+        best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
     # Materialise any symbolic (composite) dats
     composite_dats = OrderedFrozenSet.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
@@ -593,24 +595,27 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
 
 class CandidateIndirectionsCollector(NodeVisitor):
 
+    def preprocess_node(self, node) -> tuple[Any, ...]:
+        return node, self.index
+
     @functools.singledispatchmethod
     def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
 
     @process.register(insn_types.NullInstruction)
     @process.register(insn_types.Exscan)  # assume we are fine
-    def _(self, null: insn_types.InstructionList, /, **kwargs) -> idict:
+    def _(self, null: insn_types.InstructionList, index, /, **kwargs) -> idict:
         return idict()
 
 
     @process.register(insn_types.InstructionList)
-    def _(self, insn_list: insn_types.InstructionList, /, **kwargs) -> idict:
+    def _(self, insn_list: insn_types.InstructionList, index, /, **kwargs) -> idict:
         return utils.merge_dicts(
             (self._call(insn, **kwargs) for insn in insn_list),
         )
 
     @process.register(insn_types.Loop)
-    def _(self, loop: insn_types.Loop, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
+    def _(self, loop: insn_types.Loop, index, /, *, loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
         loop_indices_ = loop_indices + (loop.index,)
         return utils.merge_dicts(
             (
@@ -620,17 +625,16 @@ class CandidateIndirectionsCollector(NodeVisitor):
         )
 
     @process.register(insn_types.NonEmptyTerminal)
-    def _(self, terminal: insn_types.NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
+    def _(self, terminal: insn_types.NonEmptyTerminal, index, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         candidates = {}
         for i, arg in enumerate(terminal.arguments):
             if selector is not None:
                 # drop some of the key
-                selector_ = {
-                    key[2:]: value
+                selector_ = idict({
+                    utils.just_one(key[2:]): value
                     for key, value in selector.items()
-                    if key[:2] == (terminal, i)
-                }
-                breakpoint()
+                    if key[:2] == (index, i)
+                })
             else:
                 selector_ = None
 
@@ -638,7 +642,7 @@ class CandidateIndirectionsCollector(NodeVisitor):
                 arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress, selector=selector_
             )
             for arg_key, value in per_arg_candidates.items():
-                candidates[self.index, i, arg_key] = value
+                candidates[index, i, arg_key] = value
         return idict(candidates)
 
 
