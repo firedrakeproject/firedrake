@@ -743,3 +743,7 @@ def test_interpolate_cross_mesh_interval(periodic):
     f_dest = Function(V_dest).interpolate(f_src)
     x_dest, = SpatialCoordinate(m_dest)
     assert abs(assemble((f_dest - (-(x_dest - .5) ** 2)) ** 2 * dx)) < 1.e-16
+
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_interpolate_matrix_cross_mesh_adjoint"])
