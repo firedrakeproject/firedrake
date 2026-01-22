@@ -467,6 +467,13 @@ class RieszMap:
                     sobolev_space, u, v
                 )
 
+        if bcs is None:
+            bcs = ()
+        else:
+            bcs = tuple(bcs)
+        if len(bcs) > 0 and inner_product == "l2":
+            raise ValueError("Cannot supply boundary conditions with an l2 Riesz map")
+
         self._function_space = function_space
         self._inner_product = inner_product
         self._bcs = bcs
@@ -519,8 +526,8 @@ class RieszMap:
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
+                soln.zero()
                 solve()
-                output = Function(self._function_space)
                 output.assign(soln)
         elif ufl.duals.is_primal(value):
             if value.function_space() != self._function_space:
@@ -531,8 +538,13 @@ class RieszMap:
                 for o, c in zip(output.subfunctions, value.subfunctions):
                     o.dat.data[:] = c.dat.data_ro[:]
             else:
+                if len(self._bcs) > 0:
+                    value = value.copy(deepcopy=True)
+                    for bc in self._bcs:
+                        bc.apply(value)
                 output = firedrake.assemble(
-                    firedrake.action(self._inner_product, value)
+                    firedrake.action(self._inner_product, value),
+                    bcs=self._bcs, zero_bc_nodes=True,
                 )
         else:
             raise ValueError(
