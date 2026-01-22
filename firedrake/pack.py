@@ -172,7 +172,6 @@ def transform_packed_cell_closure_dat(
     # no reason. This orientation work should really only be necessary for hexes but I'm
     # leaving as is for now because we otherwise get small inconsistencies between the
     # old and new 'cell_node_list's which I want to avoid.
-    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
@@ -195,6 +194,9 @@ def transform_packed_cell_closure_dat(
 
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_dat.transform)
         packed_dat = packed_dat.__record_init__(transform=transform)
+    else:
+        # FUSE transforms not defined - orient using old Firedrake rules
+        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     # FIXME: This is awful!
     if _needs_static_permutation(space.finat_element) or permutation is not None:
@@ -253,17 +255,17 @@ def transform_packed_cell_closure_mat(
 
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
         packed_mat = packed_mat.__record_init__(transform=transform)
-
-
-    packed_mat = _orient_dofs(
-        packed_mat,
-        row_space,
-        column_space,
-        row_cell_index,
-        column_cell_index,
-        row_depth=row_depth,
-        column_depth=column_depth,
-    )
+    else:
+        # FUSE transforms not defined - orient using old Firedrake rules
+        packed_mat = _orient_dofs(
+            packed_mat,
+            row_space,
+            column_space,
+            row_cell_index,
+            column_cell_index,
+            row_depth=row_depth,
+            column_depth=column_depth,
+        )
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     if utils.strictly_all(
         space.mesh().ufl_cell() == ufl.hexahedron for space in [row_space, column_space]
@@ -711,17 +713,20 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
 
-        print_insn = lp.CInstruction(tuple(),
-                     f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
-                         printf(\"initial res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
-                         printf(\"initial temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});
-                         printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o[{j}]" for j in range(sum(closures)))});""", assignees=(), read_variables=frozenset([]), id="print")
+        #print_insn = lp.CInstruction(tuple(),
+        #             f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
+        #                 printf(\"initial res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
+        #                 printf(\"initial temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});
+        #                 printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o[{j}]" for j in range(sum(closures)))});""", assignees=(), read_variables=frozenset([]), id="print")
 
-        print_insn1 = lp.CInstruction(tuple(),
-                      f"""printf(\"final res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
-                          printf(\"final temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});"""
-                      , assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        #print_insn1 = lp.CInstruction(tuple(),
+        #              f"""printf(\"final res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
+        #                  printf(\"final temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});"""
+        #              , assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
+        print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+
+        print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         
         def overall(direction, all_elems):
             tempArg = [lp.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
@@ -741,8 +746,6 @@ def fuse_orientations(spaces: list[WithGeometry]):
     
         in_knl = lp.merge([overall("in", all_elems), loop_dims("in", all_elems)] + in_switches + utilities)
         out_knl = lp.merge([overall("out", all_elems), loop_dims("out", all_elems)] + out_switches + utilities)
-        #print(in_knl) 
-        breakpoint()
 
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
         transform_in = op3.Function(in_knl, [op3.READ] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
