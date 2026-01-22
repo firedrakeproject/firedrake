@@ -35,7 +35,7 @@ class MatrixBase(ufl.Matrix):
 
     def __init__(
         self,
-        a: ufl.BaseForm | slate.TensorBase | tuple[BaseArgument, BaseArgument],
+        a: ufl.BaseForm | slate.TensorBase | tuple[ufl.Argument | ufl.Coargument, ufl.Argument | ufl.Coargument],
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
     ):
@@ -250,7 +250,7 @@ class AssembledMatrix(MatrixBase):
 
     def __init__(
         self,
-        args: tuple[BaseArgument, BaseArgument],
+        args: tuple[ufl.Argument | ufl.Coargument, ufl.Argument | ufl.Coargument],
         petscmat: PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         options_prefix: str | None = None,
