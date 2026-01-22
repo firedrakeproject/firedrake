@@ -259,7 +259,12 @@ class Interpolator(abc.ABC):
         # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
         self.target_mesh = self.target_space.mesh()
         """The domain we are interpolating into."""
-        self.source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False) or self.target_mesh
+
+        try:
+            source_mesh = extract_unique_domain(operand)
+        except ValueError:
+            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+        self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
         # Interpolation options
