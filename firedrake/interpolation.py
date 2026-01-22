@@ -340,8 +340,8 @@ class Interpolator(abc.ABC):
             specified. By default None.
         mat_type
             The PETSc matrix type to use when assembling a rank 2 interpolation.
-            For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
-            interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
+            For cross-mesh interpolation, ``"aij"`` and ``"matfree"`` are supported. For same-mesh
+            interpolation, ``"aij"``, ``"baij"``, and ``"matfree"`` are supported. For same/cross mesh interpolation
             between :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
             For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
             ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.

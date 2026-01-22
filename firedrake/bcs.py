@@ -15,12 +15,12 @@ from pyop2.utils import as_tuple
 
 import firedrake
 import firedrake.utils as utils
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -185,9 +185,8 @@ class BCBase(object):
             boundary condition should be applied.
 
         """
-        from firedrake.matrix import MatrixBase
-        if isinstance(r, MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+        if not isinstance(r, Function | Cofunction):
+            raise NotImplementedError(f"Zeroing bcs not supported for {type(r).__name__}")
 
         for idx in self._indices:
             r = r.sub(idx)
@@ -411,8 +410,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        from firedrake.matrix import MatrixBase
-        if isinstance(r, MatrixBase):
+        if isinstance(r, ufl.Matrix):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space

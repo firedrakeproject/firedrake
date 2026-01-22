@@ -3,7 +3,6 @@ from collections.abc import Iterable
 import itertools
 
 import ufl
-from ufl.argument import BaseArgument
 from pyop2.utils import as_tuple
 from pyop2 import op2
 from firedrake.petsc import PETSc
@@ -46,11 +45,11 @@ class MatrixBase(ufl.Matrix):
         a
             A UFL BaseForm (with two arguments) that this MatrixBase represents,
             or a tuple of the arguments it represents, or a slate TensorBase.
-        fc_params
-            A dictionary of form compiler parameters for this matrix.
         bcs
             An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
-            None by default.
+            Empty tuple by default.
+        fc_params
+            A dictionary of form compiler parameters for this matrix.
         """
         if isinstance(a, tuple):
             self.a = None
@@ -171,7 +170,7 @@ class Matrix(MatrixBase):
         bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply.
-            By default None.
+            Empty tuple by default.
         fc_params
             A dictionary of form compiler parameters for this matrix, by default None.
         options_prefix
@@ -219,7 +218,7 @@ class ImplicitMatrix(MatrixBase):
         bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
             May be `None` if there are no boundary conditions to apply.
-            By default None.
+            Empty tuple by default.
         fc_params
             A dictionary of form compiler parameters for this matrix, by default None.
         options_prefix
@@ -265,7 +264,8 @@ class AssembledMatrix(MatrixBase):
             The PETSc matrix this object wraps.
         bcs
             an iterable of boundary conditions to apply to this :class:`Matrix`.
-            May be `None` if there are no boundary conditions to apply. By default None.
+            May be `None` if there are no boundary conditions to apply.
+            Empty tuple by default.
         options_prefix
             PETSc options prefix to apply, by default None.
         """

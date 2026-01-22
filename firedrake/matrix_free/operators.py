@@ -73,8 +73,8 @@ class ImplicitMatrixContext(object):
     def __init__(
         self,
         a: ufl.BaseForm,
-        row_bcs: Iterable[DirichletBC] | None = None,
-        col_bcs: Iterable[DirichletBC] | None = None,
+        row_bcs: Iterable[DirichletBC] = (),
+        col_bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         appctx: dict[str, Any] | None = None
     ):
@@ -88,10 +88,10 @@ class ImplicitMatrixContext(object):
             An iterable of the :class.`.DirichletBC`s that are
             imposed on the test space. We distinguish between row and
             column boundary conditions in the case of submatrices off
-            of the diagonal. By default None.
+            of the diagonal. Empty tuple by default.
         col_bcs
             An iterable of the :class.`.DirichletBC`s that are imposed
-            on the trial space. By default None.
+            on the trial space. Empty tuple by default.
         fc_params
             A dictionary of parameters to pass on to the form compiler.
             By default None.
