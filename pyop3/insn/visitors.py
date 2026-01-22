@@ -657,7 +657,7 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
 
     @process.register(insn_types.Exscan)  # assume we are fine
-    def _(self, null: insn_types.InstructionList, /, layouts: Mapping[Any, Any], **kwargs) -> idict:
+    def _(self, null: insn_types.InstructionList, /, layouts: Mapping[Any, Any], **kwargs) -> insn_types.InstructionList:
         return null 
 
     @process.register(insn_types.InstructionList)
