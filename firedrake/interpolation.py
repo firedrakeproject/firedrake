@@ -34,7 +34,7 @@ from gem.gem import Variable
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
-from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
+from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
@@ -135,7 +135,6 @@ class Interpolate(UFLInterpolate):
         super().__init__(expr, V)
 
         self._options = InterpolateOptions(**kwargs)
-        self._interpolator = None
 
     function_space = UFLInterpolate.ufl_function_space
 
@@ -155,6 +154,57 @@ class Interpolate(UFLInterpolate):
             An :class:`InterpolateOptions` instance containing the interpolation options.
         """
         return self._options
+
+    @cached_property
+    def _interpolator(self):
+        """Access the numerical interpolator.
+
+        Returns
+        -------
+        Interpolator
+            An appropriate :class:`Interpolator` subclass for this
+            interpolation expression.
+        """
+        arguments = self.arguments()
+        has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
+        if len(arguments) == 2 and has_mixed_arguments:
+            return MixedInterpolator(self)
+
+        operand, = self.ufl_operands
+        target_mesh = self.target_space.mesh()
+
+        try:
+            source_mesh = extract_unique_domain(operand) or target_mesh
+        except ValueError:
+            raise NotImplementedError(
+                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+            )
+
+        try:
+            target_mesh = target_mesh.unique()
+            source_mesh = source_mesh.unique()
+        except RuntimeError:
+            return MixedInterpolator(self)
+
+        submesh_interp_implemented = (
+            all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
+            and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+            and target_mesh.topological_dimension == source_mesh.topological_dimension
+        )
+        if target_mesh is source_mesh or submesh_interp_implemented:
+            return SameMeshInterpolator(self)
+
+        if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+            if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
+                return VomOntoVomInterpolator(self)
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
+                raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
+            return SameMeshInterpolator(self)
+
+        if has_mixed_arguments or len(self.target_space) > 1:
+            return MixedInterpolator(self)
+
+        return CrossMeshInterpolator(self)
 
 
 @PETSc.Log.EventDecorator()
@@ -215,7 +265,6 @@ class Interpolator(abc.ABC):
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         self.access = expr.options.access
-        expr._interpolator = self
 
     @abc.abstractmethod
     def _get_callable(
@@ -355,49 +404,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
         An appropriate :class:`Interpolator` subclass for the given
         interpolation expression.
     """
-    if expr._interpolator is not None:
-        return expr._interpolator
-
-    arguments = expr.arguments()
-    has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
-    if len(arguments) == 2 and has_mixed_arguments:
-        return MixedInterpolator(expr)
-
-    operand, = expr.ufl_operands
-    target_mesh = expr.target_space.mesh()
-
-    try:
-        source_mesh = extract_unique_domain(operand) or target_mesh
-    except ValueError:
-        raise NotImplementedError(
-            "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-        )
-
-    try:
-        target_mesh = target_mesh.unique()
-        source_mesh = source_mesh.unique()
-    except RuntimeError:
-        return MixedInterpolator(expr)
-
-    submesh_interp_implemented = (
-        all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
-        and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
-        and target_mesh.topological_dimension == source_mesh.topological_dimension
-    )
-    if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr)
-
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-            return VomOntoVomInterpolator(expr)
-        if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
-            raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
-        return SameMeshInterpolator(expr)
-
-    if has_mixed_arguments or len(expr.target_space) > 1:
-        return MixedInterpolator(expr)
-
-    return CrossMeshInterpolator(expr)
+    return expr._interpolator
 
 
 class DofNotDefinedError(Exception):

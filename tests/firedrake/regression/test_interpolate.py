@@ -592,9 +592,12 @@ def test_interpolator_reuse(family, degree, mode):
         u = Function(V.dual())
         expr = interpolate(TestFunction(V), u)
 
-    I = get_interpolator(expr)
+    Iorig = get_interpolator(expr)
 
     for k in range(3):
+        I = get_interpolator(expr)
+        assert I is Iorig
+
         u.assign(rg.uniform(u.function_space()))
         expected = u.dat.data.copy()
 
