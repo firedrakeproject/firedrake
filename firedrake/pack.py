@@ -267,18 +267,15 @@ def transform_packed_cell_closure_mat(
             column_depth=column_depth,
         )
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    if utils.strictly_all(
-        space.mesh().ufl_cell() == ufl.hexahedron for space in [row_space, column_space]
-    ):
-        packed_mat = _orient_dofs(
-            packed_mat,
-            row_space,
-            column_space,
-            row_cell_index,
-            column_cell_index,
-            row_depth=row_depth,
-            column_depth=column_depth,
-        )
+    packed_mat = _orient_dofs(
+        packed_mat,
+        row_space,
+        column_space,
+        row_cell_index,
+        column_cell_index,
+        row_depth=row_depth,
+        column_depth=column_depth,
+    )
 
     if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
         rnodal_axis_tree, rnodal_axis = _packed_nodal_axes(packed_mat.row_axes, row_space, row_depth)

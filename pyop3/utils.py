@@ -676,7 +676,7 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         return _make_record(self, new_attrs)
 
 
-@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm)
+@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
 def _make_record_maybe_singleton(*args, **kwargs):
     return _make_record(*args, **kwargs)
 

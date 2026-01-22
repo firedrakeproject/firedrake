@@ -510,12 +510,15 @@ def _(mat_expr: expr_types.MatArrayBufferExpression, /, axis_trees: Iterable[Axi
 
 class TensorCandidateIndirectionsCollector(ExpressionVisitor):
 
+    def preprocess_node(self, node) -> tuple[Any, ...]:
+        return node, self.index
+
     @functools.singledispatchmethod
     def process(self, obj: ExpressionT, *args, **kwargs) -> bool:
         return super().process(obj)
 
     @process.register
-    def _(self, op: expr_types.Operator, /, **kwargs) -> idict:
+    def _(self, op: expr_types.Operator, index, /, **kwargs) -> idict:
         return utils.merge_dicts((self._call(operand, **kwargs) for operand in op.operands))
 
 
@@ -525,54 +528,60 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
     @process.register(expr_types.Scalar)
     @process.register(expr_types.ScalarBufferExpression)
     @process.register(expr_types.NaN)
-    def _(self, var: Any, /, **kwargs) -> idict:
+    def _(self, var: Any, index, /, **kwargs) -> idict:
         return idict()
 
 
     @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], **kwargs) -> idict:
+    def _(self, dat_expr: expr_types.LinearDatBufferExpression, index, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], selector, **kwargs) -> idict:
         axis_tree = just_one(axis_trees)
+        selector_ = selector[index] if selector is not None else None
         return idict({
-            self.index: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, **kwargs)
+            index: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, selector=selector_, **kwargs)
         })
 
 
     @process.register(expr_types.NonlinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, /, *, axis_trees, **kwargs) -> idict:
+    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, index, /, *, axis_trees, selector, **kwargs) -> idict:
         axis_tree = just_one(axis_trees)
-        return idict({
-            (self.index, path): collect_candidate_indirections(layout, axis_tree.linearize(path), **kwargs)
-            for path, layout in dat_expr.layouts.items()
-        })
+
+        candidates = {}
+        for path, layout in dat_expr.layouts.items():
+            selector_ = selector[index, path] if selector is not None else None
+            candidates[index, path] = collect_candidate_indirections(
+                layout, axis_tree.linearize(path), selector=selector_, **kwargs
+            )
+        return idict(candidates)
 
     @process.register(expr_types.MatPetscMatBufferExpression)
-    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
-        if selector:
-            breakpoint()
+    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         costs = []
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
             cost = loopified_shape(layout)[0].local_max_size
             costs.append(cost)
 
-        return idict({
-            (self.index, 0): ((mat_expr.row_layout, costs[0], 0),),
-            (self.index, 1): ((mat_expr.column_layout, costs[1], 0),),
-        })
+        candidates = {}
+        if selector is not None:
+            candidates[index, 0] = mat_expr.row_layout
+            candidates[index, 1] = mat_expr.column_layout
+        else:
+            candidates[index, 0] =  ((mat_expr.row_layout, costs[0], 0),)
+            candidates[index, 1] =  ((mat_expr.column_layout, costs[1], 0),)
+        return idict(candidates)
 
 
     # Should be very similar to NonlinearDat case
     # NOTE: This is a nonlinear type
     @process.register(expr_types.MatArrayBufferExpression)
-    def _(self, mat_expr: expr_types.MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
-        if selector:
-            breakpoint()
+    def _(self, mat_expr: expr_types.MatArrayBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         candidates = {}
         layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
         for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
             for path, layout in layouts.items():
-                candidates[self.index, i, path] = collect_candidate_indirections(
-                    layout, axis_tree.linearize(path), loop_indices, compress=compress, selector=selector
+                selector_ = selector[index, i, path] if selector is not None else None
+                candidates[index, i, path] = collect_candidate_indirections(
+                    layout, axis_tree.linearize(path), loop_indices, compress=compress, selector=selector_
                 )
         return idict(candidates)
 
@@ -595,6 +604,9 @@ so memory optimisations are ineffectual.
 
 class CandidateIndirectionsCollector(ExpressionVisitor):
 
+    def preprocess_node(self, node) -> tuple[Any, ...]:
+        return node, self.index
+
     @functools.singledispatchmethod
     def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -604,57 +616,66 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
     @process.register(expr_types.LoopIndexVar)
     @process.register(expr_types.NaN)
     @process.register(expr_types.ScalarBufferExpression)
-    def _(self, var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
-        return ((var, 0, (self.index,)),)
+    def _(self, var: Any, index: int, /, *args, selector, **kwargs) -> tuple[tuple[Any, int, int], ...]:
+        if selector is not None:
+            assert index not in selector
+            return var
+        else:
+            return ((var, 0, ()),)
 
     @process.register(expr_types.Operator)
-    def _(self, op: expr_types.Operator, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
-        if selector and self.index in selector:
-            op_axes = utils.just_one(get_shape(op))
-            return (expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op}),)
-
+    def _(self, op: expr_types.Operator, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
         operand_candidatess = tuple(
             self._call(operand, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress, selector=selector)
             for operand in op.operands
         )
 
-        candidates = []
-        for operand_candidates in itertools.product(*operand_candidatess):
-            operand_exprs, operand_costs, materialization_indices = zip(*operand_candidates, strict=True)
-
-            # If there is at most one non-zero operand cost then there is no point
-            # in compressing the expression.
-            if len([cost for cost in operand_costs if cost > 0]) <= 1:
-                compress = False
-
-            candidate_expr = type(op)(*operand_exprs)
-
-            # NOTE: This isn't quite correct. For example consider the expression
-            # 'mapA[i] + mapA[i]'. The cost is just the cost of 'mapA[i]', not double.
-            candidate_cost = sum(operand_costs)
-            candidates.append((candidate_expr, candidate_cost, materialization_indices))
-
-        if compress:
-            # Now also include a candidate representing the packing of the expression
-            # into a Dat. The cost for this is simply the size of the resulting array.
-            # Only do this when the cost is large as small arrays will fit in cache
-            # and not benefit from the optimisation.
-            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
+        if selector is not None:
+            if index in selector:
                 op_axes = utils.just_one(get_shape(op))
-                op_loop_axes = get_loop_axes(op)
-                compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
+                return expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
+            else:
+                return type(op)(*operand_candidatess)
+        else:
+            candidates = []
+            for operand_candidates in itertools.product(*operand_candidatess):
+                operand_exprs, operand_costs, materialization_indices = zip(*operand_candidates, strict=True)
 
-                op_cost = op_axes.local_max_size
-                for loop_axes in op_loop_axes.values():
-                    for loop_axis in loop_axes:
-                        op_cost *= loop_axis.component.local_max_size
-                candidates.append((compressed_expr, op_cost, (self.index,)))
+                materialization_indices = sum(materialization_indices, ())
 
-        return tuple(candidates)
+                # If there is at most one non-zero operand cost then there is no point
+                # in compressing the expression.
+                if len([cost for cost in operand_costs if cost > 0]) <= 1:
+                    compress = False
+
+                candidate_expr = type(op)(*operand_exprs)
+
+                # NOTE: This isn't quite correct. For example consider the expression
+                # 'mapA[i] + mapA[i]'. The cost is just the cost of 'mapA[i]', not double.
+                candidate_cost = sum(operand_costs)
+                candidates.append((candidate_expr, candidate_cost, materialization_indices))
+
+            if compress:
+                # Now also include a candidate representing the packing of the expression
+                # into a Dat. The cost for this is simply the size of the resulting array.
+                # Only do this when the cost is large as small arrays will fit in cache
+                # and not benefit from the optimisation.
+                if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
+                    op_axes = utils.just_one(get_shape(op))
+                    op_loop_axes = get_loop_axes(op)
+                    compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
+
+                    op_cost = op_axes.local_max_size
+                    for loop_axes in op_loop_axes.values():
+                        for loop_axis in loop_axes:
+                            op_cost *= loop_axis.component.local_max_size
+                    candidates.append((compressed_expr, op_cost, (index,)))
+
+            return tuple(candidates)
 
 
     @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, expr: expr_types.LinearDatBufferExpression, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
+    def _(self, expr: expr_types.LinearDatBufferExpression, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
         # The cost of an expression dat (i.e. the memory volume) is given by...
         # Remember that the axes here described the outer loops that exist and that
         # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
@@ -668,23 +689,26 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
             for loop_axis in loop_axes:
                 dat_cost *= loop_axis.component.local_max_size
 
-        if selector and self.index in selector:
-            return (expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}),)
-
-        candidates = []
         child = self._call(expr.layout, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress,selector=selector)
-        for layout_expr, layout_cost, layout_materialization_indices in child:
-            candidate_expr = expr.__record_init__(layout=layout_expr)
 
-            # TODO: Only apply penalty for non-affine layouts
-            candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
-            candidates.append((candidate_expr, candidate_cost, layout_materialization_indices))
+        if selector is not None:
+            if index in selector:
+                return expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
+            else:
+                return expr.__record_init__(layout=child)
+        else:
+            candidates = []
+            for layout_expr, layout_cost, layout_materialization_indices in child:
+                candidate_expr = expr.__record_init__(layout=layout_expr)
 
-        if compress:
-            if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                candidates.append((expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (self.index,)))
+                # TODO: Only apply penalty for non-affine layouts
+                candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
+                candidates.append((candidate_expr, candidate_cost, layout_materialization_indices))
 
-        return tuple(candidates)
+            if compress:
+                if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
+                    candidates.append((expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (index,)))
+            return tuple(candidates)
 
 
 def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tuple[LoopIndex, ...], *, compress: bool, selector=None) -> tuple[tuple[Any, int], ...]:
@@ -694,13 +718,16 @@ def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tupl
 
 class MaterializedIndirectionsSetter(NodeVisitor):
 
+    def preprocess_node(self, node) -> tuple[Any, ...]:
+        return node, self.index
+
     @functools.singledispatchmethod
     def process(self, *args, **kwargs):
         return super().process(*args, **kwargs)
 
 
     @process.register
-    def _(self, op: expr_types.Operator, /, *args, **kwargs) -> idict:
+    def _(self, op: expr_types.Operator, index, /, *args, **kwargs) -> idict:
         return type(op)(*(self._call(operand, *args, **kwargs) for operand in op.operands))
 
 
@@ -708,47 +735,47 @@ class MaterializedIndirectionsSetter(NodeVisitor):
     @process.register(expr_types.AxisVar)
     @process.register(expr_types.LoopIndexVar)
     @process.register(expr_types.NaN)
-    def _(self, var: Any, /, *args, **kwargs) -> Any:
+    def _(self, var: Any, index, /, *args, **kwargs) -> Any:
         return var
 
 
     @process.register(expr_types.ScalarBufferExpression)
-    def _(self, buffer_expr: expr_types.ScalarBufferExpression, layouts, key):
+    def _(self, buffer_expr: expr_types.ScalarBufferExpression, index, layouts, key):
         return buffer_expr
 
 
     @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, buffer_expr: expr_types.LinearDatBufferExpression, layouts, key):
-        layout = linearize_expr(layouts[key + (self.index,)])
+    def _(self, buffer_expr: expr_types.LinearDatBufferExpression, index, layouts, key):
+        layout = linearize_expr(layouts[key + (index,)])
         return buffer_expr.__record_init__(layout=layout)
 
 
     @process.register(expr_types.NonlinearDatBufferExpression)
-    def _(self, buffer_expr: expr_types.NonlinearDatBufferExpression, layouts, key):
+    def _(self, buffer_expr: expr_types.NonlinearDatBufferExpression, index, layouts, key):
         new_layouts = {}
         for leaf_path in buffer_expr.layouts.keys():
-            layout = layouts[key + ((self.index, leaf_path),)]
+            layout = layouts[key + ((index, leaf_path),)]
             new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
         new_layouts = idict(new_layouts)
         return buffer_expr.__record_init__(layouts=new_layouts)
 
 
     @process.register(expr_types.MatPetscMatBufferExpression)
-    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, /, layouts, key) -> expr_types.MatPetscMatBufferExpression:
+    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, index, /, layouts, key) -> expr_types.MatPetscMatBufferExpression:
         # TODO: linearise the layouts here like we do for dats (but with no path)
-        row_layout = layouts[key + ((self.index, 0),)]
-        column_layout = layouts[key + ((self.index, 1),)]
+        row_layout = layouts[key + ((index, 0),)]
+        column_layout = layouts[key + ((index, 1),)]
         return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
 
     @process.register(expr_types.MatArrayBufferExpression)
-    def _(self, buffer_expr: expr_types.MatArrayBufferExpression, /, layouts, key):
+    def _(self, buffer_expr: expr_types.MatArrayBufferExpression, index, /, layouts, key):
         new_buffer_layoutss = []
         buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
         for i, buffer_layouts in enumerate(buffer_layoutss):
             new_layouts = {}
             for leaf_path in buffer_layouts.keys():
-                layout = layouts[key + ((self.index, i, leaf_path),)]
+                layout = layouts[key + ((index, i, leaf_path),)]
                 new_layouts[leaf_path] = linearize_expr(layout, path=leaf_path)
             new_buffer_layoutss.append(utils.freeze(new_layouts))
         return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])

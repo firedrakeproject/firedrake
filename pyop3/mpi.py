@@ -39,6 +39,7 @@
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa
 from itertools import count
+from typing import Any
 from functools import wraps
 import atexit
 import gc
@@ -333,6 +334,7 @@ class temp_internal_comm:
     :arg comm: Any communicator
     """
     def __init__(self, comm):
+        assert isinstance(comm, MPI.Comm)
         self.user_comm = comm
         self.internal_comm = internal_comm(self.user_comm, self)
 
@@ -348,14 +350,20 @@ class temp_internal_comm:
         pass
 
 
-def internal_comm(comm, obj):
+def internal_comm(comm: MPI.Comm, obj: Any) -> MPI.Comm:
     """ Creates an internal comm from the user comm.
-    If comm is None, create an internal communicator from COMM_WORLD
-    :arg comm: A communicator or None
-    :arg obj: The object which the comm is an attribute of
-    (usually `self`)
 
-    :returns pyop2_comm: A PyOP2 internal communicator
+    Parameters
+    ----------
+    comm :
+        The communicator
+    obj :
+        The object which the comm is an attribute of (usually `self`)
+
+    Returns
+    -------
+    pyop2_comm : MPI.Comm
+        A pyop3 internal communicator
     """
     # Parse inputs
     if comm is None:
