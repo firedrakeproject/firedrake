@@ -172,7 +172,7 @@ def transform_packed_cell_closure_dat(
     # no reason. This orientation work should really only be necessary for hexes but I'm
     # leaving as is for now because we otherwise get small inconsistencies between the
     # old and new 'cell_node_list's which I want to avoid.
-    # packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     transform_in_kernel, transform_out_kernel = fuse_orientations([space])
 
