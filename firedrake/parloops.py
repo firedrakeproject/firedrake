@@ -1,26 +1,47 @@
 r"""This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
-import collections
+from __future__ import annotations
 
+import collections
+import functools
+import warnings
+from cachetools import LRUCache
+from immutabledict import immutabledict as idict
+from typing import Any
+
+import FIAT
+import finat
+import loopy
+import numpy as np
+import pyop3 as op3
+import ufl
+from pyop3.cache import serial_cache
+from pyop3 import READ, WRITE, RW, INC, MIN_WRITE as MIN, MAX_WRITE as MAX
+from pyop3.expr.visitors import evaluate as eval_expr
+from pyop3.utils import readonly
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
-import loopy
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from firedrake.parameters import target
-
-from firedrake import constant
-from firedrake.ufl_expr import extract_domains
+from firedrake import constant, utils
+from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
+from firedrake.matrix import Matrix
+from firedrake.mesh import get_iteration_spec
+from firedrake.pack import pack
 from firedrake.petsc import PETSc
-from cachetools import LRUCache
+from firedrake.parameters import target
+from firedrake.ufl_expr import extract_domains
+from firedrake.utils import IntType, assert_empty, tuplify
+
+
+# Set a default loopy language version (should be in __init__.py)
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 
 kernel_cache = LRUCache(maxsize=128)
 
 
-__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
+__all__ = ['par_loop', 'direct']
 
 
 class _DirectLoop(object):
@@ -42,45 +63,18 @@ of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
 
-def indirect_measure(mesh, measure):
-    return mesh.measure_set(measure.integral_type(),
-                            measure.subdomain_id())
-
-
-_maps = {
-    'cell': {
-        'nodes': lambda x: x.cell_node_map(),
-        'itspace': indirect_measure
-    },
-    'interior_facet': {
-        'nodes': lambda x: x.interior_facet_node_map(),
-        'itspace': indirect_measure
-    },
-    'exterior_facet': {
-        'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': indirect_measure
-    },
-    'direct': {
-        'nodes': lambda x: None,
-        'itspace': lambda mesh, measure: mesh
-    }
-}
-r"""Map a measure to the correct maps."""
-
-
-def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
-
+def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) -> op3.Function:
+    intents = []
     kargs = []
-
     for var, (func, intent) in args.items():
-        is_input = intent in [INC, READ, RW, MAX, MIN]
-        is_output = intent in [INC, RW, WRITE, MAX, MIN]
+        is_input = intent in [INC, READ, RW]
+        is_output = intent in [INC, RW, WRITE]
         if isinstance(func, constant.Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
-            ndof = func.dat.cdim
+            ndof = func.function_space().value_size
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
@@ -88,7 +82,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].finat_element.space_dimension()
-                cdim = c.dat[idx].cdim
+                cdim = c.function_space()[idx].value_size
                 dtype = c.dat[idx].dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
@@ -99,13 +93,15 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
                     ndof = func.function_space().finat_element.space_dimension()
-                    cdim = func.dat.cdim
+                    cdim = func.function_space().value_size
                     dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             # FIXME: shape for facets [2][ndof]?
             kargs.append(loopy.GlobalArg(var, dtype=dtype, shape=(ndof, cdim), is_input=is_input, is_output=is_output))
         kernel_domains = kernel_domains.replace(var+".dofs", str(ndof))
+
+        intents.append(intent)
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
@@ -115,15 +111,15 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
         for func, intent in args.values():
             if isinstance(func, Indexed):
                 for dat in func.ufl_operands[0].dat.split:
-                    key += (dat.shape, dat.dtype, intent)
+                    key += (dat.axes, dat.dtype, intent)
             else:
-                key += (func.dat.shape, func.dat.dtype, intent)
+                key += (func.dat.axes, func.dat.dtype, intent)
         return kernel_cache[key]
     except KeyError:
         kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
+        knl = loopy.make_kernel(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
                                   seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-        knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
+        knl = op3.Function(knl, intents)
         return kernel_cache.setdefault(key, knl)
 
 
@@ -254,12 +250,13 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
+    warnings.warn("par_loop is no longer necessary - prefer to use pyop3 directly", FutureWarning)
+
     # catch deprecated C-string parloops
     if isinstance(kernel, str):
         raise TypeError("C-string kernels are no longer supported by Firedrake parloops")
     if "is_loopy_kernel" in kwargs:
         if kwargs.pop("is_loopy_kernel"):
-            import warnings
             warnings.warn(
                 "is_loopy_kernel does not need to be specified", FutureWarning)
         else:
@@ -270,7 +267,6 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
-    _map = _maps[measure.integral_type()]
     # Ensure that the dict args passed in are consistently ordered
     # (sorted by the string key).
     sorted_args = collections.OrderedDict()
@@ -307,17 +303,22 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         mesh = domain
 
     kernel_domains, instructions = kernel
-    op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
+    function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 
-    op2args.append(_map['itspace'](mesh, measure))
+    if measure is direct:
+        raise NotImplementedError("Need to loop over nodes...")
+    else:
+        iter_spec = get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
 
-    def mkarg(f, intent):
-        if isinstance(f, Indexed):
-            c, i = f.ufl_operands
-            idx = i._indices[0]._value
-            m = _map['nodes'](c)
-            return c.dat[idx](intent, m.split[idx] if m else None)
-        return f.dat(intent, _map['nodes'](f))
-    op2args += [mkarg(func, intent) for (func, intent) in args.values()]
+    packed_args = []
+    for arg, _ in args.values():
+        if isinstance(arg, Indexed):
+            raise NotImplementedError("TODO")
 
-    return op2.parloop(*op2args, **kwargs)
+        if measure is direct:
+            packed_arg = arg[iter_spec.loop_index]
+        else:
+            packed_arg = pack(arg, iter_spec)
+        packed_args.append(packed_arg)
+
+    op3.loop(iter_spec.loop_index, function(*packed_args), eager=True)

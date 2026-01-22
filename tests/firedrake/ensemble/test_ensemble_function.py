@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
-from pyop2 import Subset
 import firedrake as fd
 
 
@@ -337,7 +336,7 @@ def test_efunc_vec(ensemblefunc):
     for esub in efunc.subfunctions:
         esub.assign(10)
 
-    with efunc.vec_ro() as rvec:
+    with efunc.dat.vec_ro as rvec:
         parallel_assert(
             np.allclose(rvec.array_r, 10),
             msg="EnsembleFunction data should be copied in by ro context")
@@ -350,7 +349,7 @@ def test_efunc_vec(ensemblefunc):
 
     parallel_assert(
         len(failed) == 0,
-        msg=("EnsembleFunction.vec_ro should not copy data back."
+        msg=("EnsembleFunction.dat.vec_ro should not copy data back."
              f"The following subfunctions failed: {failed}")
     )
 
@@ -358,7 +357,7 @@ def test_efunc_vec(ensemblefunc):
     for esub in efunc.subfunctions:
         esub.assign(30)
 
-    with efunc.vec_wo() as wvec:
+    with efunc.dat.vec_wo as wvec:
         parallel_assert(
             np.allclose(wvec.array_r, 20),
             msg="EnsembleFunction data should not be copied in by wo context")
@@ -371,14 +370,14 @@ def test_efunc_vec(ensemblefunc):
 
     parallel_assert(
         len(failed) == 0,
-        msg=("EnsembleFunction.vec_wo should copy data back."
+        msg=("EnsembleFunction.dat.vec_wo should copy data back."
              f"The following subfunctions failed: {failed}")
     )
 
     for esub in efunc.subfunctions:
         esub.assign(50)
 
-    with efunc.vec() as vec:
+    with efunc.dat.vec as vec:
         parallel_assert(
             np.allclose(vec.array_r, 50),
             msg="EnsembleFunction data should be copied in by rw context.")
@@ -391,6 +390,6 @@ def test_efunc_vec(ensemblefunc):
 
     parallel_assert(
         len(failed) == 0,
-        msg=("EnsembleFunction.vec should copy data back."
+        msg=("EnsembleFunction.dat.vec should copy data back."
              f"The following subfunctions failed: {failed}")
     )

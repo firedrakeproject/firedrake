@@ -358,3 +358,7 @@ def test_betti2_periodic(horiz_complex, vert_complex):
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
+
+
+if __name__ == "__main__":
+    test_betti0_periodic(("CG", 1), ("DG", 0))

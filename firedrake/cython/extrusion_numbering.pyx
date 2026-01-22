@@ -191,7 +191,6 @@ from firedrake.cython.dmcommon import count_labelled_points
 from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
-from pyop2 import op2
 from firedrake.utils import IntType
 from finat.element_factory import as_fiat_cell
 
@@ -334,6 +333,8 @@ def node_classes(mesh, nodes_per_entity):
         numpy.ndarray[PetscInt, ndim=1, mode="c"] node_classes
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
 
+    assert False, "old code"
+
     nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
 
     node_classes = numpy.zeros(3, dtype=IntType)
@@ -387,6 +388,8 @@ def facet_closure_nodes(V, sub_domain):
         int nfacet, nlocal, layers
         PetscInt local_facet
         PetscInt offset
+
+    assert False, "old code"
 
     # We don't have to handle the "on_boundary" case, because the
     # caller handles it.
@@ -458,13 +461,13 @@ def facet_closure_nodes(V, sub_domain):
     # we need to do this by hand.
     # See github.com/firedrakeproject/firedrake/issues/1135 for even
     # more details.
-    d = op2.Dat(V.dof_dset.set, dtype=numpy.int8)
-    d.data_with_halos[nodes] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy.where returns an int64
-    return indices.astype(IntType)
+    # d = op2.Dat(V.dof_dset.set, dtype=numpy.int8)
+    # d.data_with_halos[nodes] = 1
+    # d.global_to_local_begin(op2.READ)
+    # d.global_to_local_end(op2.READ)
+    # indices, = numpy.where(d.data_ro_with_halos == 1)
+    # # cast, because numpy.where returns an int64
+    # return indices.astype(IntType)
 
 
 @cython.wraparound(False)
@@ -503,7 +506,7 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
         CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
@@ -518,7 +521,7 @@ def entity_layers(mesh, height, label=None):
             layers[offset, 1] = layer_extents[point, 3]
             offset += 1
 
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers

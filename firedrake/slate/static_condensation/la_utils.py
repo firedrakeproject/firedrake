@@ -1,5 +1,5 @@
 from collections import namedtuple
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters

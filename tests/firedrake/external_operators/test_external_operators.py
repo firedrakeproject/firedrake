@@ -117,7 +117,7 @@ def test_assemble(V, f):
     assert isinstance(tlm_value, Function)
 
     tlm_exact = Function(V)
-    with delta_u.dat.vec_ro as x, tlm_exact.dat.vec_ro as y:
+    with delta_u.vec_ro as x, tlm_exact.vec_ro as y:
         jac_exact.petscmat.mult(x, y)
     assert np.allclose(tlm_value.dat.data, tlm_exact.dat.data)
 
@@ -140,8 +140,8 @@ def test_assemble(V, f):
 
     # Action of the adjoint of the Jacobian (Hermitian transpose)
     adj_exact = Cofunction(V.dual())
-    with delta_N.dat.vec_ro as v_vec:
-        with adj_exact.dat.vec as res_vec:
+    with delta_N.vec_ro as v_vec:
+        with adj_exact.vec_wo as res_vec:
             jac_exact.petscmat.multHermitian(v_vec, res_vec)
     assert np.allclose(adj_value.dat.data, adj_exact.dat.data)
 
@@ -296,7 +296,7 @@ def test_translation_operator(mesh):
             integral_types = set(['cell'])
             assembly_opts = kwargs.get('assembly_opts')
             J = self._matrix_builder((), assembly_opts, integral_types)
-            with dNdu.dat.vec as vec:
+            with dNdu.vec_ro as vec:
                 J.petscmat.setDiagonal(vec)
             return J
 

@@ -2,11 +2,11 @@ import numbers
 from collections.abc import Sequence
 import numpy as np
 import ufl
+from mpi4py import MPI
 
 from tsfc.ufl_utils import TSFCConstantMixin
-from pyop2 import op2
-from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.mpi import collective
+import pyop3 as op3
+from pyop3.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -26,17 +26,25 @@ from firedrake.adjoint_utils.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _create_dat(op2type, value, comm):
-    if op2type is op2.Global and comm is None:
-        raise ValueError("Attempted to create pyop2 Global with no communicator")
-
+def _create_const(value, comm):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
+
     if rank == 0:
-        dat = op2type(1, data, comm=comm)
+        # could maybe be a Scalar
+        sf = op3.sf.single_star_sf(comm)
+        axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
-        dat = op2type(shape, data, comm=comm)
+        sf = op3.sf.single_star_sf(comm, shape[0])
+        root_component = op3.AxisComponent(shape[0], sf=sf)
+        components = [root_component]
+        for size in shape[1:]:
+            components.append(op3.AxisComponent(size))
+        axes = op3.AxisTree.from_iterable((
+            op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
+        ))
+    dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
 
@@ -72,10 +80,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         name: str | None = None,
         count: int | None = None,
     ) -> None:
-        # Init also called in mesh constructor, but constant can be built without mesh
-        utils._init()
-
-        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
+        self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
 
         super().__init__()
         Counted.__init__(self, count, Counted)
@@ -146,17 +151,24 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
-    @PETSc.Log.EventDecorator()
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
 
-        :arg value: A value of the appropriate shape"""
-        try:
-            self.dat.data = value
-            return self
-        except (DataTypeError, DataValueError) as e:
-            raise ValueError(e)
+        Parameters
+        ----------
+        value :
+            The value to set. It must have the appropriate shape.
+
+        Returns
+        -------
+        self
+
+        """
+        if self.ufl_shape and np.array(value).shape != self.ufl_shape:
+            raise ValueError("Cannot assign to constant, value has incorrect shape")
+        self.dat.data_wo[...] = value
+        return self
 
     def zero(self):
         """Set the value of this constant to zero."""

@@ -45,6 +45,7 @@ PyOP2.egg-info
 sparsity.so
 sparsity.c
 sparsity.cpython*.so
+*_cy.c
 # Docs
 pyop2.coffee.rst
 pyop2.rst

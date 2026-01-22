@@ -1,4 +1,4 @@
-from pyop2 import op2
+import pyop3 as op3
 
 import firedrake
 from firedrake import ufl_expr
@@ -48,7 +48,7 @@ def prolong(coarse, fine):
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
-        with fine.dat.vec_wo as dest, coarse.dat.vec_ro as src:
+        with fine.vec_wo as dest, coarse.vec_ro as src:
             src.copy(dest)
         return fine
 
@@ -80,13 +80,15 @@ def prolong(coarse, fine):
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
         for d in [coarse, coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, next.node_set,
-                     next.dat(op2.WRITE),
-                     coarse.dat(op2.READ, fine_to_coarse),
-                     node_locations.dat(op2.READ),
-                     coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+            d.dat.buffer.reduce_leaves_to_roots_begin()
+        for d in [coarse, coarse_coords]:
+            d.dat.buffer.reduce_leaves_to_roots_end()
+
+        op3.loop(
+            n := Vf.nodal_axes.owned.iter(),
+            kernel(next.dat[n], coarse.dat[fine_to_coarse(n)], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
+            eager=True,
+        )
         coarse = next
         Vc = Vf
     return fine
@@ -108,7 +110,7 @@ def restrict(fine_dual, coarse_dual):
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
-        with coarse_dual.dat.vec_wo as dest, fine_dual.dat.vec_ro as src:
+        with coarse_dual.vec_wo as dest, fine_dual.vec_ro as src:
             src.copy(dest)
         return coarse_dual
 
@@ -139,15 +141,14 @@ def restrict(fine_dual, coarse_dual):
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
         # this expanded stencil
-        for d in [coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
+        coarse_coords.dat.buffer.reduce_leaves_to_roots()
+
         kernel = kernels.restrict_kernel(Vf, Vc)
-        op2.par_loop(kernel, fine_dual.node_set,
-                     next.dat(op2.INC, fine_to_coarse),
-                     fine_dual.dat(op2.READ),
-                     node_locations.dat(op2.READ),
-                     coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+        op3.loop(
+            n := Vf.nodal_axes.owned.iter(),
+            kernel(next.dat[fine_to_coarse(n)], fine_dual.dat[n], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
+            eager=True,
+        )
         fine_dual = next
         Vf = Vc
     return coarse_dual
@@ -169,7 +170,7 @@ def inject(fine, coarse):
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
-        with coarse.dat.vec_wo as dest, fine.dat.vec_ro as src:
+        with coarse.vec_wo as dest, fine.vec_ro as src:
             src.copy(dest)
         return
 
@@ -214,13 +215,15 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, next.node_set,
-                         next.dat(op2.INC),
-                         node_locations.dat(op2.READ),
-                         fine.dat(op2.READ, coarse_node_to_fine_nodes),
-                         fine_coords.dat(op2.READ, coarse_node_to_fine_coords))
+                d.dat.buffer.reduce_leaves_to_roots_begin()
+            for d in [fine, fine_coords]:
+                d.dat.buffer.reduce_leaves_to_roots_end()
+
+            op3.loop(
+                n := Vc.nodal_axes.owned.iter(),
+                kernel(next.dat[n], node_locations.dat[n], fine.dat[coarse_node_to_fine_nodes(n)], fine_coords.dat[coarse_node_to_fine_coords(n)]),
+                eager=True,
+            )
         else:
             coarse_coords = Vc.mesh().coordinates
             fine_coords = Vf.mesh().coordinates
@@ -229,13 +232,20 @@ def inject(fine, coarse):
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, Vc.mesh().cell_set,
-                         next.dat(op2.INC, next.cell_node_map()),
-                         fine.dat(op2.READ, coarse_cell_to_fine_nodes),
-                         fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
-                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+                d.dat.buffer.reduce_leaves_to_roots_begin()
+            for d in [fine, fine_coords]:
+                d.dat.buffer.reduce_leaves_to_roots_end()
+
+            op3.loop(
+                c := Vc.mesh().cells.owned.iter(),
+                kernel(
+                    next.dat[next.function_space().cell_node_map(c)],
+                    fine.dat[coarse_cell_to_fine_nodes(c)],
+                    fine_coords.dat[coarse_cell_to_fine_coords(c)],
+                    coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                ),
+                eager=True,
+            )
         fine = next
         Vf = Vc
     return coarse

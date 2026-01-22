@@ -19,11 +19,11 @@ from firedrake.utils import cached_property
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
-from pyop2.compilation import load
-from pyop2.mpi import COMM_SELF
-from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2 import op2
+from pyop3.compile import load
+from pyop3.mpi import COMM_SELF
+# from pyop2.sparsity import get_preallocation  # FIXME
+from pyop3.pyop2_utils import get_petsc_dir, as_tuple
+# from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
@@ -213,7 +213,8 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.block_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
-        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        # FIXME: This won't work as there is not mat_spec
+        self.lgmaps = {Vsub: Vsub.mask_lgmap([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], self.allow_repeated) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
@@ -269,7 +270,7 @@ class FDMPC(PCBase):
             assembly_callables.append(P.zeroEntries)
             assembly_callables.append(partial(self.set_values, P, Vrow, Vcol))
             if on_diag:
-                own = Vrow.dof_dset.layout_vec.getLocalSize()
+                own = Vrow.template_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 if assemble_sparsity:
                     Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
@@ -282,7 +283,7 @@ class FDMPC(PCBase):
 
                 gamma = self.coefficients.get("facet")
                 if gamma is not None and gamma.function_space() == Vrow.dual():
-                    with gamma.dat.vec_ro as diag:
+                    with gamma.vec_ro as diag:
                         diagonal_terms.append(partial(P.setDiagonal, diag, addv=addv))
             Pmats[Vrow, Vcol] = P
 
@@ -418,7 +419,7 @@ class FDMPC(PCBase):
             K = kernels[Vsub]
             x = Function(Vsub)
             y = Function(Vsub)
-            sizes = (Vsub.dof_dset.layout_vec.getSizes(),) * 2
+            sizes = (Vsub.template_vec.getSizes(),) * 2
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
                                   op2.PassthroughArg(op2.OpaqueType(K.result.klass), K.result.handle),
                                   *args_acc,
@@ -690,7 +691,7 @@ class FDMPC(PCBase):
 
     def setup_block(self, Vrow, Vcol):
         """Preallocate the auxiliary sparse operator."""
-        sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
+        sizes = tuple(Vsub.template_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
         cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
@@ -1435,12 +1436,12 @@ class PythonMatrixContext:
             self.col_bcs = tuple(bc for bc in bcs if bc.function_space() == Vcol)
 
     def _op(self, action, X, Y, W=None):
-        with self._y.dat.vec_wo as v:
+        with self._y.vec_wo as v:
             if W is None:
                 v.zeroEntries()
             else:
                 Y.copy(v)
-        with self._x.dat.vec_wo as v:
+        with self._x.vec_wo as v:
             X.copy(v)
         for bc in self.col_bcs:
             bc.zero(self._x)
@@ -1448,14 +1449,14 @@ class PythonMatrixContext:
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._x.dat.vec_wo as v:
+                with self._x.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._x)
         else:
             for bc in self.row_bcs:
                 bc.zero(self._y)
-        with self._y.dat.vec_ro as v:
+        with self._y.vec_ro as v:
             v.copy(Y if W is None else W)
 
     @PETSc.Log.EventDecorator()
@@ -1747,7 +1748,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if mat_type == "is":
         lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
 
-    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
+    sizes = tuple(V.template_vec.getSizes() for V in spaces)
     preallocator = get_preallocator(comm, sizes, *lgmaps)
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
@@ -2256,7 +2257,7 @@ class PoissonFDMPC(FDMPC):
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
-            extruded = mesh.cell_set._extruded
+            extruded = mesh.extruded
             dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if extruded else ufl.dS(degree=quad_deg)
             area = ufl.FacetArea(mesh)
             ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
@@ -2303,7 +2304,7 @@ class PoissonFDMPC(FDMPC):
                 assembly_callables.append(partial(get_assembler(form, form_compiler_parameters=fcp).assemble, tensor=tensor))
         # set arbitrary non-zero coefficients for preallocation
         for coef in coefficients.values():
-            with coef.dat.vec as cvec:
+            with coef.vec as cvec:
                 cvec.set(1.0E0)
         return coefficients, assembly_callables
 
@@ -2424,7 +2425,7 @@ def extrude_interior_facet_maps(V):
     facet_to_nodes = facet_node_map.values
     nbase = facet_to_nodes.shape[0]
 
-    if mesh.cell_set._extruded:
+    if mesh.extruded:
         facet_offset = facet_node_map.offset
         local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
 

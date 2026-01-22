@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 
+
 from firedrake import *
 # Must come after firedrake import (that loads MPI)
 try:
@@ -417,11 +418,16 @@ def test_bendy_cube_unit_parallel(degree):
     return run_bendy_cube_unit(degree)
 
 
+def _mesh_is_reordered(mesh):
+    default_numbering = np.arange(mesh.num_points(), dtype=IntType)
+    assert (mesh._new_to_old_point_renumbering.indices != default_numbering).any()
+
+
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
 
-    assert m._did_reordering
+    assert _mesh_is_reordered(m)
 
 
 def run_mesh_validation():
@@ -448,7 +454,7 @@ def test_mesh_validation_parallel():
 def test_force_reordering_works(reorder):
     m = UnitSquareMesh(1, 1, reorder=reorder)
 
-    assert m._did_reordering == reorder
+    assert _mesh_is_reordered(m) == reorder
 
 
 @pytest.mark.parametrize("reorder",
@@ -459,7 +465,7 @@ def test_changing_default_reorder_works(reorder):
         parameters["reorder_meshes"] = reorder
         m = UnitSquareMesh(1, 1)
 
-        assert m._did_reordering == reorder
+        assert _mesh_is_reordered(m) == reorder
     finally:
         parameters["reorder_meshes"] = old_reorder
 

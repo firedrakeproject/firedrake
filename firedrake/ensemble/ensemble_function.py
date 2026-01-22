@@ -1,7 +1,6 @@
 from functools import cached_property
 from contextlib import contextmanager
 
-from pyop2 import MixedDat
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
@@ -221,11 +220,11 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.dat.vec.
-        # The data in _full_local_function.dat.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.vec.
+        # The data in _full_local_function.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be up to date.
-        # However, because the copies in the _full_local_function.dat.vec
+        # However, because the copies in the _full_local_function.vec
         # context manager are done without _vec knowing, we have to manually
         # increment the state to make sure its still in sync.
         with self._full_local_function.dat.vec:
@@ -240,8 +239,8 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.dat.vec.
-        # The data in _full_local_function.dat.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.vec.
+        # The data in _full_local_function.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be up to date.
         with self._full_local_function.dat.vec_ro:
@@ -256,12 +255,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the ``Vec`` outside of a context manager.
         """
-        # The globally defined _vec views the _full_local_function.dat.vec.
-        # The data in _full_local_function.dat.vec is only valid inside the
+        # The globally defined _vec views the _full_local_function.vec.
+        # The data in _full_local_function.vec is only valid inside the
         # context manager, so we need to activate that context manager before
         # yielding our _vec otherwise the data will not be copied back into
         # the _full_local_function properly when exiting the context manager.
-        # Because the _full_local_function.dat.vec_wo context manager doesn't
+        # Because the _full_local_function.vec_wo context manager doesn't
         # copy any data on entry, this time we don't have to manually increase
         # _vec's state. If the user modifies _vec inside out context manager then
         # _vec will know and will handle incrementing it's state itself.
