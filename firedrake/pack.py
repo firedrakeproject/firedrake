@@ -255,6 +255,15 @@ def transform_packed_cell_closure_mat(
         packed_mat = packed_mat.__record_init__(transform=transform)
 
 
+    packed_mat = _orient_dofs(
+        packed_mat,
+        row_space,
+        column_space,
+        row_cell_index,
+        column_cell_index,
+        row_depth=row_depth,
+        column_depth=column_depth,
+    )
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     if utils.strictly_all(
         space.mesh().ufl_cell() == ufl.hexahedron for space in [row_space, column_space]
