@@ -58,7 +58,6 @@ __all__ = (
     "interpolate",
     "Interpolate",
     "get_interpolator",
-    "DofNotDefinedError",
     "InterpolateOptions",
     "Interpolator"
 )

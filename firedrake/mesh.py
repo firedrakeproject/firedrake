@@ -57,7 +57,6 @@ __all__ = [
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
-    'VertexOnlyMeshMissingPointsError',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
