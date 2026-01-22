@@ -578,7 +578,7 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
     # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
+    composite_dats = OrderedFrozenSet().union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
@@ -655,6 +655,10 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
     @functools.singledispatchmethod
     def process(self, obj: ExpressionT, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
+
+    @process.register(insn_types.Exscan)  # assume we are fine
+    def _(self, null: insn_types.InstructionList, /, layouts: Mapping[Any, Any], **kwargs) -> idict:
+        return null 
 
     @process.register(insn_types.InstructionList)
     def _(self, insn_list: insn_types.InstructionList, /, layouts: Mapping[Any, Any]) -> insn_types.InstructionList:
