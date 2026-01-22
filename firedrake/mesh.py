@@ -38,6 +38,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError
 from pyadjoint import stop_annotating
 import gem
 
@@ -3584,26 +3585,6 @@ class MissingPointsBehaviour(enum.Enum):
     IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
-
-
-class VertexOnlyMeshMissingPointsError(Exception):
-    """Exception raised when 1 or more points are not found by a
-    :func:`~.VertexOnlyMesh` in its parent mesh.
-
-    Attributes
-    ----------
-    n_missing_points : int
-        The number of points which were not found in the parent mesh.
-    """
-
-    def __init__(self, n_missing_points):
-        self.n_missing_points = n_missing_points
-
-    def __str__(self):
-        return (
-            f"{self.n_missing_points} vertices are outside the mesh and have "
-            "been removed from the VertexOnlyMesh."
-        )
 
 
 @PETSc.Log.EventDecorator()
