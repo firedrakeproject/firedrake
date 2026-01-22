@@ -2129,6 +2129,7 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations(self):
         entity_orientations = dmcommon.entity_orientations(self, self._fiat_cell_closures)
         import os
+        return entity_orientations
         if not bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
             breakpoint()
         cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
