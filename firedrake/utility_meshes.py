@@ -11,21 +11,12 @@ from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
     VectorFunctionSpace,
-    FunctionSpace,
     Function,
     Constant,
     assemble,
     interpolate,
     FiniteElement,
     tetrahedron,
-    atan2,
-    pi,
-    as_vector,
-    SpatialCoordinate,
-    conditional,
-    gt,
-    as_tensor,
-    dot,
     real
 )
 from firedrake.cython import dmcommon
@@ -3015,7 +3006,7 @@ def PartiallyPeriodicRectangleMesh(
     warnings.warn(
         "'PartiallyPeriodicRectangleMesh' is deprecated. Please use "
         "'PeriodicRectangleMesh' instead, passing 'direction=\"x\"' or "
-        "'direction=\"y\"'."
+        "'direction=\"y\"'.",
         FutureWarning,
     )
 
@@ -3023,7 +3014,7 @@ def PartiallyPeriodicRectangleMesh(
         nx,
         ny,
         Lx,
-        Ly, 
+        Ly,
         direction=direction,
         quadrilateral=quadrilateral,
         reorder=reorder,
