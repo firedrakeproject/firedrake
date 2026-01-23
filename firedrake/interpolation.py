@@ -488,9 +488,9 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(f"The given target function space on domain {self.dest_mesh} "
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
                                      "contains degrees of freedom which cannot cannot be defined in the "
-                                     f"source function space on domain {self.src_mesh}. "
+                                     f"source function space on domain {self.source_mesh}. "
                                      "This may be because the target mesh covers a larger domain than the "
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
 
