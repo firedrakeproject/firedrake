@@ -178,7 +178,7 @@ def transform_packed_cell_closure_dat(
     if packed_dat.dtype == utils.IntType:
         warnings.warn("Int Type dats cannot be transformed using fuse transforms")
     elif transform_in_kernel and transform_out_kernel:
-        orientations = space.mesh().entity_orientations_dat
+        orientations = space.mesh().entity_orientations_dat_no_renum
 
         mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([packed_dat.size, packed_dat.size]), dtype=utils.ScalarType, prefix="trans")
 
@@ -237,8 +237,8 @@ def transform_packed_cell_closure_mat(
     if packed_mat.dtype == utils.IntType:
         warnings.warn("Int Type mats cannot be transformed using fuse transforms")
     elif transform_in_kernel and transform_out_kernel:
-        orientations = row_space.mesh().entity_orientations_dat
-        orientations_c = column_space.mesh().entity_orientations_dat
+        orientations = row_space.mesh().entity_orientations_dat_no_renum
+        orientations_c = column_space.mesh().entity_orientations_dat_no_renum
 
         mat_work_array_row = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.nrows, packed_mat.nrows]), dtype=utils.ScalarType, prefix="trans")
         mat_work_array_col = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.ncols, packed_mat.ncols]), dtype=utils.ScalarType, prefix="trans")
@@ -702,7 +702,7 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 target=lp.CWithGNULibcTarget())
 
         #print_insn = lp.CInstruction(tuple(),
-        #             f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
+        #            f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
         #                 printf(\"initial res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
         #                 printf(\"initial temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});
         #                 printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o[{j}]" for j in range(sum(closures)))});""", assignees=(), read_variables=frozenset([]), id="print")

@@ -2129,14 +2129,29 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations(self):
         entity_orientations = dmcommon.entity_orientations(self, self._fiat_cell_closures)
         import os
-        return entity_orientations
+
         if not bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
-            breakpoint()
+            return entity_orientations
         cell_numbering = self._old_to_new_cell_numbering_is.getIndices()
         res = [[] for i in range(len(cell_numbering))]
         for row,i in zip(entity_orientations, cell_numbering):
             res[i] = row
         return np.array(res)
+
+    @cached_property
+    def entity_orientations_dat_no_renum(self):
+        # Needed in this order for FUSE orientations
+        # FIXME: the following does not work because the labels change
+        cell_axis = self.cells.root
+        # # so instead we do
+        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+
+        # TODO: This is quite a funky way of getting this. We should be able to get
+        # it without calling the map.
+        closure_axis = self.closure(self.cells.iter()).axes.root
+        axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
+        assert axis_tree.local_size == self.entity_orientations.size
+        return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
 
     @cached_property
     def entity_orientations_renum(self):
