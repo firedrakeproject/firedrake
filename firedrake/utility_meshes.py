@@ -1778,7 +1778,7 @@ def PeriodicBoxMesh(
     * 5: plane z == 0
     * 6: plane z == 1
 
-    where periodic surfaces are regarded as interior, for which dS integral is to be used.
+    where periodic surfaces are ignored.
 
     """
     if hexahedral:
@@ -1804,6 +1804,7 @@ def PeriodicBoxMesh(
             permutation_name=permutation_name,
             comm=comm)
     else:
+        # TODO: When hexahedra -> simplex refinement is implemented this can go away.
         if tuple(directions) != (True, True, True):
             raise NotImplementedError("Can only specify directions with hexahedral = True")
         xcoords = np.arange(0.0, Lx, Lx / nx, dtype=np.double)
@@ -1934,8 +1935,6 @@ def PeriodicUnitCubeMesh(
     Notes
     -----
 
-    # FIXME: does labelling the interior facets even make sense?
-
     The boundary surfaces are numbered as follows:
 
     * 1: plane x == 0
@@ -1945,7 +1944,7 @@ def PeriodicUnitCubeMesh(
     * 5: plane z == 0
     * 6: plane z == 1
 
-    where periodic surfaces are regarded as interior, for which dS integral is to be used.
+    where periodic surfaces are ignored.
 
     """
     return PeriodicBoxMesh(
