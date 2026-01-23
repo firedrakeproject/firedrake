@@ -37,7 +37,7 @@ from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
@@ -48,6 +48,7 @@ from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, Fu
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.exceptions import DofNotDefinedError, VertexOnlyMeshMissingPointsError
 
 from mpi4py import MPI
 
@@ -57,7 +58,6 @@ __all__ = (
     "interpolate",
     "Interpolate",
     "get_interpolator",
-    "DofNotDefinedError",
     "InterpolateOptions",
     "Interpolator"
 )
@@ -407,35 +407,6 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
     return expr._interpolator
 
 
-class DofNotDefinedError(Exception):
-    r"""Raised when attempting to interpolate across function spaces where the
-    target function space contains degrees of freedom (i.e. nodes) which cannot
-    be defined in the source function space. This typically occurs when the
-    target mesh covers a larger domain than the source mesh.
-
-    Attributes
-    ----------
-    src_mesh : :func:`.Mesh`
-        The source mesh.
-    dest_mesh : :func:`.Mesh`
-        The destination mesh.
-
-    """
-
-    def __init__(self, src_mesh, dest_mesh):
-        self.src_mesh = src_mesh
-        self.dest_mesh = dest_mesh
-
-    def __str__(self):
-        return (
-            f"The given target function space on domain {repr(self.dest_mesh)} "
-            "contains degrees of freedom which cannot cannot be defined in the "
-            f"source function space on domain {repr(self.src_mesh)}. "
-            "This may be because the target mesh covers a larger domain than the "
-            "source mesh. To disable this error, set allow_missing_dofs=True."
-        )
-
-
 class CrossMeshInterpolator(Interpolator):
     """
     Interpolate a function from one mesh and function space to another.
@@ -517,7 +488,11 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(self.source_mesh, self.target_mesh)
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+                                     "contains degrees of freedom which cannot cannot be defined in the "
+                                     f"source function space on domain {self.source_mesh}. "
+                                     "This may be because the target mesh covers a larger domain than the "
+                                     "source mesh. To disable this error, set allow_missing_dofs=True.")
 
         # Get the correct type of function space
         shape = self.target_space.ufl_function_space().value_shape
