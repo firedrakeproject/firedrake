@@ -89,6 +89,11 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
+# TODO: use these
+_FLAT_MESH_AXIS_LABEL_SUFFIX = "points"
+_STRATIFIED_MESH_AXIS_LABEL_SUFFIX = "strata"
+
+
 # TODO: This should be a constant, this is not a good idea!
 unmarked = -1
 """A mesh marker that selects all entities that are not explicitly marked."""

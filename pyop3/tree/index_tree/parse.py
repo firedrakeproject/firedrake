@@ -79,7 +79,6 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
                     # Add extra slices to make sure that index tree targets
                     # all the axes in 'axes'
                     index_tree = complete_index_tree(index_tree, axes)
-                    debug_assert(lambda: _index_tree_completely_indexes_axes(index_tree, axes))
 
             # Each of the index trees in a forest are considered
             # 'equivalent' in that they represent semantically

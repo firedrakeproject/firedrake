@@ -1,37 +1,10 @@
-# This file is part of PyOP2
-#
-# PyOP2 is Copyright (c) 2012, Imperial College London and
-# others. Please see the AUTHORS file in the main source directory for
-# a full list of copyright holders.  All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-#
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in the
-#       documentation and/or other materials provided with the distribution.
-#     * The name of Imperial College London or that of other
-#       contributors may not be used to endorse or promote products
-#       derived from this software without specific prior written
-#       permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTERS
-# ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-# COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
-# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
-# OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright (c) 2026, Imperial College London and others.
+# Please see the AUTHORS file in the main source directory for
+# a full list of copyright holders. All rights reserved.
 
 """Provides common base classes for cached objects."""
+
+import atexit
 import cachetools
 import contextlib
 import functools
@@ -52,7 +25,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.config import config
-from pyop3.log import debug
+from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
@@ -148,22 +121,6 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
     return comm_caches
 
 
-def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
-    value = cache.get(key, CACHE_MISS)
-
-    if config.debug:
-        message = [f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "]
-        message.append(f"key={key} in cache: '{cache}' ")
-        if value is CACHE_MISS:
-            message.append("miss")
-        else:
-            message.append("hit")
-        message = "".join(message)
-        debug(message)
-
-    return value
-
-
 class _CacheRecord:
     """Object that records cache statistics."""
     def __init__(self, cidx, comm, func, cache):
@@ -248,6 +205,10 @@ def print_cache_stats(*args, **kwargs):
                 stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col))
                 print(f"|{function_title:{col[0]}}|{stats_row:{col[1]}}|")
         print(hline)
+
+
+if config.debug:
+    atexit.register(print_cache_stats)
 
 
 class _CacheMiss:
@@ -381,6 +342,7 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
     return default_hashkey(*hash_args, **hash_kwargs)
 
 
+# TODO: I think a class decorator isn't quite the right way of doing this
 def instrument(cls):
     """ Class decorator for dict-like objects for counting cache hits/misses.
     """
@@ -404,16 +366,33 @@ def instrument(cls):
         def __getitem__(self, key):
             try:
                 value = super().__getitem__(key)
-                self.hit += 1
             except KeyError as e:
                 self.miss += 1
+
+                # debug
+                # if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
+                if self.miss == 100 and self.miss / (self.hit+self.miss) > 0.8:
+                    breakpoint()
+                    LOGGER.warning(
+                        f"Cache '{self}' has recorded 1000 misses at a hit rate of "
+                        "greater than 80%. This indicates a problem with your cache key."
+                    )
+
                 raise e
-            return value
+            else:
+                self.hit += 1
+                return value
     return _wrapper
 
 
+# @instrument
 class DEFAULT_CACHE(dict):
     pass
+
+
+# InstrumentedDict = instrument(dict)
+
+
 
 
 # Example of how to instrument and use different default caches:
@@ -423,8 +402,9 @@ class DEFAULT_CACHE(dict):
 # Turn on cache measurements if printing cache info is enabled
 # FIXME: make a function, not global config
 # if configuration["print_cache_info"]:
-#     DEFAULT_CACHE = instrument(DEFAULT_CACHE)
-#     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
+
+DEFAULT_CACHE = instrument(DEFAULT_CACHE)
+DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
 # TODO: One day should use the compilation comm to do the bcast
@@ -498,7 +478,7 @@ def parallel_cache(
                         _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
                 key = hashkey(*args, **kwargs)
-                value = get_cache_entry(comm, cache, key)
+                value = cache.get(key, CACHE_MISS)
 
                 if isinstance(cache, DictLikeDiskAccess):
                     if bcast:
