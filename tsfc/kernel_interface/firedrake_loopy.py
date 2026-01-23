@@ -2,7 +2,7 @@ import numpy
 from collections import namedtuple, OrderedDict
 
 from ufl import Coefficient, FunctionSpace
-from ufl.domain import MeshSequence
+from ufl.domain import MeshSequence, extract_unique_domain
 
 from finat.ufl import FiniteElement
 
@@ -143,10 +143,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         kernel_arg_type = kernel_args.CellOrientationsKernelArg
         for i, domain in enumerate(domains):
             integral_type = self._domain_integral_type_map[domain]
-            if integral_type is None:
-                # See comment in prepare_coefficient.
-                self._cell_orientations[domain] = (None, None)
-            elif integral_type.startswith("interior_facet"):
+            if integral_type.startswith("interior_facet"):
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (2,), dtype=gem.uint_type)
                 self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),
                                                    gem.Indexed(cell_orientations, (1,))), kernel_arg_type)
@@ -166,10 +163,6 @@ class KernelBuilderBase(_KernelBuilderBase):
         physically mapped elements (Argyris, Bell, etc...).  We need a
         measure of the mesh size around each vertex (hence this lives
         in P1).
-
-        A domain of topological dimension 0 gets a ``(None, None)`` entry:
-        every domain must keep its slot, since the active domain numbers
-        index this dict positionally.
         """
         self._cell_sizes = {}
         for i, domain in enumerate(domains):
@@ -227,6 +220,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.set_entity_numbers(domains)
         self.set_entity_orientations(domains)
 
+    def set_domain_numbers(self, domains):
+        """Number domains in form or expression order."""
+        self._domain_numbers = {domain: i for i, domain in enumerate(domains)}
+
     def set_arguments(self):
         """Process arguments."""
         arguments = self.integral_data_info.arguments
@@ -259,11 +256,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         for i, domain in enumerate(domains):
             fiat_cell = as_fiat_cell(domain.ufl_cell())
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
-            if integral_type is None:
-                # Set placeholder for unused domain.
-                entity_ids = None
-            else:
-                _, entity_ids = lower_integral_type(fiat_cell, integral_type)
+            _, entity_ids = lower_integral_type(fiat_cell, integral_type)
             self._entity_ids[domain] = entity_ids
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
@@ -316,14 +309,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         info = self.integral_data_info
         k = 0
         for n, coeff in enumerate(info.coefficients):
-            if coeff in info.coefficient_split:
-                for i, c in enumerate(info.coefficient_split[coeff]):
-                    self.coefficient_number_index_map[c] = (n, i)
+            for i, c in enumerate(info.coefficient_split.get(coeff, (coeff,))):
+                # Keep coefficient numbering even when this component is unused.
+                self.coefficient_number_index_map[c] = (n, i)
+                if extract_unique_domain(c) in info.domain_integral_type_map:
                     self._coefficient(c, f"w_{k}")
-                    k += 1
-            else:
-                self.coefficient_number_index_map[coeff] = (n, 0)
-                self._coefficient(coeff, f"w_{k}")
                 k += 1
 
     def set_constants(self, constants):
@@ -383,10 +373,9 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         coefficient_indices = OrderedDict()
         for coeff, (number, index) in self.coefficient_number_index_map.items():
             a = coefficient_indices.setdefault(number, [])
-            expr = self.coefficient_map[coeff]
-            if expr is None:
-                # See comment in prepare_coefficient.
+            if coeff not in self.coefficient_map:
                 continue
+            expr = self.coefficient_map[coeff]
             var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
             if var in active_variables:
                 funarg = self.generate_arg_from_expression(expr)
@@ -502,11 +491,9 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         Parameters
         ----------
         domain_expr_dict : dict
-            Map from domains to expressions; must be ordered as extract_domains(form).
+            Map from domains to expressions and kernel argument types.
         active_variables : tuple
             Active variables in the DAG.
-        kernel_arg_type : KernelArg
-            Type of `KernelArg`.
         dtype : numpy.dtype
             dtype.
 
@@ -518,7 +505,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         active_dns = []
         args = []
-        for i, (expr, kernel_arg_type) in enumerate(domain_expr_dict.values()):
+        for domain, (expr, kernel_arg_type) in domain_expr_dict.items():
             if expr is None:
                 continue
 
@@ -526,5 +513,5 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             if var in active_variables:
                 funarg = self.generate_arg_from_expression(expr, dtype=dtype)
                 args.append(kernel_arg_type(funarg))
-                active_dns.append(i)
+                active_dns.append(self._domain_numbers[domain])
         return tuple(active_dns), tuple(args)

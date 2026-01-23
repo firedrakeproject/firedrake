@@ -174,7 +174,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
-        domain_integral_type_map={mesh: integral_data.domain_integral_type_map.get(mesh, None) for mesh in all_meshes},
+        domain_integral_type_map={
+            mesh: integral_data.domain_integral_type_map[mesh]
+            for mesh in all_meshes if mesh in integral_data.domain_integral_type_map
+        },
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
@@ -183,6 +186,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     builder = make_kernel_builder(
         integral_data_info, form_data.constants, parameters, diagonal=diagonal,
     )
+    builder.set_domain_numbers(all_meshes)
     builder.set_coordinates(tuple(integral_data_info.domain_integral_type_map))
     ctx = builder.create_context()
     for integral in integral_data.integrals:
@@ -284,6 +288,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     builder = make_kernel_builder(
         integral_data_info, extract_firedrake_constants(expression), parameters,
     )
+    builder.set_domain_numbers(domains)
     ctx = builder.create_context()
     reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
     builder.stash_integrals(reps, parameters, ctx)
