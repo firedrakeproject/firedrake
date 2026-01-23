@@ -7,12 +7,12 @@ import ctypes
 import functools
 import os
 import sys
-from pyop3.cache import serial_cache
+from pyop3.cache import cached_on, serial_cache
 import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Literal, NoReturn, Tuple
+from typing import Hashable, Literal, NoReturn, Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -314,6 +314,11 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
+# debug
+import weakref
+MYMESHES = weakref.WeakSet()
+
+
 class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -350,6 +355,7 @@ class AbstractMeshTopology(abc.ABC):
 
         """
         op3.cache.register_heavy_cache(self)
+        MYMESHES.add(self)
 
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
@@ -6417,10 +6423,15 @@ class IterationSpec:
         return localized_indices
 
 
-# NOTE: The API is a bit tangled now. The class carries almost all of this information now.
-# NOTE: Using the memory cache isn't quite necessary because we *know* that this only lives on one mesh.
-# use cached_on instead.
-@memory_cache(heavy=True, get_comm=lambda mesh, *args, **kwargs: mesh.comm)
+def _get_iteration_spec_get_obj(mesh, *args, **kwargs):
+    return mesh.topology
+
+
+def _get_iteration_spec_get_key(mesh, *args, **kwargs) -> Hashable:
+    return utils.freeze((args, kwargs))
+
+
+@cached_on(_get_iteration_spec_get_obj, _get_iteration_spec_get_key)
 def get_iteration_spec(
     mesh: MeshGeometry,
     integral_type: str,
@@ -6527,7 +6538,12 @@ def get_iteration_spec(
 
         # NOTE: Should we sort plex indices?
 
-    return IterationSpec(mesh, integral_type, iterset, plex_indices, old_to_new_entity_numbering)
+    # Use a weakref for the mesh here because otherwise we would store a
+    # reference to the mesh in the cache and, since the lifetime of the cache
+    # is tied to the mesh, things will never be cleaned up.
+    mesh_ref = weakref.proxy(mesh)
+
+    return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering)
 
 
 # NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think

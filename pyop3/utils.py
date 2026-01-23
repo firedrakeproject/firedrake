@@ -885,10 +885,10 @@ def dict_stack(dict_, to_push):
 
 
 def _get_method_cache(obj):
-    if not hasattr(obj, "_method_cache"):
+    if not hasattr(obj, "_pyop3_method_cache"):
         # Use object.__setattr__ to get around frozen dataclasses
-        object.__setattr__(obj, "_method_cache", collections.defaultdict(dict))
-    return obj._method_cache
+        object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
+    return obj._pyop3_method_cache
 
 
 def cached_method(*args, **kwargs):

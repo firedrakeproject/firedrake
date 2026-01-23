@@ -25,6 +25,14 @@ class CommNotFoundException(Pyop3Exception):
     pass
 
 
+# {{{ caching
+
+class CacheException(Pyop3Exception):
+    """Error during caching."""
+
+# }}}
+
+
 # {{{ code generation
 
 class CompilationException(Pyop3Exception):

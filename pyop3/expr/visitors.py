@@ -1202,7 +1202,7 @@ class BufferCollector(NodeCollector):
         super().__init__()
 
     @classmethod
-    @memory_cache(heavy=True)
+    # @memory_cache(heavy=True)
     def maybe_singleton(cls, comm) -> Self:
         return cls()
 

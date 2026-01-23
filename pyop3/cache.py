@@ -6,10 +6,13 @@
 
 import atexit
 import cachetools
+import collections
 import contextlib
 import functools
+import gc
 import hashlib
 import os
+import sys
 import pickle
 import weakref
 from collections.abc import Mapping, MutableMapping
@@ -25,6 +28,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.config import config
+from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
@@ -35,19 +39,79 @@ _CACHE_CIDX = count()
 _KNOWN_CACHES = []
 
 
-def cached_on(obj, key=cachetools.keys.hashkey):
+# TODO: This should live in utils.py but there is a (bad) import of pyop3.cache
+# that prohibits this for now.
+class gc_disabled(contextlib.ContextDecorator):
+    """Context manager for temporarily disabling the garbage collector.
+
+    It may also be used as a function decorator.
+
+    """
+
+    def __enter__(self):
+        self._was_enabled = gc.isenabled()
+        gc.disable()
+
+    def __exit__(self, *args, **kwargs):
+        if self._was_enabled:
+            gc.enable()
+
+
+def _get_refcounts(lifetime_objs):
+    return [sys.getrefcount(obj) for obj in lifetime_objs]
+
+
+@gc_disabled()
+def _checked_get_key(cache_type, get_key, lifetime_objs=None):
+    if not lifetime_objs or issubclass(cache_type, weakref.WeakKeyDictionary):
+        return get_key()
+
+    # Check that we are not putting anything in the cache that would
+    # create a reference cycle
+    orig_refcounts = _get_refcounts(lifetime_objs)
+    key = get_key()
+    if _get_refcounts(lifetime_objs) != orig_refcounts:
+        raise CacheException(
+            "Cache key contains a reference to the object that "
+            "is used to define the cache lifetime. This means "
+            "that the cache will never be cleared."
+        )
+    return key
+
+
+@gc_disabled()
+def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
+    if not lifetime_objs or issubclass(cache_type, weakref.WeakValueDictionary):
+        return get_value()
+
+    # Check that we are not putting anything in the cache that would
+    # create a reference cycle
+    orig_refcounts = _get_refcounts(lifetime_objs)
+    value = get_value()
+    if _get_refcounts(lifetime_objs) != orig_refcounts:
+        raise CacheException(
+            "Cache value contains a reference to the object that "
+            "is used to define the cache lifetime. This means "
+            "that the cache will never be cleared."
+        )
+    return value
+
+
+def cached_on(get_obj, get_key=cachetools.keys.hashkey):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            cache = obj(*args, **kwargs)
-            assert isinstance(cache, CacheMixin)
+            obj = get_obj(*args, **kwargs)
+            if not hasattr(obj, "_pyop3_cache"):
+                # Use object.__setattr__ to get around frozen dataclasses
+                object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
+            cache = obj._pyop3_cache[func.__qualname__]
 
-            k = key(*args, **kwargs)
+            key = _checked_get_key(type(cache), lambda: get_key(*args, **kwargs), [obj])
             try:
-                return cache.cache_get(k)
+                return cache[key]
             except KeyError:
-                value = func(*args, **kwargs)
-                cache.cache_set(k, value)
-                return value
+                value = _checked_compute_value(type(cache), lambda: func(*args, **kwargs), [obj])
+                return cache.setdefault(key, value)
         return wrapper
     return decorator
 
@@ -451,36 +515,55 @@ def parallel_cache(
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Create a PyOP2 comm associated with the key, so it is decrefed
-            # when the wrapper exits
-
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
                 if heavy and len(_heavy_caches) == 0:
-                    cache = utils.AlwaysEmptyDict()
+                    caches = (utils.AlwaysEmptyDict(),)
+                    cache_type = utils.AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
-                    # Get the right cache from the comm
                     comm_caches = get_comm_caches(comm)
                     try:
-                        cache = comm_caches[cache_id]
+                        caches, cache_type = comm_caches[cache_id]
                     except KeyError:
-                        cache = make_cache()
                         if heavy:
-                            assert not isinstance(cache, DictLikeDiskAccess), "Disk caches cannot be heavy"
                             # The lifetime of the cache must be tied to the
                             # heavy cache object, so the comm should only hold
                             # a weakref.
+                            caches = []
+                            cache_type = None
                             for heavy_cache in _heavy_caches.values():
+                                cache = make_cache()
+                                if cache_type is None:
+                                    cache_type = type(cache)
                                 heavy_cache[cache_id] = cache
-                            comm_caches[cache_id] = weakref.proxy(cache)
+                                caches.append(weakref.proxy(cache))
+                                _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                            caches = tuple(caches)
+                            assert cache_type is not None
+                            assert not issubclass(cache_type, DictLikeDiskAccess), "Disk caches cannot be heavy"
                         else:
-                            comm_caches[cache_id] = cache
-                        _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                            cache = make_cache()
+                            cache_type = type(cache)
+                            caches = (cache,)
+                            _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
-                key = hashkey(*args, **kwargs)
-                value = cache.get(key, CACHE_MISS)
+                        comm_caches[cache_id] = caches, cache_type
 
-                if isinstance(cache, DictLikeDiskAccess):
+                    if config.debug and heavy:
+                        key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches.keys()))
+                    else:
+                        key = hashkey(*args, **kwargs)
+
+                    for cache in caches:
+                        try:
+                            value = cache[key]
+                            break
+                        except KeyError:
+                            pass
+                    else:
+                        value = CACHE_MISS
+
+                if issubclass(cache_type, DictLikeDiskAccess):
                     if bcast:
                         # Since disk caches share state between ranks there are extra
                         # opportunities for mismatching hit/miss results and hence
@@ -523,9 +606,14 @@ def parallel_cache(
                         value = func(*args, **kwargs) if comm.rank == 0 else None
                         value = comm.bcast(value, root=0)
                     else:
-                        value = func(*args, **kwargs)
+                        if config.debug and heavy:
+                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches.keys()))
+                        else:
+                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))
 
-            return cache.setdefault(key, value)
+                for cache in caches:
+                    cache[key] = value
+                return value
         return wrapper
     return decorator
 
