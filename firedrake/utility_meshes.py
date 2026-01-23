@@ -1,4 +1,6 @@
+import numbers
 import numpy as np
+from typing import Literal
 
 import ufl
 
@@ -13,7 +15,6 @@ from firedrake import (
     assemble,
     interpolate,
     FiniteElement,
-    interval,
     tetrahedron,
     atan2,
     pi,
@@ -23,10 +24,6 @@ from firedrake import (
     gt,
     as_tensor,
     dot,
-    And,
-    Or,
-    sin,
-    cos,
     real
 )
 from firedrake.cython import dmcommon
@@ -34,7 +31,7 @@ from firedrake.mesh import (
     Mesh, DistributedMeshOverlapType, DEFAULT_MESH_NAME,
     plex_from_cell_list, _generate_default_mesh_topology_name,
     _generate_default_mesh_coordinates_name, MeshTopology,
-    make_mesh_from_mesh_topology, RelabeledMesh,
+    make_mesh_from_mesh_topology,
     make_mesh_from_coordinates, ExtrudedMesh
 )
 from firedrake.parameters import parameters
@@ -150,35 +147,22 @@ def IntervalMesh(
         left = length_or_left
 
     if ncells <= 0 or ncells % 1:
-        raise ValueError("Number of cells must be a postive integer")
-    length = right - left
-    if length < 0:
+        raise ValueError("Number of cells must be a positive integer")
+    if right - left < 0:
         raise ValueError("Requested mesh has negative length")
-    dx = length / ncells
-    # This ensures the rightmost point is actually present.
-    coords = np.arange(left, right + 0.01 * dx, dx, dtype=np.double).reshape(-1, 1)
-    cells = np.dstack(
-        (
-            np.arange(0, len(coords) - 1, dtype=np.int32),
-            np.arange(1, len(coords), dtype=np.int32),
-        )
-    ).reshape(-1, 2)
-    plex = plex_from_cell_list(
-        1, cells, coords, comm, _generate_default_mesh_topology_name(name)
-    )
-    # Apply boundary IDs
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
-    coordinates = plex.getCoordinates()
-    coord_sec = plex.getCoordinateSection()
-    vStart, vEnd = plex.getDepthStratum(0)  # vertices
-    for v in range(vStart, vEnd):
-        vcoord = plex.vecGetClosure(coord_sec, coordinates, v)
-        if vcoord[0] == coords[0]:
-            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 1)
-        if vcoord[0] == coords[-1]:
-            plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
-    m = Mesh(
+    plex = PETSc.DMPlex().createBoxMesh(
+        (ncells,),
+        lower=(left,),
+        upper=(right,),
+        simplex=False,
+        periodic=False,
+        interpolate=True,
+        comm=comm
+    )
+    _mark_mesh_boundaries(plex)
+
+    return Mesh(
         plex,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
@@ -187,7 +171,6 @@ def IntervalMesh(
         permutation_name=permutation_name,
         comm=comm,
     )
-    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -219,7 +202,6 @@ def UnitIntervalMesh(
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
-
     return IntervalMesh(
         ncells,
         length_or_left=1.0,
@@ -269,10 +251,7 @@ def PeriodicIntervalMesh(
         sparseLocalize=False,
         comm=comm
     )
-
-    # Create boundary ID label but do not set any values because
-    # there is no boundary to mark
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    _mark_mesh_boundaries(plex)
 
     return Mesh(
         plex,
@@ -619,24 +598,30 @@ def RectangleMesh(
     * 3: plane y == originY
     * 4: plane y == Ly
     """
+    if any(n <= 0 or not isinstance(n, numbers.Integral) for n in {nx, ny}):
+        raise ValueError("Number of cells must be a positive integer")
 
-    for n in (nx, ny):
-        if n <= 0 or n % 1:
-            raise ValueError("Number of cells must be a postive integer")
+    plex = PETSc.DMPlex().createBoxMesh(
+        (nx, ny),
+        lower=(originX, originY),
+        upper=(Lx, Ly),
+        simplex=False,
+        interpolate=True,
+        comm=comm
+    )
+    _mark_mesh_boundaries(plex)
 
-    xcoords = np.linspace(originX, Lx, nx + 1, dtype=np.double)
-    ycoords = np.linspace(originY, Ly, ny + 1, dtype=np.double)
-    return TensorRectangleMesh(
-        xcoords,
-        ycoords,
-        quadrilateral=quadrilateral,
+    if not quadrilateral:
+        plex = _refine_quads_to_triangles(plex, diagonal)
+
+    return Mesh(
+        plex,
         reorder=reorder,
-        diagonal=diagonal,
         distribution_parameters=distribution_parameters,
-        comm=comm,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
+        comm=comm,
     )
 
 
@@ -677,56 +662,23 @@ def TensorRectangleMesh(
     nx = np.size(xcoords) - 1
     ny = np.size(ycoords) - 1
 
-    for n in (nx, ny):
-        if n <= 0:
-            raise ValueError("Number of cells must be a postive integer")
+    if any(n <= 0 for n in {nx, ny}):
+        raise ValueError("Number of cells must be a positive integer")
 
     coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
     # cell vertices
     i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
-    if not quadrilateral and diagonal == "crossed":
-        xs = 0.5 * (xcoords[1:] + xcoords[:-1])
-        ys = 0.5 * (ycoords[1:] + ycoords[:-1])
-        extra = np.asarray(np.meshgrid(xs, ys)).swapaxes(0, 2).reshape(-1, 2)
-        coords = np.vstack([coords, extra])
-        #
-        # 2-----3
-        # | \ / |
-        # |  4  |
-        # | / \ |
-        # 0-----1
-        cells = [
-            i * (ny + 1) + j,
-            i * (ny + 1) + j + 1,
-            (i + 1) * (ny + 1) + j,
-            (i + 1) * (ny + 1) + j + 1,
-            (nx + 1) * (ny + 1) + i * ny + j,
-        ]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 5)
-        idx = [0, 1, 4, 0, 2, 4, 2, 3, 4, 3, 1, 4]
-        cells = cells[:, idx].reshape(-1, 3)
-    else:
-        cells = [
-            i * (ny + 1) + j,
-            i * (ny + 1) + j + 1,
-            (i + 1) * (ny + 1) + j + 1,
-            (i + 1) * (ny + 1) + j,
-        ]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
-        if not quadrilateral:
-            if diagonal == "left":
-                idx = [0, 1, 3, 1, 2, 3]
-            elif diagonal == "right":
-                idx = [0, 1, 2, 0, 2, 3]
-            else:
-                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-            # two cells per cell above...
-            cells = cells[:, idx].reshape(-1, 3)
+    cells = [
+        i * (ny + 1) + j,
+        i * (ny + 1) + j + 1,
+        (i + 1) * (ny + 1) + j + 1,
+        (i + 1) * (ny + 1) + j,
+    ]
+    cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
     plex = plex_from_cell_list(
         2, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
-
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
@@ -751,7 +703,11 @@ def TensorRectangleMesh(
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
-    m = Mesh(
+
+    if not quadrilateral:
+        plex = _refine_quads_to_triangles(plex, diagonal)
+
+    return Mesh(
         plex,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
@@ -760,7 +716,6 @@ def TensorRectangleMesh(
         permutation_name=permutation_name,
         comm=comm,
     )
-    return m
 
 
 @PETSc.Log.EventDecorator()
@@ -932,17 +887,17 @@ def PeriodicRectangleMesh(
             comm=comm,
         )
 
-    if direction not in ("both", "x", "y"):
-        raise ValueError(
-            f"Cannot have a periodic mesh with periodicity 'direction'"
-        )
-
-    if direction == "both":
-        periodic = (True, True)
-    elif direction == "x":
-        periodic = (True, False)
-    else:
-        periodic = (False, True)
+    match direction:
+        case "both":
+            periodic = (True, True)
+        case "x":
+            periodic = (True, False)
+        case "y":
+            periodic = (False, True)
+        case _:
+            raise ValueError(
+                f"Cannot have a periodic mesh with periodicity '{direction}'"
+            )
 
     plex = PETSc.DMPlex().createBoxMesh(
         (nx, ny),
@@ -954,9 +909,9 @@ def PeriodicRectangleMesh(
         sparseLocalize=False,
         comm=comm
     )
-
-    # Add boundary labels
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    _mark_mesh_boundaries(plex)
+    if not quadrilateral:
+        plex = _refine_quads_to_triangles(plex, diagonal)
 
     return Mesh(
         plex,
@@ -967,75 +922,6 @@ def PeriodicRectangleMesh(
         permutation_name=permutation_name,
         comm=comm,
     )
-    if direction != "both":
-        return PartiallyPeriodicRectangleMesh(
-            nx,
-            ny,
-            Lx,
-            Ly,
-            direction=direction,
-            quadrilateral=quadrilateral,
-            reorder=reorder,
-            distribution_parameters=distribution_parameters,
-            diagonal=diagonal,
-            comm=comm,
-            name=name,
-            distribution_name=distribution_name,
-            permutation_name=permutation_name,
-        )
-
-    m = TorusMesh(
-        nx,
-        ny,
-        1.0,
-        0.5,
-        quadrilateral=quadrilateral,
-        reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_no_overlap,
-        comm=comm,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-    )
-    coord_family = "DQ" if quadrilateral else "DG"
-    cell = "quadrilateral" if quadrilateral else "triangle"
-
-    coord_fs = VectorFunctionSpace(
-        m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
-    )
-    new_coordinates = Function(
-        coord_fs, name=_generate_default_mesh_coordinates_name(name)
-    )
-    x, y, z = SpatialCoordinate(m)
-    eps = 1.e-14
-    indicator_y = Function(FunctionSpace(m, coord_family, 0))
-    indicator_y.interpolate(conditional(gt(real(y), 0), 0., 1.))
-    x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
-    x_coord.interpolate(
-        # Periodic break.
-        conditional(And(gt(real(eps), real(abs(y))), gt(real(x), 0.)), indicator_y,
-                    # Unwrap rest of circle.
-                    atan2(real(-y), real(-x))/(2*pi)+0.5)
-    )
-    phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
-    dr = dot(as_vector((x, y))-phi_coord, phi_coord)
-    indicator_z = Function(FunctionSpace(m, coord_family, 0))
-    indicator_z.interpolate(conditional(gt(real(z), 0), 0., 1.))
-    new_coordinates.interpolate(as_vector((
-        x_coord * Lx,
-        # Periodic break.
-        conditional(And(gt(real(eps), real(abs(z))), gt(real(dr), 0.)), indicator_z,
-                    # Unwrap rest of circle.
-                    atan2(real(-z), real(-dr))/(2*pi)+0.5) * Ly
-    )))
-
-    return _postprocess_periodic_mesh(new_coordinates,
-                                      comm,
-                                      distribution_parameters,
-                                      reorder,
-                                      name,
-                                      distribution_name,
-                                      permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -1637,38 +1523,17 @@ def BoxMesh(
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
     if hexahedral:
-        plex = PETSc.DMPlex().createBoxMesh((nx, ny, nz), lower=(0., 0., 0.), upper=(Lx, Ly, Lz), simplex=False, periodic=False, interpolate=True, comm=comm)
-        plex.removeLabel(dmcommon.FACE_SETS_LABEL)
-        nvert = 4  # num. vertices on faect
-
-        # Apply boundary IDs
-        plex.createLabel(dmcommon.FACE_SETS_LABEL)
-        plex.markBoundaryFaces("boundary_faces")
-        coords = plex.getCoordinates()
-        coord_sec = plex.getCoordinateSection()
-        cdim = plex.getCoordinateDim()
-        assert cdim == 3
-        if plex.getStratumSize("boundary_faces", 1) > 0:
-            boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-            xtol = Lx / (2 * nx)
-            ytol = Ly / (2 * ny)
-            ztol = Lz / (2 * nz)
-            for face in boundary_faces:
-                face_coords = plex.vecGetClosure(coord_sec, coords, face)
-                if all([abs(face_coords[0 + cdim * i]) < xtol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
-                if all([abs(face_coords[0 + cdim * i] - Lx) < xtol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
-                if all([abs(face_coords[1 + cdim * i]) < ytol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
-                if all([abs(face_coords[1 + cdim * i] - Ly) < ytol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-                if all([abs(face_coords[2 + cdim * i]) < ztol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 5)
-                if all([abs(face_coords[2 + cdim * i] - Lz) < ztol for i in range(nvert)]):
-                    plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
-        plex.removeLabel("boundary_faces")
-        m = Mesh(
+        plex = PETSc.DMPlex().createBoxMesh(
+            (nx, ny, nz),
+            lower=(0., 0., 0.),
+            upper=(Lx, Ly, Lz),
+            simplex=False,
+            periodic=False,
+            interpolate=True,
+            comm=comm,
+        )
+        _mark_mesh_boundaries(plex)
+        return Mesh(
             plex,
             reorder=reorder,
             distribution_parameters=distribution_parameters,
@@ -1677,7 +1542,6 @@ def BoxMesh(
             permutation_name=permutation_name,
             comm=comm,
         )
-        return m
     else:
         xcoords = np.linspace(0, Lx, nx + 1, dtype=np.double)
         ycoords = np.linspace(0, Ly, ny + 1, dtype=np.double)
@@ -1882,11 +1746,6 @@ def PeriodicBoxMesh(
     where periodic surfaces are regarded as interior, for which dS integral is to be used.
 
     """
-    for n in (nx, ny, nz):
-        if n < 3:
-            raise ValueError(
-                "3D periodic meshes with fewer than 3 cells are not currently supported"
-            )
     if hexahedral:
         if len(directions) != 3:
             raise ValueError(f"directions must have exactly dim (=3) elements : Got {directions}")
@@ -1900,7 +1759,8 @@ def PeriodicBoxMesh(
             sparseLocalize=False,
             comm=comm,
         )
-        m = Mesh(
+        _mark_mesh_boundaries(plex)
+        return Mesh(
             plex,
             reorder=reorder,
             distribution_parameters=distribution_parameters,
@@ -1908,28 +1768,6 @@ def PeriodicBoxMesh(
             distribution_name=distribution_name,
             permutation_name=permutation_name,
             comm=comm)
-        x, y, z = SpatialCoordinate(m)
-        V = FunctionSpace(m, "Q", 2)
-        eps = min([Lx / nx, Ly / ny, Lz / nz]) / 1000.
-        if directions[0]:  # x
-            fx0 = Function(V).interpolate(conditional(Or(x < eps, x > Lx - eps), 1., 0.))
-            fx1 = fx0
-        else:
-            fx0 = Function(V).interpolate(conditional(x < eps, 1., 0.))
-            fx1 = Function(V).interpolate(conditional(x > Lx - eps, 1., 0.))
-        if directions[1]:  # y
-            fy0 = Function(V).interpolate(conditional(Or(y < eps, y > Ly - eps), 1., 0.))
-            fy1 = fy0
-        else:
-            fy0 = Function(V).interpolate(conditional(y < eps, 1., 0.))
-            fy1 = Function(V).interpolate(conditional(y > Ly - eps, 1., 0.))
-        if directions[2]:  # z
-            fz0 = Function(V).interpolate(conditional(Or(z < eps, z > Lz - eps), 1., 0.))
-            fz1 = fz0
-        else:
-            fz0 = Function(V).interpolate(conditional(z < eps, 1., 0.))
-            fz1 = Function(V).interpolate(conditional(z > Lz - eps, 1., 0.))
-        return RelabeledMesh(m, [fx0, fx1, fy0, fy1, fz0, fz1], [1, 2, 3, 4, 5, 6], name=name)
     else:
         if tuple(directions) != (True, True, True):
             raise NotImplementedError("Can only specify directions with hexahedral = True")
@@ -3079,6 +2917,7 @@ def CylinderMesh(
     )
 
 
+# TODO: remove this
 @PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(
     nx,
@@ -3188,3 +3027,85 @@ def PartiallyPeriodicRectangleMesh(
                                       name,
                                       distribution_name,
                                       permutation_name)
+
+
+def _mark_mesh_boundaries(plex: PETSc.DMPlex) -> None:
+    """Reorder the 'Face Sets' label of the DMPlex to match Firedrake ordering."""
+    match plex.getDimension():
+        case 0:
+            plex_to_firedrake_boundary_labels = {}
+        case 1:
+            # Firedrake and DMPlex conventions agree (left is 1, right is 2)
+            plex_to_firedrake_boundary_labels = {1: 1, 2: 2}
+        case 2:
+            #    DMPlex        Firedrake
+            #
+            #       3             4
+            #    +-----+       +-----+
+            #    |     |       |     |
+            #   4|     |2     1|     |2
+            #    |     |       |     |
+            #    +-----+       +-----+
+            #       1             3
+            plex_to_firedrake_boundary_labels = {1: 3, 2: 2, 3: 4, 4: 1}
+        case 3:
+            #          DMPlex              Firedrake
+            #
+            #           +-------+             +-------+
+            #          /       /|            /       /|
+            #         /       / |           /       / |
+            #        /  4/3  /  |          /  4/3  /  |
+            #       /       /   |         /       /   |
+            #      /       /    |        /       /    |
+            #     +-------+ 5/6 +       +-------+ 2/1 +
+            #     |       |    /        |       |    /
+            #     |       |   /         |       |   /
+            #   y |  1/2  |  /  z     y |  5/6  |  /  z
+            #     |       | /           |       | /
+            #     |       |/            |       |/
+            #     +-------+             +-------+
+            #    O    x                O   x
+            #
+            # 'x/y' means that 'x' is the label for the visible face and 'y'
+            # the label for the opposite hidden face.
+            plex_to_firedrake_boundary_labels = {1: 5, 2: 6, 3: 3, 4: 4, 5: 2, 6: 1}
+        case _:
+            raise AssertionError
+
+    # Get the original label
+    plex_boundary_label = plex.getLabel(dmcommon.FACE_SETS_LABEL)
+    plex.removeLabel(dmcommon.FACE_SETS_LABEL)
+
+    # Now create the new one
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    firedrake_boundary_label = plex.getLabel(dmcommon.FACE_SETS_LABEL)
+    for plex_value, firedrake_value in plex_to_firedrake_boundary_labels.items():
+        points = plex_boundary_label.getStratumIS(plex_value)
+        if points:
+            firedrake_boundary_label.setStratumIS(firedrake_value, points)
+        else:
+            # create an empty stratum
+            firedrake_boundary_label.addStratum(firedrake_value)
+
+
+def _refine_quads_to_triangles(
+    plex: PETSc.DMPlex,
+    diagonal: Literal["crossed", "left", "right"],
+) -> PETSc.DMPlex:
+    match diagonal:
+        case "crossed":
+            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
+        case "left":
+            raise NotImplementedError
+        case "right":
+            raise NotImplementedError
+        case _:
+            raise AssertionError(f"'diagonal' type '{diagonal}' is not recognised")
+
+    tr = PETSc.DMPlexTransform().create(comm=plex.comm)
+    tr.setType(transform_type)
+    tr.setDM(plex)
+    tr.setUp()
+    refined_plex = tr.apply(plex)
+    tr.destroy()
+    return refined_plex
