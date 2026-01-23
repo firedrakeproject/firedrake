@@ -1,8 +1,10 @@
 import numbers
 import numpy as np
+import warnings
 from typing import Literal
 
 import ufl
+from mpi4py import MPI
 
 from pyop2.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
@@ -28,7 +30,7 @@ from firedrake import (
 )
 from firedrake.cython import dmcommon
 from firedrake.mesh import (
-    Mesh, DistributedMeshOverlapType, DEFAULT_MESH_NAME,
+    Mesh, DistributedMeshOverlapType, DEFAULT_MESH_NAME, MeshGeometry,
     plex_from_cell_list, _generate_default_mesh_topology_name,
     _generate_default_mesh_coordinates_name, MeshTopology,
     make_mesh_from_mesh_topology,
@@ -827,66 +829,73 @@ def UnitSquareMesh(
 
 @PETSc.Log.EventDecorator()
 def PeriodicRectangleMesh(
-    nx,
-    ny,
-    Lx,
-    Ly,
-    direction="both",
-    quadrilateral=False,
-    reorder=None,
-    distribution_parameters=None,
-    diagonal=None,
-    comm=COMM_WORLD,
-    name=DEFAULT_MESH_NAME,
-    distribution_name=None,
-    permutation_name=None,
-):
-    """Generate a periodic rectangular mesh
+    nx: numbers.Integral,
+    ny: numbers.Integral,
+    Lx: numbers.Real,
+    Ly: numbers.Real,
+    direction: Literal["both", "x", "y"] = "both",
+    quadrilateral: bool = False,
+    reorder: bool | None = None,
+    distribution_parameters: dict | None = None,
+    diagonal: Literal["crossed", "left", "right"] | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
+) -> MeshGeometry:
+    """Generate a periodic rectangular mesh.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg Lx: The extent in the x direction
-    :arg Ly: The extent in the y direction
-    :arg direction: The direction of the periodicity, one of
-        ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
-        Not valid for quad meshes. Only used for direction ``"x"`` or direction ``"y"``.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx :
+        The number of cells in the x direction.
+    ny :
+        The number of cells in the y direction.
+    Lx :
+        The extent in the x direction.
+    Ly :
+        The extent in the y direction.
+    direction :
+        The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
+    quadrilateral :
+        Flag indicating whether to create a quadrilateral mesh.
+    reorder :
+        Flag indicating whether to reorder the mesh.
+    distribution_parameters :
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    diagonal :
+        The refinement strategy used for non-quadrilateral meshes. Must be
+        one of ``"crossed"``, ``"left"``, ``"right"``.
+    comm :
+        Optional communicator to build the mesh on.
+    name :
+        Optional name of the mesh.
+    distribution_name :
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name :
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
 
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
+    Returns
+    -------
+    MeshGeometry :
+        The new mesh.
 
-    * 1: plane y == 0
-    * 2: plane y == Ly
+    Notes
+    -----
 
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == Lx
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
+
     """
-
-    if direction == "both" and ny == 1 and quadrilateral:
-        return OneElementThickMesh(
-            nx,
-            Lx,
-            Ly,
-            distribution_parameters=distribution_parameters,
-            name=name,
-            distribution_name=distribution_name,
-            permutation_name=permutation_name,
-            comm=comm,
-        )
-
     match direction:
         case "both":
             periodic = (True, True)
@@ -926,50 +935,68 @@ def PeriodicRectangleMesh(
 
 @PETSc.Log.EventDecorator()
 def PeriodicSquareMesh(
-    nx,
-    ny,
-    L,
-    direction="both",
-    quadrilateral=False,
-    reorder=None,
-    distribution_parameters=None,
-    diagonal=None,
-    comm=COMM_WORLD,
-    name=DEFAULT_MESH_NAME,
-    distribution_name=None,
-    permutation_name=None,
+    nx: numbers.Integral,
+    ny: numbers.Integral,
+    L: numbers.Real,
+    direction: Literal["both", "x", "y"] = "both",
+    quadrilateral: bool = False,
+    reorder: bool | None = None,
+    distribution_parameters: dict | None = None,
+    diagonal: Literal["crossed", "left", "right"] | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
 ):
-    """Generate a periodic square mesh
+    """Generate a periodic square mesh.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg L: The extent in the x and y directions
-    :arg direction: The direction of the periodicity, one of
-        ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
-        Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx :
+        The number of cells in the x direction.
+    ny :
+        The number of cells in the y direction.
+    L :
+        The extent in the x and y directions.
+    direction :
+        The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
+    quadrilateral :
+        Flag indicating whether to create a quadrilateral mesh.
+    reorder :
+        Flag indicating whether to reorder the mesh.
+    distribution_parameters :
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    diagonal :
+        The refinement strategy used for non-quadrilateral meshes. Must be
+        one of ``"crossed"``, ``"left"``, ``"right"``.
+    comm :
+        Optional communicator to build the mesh on.
+    name :
+        Optional name of the mesh.
+    distribution_name :
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name :
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
 
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
+    Returns
+    -------
+    MeshGeometry :
+        The new mesh.
 
-    * 1: plane y == 0
-    * 2: plane y == L
+    Notes
+    -----
 
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == L
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
     """
     return PeriodicRectangleMesh(
         nx,
@@ -990,48 +1017,65 @@ def PeriodicSquareMesh(
 
 @PETSc.Log.EventDecorator()
 def PeriodicUnitSquareMesh(
-    nx,
-    ny,
-    direction="both",
-    reorder=None,
-    quadrilateral=False,
-    distribution_parameters=None,
-    diagonal=None,
-    comm=COMM_WORLD,
-    name=DEFAULT_MESH_NAME,
-    distribution_name=None,
-    permutation_name=None,
+    nx: numbers.Integral,
+    ny: numbers.Integral,
+    direction: Literal["both", "x", "y"] = "both",
+    quadrilateral: bool = False,
+    reorder: bool | None = None,
+    distribution_parameters: dict | None = None,
+    diagonal: Literal["crossed", "left", "right"] | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
 ):
-    """Generate a periodic unit square mesh
+    """Generate a periodic unit square mesh.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg direction: The direction of the periodicity, one of
-        ``"both"``, ``"x"`` or ``"y"``.
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
-        Not valid for quad meshes.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx :
+        The number of cells in the x direction.
+    ny :
+        The number of cells in the y direction.
+    direction :
+        The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
+    quadrilateral :
+        Flag indicating whether to create a quadrilateral mesh.
+    reorder :
+        Flag indicating whether to reorder the mesh.
+    distribution_parameters :
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    diagonal :
+        The refinement strategy used for non-quadrilateral meshes. Must be
+        one of ``"crossed"``, ``"left"``, ``"right"``.
+    comm :
+        Optional communicator to build the mesh on.
+    name :
+        Optional name of the mesh.
+    distribution_name :
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name :
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
 
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
+    Returns
+    -------
+    MeshGeometry :
+        The new mesh.
 
-    * 1: plane y == 0
-    * 2: plane y == 1
+    Notes
+    -----
 
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
     * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
     """
     return PeriodicSquareMesh(
         nx,
@@ -1898,6 +1942,8 @@ def PeriodicUnitCubeMesh(
 
     Notes
     -----
+
+    # FIXME: does labelling the interior facets even make sense?
 
     The boundary surfaces are numbered as follows:
 
@@ -2917,7 +2963,6 @@ def CylinderMesh(
     )
 
 
-# TODO: remove this
 @PETSc.Log.EventDecorator()
 def PartiallyPeriodicRectangleMesh(
     nx,
@@ -2956,77 +3001,39 @@ def PartiallyPeriodicRectangleMesh(
            when checkpointing; if `None`, the name is automatically
            generated.
 
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
-
-    * 1: plane y == 0
-    * 2: plane y == Ly
-
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == Lx
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
+
     """
-    if direction not in ("x", "y"):
-        raise ValueError("Unsupported periodic direction '%s'" % direction)
+    warnings.warn(
+        "'PartiallyPeriodicRectangleMesh' is deprecated. Please use "
+        "'PeriodicRectangleMesh' instead, passing 'direction=\"x\"' or "
+        "'direction=\"y\"'."
+        FutureWarning,
+    )
 
-    # handle x/y directions: na, La are for the periodic axis
-    na, nb = nx, ny
-    if direction == "y":
-        na, nb = ny, nx
-
-    if na < 3:
-        raise ValueError(
-            "2D periodic meshes with fewer than 3 cells in each direction are not currently supported"
-        )
-
-    m = CylinderMesh(
-        na,
-        nb,
-        1.0,
-        1.0,
-        longitudinal_direction="z",
+    return PeriodicRectangleMesh(
+        nx,
+        ny,
+        Lx,
+        Ly, 
+        direction=direction,
         quadrilateral=quadrilateral,
-        reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_no_overlap,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
         diagonal=diagonal,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
-    coord_family = "DQ" if quadrilateral else "DG"
-    cell = "quadrilateral" if quadrilateral else "triangle"
-    indicator = Function(FunctionSpace(m, coord_family, 0))
-    coord_fs = VectorFunctionSpace(
-        m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
-    )
-    new_coordinates = Function(
-        coord_fs, name=_generate_default_mesh_coordinates_name(name)
-    )
-    x, y, z = SpatialCoordinate(m)
-    eps = 1.e-14
-    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
-    if direction == "x":
-        transform = as_tensor([[Lx, 0.], [0., Ly]])
-    else:
-        transform = as_tensor([[0., Lx], [Ly, 0]])
-    new_coordinates.interpolate(dot(
-        transform,
-        as_vector((
-            conditional(gt(real(x), real(1. - eps)), indicator,  # Periodic break.
-                        # Unwrap rest of circle.
-                        atan2(real(-y), real(-x))/(2 * pi) + 0.5),
-            z
-        ))
-    ))
-
-    return _postprocess_periodic_mesh(new_coordinates,
-                                      comm,
-                                      distribution_parameters,
-                                      reorder,
-                                      name,
-                                      distribution_name,
-                                      permutation_name)
 
 
 def _mark_mesh_boundaries(plex: PETSc.DMPlex) -> None:
