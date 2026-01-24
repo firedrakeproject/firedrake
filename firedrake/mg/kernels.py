@@ -12,6 +12,8 @@ from ufl.algorithms.analysis import extract_arguments, extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.domain import extract_unique_domain
+from ufl.algorithms.analysis import has_type
+from ufl.classes import GeometricQuantity
 
 import loopy as lp
 import pymbolic as pym
@@ -110,10 +112,14 @@ def compile_element(expression, dual_space=None, parameters=None,
         _.update(parameters)
         parameters = _
 
+    # Map into reference values
+    domain = extract_unique_domain(expression)
+    expression = apply_mapping(expression, dual_space.ufl_element(), domain)
     expression = tsfc.ufl_utils.preprocess_expression(expression, complex_mode=complex_mode)
+    expression = simplify_abs(expression, complex_mode)
+    value_shape = expression.ufl_shape
 
-    # # Collect required coefficients
-
+    # Collect required coefficients
     try:
         # Forward interpolation: expression has a coefficient
         arg, = extract_coefficients(expression)
@@ -127,28 +133,23 @@ def compile_element(expression, dual_space=None, parameters=None,
         argument_multiindices = (argument_multiindex, )
         coefficient = False
 
-    # Map into reference values
-    domain = extract_unique_domain(expression)
-    expression = apply_mapping(expression, arg.ufl_element(), domain)
-    value_shape = expression.ufl_shape
-
-    # Get indices for the output tensor
-    if coefficient:
-        tensor_indices = tuple(gem.Index() for s in value_shape)
-    else:
-        if value_shape:
-            tensor_indices = argument_multiindex[-len(value_shape):]
-        else:
-            tensor_indices = ()
-
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
     builder._domain_integral_type_map = {domain: "cell"}
     builder._entity_ids = {domain: (0,)}
+
+    if has_type(expression, GeometricQuantity) or fem.needs_coordinate_mapping(arg.ufl_element()):
+        # Create a fake coordinate coefficient for a domain.
+        coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
+        builder.domain_coordinate[domain] = coords_coefficient
+        builder._coefficient(coords_coefficient, "Xc")
+        builder.set_cell_orientations((domain, ))
+        builder.set_cell_sizes((domain, ))
+
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
-    point = gem.Variable('X', (dim,))
+    point = gem.Variable("X", (dim,))
     point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
@@ -159,42 +160,45 @@ def compile_element(expression, dual_space=None, parameters=None,
                   scalar_type=parameters["scalar_type"])
     context = tsfc.fem.GemPointContext(**config)
 
-    # Abs-simplification
-    expression = simplify_abs(expression, complex_mode)
-
     # Translate UFL -> GEM
     if coefficient:
-        assert dual_space is None
         builder._coefficient(arg, "f")
-        f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[arg])]
-    else:
-        f_arg = []
+    f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[c]) for c in builder.coefficient_map]
     translator = tsfc.fem.Translator(context)
     result, = map_expr_dags(translator, [expression])
 
     b_arg = []
     if coefficient:
-        if expression.ufl_shape:
-            return_variable = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
-            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=expression.ufl_shape)
-            result = gem.Indexed(result, tensor_indices)
+        result_indices = tuple(gem.Index() for s in value_shape)
+        if value_shape:
+            return_variable = gem.Indexed(gem.Variable("R", value_shape), result_indices)
+            result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=value_shape)
+            result = gem.Indexed(result, result_indices)
         else:
-            return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
+            return_variable = gem.Indexed(gem.Variable("R", (1,)), (0,))
             result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=(1,))
-
     else:
-        return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
-        result = gem.Indexed(result, tensor_indices)
-        if dual_space:
-            if value_shape:
-                var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
+        result_indices = argument_multiindex
+        index_shape = finat_elem.index_shape
+        return_variable = gem.Indexed(gem.Variable("R", index_shape), result_indices)
+        result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=index_shape)
+
+        # Get indices for the output tensor
+        rank = len(arg.function_space().shape)
+        offset = len(argument_multiindex) - rank
+        value_indices = argument_multiindex[offset:]
+
+        result_shape = tuple(i.extent for i in value_indices)
+        result = gem.Indexed(result, value_indices)
+        if ufl.duals.is_dual(dual_space):
+            # Scale by the reciprocal of the DoF multiplicity
+            if result_shape:
+                weight = gem.Indexed(gem.Variable("b", result_shape), value_indices)
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
             else:
-                var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
+                weight = gem.Indexed(gem.Variable("b", (1, )), (0, ))
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
-            result = gem.Product(result, var)
-
-        result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=finat_elem.index_shape)
+            result *= weight
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -205,7 +209,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     # Translate GEM -> loopy
     result, = gem.impero_utils.preprocess_gem([result])
-    impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
+    impero_c = gem.impero_utils.compile_gem([(return_variable, result)], result_indices)
 
     loopy_args = [result_arg] + b_arg + f_arg + [point_arg]
     kernel_code, _ = generate_loopy(
@@ -215,7 +219,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     return lp.generate_code_v2(kernel_code).device_code()
 
 
-def prolong_kernel(expression):
+def prolong_kernel(expression, Vf):
     meshc = extract_unique_domain(expression)
     hierarchy, level = utils.get_level(extract_unique_domain(expression))
     levelf = level + Fraction(1, hierarchy.refinements_per_level)
@@ -235,10 +239,11 @@ def prolong_kernel(expression):
         return cache[key]
     except KeyError:
         mesh = extract_unique_domain(coordinates)
-        eval_code = compile_element(expression)
+        eval_code = compile_element(expression, Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
+        needs_coordinates = element.mapping != "affine"
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -285,10 +290,11 @@ def prolong_kernel(expression):
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
-            pyop2_kernel_evaluate(R, coarsei, Xref);
+            pyop2_kernel_evaluate(%(kernel_args)s);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": eval_code,
+               "kernel_args": "R, Xc, coarsei, Xref" if needs_coordinates else "R, coarsei, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": V.block_size,
@@ -320,10 +326,11 @@ def restrict_kernel(Vf, Vc):
     except KeyError:
         assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
         mesh = extract_unique_domain(coordinates)
-        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
+        needs_coordinates = element.mapping != "affine"
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -371,11 +378,12 @@ def restrict_kernel(Vf, Vc):
 
             {
             const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(Ri, b, Xref);
+            pyop2_kernel_evaluate(%(kernel_args)s);
             }
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
+               "kernel_args": "Ri, b, Xc, Xref" if needs_coordinates else "Ri, b, Xref",
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -412,7 +420,7 @@ def inject_kernel(Vf, Vc):
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.mesh().coordinates
-        evaluate_code = compile_element(ufl.Coefficient(Vf))
+        evaluate_code = compile_element(ufl.Coefficient(Vf), Vc.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
         coords_element = create_element(coordinates.ufl_element())

@@ -65,13 +65,13 @@ def prolong(coarse, fine):
             next = fine
             Vf = fine.function_space()
         else:
-            Vf = Vc.reconstruct(mesh=meshes[next_level])
+            Vf = Vf.reconstruct(mesh=meshes[next_level])
             next = firedrake.Function(Vf)
 
         coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-        kernel = kernels.prolong_kernel(coarse)
+        kernel = kernels.prolong_kernel(coarse, Vf)
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
@@ -126,7 +126,7 @@ def restrict(fine_dual, coarse_dual):
             coarse_dual.dat.zero()
             next = coarse_dual
         else:
-            Vc = Vf.reconstruct(mesh=meshes[next_level])
+            Vc = Vc.reconstruct(mesh=meshes[next_level])
             next = firedrake.Cofunction(Vc)
         Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward

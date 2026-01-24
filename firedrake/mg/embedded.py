@@ -2,31 +2,57 @@ import firedrake
 import ufl
 import finat.ufl
 import weakref
+import numpy
+import gem
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
-
+from firedrake.interpolation import interpolate
+from finat.element_factory import create_element
+from finat.quadrature import QuadratureRule
 
 __all__ = ("TransferManager", )
 
 
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement", "Crouzeix-Raviart", "Kong-Mulder-Veldhuizen"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
-                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
-non_native_variants = frozenset(["integral", "fdm", "alfeld"])
-
-
 def get_embedding_element(element, value_shape):
-    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
-    dg_element = get_embedding_dg_element(element, value_shape, broken_cg=broken_cg)
-    variant = element.variant() or "default"
-    family = element.family()
-    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
-    # This yields supermesh projection
-    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
-        dg_element = dg_element.reconstruct(variant="powell-sabin")
-    return dg_element
+    finat_element = create_element(element)
+    try:
+        Q, ps = finat_element.dual_basis
+    except NotImplementedError:
+        # Fail back to DG element
+        return get_embedding_dg_element(element, value_shape)
+
+    if is_lagrange(finat_element):
+        return element
+
+    # Construct a Quadrature element
+    degree = finat_element.degree
+    wts = numpy.full(len(ps.points), numpy.nan)
+    quad_scheme = QuadratureRule(ps, wts, finat_element.cell)
+    element = finat.ufl.FiniteElement("Quadrature", cell=element.cell, degree=degree, quad_scheme=quad_scheme)
+    if value_shape != ():
+        element = finat.ufl.TensorElement(element, shape=value_shape)
+    return element
+
+
+def is_lagrange(finat_element):
+    # TODO replace with finat_element.has_pointwise_dual_basis
+    try:
+        Q, ps = finat_element.dual_basis
+    except NotImplementedError:
+        return False
+    children = [Q]
+    while children:
+        nodes = []
+        for c in children:
+            if isinstance(c, gem.Delta):
+                pass
+            elif isinstance(c, gem.gem.Terminal):
+                return False
+            else:
+                nodes.extend(c.children)
+        children = nodes
+    return True
 
 
 class Op(IntEnum):
@@ -41,7 +67,7 @@ class TransferManager(object):
 
         :arg element: The element to use for the caching."""
         def __init__(self, ufl_element, value_shape):
-            self.embedding_element = get_embedding_dg_element(ufl_element, value_shape)
+            self.embedding_element = get_embedding_element(ufl_element, value_shape)
             self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -75,7 +101,8 @@ class TransferManager(object):
                 return all(self.is_native(e, op) for e in element.factor_elements)
             elif isinstance(element, finat.ufl.MixedElement):
                 return all(self.is_native(e, op) for e in element.sub_elements)
-        return (element.family() in native_families) and not (element.variant() in non_native_variants)
+
+        return (element.family() == get_embedding_element(element, ()).family())
 
     def _native_transfer(self, element, op):
         try:
@@ -238,6 +265,10 @@ class TransferManager(object):
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         self.cache(V)._dat_versions[key] = dat_versions
 
+    def requires_quadrature(self, u):
+        V = u.function_space()
+        return get_embedding_element(V.ufl_element(), V.value_shape).family() == "Quadrature"
+
     @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
@@ -253,12 +284,16 @@ class TransferManager(object):
         if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
-        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
-            self._native_transfer(source_element, transfer_op)(source, target)
+        if self.is_native(target_element, transfer_op):
+            self._native_transfer(target_element, transfer_op)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
+        elif self.requires_quadrature(target):
+            qtarget = self.DG_work(target.function_space())
+            self.op(source, qtarget, transfer_op)
+            target.interpolate(qtarget)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -318,12 +353,16 @@ class TransferManager(object):
         if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
-        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
+        if self.is_native(source_element, Op.RESTRICT):
             self._native_transfer(source_element, Op.RESTRICT)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
+        elif self.requires_quadrature(source):
+            qsource = self.DG_work(source.function_space())
+            qsource.assign(interpolate(qsource.arguments()[0], source))
+            self.restrict(qsource, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()

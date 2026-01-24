@@ -1,5 +1,7 @@
 import pytest
+import numpy
 from firedrake import *
+from firedrake.mg.utils import get_level
 
 
 @pytest.fixture
@@ -32,12 +34,43 @@ def space(request):
 
 @pytest.fixture
 def V(mesh, degree, space):
-    return FunctionSpace(mesh, space, degree, variant="integral")
+    if space == "CG":
+        return VectorFunctionSpace(mesh, space, degree, variant="integral")
+    else:
+        return FunctionSpace(mesh, space, degree, variant="integral")
 
 
 @pytest.fixture(params=["Default", "Exact", "Averaging"])
 def use_averaging(request):
     return request.param
+
+
+@pytest.mark.parametrize("op", ["prolong", "restrict"])
+def test_transfer(op, V):
+
+    def expr(V):
+        x = SpatialCoordinate(V.mesh())
+        return {H1: x, HCurl: perp(x), HDiv: x}[V.ufl_element().sobolev_space]
+
+    mh, _ = get_level(V.mesh())
+    Vf = V
+    Vc = V.reconstruct(mh[-2])
+    transfer = TransferManager()
+
+    if op == "prolong":
+        uf = Function(Vf)
+        uc = Function(Vc)
+        uc.interpolate(expr(Vc))
+        transfer.prolong(uc, uf)
+        assert errornorm(expr(Vf), uf) < 1E-10
+
+    elif op == "restrict":
+        rf = assemble(inner(expr(Vf), TestFunction(Vf))*dx)
+        rc = Function(Vc.dual())
+        transfer.restrict(rf, rc)
+
+        expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
+        assert numpy.allclose(expected.dat.data_ro, rc.dat.data_ro)
 
 
 @pytest.fixture
