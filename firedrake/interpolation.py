@@ -580,7 +580,7 @@ class CrossMeshInterpolator(Interpolator):
         target_space = Q_dest or self.target_space
 
         # self.ufl_interpolate.function_space() is None in the 0-form case
-        f = tensor or Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
+        f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
 
         point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -610,26 +610,27 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
 
-            if into_quadrature_space:
-                cofunc = assemble(interpolate(TestFunction(target_space), self.dual_arg))
-            else:
-                cofunc = self.dual_arg
-
-            assert isinstance(cofunc, Cofunction)
-
-            # Our first adjoint operation is to assign the dat values to a
-            # P0DG cofunction on our input ordering VOM.
-            f_input_ordering = Cofunction(P0DG_vom_input_ordering.dual())
-            f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
-
-            # The rest of the adjoint interpolation is the composition
-            # of the adjoint interpolators in the reverse direction.
-            # We don't worry about skipping over missing points here
-            # because we're going from the input ordering VOM to the original VOM
-            # and all points from the input ordering VOM are in the original.
             def callable() -> Cofunction:
+                if into_quadrature_space:
+                    cofunc = assemble(interpolate(TestFunction(target_space), self.dual_arg))
+                    f_target = Cofunction(point_eval.function_space())
+                else:
+                    cofunc = self.dual_arg
+                    f_target = f
+
+                assert isinstance(cofunc, Cofunction)
+
+                # Our first adjoint operation is to assign the dat values to a
+                # P0DG cofunction on our input ordering VOM.
+                f_input_ordering = Cofunction(P0DG_vom_input_ordering.dual())
+                f_input_ordering.dat.data_wo[:] = cofunc.dat.data_ro[:]
+
+                # The rest of the adjoint interpolation is the composition
+                # of the adjoint interpolators in the reverse direction.
+                # We don't worry about skipping over missing points here
+                # because we're going from the input ordering VOM to the original VOM
+                # and all points from the input ordering VOM are in the original.
                 f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
-                f_target = Cofunction(point_eval.function_space()) if into_quadrature_space else f
                 assemble(action(point_eval, f_src_at_src_node_coords), tensor=f_target)
                 return f_target
         else:
