@@ -97,13 +97,21 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
     return evaluate_template_c % code
 
 
-def compile_element(expression, dual_space=None, parameters=None,
+def compile_element(operand, dual_arg, parameters=None,
                     name="evaluate"):
     """Generate code for point evaluations.
 
-    :arg expression: A UFL expression (may contain up to one coefficient, or one argument)
-    :arg dual_space: if the expression has an argument, should we also distribute residual data?
-    :returns: The generated code (:class:`loopy.TranslationUnit`)
+    Parameters
+    ----------
+    operand: ufl.Expr
+        A primal expression
+    dual_arg: ufl.Coargument | ufl.Cofunctoin
+        A dual argument or coefficient
+
+    Returns
+    -------
+    loopy.TranslationUnit
+        The generated code
     """
     if parameters is None:
         parameters = default_parameters()
@@ -111,9 +119,6 @@ def compile_element(expression, dual_space=None, parameters=None,
         _ = default_parameters()
         _.update(parameters)
         parameters = _
-
-    operand = expression
-    dual_arg = dual_space
 
     # Map into reference values
     domain = extract_unique_domain(operand)
@@ -136,7 +141,8 @@ def compile_element(expression, dual_space=None, parameters=None,
         arg, = extract_arguments(operand)
         builder._coefficient(ufl.Coefficient(arg.ufl_function_space()), "b")
 
-    arguments = ufl.Interpolate(operand, dual_arg).arguments()
+    ufl_interpolate = ufl.Interpolate(operand, dual_arg)
+    arguments = ufl_interpolate.arguments()
     argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
                              for arg in arguments}
 
@@ -154,20 +160,20 @@ def compile_element(expression, dual_space=None, parameters=None,
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
+
     point_expr = gem.Variable("X", (1, dim))
     point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(1, dim))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[0.0])
 
-    config = dict(interface=builder,
-                  ufl_cell=cell,
-                  integration_dim=dim,
-                  argument_multiindices=argument_multiindices,
-                  scalar_type=parameters["scalar_type"])
-
-    ps = UnknownPointSet(point_expr)
-    rule = QuadratureRule(ps, weights=[0.0])
     to_element = finat.QuadratureElement(as_fiat_cell(cell), rule)
     if value_shape:
         to_element = finat.TensorFiniteElement(to_element, value_shape)
+
+    config = dict(interface=builder,
+                  ufl_cell=cell,
+                  argument_multiindices=argument_multiindices,
+                  scalar_type=parameters["scalar_type"])
 
     # Create callable for translation of UFL expression to gem
     fn = DualEvaluationCallable(operand, config)
@@ -186,7 +192,7 @@ def compile_element(expression, dual_space=None, parameters=None,
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
         basis_indices = ()
     else:
-        argument_multiindices[0] = basis_indices
+        argument_multiindices[dual_arg.number()] = basis_indices
 
     argument_multiindices = dict(sorted(argument_multiindices.items()))
 
@@ -236,11 +242,11 @@ def prolong_kernel(expression, Vf):
         return cache[key]
     except KeyError:
         mesh = extract_unique_domain(coordinates)
-        eval_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
+        evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
-        needs_coordinates = element.mapping != "affine"
+        needs_coordinates = V.finat_element.mapping != "affine"
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -283,15 +289,15 @@ def prolong_kernel(expression, Vf):
                     abort();
                 }
             }
-            const PetscScalar *coarsei = f + cell*%(coarse_cell_inc)d;
+            const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
             pyop2_kernel_evaluate(%(kernel_args)s);
         }
         """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": eval_code,
-               "kernel_args": "R, coarsei, Xc, Xref" if needs_coordinates else "R, coarsei, Xref",
+               "evaluate": evaluate_code,
+               "kernel_args": "R, fi, Xc, Xref" if needs_coordinates else "R, fi, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "Rdim": V.block_size,
@@ -417,8 +423,9 @@ def inject_kernel(Vf, Vc):
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.mesh().coordinates
-        evaluate_code = compile_element(ufl.Coefficient(Vf), Vc.dual())
+        evaluate_code = compile_element(ufl.Coefficient(Vf), ufl.TestFunction(Vf.dual()))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        needs_coordinates = Vf.finat_element.mapping != "affine"
 
         coords_element = create_element(coordinates.ufl_element())
         Vf_element = create_element(Vf.ufl_element())
@@ -467,11 +474,12 @@ def inject_kernel(Vf, Vc):
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
-            pyop2_kernel_evaluate(R, fi, Xref);
+            pyop2_kernel_evaluate(%(kernel_args)s);
         }
         """ % {
             "to_reference": str(to_reference_kernel),
             "evaluate": evaluate_code,
+            "kernel_args": "R, fi, Xf, Xref" if needs_coordinates else "R, fi, Xref",
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),

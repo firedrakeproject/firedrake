@@ -27,7 +27,7 @@ def degree(request):
     return request.param
 
 
-@pytest.fixture(params=["RT", "N1curl", "CG"])
+@pytest.fixture(params=["CG", "N1curl", "RT"])
 def space(request):
     return request.param
 
@@ -45,7 +45,7 @@ def use_averaging(request):
     return request.param
 
 
-@pytest.mark.parametrize("op", ["prolong", "restrict"])
+@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
 def test_transfer(op, V):
 
     def expr(V):
@@ -71,6 +71,13 @@ def test_transfer(op, V):
 
         expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
         assert numpy.allclose(expected.dat.data_ro, rc.dat.data_ro)
+
+    elif op == "inject":
+        uf = Function(Vf)
+        uc = Function(Vc)
+        uf.interpolate(expr(Vf))
+        transfer.inject(uf, uc)
+        assert errornorm(expr(Vc), uc) < 1E-10
 
 
 @pytest.fixture

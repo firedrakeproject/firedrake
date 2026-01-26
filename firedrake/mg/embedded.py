@@ -94,7 +94,7 @@ class TransferManager(object):
         self.caches = {}
 
     def is_native(self, element, op):
-        if element in self.native_transfers.keys():
+        if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
         if isinstance(element.cell, ufl.TensorProductCell):
             if isinstance(element, finat.ufl.TensorProductElement):
