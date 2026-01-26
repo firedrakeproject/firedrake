@@ -254,14 +254,12 @@ def test_mg_jacobi(amh, atm):  # pylint: disable=W0621
     """
     Test multigrid with jacobi smoothers
     """
-    V_J = FunctionSpace(amh[-1], "CG", 1)
+    V = FunctionSpace(amh[-1], "CG", 1)
     x = SpatialCoordinate(amh[-1])
-    u_ex = Function(V_J, name="u_fine_real").interpolate(
-        sin(2 * pi * x[0]) * sin(2 * pi * x[1])
-    )
-    u = Function(V_J)
-    v = TestFunction(V_J)
-    bc = DirichletBC(V_J, u_ex, "on_boundary")
+    u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, u_ex, "on_boundary")
     F = inner(grad(u - u_ex), grad(v)) * dx
 
     params = {
@@ -305,10 +303,9 @@ def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
                 "pc_type": "jacobi",
             },
             "mg_coarse": {
+                "mat_type": "aij",
                 "ksp_type": "preonly",
-                "pc_type": "python",
-                "pc_python_type": "firedrake.AssembledPC",
-                "assembled": {"ksp_type": "preonly", "pc_type": "lu"},
+                "pc_type": "lu",
             },
         }
     elif params == "patch":
@@ -335,10 +332,9 @@ def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
                 },
             },
             "mg_coarse": {
+                "mat_type": "aij",
                 "ksp_type": "preonly",
-                "pc_type": "python",
-                "pc_python_type": "firedrake.AssembledPC",
-                "assembled": {"ksp_type": "preonly", "pc_type": "lu"},
+                "pc_type": "lu",
             },
         }
     else:
@@ -356,14 +352,12 @@ def test_mg_patch(amh, atm, params):  # pylint: disable=W0621
             "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
         }
 
-    V_J = FunctionSpace(amh[-1], "CG", 1)
+    V = FunctionSpace(amh[-1], "CG", 1)
     x = SpatialCoordinate(amh[-1])
-    u_ex = Function(V_J, name="u_fine_real").interpolate(
-        sin(2 * pi * x[0]) * sin(2 * pi * x[1])
-    )
-    u = Function(V_J)
-    v = TestFunction(V_J)
-    bc = DirichletBC(V_J, u_ex, "on_boundary")
+    u_ex = Function(V).interpolate(sin(2 * pi * x[0]) * sin(2 * pi * x[1]))
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, u_ex, "on_boundary")
     F = inner(grad(u - u_ex), grad(v)) * dx
 
     problem = NonlinearVariationalProblem(F, u, bc)
