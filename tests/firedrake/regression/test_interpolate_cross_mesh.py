@@ -1,10 +1,10 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
+from firedrake.mesh import plex_from_cell_list, Mesh
 import numpy as np
 import pytest
 from ufl import product
-import subprocess
 
 
 def allgather(comm, coords):
@@ -606,8 +606,8 @@ def test_line_integral():
     # Create a 1D line mesh in 2D from (0, 0) to (1, 1) with 1 cell
     cells = np.asarray([[0, 1]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line)
     V_line = FunctionSpace(line, "CG", 2)
     f_line = Function(V_line).interpolate(x * y)
@@ -616,8 +616,8 @@ def test_line_integral():
     # Create a 1D line around the unit square (2D) with 4 cells
     cells = np.asarray([[0, 1], [1, 2], [2, 3], [3, 0]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line_square = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line_square = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line_square)
     V_line_square = FunctionSpace(line_square, "CG", 2)
     f_line_square = Function(V_line_square).interpolate(x * y)

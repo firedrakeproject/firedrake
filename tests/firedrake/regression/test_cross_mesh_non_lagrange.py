@@ -17,9 +17,10 @@ def fs_shape(V):
         raise ValueError("Invalid function space shape")
     return fs_type
 
+
 def make_quadrature_space(V):
     """Builds a quadrature space on the target mesh.
-    
+
     This space has point evaluation dofs at the quadrature PointSet
     of the target space's element
 
@@ -33,17 +34,15 @@ def make_quadrature_space(V):
 
 
 @pytest.fixture(params=[("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
-                        ("BDFM", 2), ("HHJ", 2),("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
+                        ("BDFM", 2), ("HHJ", 2), ("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
                         ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 2), ("GLS", 3),
                         ("GLS", 4), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
-                        ids=lambda x: f"{x[0]}_{x[1]}")
+                ids=lambda x: f"{x[0]}_{x[1]}")
 def V(request):
     element, degree = request.param
     mesh = UnitSquareMesh(8, 8)
     return FunctionSpace(mesh, element, degree)
 
-# V_source -> Q -> V_target
-# V_target^* -> Q^* -> V_source^*
 
 def test_cross_mesh_oneform(V):
     mesh1 = UnitSquareMesh(5, 5)
@@ -62,21 +61,11 @@ def test_cross_mesh_oneform(V):
         expr2 = as_tensor([[x1, x1*y1], [x1*y1, y1]])
     else:
         raise ValueError("Unsupported target space shape")
-    
+
     V_source = fs_type(mesh1, "CG", 2)
     f_source = Function(V_source).interpolate(expr1)
 
-    # Make intermediate Quadrature space on target mesh
-    Q_target = make_quadrature_space(V)
-
-    # Interp V_source -> Q
-    I1 = interpolate(f_source, Q_target)  # CrossMeshInterpolator
-    f_quadrature = assemble(I1)
-
-    # Interp Q -> V_target
-    I2 = interpolate(f_quadrature, V)  # SameMeshInterpolator
-    f_target = assemble(I2)
-
+    f_target = assemble(interpolate(f_source, V))
     f_direct = Function(V).interpolate(expr2)
 
     assert np.allclose(f_target.dat.data_ro, f_direct.dat.data_ro)
@@ -99,23 +88,16 @@ def test_cross_mesh_twoform(V):
         expr2 = as_tensor([[x1, x1*y1], [x1*y1, y1]])
     else:
         raise ValueError("Unsupported target space shape")
-    
+
     V_source = fs_type(mesh1, "CG", 2)
-    Q_target = make_quadrature_space(V)
 
-    I1 = interpolate(TrialFunction(V_source), Q_target)  # V_source x Q_target^* -> R
-    I2 = interpolate(TrialFunction(Q_target), V)  # Q_target x V^* -> R
-
-    I = assemble(action(I2, I1))  # V_source x V^* -> R
-
-    I_direct = assemble(interpolate(TrialFunction(V_source), V))  # V_source x V^* -> R
+    I = assemble(interpolate(TrialFunction(V_source), V))  # V_source x V^* -> R
 
     f_source = Function(V_source).interpolate(expr1)
     f_direct = Function(V).interpolate(expr2)
 
-    f_interpolated = assemble(action(I_direct, f_source))
+    f_interpolated = assemble(action(I, f_source))
     assert np.allclose(f_interpolated.dat.data_ro, f_direct.dat.data_ro)
-
 
 
 def test_cross_mesh_oneform_adjoint(V):
@@ -140,17 +122,17 @@ def test_cross_mesh_oneform_adjoint(V):
 
     oneform_V = inner(expr, TestFunction(V)) * dx
 
-    Q_target = make_quadrature_space(V)
+    # Q_target = make_quadrature_space(V)
 
-    # Interp V^* -> Q^*
-    I1_adj = interpolate(TestFunction(Q_target), oneform_V)
-    cofunc_Q = assemble(I1_adj)
+    # # Interp V^* -> Q^*
+    # I1_adj = interpolate(TestFunction(Q_target), oneform_V)  # SameMesh
+    # cofunc_Q = assemble(I1_adj)
 
-    # Interp Q^* -> V_target^*
-    I2_adj = interpolate(TestFunction(V_target), cofunc_Q)
-    cofunc_V = assemble(I2_adj)
+    # # Interp Q^* -> V_target^*
+    # I2_adj = interpolate(TestFunction(V_target), cofunc_Q)  # CrossMesh
+    # cofunc_V = assemble(I2_adj)
 
-    # cofunc_V = assemble(interpolate(TestFunction(V_target), oneform_target))  # V^* -> V_target^*
+    cofunc_V = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
 
     cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
     assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
@@ -176,22 +158,14 @@ def test_cross_mesh_twoform_adjoint(V):
 
     oneform_V = inner(expr, TestFunction(V)) * dx
 
-    Q = make_quadrature_space(V)
-
-    I1 = interpolate(TestFunction(Q), V)  # V^* x Q -> R
-    I2 = interpolate(TestFunction(V_target), Q)  # Q^* x V_target -> R
-    I = assemble(action(I2, I1))  # V^* x V_target -> R
+    I = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
     assert I.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
 
-    I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
-    assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
-
-    cofunc_V = assemble(action(I_direct, oneform_V))
+    cofunc_V = assemble(action(I, oneform_V))
     cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
 
     assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
 
 
-
 if __name__ == "__main__":
-    pytest.main([__file__ + "::test_cross_mesh_twoform_adjoint[RT_2]"])
+    pytest.main([__file__ + "::test_cross_mesh_oneform_adjoint[RT_2]"])
