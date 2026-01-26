@@ -16,9 +16,9 @@ def allgather(comm, coords):
     return coords
 
 
-def unitsquaresetup():
+def unitsquaresetup(dest_quad=True):
     m_src = UnitSquareMesh(2, 3)
-    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
+    m_dest = UnitSquareMesh(3, 5, quadrilateral=dest_quad)
     coords = np.array(
         [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
     )  # fairly arbitrary
@@ -39,7 +39,7 @@ def make_high_order(m_low_order, degree):
 
 @pytest.fixture(
     params=[
-        "unitsquare",
+        "unitsquare_RT_N1curl_destination",
         "circlemanifold",
         "circlemanifold_to_high_order",
         "unitsquare_from_high_order",
@@ -48,7 +48,7 @@ def make_high_order(m_low_order, degree):
         "unitsquare_vfs",
         "unitsquare_tfs",
         "unitsquare_N1curl_source",
-        "unitsquare_SminusDiv_destination",
+        "unitsquare_RT_N1curl_destination",
         "unitsquare_Regge_source",
         # This test fails in complex mode
         pytest.param("spheresphere", marks=pytest.mark.skipcomplex),
@@ -180,14 +180,14 @@ def parameters(request):
         V_src = FunctionSpace(m_src, "N1curl", 2)  # Not point evaluation nodes
         V_dest = VectorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = VectorFunctionSpace(m_dest, "DQ", 2)
-    elif request.param == "unitsquare_SminusDiv_destination":
-        m_src, m_dest, coords = unitsquaresetup()
+    elif request.param == "unitsquare_RT_N1curl_destination":
+        m_src, m_dest, coords = unitsquaresetup(dest_quad=False)
         expr_src = 2 * SpatialCoordinate(m_src)
         expr_dest = 2 * SpatialCoordinate(m_dest)
         expected = 2 * coords
         V_src = VectorFunctionSpace(m_src, "CG", 2)
         V_dest = FunctionSpace(m_dest, "RT", 2)  # Not point evaluation nodes
-        V_dest_2 = FunctionSpace(m_dest, "N1Curl", 2)  # Not point evaluation nodes
+        V_dest_2 = FunctionSpace(m_dest, "N1curl", 2)  # Not point evaluation nodes
     elif request.param == "unitsquare_Regge_source":
         m_src, m_dest, coords = unitsquaresetup()
         expr_src = outer(SpatialCoordinate(m_src), SpatialCoordinate(m_src))

@@ -577,8 +577,12 @@ class CrossMeshInterpolator(Interpolator):
             Q_dest = None
         target_space = Q_dest or self.target_space
 
-        # self.ufl_interpolate.function_space() is None in the 0-form case
-        f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
+        if into_quadrature_space and not self.ufl_interpolate.is_adjoint:
+            f = Function(target_space)
+        else:
+            # self.ufl_interpolate.function_space() is None in the 0-form case
+            f = Function(self.ufl_interpolate.function_space() or target_space)
+        # f = tensor or Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
 
         point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
