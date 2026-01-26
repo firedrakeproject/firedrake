@@ -3,7 +3,6 @@ This module contains the class for the AdaptiveMeshHierarchy and
 related helper functions
 """
 
-from fractions import Fraction
 from collections import defaultdict
 
 from firedrake.cofunction import Cofunction
@@ -19,23 +18,18 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     HierarchyBase for hierarchies of adaptively refined meshes
     """
     def __init__(self, base_mesh, refinements_per_level=1, nested=True):
-        self.meshes = (base_mesh,)
-        self._meshes = (base_mesh,)
-        self.submesh_hierarchies = []
-        self.coarse_to_fine_cells = {}
-        self.fine_to_coarse_cells = {}
-        self.fine_to_coarse_cells[Fraction(0, 1)] = None
+        self.meshes = []
+        self._meshes = []
         self.refinements_per_level = refinements_per_level
         self.nested = nested
-        set_level(base_mesh, self, 0)
-        self.split_cache = {}
+        self.add_mesh(base_mesh)
 
     def add_mesh(self, mesh):
         """
         Adds newly refined mesh into hierarchy.
         """
-        self._meshes += (mesh,)
-        self.meshes += (mesh,)
+        self._meshes.append(mesh)
+        self.meshes.append(mesh)
         level = len(self.meshes)
         set_level(self.meshes[-1], self, level - 1)
         self._shared_data_cache = defaultdict(dict)
