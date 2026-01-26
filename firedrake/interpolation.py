@@ -475,7 +475,7 @@ class CrossMeshInterpolator(Interpolator):
             A callable which returns a :class:`.WithGeometry` matching the type of V.
         """
         # Get the correct type of function space
-        shape = V.ufl_function_space().value_shape
+        shape = V.value_shape
         if len(shape) == 0:
             return FunctionSpace
         elif len(shape) == 1:
@@ -485,7 +485,7 @@ class CrossMeshInterpolator(Interpolator):
             return partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
     def _get_quadrature_space(self, V: WithGeometry) -> WithGeometry:
-        """Return a FunctionSpace whose element is a quadrature element with 
+        """Return a FunctionSpace whose element is a quadrature element with
         points at the quadrature points of V's element.
 
         Used as an intermediate space for interpolating into a space which doesn't
@@ -500,13 +500,12 @@ class CrossMeshInterpolator(Interpolator):
         -------
         WithGeometry
             A :class:`.WithGeometry` function space with quadrature element.
-        """  
+        """
         V_element = V.finat_element
         _, points = V_element.dual_basis
         weights = numpy.full(len(points.points), numpy.nan)  # These can be any number since we never integrate
         quad_scheme = QuadratureRule(points, weights, ref_el=V_element.cell)
-        element = FiniteElement("Quadrature", degree=V_element.degree, quad_scheme=quad_scheme)
-        return self._fs_type(V)(V.mesh(), element)
+        return self._fs_type(V)(V.mesh(), "Quadrature", degree=V_element.degree, quad_scheme=quad_scheme)
 
     def _get_symbolic_expressions(self, target_space: WithGeometry) -> tuple[Interpolate, Interpolate]:
         """Return symbolic ``Interpolate`` expressions for point evaluation of the `target_space`s
@@ -553,16 +552,6 @@ class CrossMeshInterpolator(Interpolator):
                                      "This may be because the target mesh covers a larger domain than the "
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
 
-        # Get the correct type of function space
-        shape = self.target_space.ufl_function_space().value_shape
-        if len(shape) == 0:
-            fs_type = FunctionSpace
-        elif len(shape) == 1:
-            fs_type = partial(VectorFunctionSpace, dim=shape[0])
-        else:
-            symmetry = self.target_space.ufl_element().symmetry()
-            fs_type = partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
-
         # Get expression for point evaluation at the dest_node_coords
         fs_type = self._fs_type(target_space)
         P0DG_vom = fs_type(vom, "DG", 0)
@@ -581,17 +570,15 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
-        # self.ufl_interpolate.function_space() is None in the 0-form case
-        V_dest = self.ufl_interpolate.function_space() or self.target_space
-        f = tensor or Function(V_dest)
-
         # Interpolate into intermediate quadrature space for non-identity mapped elements
         if into_quadrature_space := self.target_space.ufl_element().mapping() != "identity":
             Q_dest = self._get_quadrature_space(self.target_space)
         else:
             Q_dest = None
         target_space = Q_dest or self.target_space
-        
+
+        # self.ufl_interpolate.function_space() is None in the 0-form case
+        f = tensor or Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
 
         point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -620,8 +607,12 @@ class CrossMeshInterpolator(Interpolator):
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
-            # f_src is a cofunction on V_dest.dual
-            cofunc = self.dual_arg
+
+            if into_quadrature_space:
+                cofunc = assemble(interpolate(TestFunction(target_space), self.dual_arg))
+            else:
+                cofunc = self.dual_arg
+
             assert isinstance(cofunc, Cofunction)
 
             # Our first adjoint operation is to assign the dat values to a
@@ -636,8 +627,9 @@ class CrossMeshInterpolator(Interpolator):
             # and all points from the input ordering VOM are in the original.
             def callable() -> Cofunction:
                 f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
-                assemble(action(point_eval, f_src_at_src_node_coords), tensor=f)
-                return f
+                f_target = Cofunction(point_eval.function_space()) if into_quadrature_space else f
+                assemble(action(point_eval, f_src_at_src_node_coords), tensor=f_target)
+                return f_target
         else:
             assert self.rank in {0, 1}
             # We create the input-ordering Function before interpolating so we can
@@ -661,12 +653,18 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
 
+                if into_quadrature_space:
+                    f_target = Function(self.target_space)
+                    assemble(interpolate(f, self.target_space), tensor=f_target)
+                else:
+                    f_target = f
+
                 if self.rank == 0:
                     # We take the action of the dual_arg on the interpolated function
                     assert isinstance(self.dual_arg, Cofunction)
-                    return assemble(action(self.dual_arg, f))
+                    return assemble(action(self.dual_arg, f_target))
                 else:
-                    return f
+                    return f_target
         return callable
 
     @property

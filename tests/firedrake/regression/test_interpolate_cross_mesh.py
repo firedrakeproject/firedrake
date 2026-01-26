@@ -6,7 +6,6 @@ from firedrake.formmanipulation import split_form
 import numpy as np
 import pytest
 from ufl import product
-import subprocess
 
 
 def allgather(comm, coords):
