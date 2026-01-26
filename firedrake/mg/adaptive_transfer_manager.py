@@ -21,6 +21,8 @@ class AdaptiveTransferManager(TransferManager):
     TransferManager for adaptively refined mesh hierarchies
     """
     def __init__(self, *, native_transfers=None, use_averaging=True):
+        if native_transfers is not None:
+            raise NotImplementedError("Custom transfers not implemented.")
         super().__init__(native_transfers=native_transfers, use_averaging=use_averaging)
         self.cache = {}
 

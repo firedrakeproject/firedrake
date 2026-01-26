@@ -1,10 +1,4 @@
-"""
-This module contains the class for the AdaptiveMeshHierarchy and
-related helper functions
-"""
-
-from collections import defaultdict
-
+from firedrake.mesh import MeshGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mg import HierarchyBase
@@ -15,29 +9,41 @@ __all__ = ["AdaptiveMeshHierarchy"]
 
 class AdaptiveMeshHierarchy(HierarchyBase):
     """
-    HierarchyBase for hierarchies of adaptively refined meshes
+    HierarchyBase for hierarchies of adaptively refined meshes.
+
+    Parameters
+    ----------
+    base_mesh
+        The coarsest mesh in the hierarchy.
+    nested: bool
+        A flag to indicate whether the meshes are nested.
+
     """
-    def __init__(self, base_mesh, refinements_per_level=1, nested=True):
+    def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
         self.meshes = []
         self._meshes = []
-        self.refinements_per_level = refinements_per_level
         self.nested = nested
         self.add_mesh(base_mesh)
 
-    def add_mesh(self, mesh):
+    def add_mesh(self, mesh: MeshGeometry):
         """
-        Adds newly refined mesh into hierarchy.
+        Adds a mesh into the hierarchy.
+
+        Parameters
+        ----------
+        mesh
+            The mesh to be added to the finest level.
         """
+        level = len(self.meshes)
         self._meshes.append(mesh)
         self.meshes.append(mesh)
-        level = len(self.meshes)
-        set_level(self.meshes[-1], self, level - 1)
-        self._shared_data_cache = defaultdict(dict)
+        set_level(mesh, self, level)
 
     def adapt(self, eta: Function | Cofunction, theta: float):
         """
-        Add a refinement level to the hierarchy by local refinement
-        with a simplified variant of Dorfler marking.
+        Adds a new mesh to the hierarchy by locally refining the finest mesh
+        with a simplified variant of Dorfler marking. The finest mesh must
+        come from a netgen mesh.
 
         Parameters
         ----------
@@ -65,8 +71,8 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             raise ValueError("eta must be defined on the finest mesh of the hierarchy")
 
         # Take the maximum over all processes
-        with eta.dat.vec_ro as eta_:
-            eta_max = eta_.max()[1]
+        with eta.dat.vec_ro as evec:
+            _, eta_max = evec.max()
 
         threshold = theta * eta_max
         should_refine = eta.dat.data_ro > threshold
