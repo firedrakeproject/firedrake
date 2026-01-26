@@ -122,20 +122,21 @@ def test_cross_mesh_oneform_adjoint(V):
 
     oneform_V = inner(expr, TestFunction(V)) * dx
 
-    # Q_target = make_quadrature_space(V)
+    Q_target = make_quadrature_space(V)
 
-    # # Interp V^* -> Q^*
-    # I1_adj = interpolate(TestFunction(Q_target), oneform_V)  # SameMesh
-    # cofunc_Q = assemble(I1_adj)
+    # Interp V^* -> Q^*
+    I1_adj = interpolate(TestFunction(Q_target), oneform_V)  # SameMesh
+    cofunc_Q = assemble(I1_adj)
 
-    # # Interp Q^* -> V_target^*
-    # I2_adj = interpolate(TestFunction(V_target), cofunc_Q)  # CrossMesh
-    # cofunc_V = assemble(I2_adj)
+    # Interp Q^* -> V_target^*
+    I2_adj = interpolate(TestFunction(V_target), cofunc_Q)  # CrossMesh
+    cofunc_Vtarget_manual = assemble(I2_adj)
 
-    cofunc_V = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
+    cofunc_Vtarget = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
+    assert np.allclose(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget.dat.data_ro)
 
-    cofunc_V_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
-    assert np.allclose(cofunc_V.dat.data_ro, cofunc_V_direct.dat.data_ro)
+    cofunc_Vtarget_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
+    assert np.allclose(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
 
 
 def test_cross_mesh_twoform_adjoint(V):
