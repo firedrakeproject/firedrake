@@ -349,9 +349,10 @@ class Assigner:
         except op3.FancyIndexWriteException:
             # convert rvalue into an expression pyop3 understands
             if isinstance(rvalue, numbers.Number):
-                pass
+                lhs_dat.assign(rvalue, eager=True)
             elif rvalue.size == 1:
                 rvalue = rvalue.item()
+                lhs_dat.assign(rvalue, eager=True)
             else:
                 assert not assign_to_halos  # really nasty, sizes are slightly different...
                 if rvalue.size == lhs_dat.axes.owned.local_size:
@@ -365,13 +366,11 @@ class Assigner:
                     expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
                 rvalue = op3.Dat(expr_axes, data=rvalue)
 
-            # instead of:
-            # lhs_dat.assign(rvalue, eager=True)
-            op3.loop(
-                p := lhs_dat.axes.owned.iter(),
-                lhs_dat[p].assign(rvalue[p]),
-                eager=True,
-            )
+                op3.loop(
+                    p := lhs_dat.axes.owned.iter(),
+                    lhs_dat[p].assign(rvalue[p]),
+                    eager=True,
+                )
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),

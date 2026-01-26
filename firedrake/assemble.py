@@ -1507,19 +1507,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for loop_info, (trial_index, test_index) in maps_and_regions:
+        for loop_info, (test_index, trial_index) in maps_and_regions:
             # If indices are 'None' then this means all to allocate for all spaces
-            if trial_index == None:
-                if len(trial.function_space()) > 1:
-                    trial_spaces = tuple(trial.function_space())
-                    trial_indices = range(len(trial_spaces))
-                else:
-                    trial_spaces = trial.function_space()
-                    trial_indices = (Ellipsis,)
-            else:
-                trial_spaces = (trial.function_space()[trial_index],)
-                trial_indices = (trial_index,)
-            if test_index == None:
+            if test_index is None:
                 if len(test.function_space()) > 1:
                     test_spaces = tuple(test.function_space())
                     test_indices = range(len(test_spaces))
@@ -1529,15 +1519,26 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             else:
                 test_spaces = (test.function_space()[test_index],)
                 test_indices = (test_index,)
+            if trial_index is None:
+                if len(trial.function_space()) > 1:
+                    trial_spaces = tuple(trial.function_space())
+                    trial_indices = range(len(trial_spaces))
+                else:
+                    trial_spaces = trial.function_space()
+                    trial_indices = (Ellipsis,)
+            else:
+                trial_spaces = (trial.function_space()[trial_index],)
+                trial_indices = (trial_index,)
 
-            for (trial_index_, trial_space), (test_index_, test_space) in itertools.product(
-                zip(trial_indices, trial_spaces), zip(test_indices, test_spaces)
+            for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
+                zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
             ):
-                trial_map = trial_space.entity_node_map(loop_info)
                 test_map = test_space.entity_node_map(loop_info)
+                trial_map = trial_space.entity_node_map(loop_info)
                 op3.loop(
                     loop_info.loop_index,
-                    sparsity[trial_index_, test_index_][trial_map, test_map].assign(666),
+                    # sparsity[trial_index_, test_index_][trial_map, test_map].assign(666),
+                    sparsity[test_index_, trial_index_][test_map, trial_map].assign(666),
                     eager=True,
                 )
 
@@ -1568,6 +1569,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @staticmethod
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
+        raise NotImplementedError
 
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
@@ -1685,21 +1687,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @staticmethod
     def _as_pyop3_type(tensor, indices=None):
-        if indices is not None and indices != (None, None):
-            i, j = indices
-            mat = tensor.M[i, j]
+        if indices is not None:
+            row_index, column_index = indices
+            if row_index is None:
+                row_index = Ellipsis
+            if column_index is None:
+                column_index = Ellipsis
+            return tensor.M[row_index, column_index]
         else:
-            mat = tensor.M
-
-        # if mat.buffer.mat.type == "python":
-        #     mat_context = mat.buffer.mat.getPythonContext()
-        #     if isinstance(mat_context, _GlobalMatPayload):
-        #         mat = mat_context.global_
-        #     else:
-        #         assert isinstance(mat_context, _DatMatPayload)
-        #         mat = mat_context.dat
-
-        return mat
+            return tensor.M
 
     def result(self, tensor):
         tensor.M.assemble()

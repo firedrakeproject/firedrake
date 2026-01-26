@@ -433,10 +433,7 @@ def instrument(cls):
             except KeyError as e:
                 self.miss += 1
 
-                # debug
-                # if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
-                if self.miss == 100 and self.miss / (self.hit+self.miss) > 0.8:
-                    breakpoint()
+                if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
                     LOGGER.warning(
                         f"Cache '{self}' has recorded 1000 misses at a hit rate of "
                         "greater than 80%. This indicates a problem with your cache key."

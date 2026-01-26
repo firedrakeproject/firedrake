@@ -286,7 +286,10 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
     except NotImplementedError:
         return packed_dat
     else:
-        permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
+        if space.mesh().dimension > 0:  # i.e. not a VoM
+            permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
+        else:
+            permuted_axis_tree = packed_dat.axes
         return packed_dat.with_axes(permuted_axis_tree)
 
 
@@ -297,13 +300,19 @@ def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, 
     except NotImplementedError:
         permuted_row_axes = packed_mat.row_axes
     else:
-        permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
+        if row_space.mesh().dimension > 0:  # i.e. not a VoM
+            permuted_row_axes = _orient_axis_tree(packed_mat.row_axes, row_space, row_cell_index, depth=row_depth)
+        else:
+            permuted_row_axes = packed_mat.row_axes
     try:
         column_space.finat_element.entity_permutations  # noqa: F401
     except NotImplementedError:
         permuted_column_axes = packed_mat.column_axes
     else:
-        permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
+        if column_space.mesh().dimension > 0:  # i.e. not a VoM
+            permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
+        else:
+            permuted_column_axes  = packed_mat.column_axes
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
