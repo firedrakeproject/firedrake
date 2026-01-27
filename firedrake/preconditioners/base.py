@@ -10,18 +10,25 @@ __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
 
 class PCSNESBase(object, metaclass=abc.ABCMeta):
+    """Create a PC or SNES python context suitable for PETSc.
+
+    Matrix free preconditioners should inherit from this class and
+    implement:
+
+    - :meth:`~.PCSNESBase.initialize`
+    - :meth:`~.PCSNESBase.update`
+
+    Python PC classes should also implement:
+
+    - :meth:`~.PCBase.apply`
+    - :meth:`~.PCBase.applyTranspose`
+
+    Python SNES classes should instead implement:
+
+    - :meth:`~.SNESBase.step`
+
+    """
     def __init__(self):
-        """Create a PC context suitable for PETSc.
-
-        Matrix free preconditioners should inherit from this class and
-        implement:
-
-        - :meth:`~.PCSNESBase.initialize`
-        - :meth:`~.PCSNESBase.update`
-        - :meth:`~.PCBase.apply`
-        - :meth:`~.PCBase.applyTranspose`
-
-        """
         petsctools.cite("Kirby2017")
         self.initialized = False
         super(PCSNESBase, self).__init__()
@@ -208,3 +215,12 @@ class SNESBase(PCSNESBase):
 
     _asciiname = "nonlinear solver"
     _objectname = "snes"
+
+    @abc.abstractmethod
+    def step(self, snes, X, F, Y):
+        """Apply one iteration of the SNES to the current iterate X,
+        using the function residual F, and putting the update in Y.
+
+        X, F and Y are PETSc Vecs, Y is not guaranteed to be zero on entry.
+        """
+        pass

@@ -1,4 +1,6 @@
 from firedrake.preconditioners.base import SNESBase
+from firedrake.function import Function
+from firedrake.ufl_expr import Argument
 from firedrake.petsc import PETSc
 from ufl import replace
 from firedrake.dmhooks import get_appctx as get_dm_appctx
@@ -7,6 +9,82 @@ __all__ = ("AuxiliaryOperatorSNES",)
 
 
 class AuxiliaryOperatorSNES(SNESBase):
+    """
+    Solve a residual form :math:`F(u) = 0` using a nonlinear Richardson
+    iteration preconditioned with an auxiliary form :math:`G(u)`.
+    This is usually used to create nonlinear preconditioners for
+    iterative methods such as Anderson acceleration or NGMRES.
+
+    The `k`-th nonlinearly preconditioned Richardson iteration is:
+
+    .. math ::
+
+        G(u^{k+1}) = G(u^{k}) - F(u^{k})
+
+    The solution :math:`u^{*}` of :math:`F(u^{*}) = 0` is a fixed point
+    of the Richardson iteration.
+
+    .. math ::
+
+        G(u^{k+1}) = G(u^{*}) - F(u^{*})
+
+        G(u^{k+1}) = G(u^{*})
+
+        \\implies u^{k+1} = u^{*}
+
+    Options for the inner solve for :math:`G(u^{k+1})` are specified
+    using the ``"aux_"`` prefix.
+
+    The following solver parameters will specify the above Richardson
+    iteration, assuming that the user has defined a class
+    ``UserAuxiliarySNES`` which inherits from
+    :class:`~.AuxiliaryOperatorSNES` and implements the
+    :meth:`~.AuxiliaryOperatorSNES.form` method. In this example, the
+    inner solve uses a Newton method with a relative tolerance of 1e-4.
+
+    .. code-block:: python3
+
+        solver_parameters = {
+            "snes_rtol": 1e-8,
+            "snes_type": "python",
+            "snes_python_type": f"{__name__}.UserAuxiliarySNES",
+            "aux": {
+                "snes_rtol": 1e-4,
+                "snes_type": "newtonls",
+                "mat_type": "aij",
+                "ksp_type": "preonly",
+                "pc_type": "lu"
+            }
+        }
+
+    The following parameters describe the same Richardson iteration
+    as the parameters above, but explicitly specifying the auxiliary
+    form as a nonlinear preconditioner using the ``npc_`` prefix.
+
+    .. code-block:: python3
+
+        solver_parameters = {
+            "snes_rtol": 1e-8,
+            "snes_type": "nrichardson",
+            "npc_snes_max_it": 1,
+            "npc_snes_type": "python",
+            "npc_snes_python_type": f"{__name__}.UserAuxiliarySNES",
+            "npc_aux": {
+                "snes_rtol": 1e-4,
+                "snes_type": "newtonls",
+                "mat_type": "aij",
+                "ksp_type": "preonly",
+                "pc_type": "lu"
+            }
+        }
+
+    Although using ``"npc_"`` to specifying the parameters is more
+    verbose than the original, it allows for a wider variety of methods.
+    For example, by changing the outer ``"snes_type"`` to ``"anderson"``,
+    we can use preconditioned Anderson acceleration
+    (`<https://petsc.org/release/manualpages/SNES/SNESANDERSON/>`_)
+    """
+
     _prefix = "aux_"
 
     @PETSc.Log.EventDecorator()
@@ -88,36 +166,49 @@ class AuxiliaryOperatorSNES(SNESBase):
             vec.copy(y)
             y.aypx(-1, x)
 
-    def form(self, snes, state, func, test):
-        """Return the preconditioning nonlinear form and boundary conditions.
+    @PETSc.Log.EventDecorator()
+    def form(self, snes, uk: Function, uk1: Function, test: Argument):
+        """Return the auxiliary residual form and boundary conditions.
+        Subclasses should override this method.
+
+        The returned form is :math:`G(u^{k+1})` in the Richardson
+        iteration. The forcing term :math:`G(u^{k})` is generated from
+        the user provided :math:`G(u^{k})` using UFL manipulation, and
+        the forcing term :math:`F(u^{k})` is provided by the outer SNES.
 
         Parameters
         ----------
         snes : PETSc.SNES
             The PETSc nonlinear solver object.
-        state : firedrake.Function
-            The current state of the outer SNES
-        func : firedrake.Function
-            The solution function.
-        test : ufl.TestFunction
+        uk :
+            The current iterate :math:`u^{k}`.
+        uk1 :
+            The next iterate :math:`u^{k+1}` that will be solved for.
+        test :
             The test function.
 
         Returns
         -------
-        F : ufl.Form
-            The preconditioning nonlinear form.
-        bcs : DirichletBC[] or None
+        F : :class:`ufl.Form`
+            The preconditioning residual form.
+        bcs : Iterable[:class:`~.firedrake.bcs.DirichletBC`] | None
             The boundary conditions.
 
         Notes
         -----
-        Subclasses may override this function to provide an auxiliary nonlinear
-        form. Use `self.get_appctx(obj)` to get the user-supplied
-        application-context, if desired.
+        :math:`G(u^{k+1})` can optionally be parameterised by the current
+        iterate :math:`u^{k}`, for example in Picard iterations for an
+        advection term:
+
+        .. math::
+
+            F(u) = u + u\\cdot\\nabla u
+
+            G(u^{k+1}) = u^{k+1} + u^{k}\\cdot\\nabla u^{k+1}
         """
         ctx = get_dm_appctx(snes.dm)
         u = ctx._x
-        form = replace(ctx._problem.F, {u: func})
+        form = replace(ctx._problem.F, {u: uk1})
         bcs = tuple(ctx._problem.bcs)
         return form, bcs
 
