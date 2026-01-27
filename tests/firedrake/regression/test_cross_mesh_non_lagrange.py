@@ -96,7 +96,7 @@ def test_cross_mesh(V, rank):
         assert np.allclose(f_interpolated_direct.dat.data_ro, f_direct.dat.data_ro)
 
 
-@pytest.mark.parametrize("rank", [1, 2])
+@pytest.mark.parametrize("rank", [0, 1, 2])
 def test_cross_mesh_adjoint(V, rank):
     # Can already do Lagrange -> RT adjoint
     # V^* -> Q^* -> V_target^*
@@ -117,7 +117,7 @@ def test_cross_mesh_adjoint(V, rank):
         expr = x2
         target_expr = x1
 
-    oneform_V = inner(expr, TestFunction(V)) * dx
+    oneform_V = inner(expr, TestFunction(V)) * dx  # V^*
     cofunc_Vtarget_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
 
     Q = make_quadrature_space(V)
@@ -148,3 +148,10 @@ def test_cross_mesh_adjoint(V, rank):
 
         cofunc_Vtarget = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
         assert np.allclose(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+    elif rank == 0:
+        res = assemble(interpolate(target_expr, oneform_V))
+        actual = assemble(inner(expr, expr) * dx)
+        assert np.isclose(res, actual)
+
+if __name__ == "__main__":
+    pytest.main([__file__ + "::test_cross_mesh_adjoint[RT_2-1]"])
