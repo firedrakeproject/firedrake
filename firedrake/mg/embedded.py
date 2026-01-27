@@ -7,7 +7,6 @@ import gem
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
-from firedrake.interpolation import interpolate
 from finat.element_factory import create_element
 from finat.quadrature import QuadratureRule
 
@@ -361,7 +360,7 @@ class TransferManager(object):
                 self.restrict(source_, target_)
         elif self.requires_quadrature(source):
             qsource = self.DG_work(source.function_space())
-            qsource.assign(interpolate(qsource.arguments()[0], source))
+            qsource.interpolate(source)
             self.restrict(qsource, target)
         else:
             Vs = Vs_star.dual()

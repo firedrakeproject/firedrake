@@ -40,11 +40,6 @@ def V(mesh, degree, space):
         return FunctionSpace(mesh, space, degree, variant="integral")
 
 
-@pytest.fixture(params=["Default", "Exact", "Averaging"])
-def use_averaging(request):
-    return request.param
-
-
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
 def test_transfer(op, V):
 
@@ -62,58 +57,60 @@ def test_transfer(op, V):
         uc = Function(Vc)
         uc.interpolate(expr(Vc))
         transfer.prolong(uc, uf)
-        assert errornorm(expr(Vf), uf) < 1E-10
+        assert errornorm(expr(Vf), uf) < 1E-13
 
     elif op == "restrict":
         rf = assemble(inner(expr(Vf), TestFunction(Vf))*dx)
         rc = Function(Vc.dual())
         transfer.restrict(rf, rc)
-
         expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
         assert numpy.allclose(expected.dat.data_ro, rc.dat.data_ro)
+
+        rg = RandomGenerator(PCG64(seed=0))
+        uc = rg.uniform(Vc, -1, 1)
+        uf = Function(Vf)
+        transfer.prolong(uc, uf)
+
+        rf = rg.uniform(Vf.dual(), -1, 1)
+        rc = Function(Vc.dual())
+        transfer.restrict(rf, rc)
+
+        result_prolong = assemble(action(rf, uf))
+        result_restrict = assemble(action(rc, uc))
+        assert numpy.isclose(result_prolong, result_restrict)
 
     elif op == "inject":
         uf = Function(Vf)
         uc = Function(Vc)
         uf.interpolate(expr(Vf))
         transfer.inject(uf, uc)
-        assert errornorm(expr(Vc), uc) < 1E-10
+        assert errornorm(expr(Vc), uc) < 1E-13
 
 
 @pytest.fixture
-def solver_parameters(use_averaging, V):
-    element_name = V.ufl_element()._short_name
+def solver_parameters(V):
     solver_parameters = {
         "mat_type": "aij",
         "snes_type": "ksponly",
-        # When using mass solves in the prolongation, the V-cycle is
-        # no longer a linear operator (because the prolongation uses
-        # CG which is a nonlinear operator).
-        "ksp_type": "cg" if use_averaging else "fcg",
+        "ksp_type": "cg",
         "ksp_max_it": 20,
         "ksp_rtol": 1e-9,
         "ksp_monitor_true_residual": None,
         "pc_type": "mg",
         "mg_levels": {
             "ksp_type": "richardson",
-            "ksp_norm_type": "unpreconditioned",
             "ksp_richardson_scale": 0.5,
+            "ksp_norm_type": "none",
+            "ksp_max_it": 1,
             "pc_type": "python",
-            "pc_python_type": "firedrake.PatchPC",
-            "patch_pc_patch_save_operators": True,
-            "patch_pc_patch_partition_of_unity": False,
-            "patch_pc_patch_construct_type": "star",
-            "patch_pc_patch_construct_dim": 0,
-            "patch_pc_patch_sub_mat_type": "seqdense",
-            "patch_sub_ksp_type": "preonly",
-            "patch_sub_pc_type": "lu",
+            "pc_python_type": "firedrake.ASMStarPC",
+            "pc_star_sub_sub_pc_type": "cholesky",
+            "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc",
         },
-        "mg_coarse_pc_type": "lu",
-        element_name: {
-            "prolongation_mass_ksp_type": "cg",
-            "prolongation_mass_ksp_max_it": 10,
-            "prolongation_mass_pc_type": "bjacobi",
-            "prolongation_mass_sub_pc_type": "ilu",
+        "mg_coarse": {
+            "mat_type": "aij",
+            "pc_type": "cholesky",
+            "pc_factor_mat_solver_type": "mumps",
         }
     }
     return solver_parameters
@@ -123,10 +120,11 @@ def solver_parameters(use_averaging, V):
 def solver(V, space, solver_parameters):
     u = Function(V)
     v = TestFunction(V)
-    mesh = V.mesh()
-    (x, y) = SpatialCoordinate(mesh)
+    (x, y) = SpatialCoordinate(V.mesh())
     f = as_vector([2*y*(1-x**2),
                    -2*x*(1-y**2)])
+    if u.ufl_shape == ():
+        f = sum(f)
     a = Constant(1)
     b = Constant(100)
     if space == "RT":
@@ -134,28 +132,18 @@ def solver(V, space, solver_parameters):
     elif space == "N1curl":
         F = a*inner(u, v)*dx + b*inner(curl(u), curl(v))*dx - inner(f, v)*dx
     elif space == "CG":
-        F = a*inner(u, v)*dx + b*inner(grad(u), grad(v))*dx - inner(1, v)*dx
+        F = a*inner(u, v)*dx + b*inner(grad(u), grad(v))*dx - inner(f, v)*dx
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                         options_prefix="")
     return solver
 
 
-@pytest.mark.skipcomplexnoslate
-def test_riesz(V, solver, use_averaging):
-    if use_averaging == "Default":
-        transfer = None
-    elif use_averaging == "Exact":
-        transfer = TransferManager(use_averaging=False)
-    else:
-        transfer = TransferManager(use_averaging=True)
-    solver.set_transfer_manager(transfer)
+def test_riesz(V, solver):
     solver.solve()
-
     assert solver.snes.ksp.getIterationNumber() < 15
 
 
 @pytest.mark.parallel(nprocs=3)
-@pytest.mark.skipcomplexnoslate
 def test_riesz_parallel(V, solver, use_averaging):
     test_riesz(V, solver, use_averaging)

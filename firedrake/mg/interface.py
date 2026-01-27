@@ -58,15 +58,15 @@ def prolong(coarse, fine):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
-    meshes = hierarchy._meshes
+    finest = fine
     for j in range(repeat):
         next_level += 1
         if j == repeat - 1:
-            next = fine
+            fine = finest
             Vf = fine.function_space()
         else:
-            Vf = Vf.reconstruct(mesh=meshes[next_level])
-            next = firedrake.Function(Vf)
+            Vf = Vf.reconstruct(mesh=hierarchy[next_level])
+            fine = firedrake.Function(Vf)
 
         coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
@@ -82,12 +82,12 @@ def prolong(coarse, fine):
         for d in [coarse, coarse_coords]:
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, next.node_set,
-                     next.dat(op2.WRITE),
+        op2.par_loop(kernel, fine.node_set,
+                     fine.dat(op2.WRITE),
                      coarse.dat(op2.READ, fine_to_coarse),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
-        coarse = next
+        coarse = fine
         Vc = Vf
     return fine
 
@@ -118,17 +118,16 @@ def restrict(fine_dual, coarse_dual):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    meshes = hierarchy._meshes
-
+    coarsest = coarse_dual
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
             coarse_dual.dat.zero()
-            next = coarse_dual
+            coarse = coarsest
         else:
-            Vc = Vc.reconstruct(mesh=meshes[next_level])
-            next = firedrake.Cofunction(Vc)
-        Vc = next.function_space()
+            Vc = Vc.reconstruct(mesh=hierarchy[next_level])
+            coarse = firedrake.Cofunction(Vc)
+        Vc = coarse.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
@@ -144,11 +143,11 @@ def restrict(fine_dual, coarse_dual):
             d.dat.global_to_local_end(op2.READ)
         kernel = kernels.restrict_kernel(Vf, Vc)
         op2.par_loop(kernel, fine_dual.node_set,
-                     next.dat(op2.INC, fine_to_coarse),
+                     coarse.dat(op2.INC, fine_to_coarse),
                      fine_dual.dat(op2.READ),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
-        fine_dual = next
+        fine_dual = coarse
         Vf = Vc
     return coarse_dual
 
@@ -193,17 +192,16 @@ def inject(fine, coarse):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    meshes = hierarchy._meshes
-
+    coarsest = coarse
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
             coarse.dat.zero()
-            next = coarse
-            Vc = next.function_space()
+            coarse = coarsest
+            Vc = coarse.function_space()
         else:
-            Vc = Vf.reconstruct(mesh=meshes[next_level])
-            next = firedrake.Function(Vc)
+            Vc = Vc.reconstruct(mesh=hierarchy[next_level])
+            coarse = firedrake.Function(Vc)
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
@@ -216,8 +214,8 @@ def inject(fine, coarse):
             for d in [fine, fine_coords]:
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, next.node_set,
-                         next.dat(op2.INC),
+            op2.par_loop(kernel, coarse.node_set,
+                         coarse.dat(op2.INC),
                          node_locations.dat(op2.READ),
                          fine.dat(op2.READ, coarse_node_to_fine_nodes),
                          fine_coords.dat(op2.READ, coarse_node_to_fine_coords))
@@ -232,12 +230,12 @@ def inject(fine, coarse):
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, Vc.mesh().cell_set,
-                         next.dat(op2.INC, next.cell_node_map()),
+                         coarse.dat(op2.INC, coarse.cell_node_map()),
                          fine.dat(op2.READ, coarse_cell_to_fine_nodes),
                          fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
                          coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
-        fine = next
-        Vf = Vc
+        fine = coarse
+        Vf = fine.function_space()
     return coarse
 
 

@@ -139,7 +139,8 @@ def compile_element(operand, dual_arg, parameters=None,
     except ValueError:
         # Adjoint interpolation: expression has an argument
         arg, = extract_arguments(operand)
-        builder._coefficient(ufl.Coefficient(arg.ufl_function_space()), "b")
+        cofunction = ufl.Cofunction(arg.ufl_function_space().dual())
+        builder._coefficient(cofunction, "b")
 
     ufl_interpolate = ufl.Interpolate(operand, dual_arg)
     arguments = ufl_interpolate.arguments()
@@ -300,7 +301,7 @@ def prolong_kernel(expression, Vf):
                "kernel_args": "R, fi, Xc, Xref" if needs_coordinates else "R, fi, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "Rdim": V.block_size,
+               "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
