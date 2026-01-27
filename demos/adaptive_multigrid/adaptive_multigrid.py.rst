@@ -45,9 +45,9 @@ Now we can define a simple Poisson problem
 
 .. math::
 
-   - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega
+   - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
-Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The variational problem is formulated with F, where f is the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`.DirichletBC` object and apply it to the entire boundary: ::
+Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`.DirichletBC` object and apply it to the entire boundary: ::
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -64,7 +64,7 @@ Our approach strongly follows the similar problem in this `lecture course <https
       return uh
 
 Note the code after the construction of the :class:`.NonlinearVariationalProblem`. To use the :class:`.AdaptiveMeshHierarchy` with the existing Firedrake solver, we have to set the :class:`.AdaptiveTransferManager` as the transfer manager of the multigrid solver.
-Since we are using linear CG elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
+Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
 
    solver_params = {
       "mat_type": "matfree",
@@ -95,15 +95,15 @@ The initial solution is shown below.
 Adaptive Mesh Refinement
 ------------------------
 In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the :class:`.AdaptiveMeshHierarchy`.
-For this problem, we will be using the Babuška-Rheinbolt a-posteriori estimate for an element:
+For this problem, we will be using the Babuška-Rheinbolt a posteriori estimate for an element:
 
 .. math::
    \eta_K^2 = h_K^2 \int_K \| f + \nabla^2 u_h \|^2 \mathrm{d}x + \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \mathrm{d}s,
 
-where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the normal, and :math:`⟦ \cdot ⟧` is the jump operator. The a-posteriori estimator is computed using the solution at the current level :math:`h`. Integrating over the domain and using the fact that the components of the estimator are piecewise constant on each cell, we can transform the above estimator into the variational problem 
+where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the normal, and :math:`⟦ \cdot ⟧` is the jump operator. The a posteriori estimator is computed using the solution at the current level :math:`h`. Integrating over the domain and using the fact that the components of the estimator are piecewise constant on each cell, we can transform the above estimator into the variational problem 
 
 .. math::
-   \int_\Omega \eta_K^2 w \mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \mathrm{d}x w \mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \mathrm{d}s w \mathrm{d}x
+   \int_\Omega \eta_K^2 w \,\mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \,\mathrm{d}x w \,\mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \,\mathrm{d}s w \,\mathrm{d}x
 
 Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.  ::
 
@@ -133,13 +133,13 @@ Our approach will be to compute the estimator over all elements and selectively 
            error_est = eta_.norm()
        return eta, error_est
 
-The next step is to choose which elements to refine. For this we use Dörfler marking :cite:`Dorfler1996`:
+The next step is to choose which elements to refine. For this we use a simplified variant of Dörfler marking :cite:`Dorfler1996`:
 
 .. math::
    \eta_K \geq \theta \text{max}_L \eta_L
 
 The logic is to select an element :math:`K` to refine if the estimator is greater than some factor :math:`\theta` of the maximum error estimate of the mesh, where :math:`\theta` ranges from 0 to 1. In our code we choose :math:`\theta=0.5`.
-With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid with patch relaxation up till level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we refine the mesh and repeat. ::
+With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat. ::
 
    theta = 0.5
    max_iterations = 15
