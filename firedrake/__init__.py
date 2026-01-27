@@ -67,7 +67,10 @@ from firedrake.checkpointing import (  # noqa: F401
 from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
 from firedrake.constant import Constant  # noqa: F401
 from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
-from firedrake.exceptions import ConvergenceError  # noqa: F401
+from firedrake.exceptions import (  # noqa: F401
+    ConvergenceError, MismatchingDomainError, VertexOnlyMeshMissingPointsError,
+    DofNotDefinedError
+)
 from firedrake.function import (  # noqa: F401
     Function, PointNotInDomainError,
     CoordinatelessFunction, PointEvaluator
@@ -77,8 +80,7 @@ from firedrake.functionspace import (  # noqa: F401
     TensorFunctionSpace, RestrictedFunctionSpace
 )
 from firedrake.interpolation import (  # noqa: F401
-    interpolate, Interpolate, DofNotDefinedError,
-    get_interpolator
+    interpolate, Interpolate, get_interpolator
 )
 from firedrake.linear_solver import LinearSolver  # noqa: F401
 from firedrake.preconditioners import (  # noqa: F401
@@ -94,8 +96,7 @@ from firedrake.mesh import (  # noqa: F401
     SubDomainData, unmarked, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
-    VertexOnlyMeshTopology, VertexOnlyMeshMissingPointsError,
-    MeshSequenceGeometry, MeshSequenceTopology
+    VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
 )
 from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
