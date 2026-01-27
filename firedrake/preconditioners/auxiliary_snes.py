@@ -35,15 +35,11 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Gk1, bcs = self.form(snes, uk, uk1, test)
 
-        # forcing F(k) - G(k)
+        # Solve G(k+1) - b = 0
+        # with forcing b = G(k) - F(k)
         Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
-        # Gk1 -= b
-
-        from firedrake import inner, dx
-        bu = Function(V)
-        Gk1 -= inner(bu, test)*dx
-        self.bu = bu
+        Gk1 -= b
 
         self.assemble_gk = get_assembler(
             Gk, bcs=bcs,
@@ -84,7 +80,6 @@ class AuxiliaryOperatorSNES(SNESBase):
         if f is not None:
             with self.b.dat.vec as vec:
                 vec -= f
-        self.bu.assign(self.b.riesz_representation())
 
         self.uk1.assign(self.uk)
         self.solver.solve()
