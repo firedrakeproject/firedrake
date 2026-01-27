@@ -26,7 +26,7 @@ element systems.
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
    1D Vlasov-Poisson equation using vertical independent function spaces.<demos/vp1d.py>
    Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
-   Multigrid on adaptively-refined mesh hierarchies.<demos/adaptive_multigrid>
+   Multigrid on adaptively-refined mesh hierarchies.<demos/adaptive_multigrid.py>
    Monolithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
    Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
@@ -34,3 +34,4 @@ element systems.
    Shape optimisation.<demos/shape_optimization.py>
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
+   Deflation techniques for computing multiple solutions of nonlinear problems.<demos/deflation.py>

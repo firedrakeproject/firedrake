@@ -18,11 +18,12 @@ CWD = abspath(dirname(__file__))
 DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
-    Demo(("adaptive_multigrid", "adaptive_multigrid"), ["netgen"]),
+    Demo(("adaptive_multigrid", "adaptive_multigrid"), ["netgen", "vtk"]),
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
     Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
+    Demo(("deflation", "deflation"), ["matplotlib"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
     Demo(("extruded_continuity", "extruded_continuity"), []),
