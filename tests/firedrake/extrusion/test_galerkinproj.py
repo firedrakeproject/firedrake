@@ -22,6 +22,10 @@ def test_scalar_convergence(extmesh, testcase, convrate):
 
         x, y, z = SpatialCoordinate(mesh)
         expr = x*x*y*z
+
+        debug = assemble(expr*TestFunction(exactfspace)*dx)
+        breakpoint()
+
         exact = project(expr, exactfspace)
 
         breakpoint()

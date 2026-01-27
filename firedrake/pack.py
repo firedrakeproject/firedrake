@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import pyop3 as op3
+import finat
 import ufl
 from immutabledict import immutabledict as idict
 
@@ -369,14 +370,65 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
-    perms = utils.single_valued(space.finat_element.entity_permutations[dim_label].values())
+    if space.extruded:
+        perms = flat_entity_permutations(space.finat_element.entity_permutations)
+    else:
+        perms = space.finat_element.entity_permutations
+
+    # dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
+    #
+    # finat_element = space.finat_element
+    # base_dim_label = dim_label
+    # nrepeats = 1
+    # while isinstance(finat_element, finat.TensorProductElement):
+    #     finat_element, interval_element = finat_element.factors
+    #     base_dim_label, vert_or_edge = base_dim_label[:-1], base_dim_label[-1]
+    #
+    #     if vert_or_edge == 1:
+    #         # the extruded edge, can have repeats (not so for vertices)
+    #         ndofs_on_edge = len(interval_element.entity_dofs()[1][0])
+    #         nrepeats *= ndofs_on_edge
+    # base_dim_label = utils.just_one(base_dim_label)
+    # perms = utils.single_valued(finat_element.entity_permutations[base_dim_label].values())
+    #
+    # # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
+    # # ndofs = utils.single_valued(map(len, perms.values()))
+    # # assert ndofs == dof_axis.size
+    #
+    # new_perms = []
+    # for perm in map(np.asarray, perms.values()):
+    #     new_perm = []
+    #     offset = 0
+    #     for i in range(nrepeats):
+    #         new_perm.extend(perm+offset)
+    #         offset += len(perm)
+    #     new_perms.append(new_perm)
+
     # TODO: can optimise the dtype here to be as small as possible
-    perms_array = np.concatenate(list(perms.values()))
+    # perms_array = np.concatenate(new_perms)
+    perms_array = np.concatenate(perms.values())
+
+    breakpoint()
+
+    # # repeat things (needed for tensor products)
+    # new_perms_array = np.empty(perms_array.size*nrepeats, dtype=perms_array.dtype)
+    # offset = 0
+    # for i in range(nrepeats):
+    #     for j, entry in enumerate(perms_array):
+    #         new_perms_array[j*len(perms_array)+i] = entry+offset
+    #     offset += ndofs
+    # old_perms_array = perms_array  # debug
+    # perms_array = new_perms_array
+
+    print(f"{dim_label = }, {nrepeats = }, {perms_array = }")
+    print(dof_axis)
+
+
+
     perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)
@@ -445,3 +497,52 @@ def iter_space(space: WithGeometry):
         yield (Ellipsis, space)
     else:
         yield from enumerate(space)
+
+
+# extruded
+def flat_entity_dofs(entity_dofs):
+    flat_entity_dofs = {}
+    for b, v in entity_dofs:
+        # v in [0, 1].  Only look at the ones, then grab the data from zeros.
+        if v == 0:
+            continue
+        flat_entity_dofs[b] = {}
+        for i in entity_dofs[(b, v)]:
+            # This line is fairly magic.
+            # It works because an interval has two points.
+            # We pick up the DoFs from the bottom point,
+            # then the DoFs from the interior of the interval,
+            # then finally the DoFs from the top point.
+            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i]
+                                      + entity_dofs[(b, 1)][i]
+                                      + entity_dofs[(b, 0)][2*i+1])
+    return flat_entity_dofs
+
+
+# extruded
+def flat_entity_permutations(entity_permutations):
+    flat_entity_permutations = {}
+    for b in set(b for b, v in entity_permutations):
+        flat_entity_permutations[b] = {}
+        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
+            flat_entity_permutations[b][eb] = {}
+            for ob in set(ob for eo, ob, ov in entity_permutations[(b, 0)][2 * eb]):
+                # eo (extrinsic orientation) is always 0 for:
+                # -- quad x interval,
+                # -- triangle x interval,
+                # -- etc.
+                # eo = {0, 1}, but only eo = 0 is relevant for:
+                # -- interval x interval on dim = (1, 1).
+                eo = 0
+                # Orientation in the extruded direction is always 0
+                ov = 0
+                perm0 = entity_permutations[(b, 0)][2 * eb][(eo, ob, ov)]
+                perm1 = entity_permutations[(b, 1)][eb][(eo, ob, ov)]
+                n0, n1 = len(perm0), len(perm1)
+                flat_entity_permutations[b][eb][ob] = \
+                    list(perm0) + \
+                    [n0 + p for p in perm1] + \
+                    [n0 + n1 + p for p in perm0]
+    return flat_entity_permutations
+
+

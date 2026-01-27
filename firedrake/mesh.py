@@ -1804,11 +1804,13 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def entity_orientations(self):
         # old attribute, keeping around for now
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        # return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        return self.entity_orientations_renum[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_renum(self):
-        return self.entity_orientations[self._new_to_old_cell_numbering]
+        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+        # return self.entity_orientations[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):

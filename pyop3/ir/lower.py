@@ -25,7 +25,7 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
-from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi
+from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
 from pyop3.cache import memory_and_disk_cache
 from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
@@ -359,8 +359,6 @@ class CompiledCodeExecutor:
         if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
             breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
-        # if len(self.loopy_code.callables_table) > 1:
-        #     pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
@@ -1391,13 +1389,13 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters, comm):
 
     # ideally move this logic somewhere else
     cppargs = (
-        tuple("-I%s/include" % d for d in pyop3.pyop2_utils.get_petsc_dir())
+        tuple("-I%s/include" % d for d in pyop2_utils.get_petsc_dir())
         # + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
         # + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
     )
     ldargs = (
-        tuple("-L%s/lib" % d for d in pyop3.pyop2_utils.get_petsc_dir())
-        + tuple("-Wl,-rpath,%s/lib" % d for d in pyop3.pyop2_utils.get_petsc_dir())
+        tuple("-L%s/lib" % d for d in pyop2_utils.get_petsc_dir())
+        + tuple("-Wl,-rpath,%s/lib" % d for d in pyop2_utils.get_petsc_dir())
         + ("-lpetsc", "-lm")
         # + tuple(self.local_kernel.ldargs)
     )

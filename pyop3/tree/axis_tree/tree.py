@@ -278,7 +278,7 @@ class _UnitAxisTree(CacheMixin):
 
     @property
     def comm(self):
-        from pyop3.debug import *
+        from pyop3.debug import warn_todo
         warn_todo("This comm choice is unsafe")
         return MPI.COMM_SELF
 
@@ -1082,7 +1082,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         sizes = size_dat.buffer.data_ro
 
-        from pyop3.debug import *
+        from pyop3.debug import warn_todo
         warn_todo("Cythonize")
 
         section = PETSc.Section().create(comm=self.comm)
@@ -1617,6 +1617,7 @@ class IndexedAxisTree(AbstractAxisTree):
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
         # then convert to a slice if possible, do in Cython!!!
+        import pyop3.debug
         pyop3.debug.warn_todo("Convert to cython")
         slice_ = None
         n = len(indices)
