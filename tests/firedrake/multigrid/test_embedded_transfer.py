@@ -49,31 +49,30 @@ def test_transfer(op, V):
 
     mh, _ = get_level(V.mesh())
     Vf = V
-    Vc = V.reconstruct(mh[-2])
-    transfer = TransferManager()
+    Vc = V.reconstruct(mh[0])
 
     if op == "prolong":
         uf = Function(Vf)
         uc = Function(Vc)
         uc.interpolate(expr(Vc))
-        transfer.prolong(uc, uf)
+        prolong(uc, uf)
         assert errornorm(expr(Vf), uf) < 1E-13
 
     elif op == "restrict":
         rf = assemble(inner(expr(Vf), TestFunction(Vf))*dx)
         rc = Function(Vc.dual())
-        transfer.restrict(rf, rc)
+        restrict(rf, rc)
         expected = assemble(inner(expr(Vc), TestFunction(Vc))*dx)
         assert numpy.allclose(expected.dat.data_ro, rc.dat.data_ro)
 
         rg = RandomGenerator(PCG64(seed=0))
         uc = rg.uniform(Vc, -1, 1)
         uf = Function(Vf)
-        transfer.prolong(uc, uf)
+        prolong(uc, uf)
 
         rf = rg.uniform(Vf.dual(), -1, 1)
         rc = Function(Vc.dual())
-        transfer.restrict(rf, rc)
+        restrict(rf, rc)
 
         result_prolong = assemble(action(rf, uf))
         result_restrict = assemble(action(rc, uc))
@@ -83,7 +82,7 @@ def test_transfer(op, V):
         uf = Function(Vf)
         uc = Function(Vc)
         uf.interpolate(expr(Vf))
-        transfer.inject(uf, uc)
+        inject(uf, uc)
         assert errornorm(expr(Vc), uc) < 1E-13
 
 
@@ -139,11 +138,7 @@ def solver(V, space, solver_parameters):
     return solver
 
 
+@pytest.mark.parallel([1, 3])
 def test_riesz(V, solver):
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 15
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_riesz_parallel(V, solver, use_averaging):
-    test_riesz(V, solver, use_averaging)

@@ -105,7 +105,7 @@ def compile_element(operand, dual_arg, parameters=None,
     ----------
     operand: ufl.Expr
         A primal expression
-    dual_arg: ufl.Coargument | ufl.Cofunctoin
+    dual_arg: ufl.Coargument | ufl.Cofunction
         A dual argument or coefficient
 
     Returns

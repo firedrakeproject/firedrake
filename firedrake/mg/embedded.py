@@ -2,56 +2,11 @@ import firedrake
 import ufl
 import finat.ufl
 import weakref
-import numpy
-import gem
 from enum import IntEnum
 from firedrake.petsc import PETSc
-from firedrake.embedding import get_embedding_dg_element
-from finat.element_factory import create_element
-from finat.quadrature import QuadratureRule
+from firedrake.mg.interface import get_embedding_element
 
 __all__ = ("TransferManager", )
-
-
-def get_embedding_element(element, value_shape):
-    finat_element = create_element(element)
-    try:
-        Q, ps = finat_element.dual_basis
-    except NotImplementedError:
-        # Fail back to DG element
-        return get_embedding_dg_element(element, value_shape)
-
-    if is_lagrange(finat_element):
-        return element
-
-    # Construct a Quadrature element
-    degree = finat_element.degree
-    wts = numpy.full(len(ps.points), numpy.nan)
-    quad_scheme = QuadratureRule(ps, wts, finat_element.cell)
-    element = finat.ufl.FiniteElement("Quadrature", cell=element.cell, degree=degree, quad_scheme=quad_scheme)
-    if value_shape != ():
-        element = finat.ufl.TensorElement(element, shape=value_shape)
-    return element
-
-
-def is_lagrange(finat_element):
-    # TODO replace with finat_element.has_pointwise_dual_basis
-    try:
-        Q, ps = finat_element.dual_basis
-    except NotImplementedError:
-        return False
-    children = [Q]
-    while children:
-        nodes = []
-        for c in children:
-            if isinstance(c, gem.Delta):
-                pass
-            elif isinstance(c, gem.gem.Terminal):
-                return False
-            else:
-                nodes.extend(c.children)
-        children = nodes
-    return True
 
 
 class Op(IntEnum):
@@ -101,7 +56,8 @@ class TransferManager(object):
             elif isinstance(element, finat.ufl.MixedElement):
                 return all(self.is_native(e, op) for e in element.sub_elements)
 
-        return (element.family() == get_embedding_element(element, ()).family())
+        embedded = get_embedding_element(element, ())
+        return (embedded.family() in {element.family(), "Quadrature"})
 
     def _native_transfer(self, element, op):
         try:
@@ -264,10 +220,6 @@ class TransferManager(object):
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         self.cache(V)._dat_versions[key] = dat_versions
 
-    def requires_quadrature(self, u):
-        V = u.function_space()
-        return get_embedding_element(V.ufl_element(), V.value_shape).family() == "Quadrature"
-
     @PETSc.Log.EventDecorator()
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
@@ -289,10 +241,6 @@ class TransferManager(object):
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
-        elif self.requires_quadrature(target):
-            qtarget = self.DG_work(target.function_space())
-            self.op(source, qtarget, transfer_op)
-            target.interpolate(qtarget)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -358,10 +306,6 @@ class TransferManager(object):
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
-        elif self.requires_quadrature(source):
-            qsource = self.DG_work(source.function_space())
-            qsource.interpolate(source)
-            self.restrict(qsource, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()

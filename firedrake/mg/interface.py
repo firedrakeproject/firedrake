@@ -1,7 +1,14 @@
 from pyop2 import op2
 
-import firedrake
-from firedrake import ufl_expr
+import gem
+import numpy
+from finat.ufl import FiniteElement, TensorElement
+from finat.quadrature import QuadratureRule
+from finat.element_factory import create_element
+from firedrake import ufl_expr, dmhooks
+from firedrake.embedding import get_embedding_dg_element
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
 from . import utils
@@ -13,10 +20,10 @@ __all__ = ["prolong", "restrict", "inject"]
 
 def check_arguments(coarse, fine, needs_dual=False):
     if is_dual(coarse) != needs_dual:
-        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        expected_type = Cofunction if needs_dual else Function
         raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
     if is_dual(fine) != needs_dual:
-        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        expected_type = Cofunction if needs_dual else Function
         raise TypeError("Fine argument is a %s, not a %s" % (type(fine).__name__, expected_type.__name__))
     cfs = coarse.function_space()
     ffs = fine.function_space()
@@ -32,6 +39,47 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Mismatching function space shapes")
 
 
+def get_embedding_element(element, value_shape):
+    finat_element = create_element(element)
+    try:
+        Q, ps = finat_element.dual_basis
+    except NotImplementedError:
+        # Fail back to DG element
+        return get_embedding_dg_element(element, value_shape)
+
+    if is_lagrange(finat_element):
+        return element
+
+    # Construct a Quadrature element
+    degree = finat_element.degree
+    wts = numpy.full(len(ps.points), numpy.nan)
+    quad_scheme = QuadratureRule(ps, wts, finat_element.cell)
+    element = FiniteElement("Quadrature", cell=element.cell, degree=degree, quad_scheme=quad_scheme)
+    if value_shape != ():
+        element = TensorElement(element, shape=value_shape)
+    return element
+
+
+def is_lagrange(finat_element):
+    # TODO replace with finat_element.has_pointwise_dual_basis
+    try:
+        Q, ps = finat_element.dual_basis
+    except NotImplementedError:
+        return False
+    children = [Q]
+    while children:
+        nodes = []
+        for c in children:
+            if isinstance(c, gem.Delta):
+                pass
+            elif isinstance(c, gem.gem.Terminal):
+                return False
+            else:
+                nodes.extend(c.children)
+        children = nodes
+    return True
+
+
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
@@ -41,7 +89,7 @@ def prolong(coarse, fine):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(coarse.subfunctions, fine.subfunctions):
-            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager = dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.prolong(in_, out)
         return fine
 
@@ -58,15 +106,20 @@ def prolong(coarse, fine):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
+    element = get_embedding_element(Vf.ufl_element(), Vf.value_shape)
+    needs_quadrature = element != Vf.ufl_element()
+    if needs_quadrature:
+        Vf = Vf.reconstruct(element=element)
+
     finest = fine
     for j in range(repeat):
         next_level += 1
-        if j == repeat - 1:
+        if j == repeat - 1 and not needs_quadrature:
             fine = finest
-            Vf = fine.function_space()
         else:
-            Vf = Vf.reconstruct(mesh=hierarchy[next_level])
-            fine = firedrake.Function(Vf)
+            fine = Function(Vf.reconstruct(mesh=hierarchy[next_level]))
+        Vf = fine.function_space()
+        Vc = coarse.function_space()
 
         coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
@@ -87,8 +140,16 @@ def prolong(coarse, fine):
                      coarse.dat(op2.READ, fine_to_coarse),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+
+        if needs_quadrature:
+            qfine = fine
+            if j == repeat - 1:
+                fine = finest
+            else:
+                fine = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+            fine.interpolate(qfine)
+
         coarse = fine
-        Vc = Vf
     return fine
 
 
@@ -101,7 +162,7 @@ def restrict(fine_dual, coarse_dual):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine_dual.subfunctions, coarse_dual.subfunctions):
-            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager = dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.restrict(in_, out)
         return coarse_dual
 
@@ -118,16 +179,23 @@ def restrict(fine_dual, coarse_dual):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    coarsest = coarse_dual
+    element = get_embedding_element(Vf.ufl_element(), Vf.value_shape)
+    needs_quadrature = element != Vf.ufl_element()
+
+    coarsest = coarse_dual.zero()
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse_dual.dat.zero()
-            coarse = coarsest
+            coarse_dual = coarsest
         else:
-            Vc = Vc.reconstruct(mesh=hierarchy[next_level])
-            coarse = firedrake.Cofunction(Vc)
-        Vc = coarse.function_space()
+            coarse_dual = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+        Vc = coarse_dual.function_space()
+
+        if needs_quadrature:
+            Vf = fine_dual.function_space()
+            fine_dual = Function(Vf.reconstruct(element=element)).interpolate(fine_dual)
+        Vf = fine_dual.function_space()
+
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
@@ -143,12 +211,12 @@ def restrict(fine_dual, coarse_dual):
             d.dat.global_to_local_end(op2.READ)
         kernel = kernels.restrict_kernel(Vf, Vc)
         op2.par_loop(kernel, fine_dual.node_set,
-                     coarse.dat(op2.INC, fine_to_coarse),
+                     coarse_dual.dat(op2.INC, fine_to_coarse),
                      fine_dual.dat(op2.READ),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
-        fine_dual = coarse
-        Vf = Vc
+
+        fine_dual = coarse_dual
     return coarse_dual
 
 
@@ -161,7 +229,7 @@ def inject(fine, coarse):
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
         for in_, out in zip(fine.subfunctions, coarse.subfunctions):
-            manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
+            manager = dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.inject(in_, out)
         return
 
@@ -192,16 +260,20 @@ def inject(fine, coarse):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    coarsest = coarse
+    element = get_embedding_element(Vc.ufl_element(), Vc.value_shape)
+    needs_quadrature = element != Vc.ufl_element()
+    if needs_quadrature:
+        Vc = Vc.reconstruct(element=element)
+
+    coarsest = coarse.zero()
     for j in range(repeat):
         next_level -= 1
-        if j == repeat - 1:
-            coarse.dat.zero()
+        if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
-            Vc = coarse.function_space()
         else:
-            Vc = Vc.reconstruct(mesh=hierarchy[next_level])
-            coarse = firedrake.Function(Vc)
+            coarse = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+        Vc = coarse.function_space()
+        Vf = fine.function_space()
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
@@ -234,8 +306,16 @@ def inject(fine, coarse):
                          fine.dat(op2.READ, coarse_cell_to_fine_nodes),
                          fine_coords.dat(op2.READ, coarse_cell_to_fine_coords),
                          coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
+
+        if needs_quadrature:
+            qcoarse = coarse
+            if j == repeat - 1:
+                coarse = coarsest
+            else:
+                coarse = Function(Vf.reconstruct(mesh=hierarchy[next_level]))
+            coarse.interpolate(qcoarse)
+
         fine = coarse
-        Vf = fine.function_space()
     return coarse
 
 
@@ -243,5 +323,5 @@ def get_coordinates(V):
     coords = V.mesh().coordinates
     if V.boundary_set:
         W = V.reconstruct(element=coords.function_space().ufl_element())
-        coords = firedrake.Function(W).interpolate(coords)
+        coords = Function(W).interpolate(coords)
     return coords
