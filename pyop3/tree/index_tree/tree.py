@@ -66,8 +66,6 @@ from pyop3.utils import (
 )
 from pyop3 import utils
 
-import pyop3.extras.debug
-
 
 bsearch = pym.var("mybsearch")
 

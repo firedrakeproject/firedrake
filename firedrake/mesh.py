@@ -2718,7 +2718,7 @@ class ExtrudedMeshTopology(MeshTopology):
                 )
                 # Finally do the renumbering
                 indices[(base_dim, extr_dim)] = utils.readonly(
-                    self._old_to_new_point_renumbering.indices[matching_extruded_points.indices]
+                    np.sort(self._old_to_new_point_renumbering.indices[matching_extruded_points.indices])
                 )
         return indices
 
@@ -4007,12 +4007,9 @@ values from f.)"""
                   'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = V.cell_node_list.reshape(-1)
+        column_list = V.cell_node_list.flatten()
 
-        def reshape_coords(_coords):
-            return _coords.dat.data_ro_with_halos.reshape((-1, gdim))
-
-        return reshape_coords(coords_min)[column_list], reshape_coords(coords_max)[column_list]
+        return coords_min.dat.data_ro[column_list], coords_max.dat.data_ro[column_list]
 
     @property
     def spatial_index(self):
@@ -5287,9 +5284,6 @@ def _pic_swarm_in_mesh(
         remove_missing_points=False,
     )
     visible_idxs = parent_cell_nums_local != -1
-    # plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-    #     parent_cell_nums_local, -1
-    # ]
     plex_parent_cell_nums = parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
     base_parent_cell_nums_visible = None
     extrusion_heights_visible = None

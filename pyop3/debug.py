@@ -2,12 +2,13 @@ import collections
 import warnings
 from typing import Optional, Union
 
+import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
 
 warnings.warn(
-    "Importing pyop3.extras.debug, this should not happen in released code",
+    "Importing pyop3.debug, this should not happen in released code",
     RuntimeWarning,
 )
 
@@ -52,3 +53,14 @@ class TodoWarning(UserWarning):
 
 def warn_todo(message: str) -> None:
     warnings.warn(message, TodoWarning)
+
+
+def sane_print(array: np.ndarray) -> None:
+    """Print an array to a fixed precision.
+
+    This allows one to compare it by eye without going crazy over irrelevant
+    floating point precision differences.
+
+    """
+    with np.printoptions(precision=5, floatmode="fixed", suppress=True):
+        print(array)

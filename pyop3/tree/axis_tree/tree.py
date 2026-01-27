@@ -62,7 +62,6 @@ from pyop3.utils import (
     strictly_all,
 )
 
-import pyop3.extras.debug
 
 if typing.TYPE_CHECKING:
     from pyop3.expr import LinearDatBufferExpression
@@ -279,8 +278,8 @@ class _UnitAxisTree(CacheMixin):
 
     @property
     def comm(self):
-        import pyop3.extras.debug
-        pyop3.extras.debug.warn_todo("This comm choice is unsafe")
+        from pyop3.debug import *
+        warn_todo("This comm choice is unsafe")
         return MPI.COMM_SELF
 
 
@@ -1083,8 +1082,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         sizes = size_dat.buffer.data_ro
 
-        import pyop3.extras.debug
-        pyop3.extras.debug.warn_todo("Cythonize")
+        from pyop3.debug import *
+        warn_todo("Cythonize")
 
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, component.local_size)
@@ -1210,7 +1209,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     def _alloc_size(self, axis=None):
         if self.is_empty:
-            pyop3.extras.debug.warn_todo("think about zero-sized things, should this be allowed?")
+            pyop3.debug.warn_todo("think about zero-sized things, should this be allowed?")
             return 1
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
@@ -1618,7 +1617,7 @@ class IndexedAxisTree(AbstractAxisTree):
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
         # then convert to a slice if possible, do in Cython!!!
-        pyop3.extras.debug.warn_todo("Convert to cython")
+        pyop3.debug.warn_todo("Convert to cython")
         slice_ = None
         n = len(indices)
 

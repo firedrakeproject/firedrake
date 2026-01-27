@@ -162,7 +162,6 @@ def transform_packed_cell_closure_dat(
     permutation=None,
 ) -> op3.Dat:
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    # if not space.extruded:
     # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
     # defined. This makes no sense for simplex and quad meshes because they are already
     # oriented. In effect we just arbitrarily permute the DoFs in the cell-node map for

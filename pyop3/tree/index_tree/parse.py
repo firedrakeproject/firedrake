@@ -18,8 +18,6 @@ from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
-import pyop3.extras.debug
-
 
 class IncompletelyIndexedException(Pyop3Exception):
     """Exception raised when an axis tree is incompletely indexed by an index tree/forest."""

@@ -57,7 +57,6 @@ from pyop3.insn.base import (
     InstructionList,
 )
 
-import pyop3.extras.debug
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -357,8 +356,9 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        if len(self.loopy_code.callables_table) > 1 and "inject" in str(self):
-            pyop3.extras.debug.maybe_breakpoint()
+        if len(self.loopy_code.callables_table) > 1 and "form" in str(self):
+            breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         #     pyop3.extras.debug.maybe_breakpoint()
 

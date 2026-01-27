@@ -25,8 +25,6 @@ from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
 from pyop3.mpi import collective
 
-import pyop3.extras.debug
-
 
 # NOTE: Perhaps better inside another module
 PYOP3_DECIDE = object()
@@ -849,12 +847,6 @@ def regexify(pattern: str):
     pattern = pattern.replace("#", r"\d+")
 
     return pattern
-
-
-def unsafe_cache(*args, **kwargs):
-    import pyop3
-    pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
-    return functools.cache(*args, **kwargs)
 
 
 def is_ellipsis_type(obj: Any) -> bool:

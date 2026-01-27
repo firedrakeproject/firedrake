@@ -152,26 +152,6 @@ class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
     def copy(self) -> Tensor:
         return self.duplicate(copy=True)
 
-    # NOTE: This is quite nasty
-    @cached_property
-    def loop_axes(self) -> tuple[Axis]:
-        breakpoint()
-        if self.parent:
-            raise NotImplementedError
-        # we should be able to get this information from the subst layouts
-        import pyop3.extras.debug
-        pyop3.extras.debug.warn_todo("Nasty code, do it better")
-        assert all(
-            loop.iterset.is_linear
-            for axes in self.axis_trees
-            for loop in axes.outer_loops
-        )
-        return idict({
-            loop: tuple(axis.localize() for axis in loop.iterset.nodes)
-            for axes in self.axis_trees
-            for loop in axes.outer_loops
-        })
-
     @abc.abstractmethod
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""

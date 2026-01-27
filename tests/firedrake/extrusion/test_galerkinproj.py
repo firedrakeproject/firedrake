@@ -24,6 +24,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         expr = x*x*y*z
         exact = project(expr, exactfspace)
 
+        breakpoint()
+
         out = Function(fspace)
         solve(inner(u, v)*dx == inner(exact, v)*dx, out)
         l2err[ii] = sqrt(assemble(inner((out-exact), (out-exact))*dx))

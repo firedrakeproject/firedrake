@@ -82,19 +82,6 @@ class LinearSolver(LinearVariationalSolver):
             raise ValueError(f"b must be a Cofunction in {self.b.function_space()}.")
 
         self.x.assign(x)
-
-        global firstcall
-
-        if firstcall:
-            firstcall = False
-        else:
-            import pyop3
-            pyop3.extras.debug.enable_conditional_breakpoints()
-
         self.b.assign(b)
-
         super().solve()
         x.assign(self.x)
-
-
-firstcall = True

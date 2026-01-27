@@ -260,8 +260,6 @@ def get_restriction_indices(V, W):
     b = pack(v_func, c, "cell")[eperm_dat]
     a = pack(w_func, c, "cell").reshape(b.axes.materialize())
 
-    # import pyop3.extras.debug
-    # pyop3.extras.debug.enable_conditional_breakpoints()
     op3.loop(
         c,
         a.assign(b),

@@ -758,7 +758,6 @@ class FunctionSpace:
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
         from firedrake.cython import dmcommon
-        import pyop3.extras.debug
 
         mesh_axis = self._mesh.flat_points
         num_points = mesh_axis.local_size
@@ -1099,15 +1098,10 @@ class FunctionSpace:
             name=node_axis.label
         )
 
-    # IMPORTANT: This is only for the subspace - if addressing a subfunction with this an offset is needed
     @utils.cached_property
     def cell_node_list(self) -> np.ndarray:
         r"""A numpy array mapping mesh cells to function space nodes."""
-        nodes = self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.local_size, -1))
-        if self.extruded:
-            return nodes[::self.mesh().layers-1]
-        else:
-            return nodes
+        return self.cell_node_dat.data_ro
 
     @cached_property
     def cell_node_dat(self) -> op3.Dat:
@@ -1131,6 +1125,7 @@ class FunctionSpace:
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
         map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
+
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
 
         # now reshape things because we want to have 2 axes: cells and nodes
@@ -1142,13 +1137,6 @@ class FunctionSpace:
         map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
 
         return map_dat
-
-    @cached_property
-    def extr_cell_node_list(self):
-        assert self.extruded
-        if self.mesh().variable_layers:
-            raise NotImplementedError
-        return self.cell_node_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
 
     @utils.cached_property
     def topological(self):
