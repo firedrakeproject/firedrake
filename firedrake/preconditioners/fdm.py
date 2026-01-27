@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
+from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
@@ -16,7 +16,6 @@ from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import cached_property
-from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
@@ -29,6 +28,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
 import firedrake.dmhooks as dmhooks
+import petsctools
 import ufl
 import finat.ufl
 import FIAT
@@ -38,33 +38,6 @@ import ctypes
 
 
 __all__ = ("FDMPC", "PoissonFDMPC")
-
-
-def broken_function(V, val):
-    W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
-    w = Function(W, dtype=val.dtype)
-    v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
-    instructions = """
-    for i
-        w[i] = v[i]
-    end
-    """
-    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
-    return w
-
-
-def mask_local_indices(V, lgmap, repeated=False):
-    mask = lgmap.indices
-    if repeated:
-        w = broken_function(V, mask)
-        V = w.function_space()
-        mask = w.dat.data_ro_with_halos
-    indices = numpy.arange(len(mask), dtype=PETSc.IntType)
-    indices[mask == -1] = -1
-    indices_dat = V.make_dat(val=indices)
-    indices_acc = indices_dat(op2.READ, V.cell_node_map())
-    return indices_acc
 
 
 class FDMPC(PCBase):
@@ -83,7 +56,7 @@ class FDMPC(PCBase):
     matrices.
 
     The PETSc options inspected by this class are:
-    - 'fdm_mat_type': can be either 'aij' or 'sbaij'
+    - 'fdm_mat_type': can be either 'aij', 'sbaij', or 'is'
     - 'fdm_static_condensation': are we assembling the Schur complement on facets?
     """
 
@@ -94,7 +67,7 @@ class FDMPC(PCBase):
 
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
-        Citations().register(self._citation)
+        petsctools.cite(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix() or ""
@@ -134,7 +107,10 @@ class FDMPC(PCBase):
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[-1].function_space()
-        V_fdm = V.reconstruct(variant=self._variant)
+        if self._variant == "fdm" and V.ufl_element().variant() in {"fdm", "demkowicz", "demkowiczmass"}:
+            V_fdm = V
+        else:
+            V_fdm = V.reconstruct(variant=self._variant)
         if V == V_fdm:
             J_fdm, bcs_fdm = (J, bcs)
         else:
@@ -169,7 +145,7 @@ class FDMPC(PCBase):
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Internally, we just set up a PC object that the user can configure
-        # however from the PETSc command line.  Since PC allows the user to specify
+        # however from the PETSc command line. Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
         fdmpc = PETSc.PC().create(comm=pc.comm)
         fdmpc.incrementTabLevel(1, parent=pc)
@@ -218,15 +194,15 @@ class FDMPC(PCBase):
             Vfacet = None
             Vbig = V
             ebig = V.ufl_element()
-            _, fdofs = split_dofs(V.finat_element)
+            idofs, fdofs = split_dofs(V.finat_element)
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = V.reconstruct(element=ebig)
-            if len(V) > 1:
-                dims = [Vsub.finat_element.space_dimension() for Vsub in V]
-                assert sum(dims) == Vbig.finat_element.space_dimension()
+            Vbig = V.reconstruct(mesh=V.mesh().unique(), element=ebig)
+            space_dim = Vbig.finat_element.space_dimension()
+            assert space_dim == sum(Vsub.finat_element.space_dimension() for Vsub in V)
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
+            idofs = numpy.setdiff1d(numpy.arange(space_dim, dtype=fdofs.dtype), fdofs)
         else:
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
@@ -245,7 +221,7 @@ class FDMPC(PCBase):
 
         # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
-        if V == Vbig and Vbig.finat_element.formdegree == 0:
+        if V == Vbig and Vbig.finat_element.formdegree == 0 and len(idofs) > 0 and pmat_type.endswith("aij"):
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
@@ -481,7 +457,7 @@ class FDMPC(PCBase):
         args_J = J.arguments()
         e = args_J[0].ufl_element()
         mesh = args_J[0].function_space().mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             e = e._sub_element
         e = unrestrict_element(e)
@@ -497,7 +473,7 @@ class FDMPC(PCBase):
             dku = ufl.div(u) if sobolev == ufl.HDiv else ufl.curl(u)
             eps = expand_derivatives(ufl.diff(ufl.replace(expand_derivatives(dku), {ufl.grad(u): du}), du))
             if sobolev == ufl.HDiv:
-                map_grad = lambda p: ufl.outer(p, eps/tdim)
+                map_grad = lambda p: ufl.conj(ufl.outer(p, eps/tdim))
             elif len(eps.ufl_shape) == 3:
                 map_grad = lambda p: ufl.dot(p, eps/2)
             else:
@@ -710,65 +686,28 @@ class FDMPC(PCBase):
     def assembly_lgmaps(self):
         if self.mat_type != "is":
             return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        lgmaps = {}
-        for Vsub in self.V:
-            lgmap = Vsub.dof_dset.lgmap
-            if self.allow_repeated:
-                indices = broken_function(Vsub, lgmap.indices).dat.data_ro
-            else:
-                indices = lgmap.indices.copy()
-                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
-                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
-                indices[ghost] = -1
-            lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
-        return lgmaps
+        return {Vsub: unghosted_lgmap(Vsub, Vsub.dof_dset.lgmap, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
-        # Preallocate the auxiliary sparse operator
+        """Preallocate the auxiliary sparse operator."""
         sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
         cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
         ptype = self.mat_type if on_diag else PETSc.Mat.Type.AIJ
 
-        preallocator = PETSc.Mat().create(comm=self.comm)
-        preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-        preallocator.setSizes(sizes)
-        preallocator.setISAllowRepeated(self.allow_repeated)
-        preallocator.setLGMap(rmap, cmap)
-        preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-        if ptype.endswith("sbaij"):
-            preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-        preallocator.setUp()
+        preallocator = get_preallocator(self.comm, sizes, rmap, cmap, mat_type=ptype)
         self.set_values(preallocator, Vrow, Vcol)
         preallocator.assemble()
-        dnz, onz = get_preallocation(preallocator, sizes[0][0])
-        if on_diag:
-            numpy.maximum(dnz, 1, out=dnz)
+        P = allocate_matrix(preallocator, ptype, on_diag=on_diag, allow_repeated=self.allow_repeated)
         preallocator.destroy()
-        P = PETSc.Mat().create(comm=self.comm)
-        P.setType(ptype)
-        P.setSizes(sizes)
-        P.setISAllowRepeated(self.allow_repeated)
-        P.setLGMap(rmap, cmap)
-        if on_diag and ptype == "is" and self.allow_repeated:
-            bsize = Vrow.finat_element.space_dimension() * Vrow.block_size
+
+        if on_diag and P.type == "is" and self.allow_repeated:
+            bsize = Vrow.block_size * Vrow.finat_element.space_dimension()
             local_mat = P.getISLocalMat()
             nblocks = local_mat.getSize()[0] // bsize
             sizes = numpy.full((nblocks,), bsize, dtype=PETSc.IntType)
             local_mat.setVariableBlockSizes(sizes)
-        P.setPreallocationNNZ((dnz, onz))
-
-        if not (ptype.endswith("sbaij") or ptype == "is"):
-            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
-        P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-        P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
-        P.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, True)
-        P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
-        if ptype.endswith("sbaij"):
-            P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-        P.setUp()
         return P
 
     @PETSc.Log.EventDecorator("FDMSetValues")
@@ -1291,7 +1230,7 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         nargs = len(kernel.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
 
-        matmult_struct = cache_generate_code(kernel, V._comm)
+        matmult_struct = cache_generate_code(kernel, V.comm)
         matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
 
         ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))
@@ -1647,7 +1586,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
             A_blocks = [[A10.kron(A11), A11.kron(A10)]]
-            A_blocks[-1][-1].scale(-1)
+            A_blocks[0][0].scale(-1)
     elif tdim == 3:
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
@@ -1661,19 +1600,100 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
     return A_blocks
 
 
-def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
+def broken_function(V, val):
+    """Return a Function(V, val=val) interpolated onto the broken space."""
+    W = V.broken_space()
+    w = Function(W, dtype=val.dtype)
+    v = Function(V, val=val)
+    domain = "{[i]: 0 <= i < v.dofs}"
+    instructions = """
+    for i
+        w[i] = v[i]
+    end
     """
-    Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
-    Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
-    """
+    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+    return w
+
+
+def mask_local_indices(V, lgmap, allow_repeated):
+    """Return a numpy array with the masked local indices."""
+    mask = lgmap.indices
+    if allow_repeated:
+        w = broken_function(V, mask)
+        V = w.function_space()
+        mask = w.dat.data_ro_with_halos
+
+    indices = numpy.arange(mask.size, dtype=PETSc.IntType)
+    indices[mask == -1] = -1
+    indices_dat = V.make_dat(val=indices)
+    indices_acc = indices_dat(op2.READ, V.cell_node_map())
+    return indices_acc
+
+
+def unghosted_lgmap(V, lgmap, allow_repeated):
+    """Construct the local to global mapping for MatIS assembly."""
+    if allow_repeated:
+        indices = broken_function(V, lgmap.indices).dat.data_ro
+    else:
+        indices = lgmap.indices.copy()
+        local_indices = numpy.arange(indices.size, dtype=PETSc.IntType)
+        cell_node_map = broken_function(V, local_indices).dat.data_ro
+        ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
+        indices[ghost] = -1
+    return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+
+
+def get_preallocator(comm, sizes, rmap, cmap, mat_type=None):
+    """Set up a matrix preallocator."""
+    preallocator = PETSc.Mat().create(comm=comm)
+    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+    preallocator.setSizes(sizes)
+    preallocator.setLGMap(rmap, cmap)
+    preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+    if mat_type is not None and mat_type.endswith("sbaij"):
+        preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+    preallocator.setUp()
+    return preallocator
+
+
+def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False):
+    """Set up a matrix from a preallocator."""
+    sizes = preallocator.getSizes()
+    nnz = get_preallocation(preallocator, sizes[0][0])
+    if on_diag:
+        numpy.maximum(nnz[0], 1, out=nnz[0])
+
+    A = PETSc.Mat().create(comm=preallocator.getComm())
+    A.setType(mat_type)
+    A.setSizes(sizes)
+    A.setBlockSize(preallocator.getBlockSize())
+    A.setISAllowRepeated(allow_repeated)
+    A.setLGMap(*preallocator.getLGMap())
+    A.setPreallocationNNZ(nnz)
+    if mat_type.endswith("sbaij"):
+        A.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+    if not (mat_type.endswith("sbaij") or mat_type == "is"):
+        A.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+    A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    A.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
+    A.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, on_diag)
+    A.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
+    A.setUp()
+    return A
+
+
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
+    """Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
+       Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
     if comm is None:
         comm = Vf.comm
+
     ec = Vc.finat_element
     ef = Vf.finat_element
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    if Vf.mesh().ufl_cell().is_simplex():
+    if Vf.mesh().ufl_cell().is_simplex:
         c0 = ec.fiat_equivalent
         f1 = ef.fiat_equivalent
         derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
@@ -1688,7 +1708,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         if c1.formdegree != 1:
             c1 = None
 
-        tdim = Vc.mesh().topological_dimension()
+        tdim = Vc.mesh().topological_dimension
         zero = PETSc.Mat()
         A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
         A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
@@ -1718,29 +1738,30 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         temp.destroy()
         eye.destroy()
 
-    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
-    preallocator = PETSc.Mat().create(comm=comm)
-    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-    preallocator.setSizes(sizes)
-    preallocator.setUp()
+    if mat_type != "is":
+        allow_repeated = False
+    spaces = (Vf, Vc)
+    bcs = (fbcs, cbcs)
+    lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+    indices_acc = tuple(mask_local_indices(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
+    if mat_type == "is":
+        lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
 
-    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel()
-    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
-                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
-    assembler = op2.ParLoop(kernel,
+    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
+    preallocator = get_preallocator(comm, sizes, *lgmaps)
+
+    kernel = ElementKernel(Dhat, name="exterior_derivative")
+    assembler = op2.ParLoop(kernel.kernel(mat_type=mat_type),
                             Vc.mesh().cell_set,
-                            *(op2.PassthroughArg(op2.OpaqueType("Mat"), m.handle) for m in (preallocator, Dhat)),
-                            *indices)
+                            *kernel.make_args(preallocator),
+                            *indices_acc)
     assembler()
     preallocator.assemble()
-    nnz = get_preallocation(preallocator, sizes[0][0])
-    preallocator.destroy()
 
-    Dmat = PETSc.Mat().createAIJ(sizes, Vf.block_size, nnz=nnz, comm=comm)
-    Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
     assembler.arguments[0].data = Dmat.handle
+    preallocator.destroy()
     assembler()
-
     Dmat.assemble()
     Dhat.destroy()
     return Dmat
@@ -1970,7 +1991,7 @@ class PoissonFDMPC(FDMPC):
         bsize = V.block_size
         ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
-        tdim = V.mesh().topological_dimension()
+        tdim = V.mesh().topological_dimension
         shift = axes_shifts * bsize
 
         index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
@@ -2073,7 +2094,7 @@ class PoissonFDMPC(FDMPC):
         if any(Dk is not None for Dk in Dfdm):
             if static_condensation:
                 raise NotImplementedError("Static condensation for SIPG not implemented")
-            if tdim < V.mesh().geometric_dimension():
+            if tdim < V.mesh().geometric_dimension:
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
             eta = float(self.appctx.get("eta"))
 
@@ -2172,7 +2193,7 @@ class PoissonFDMPC(FDMPC):
         args_J = J.arguments()
         V = args_J[-1].function_space()
         mesh = V.mesh()
-        tdim = mesh.topological_dimension()
+        tdim = mesh.topological_dimension
         Finv = ufl.JacobianInverse(mesh)
 
         degree, = set(as_tuple(V.ufl_element().degree()))
@@ -2206,7 +2227,7 @@ class PoissonFDMPC(FDMPC):
         if not isinstance(alpha, ufl.constantvalue.Zero):
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=alpha.ufl_shape))
             tensor = coefficients.setdefault("alpha", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), alpha)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ufl.inner(alpha, TestFunction(Q))*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # get zero-th order coefficent
         ref_val = [ufl.variable(t) for t in args_J]
@@ -2227,7 +2248,7 @@ class PoissonFDMPC(FDMPC):
                 beta = ufl.diag_vector(beta)
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DG, shape=beta.ufl_shape) if beta.ufl_shape else DG)
             tensor = coefficients.setdefault("beta", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ufl.inner(TestFunction(Q), beta)*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ufl.inner(beta, TestFunction(Q))*dx, form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         family = "CG" if tdim == 1 else "DGT"
         degree = 1 if tdim == 1 else 0
@@ -2249,11 +2270,11 @@ class PoissonFDMPC(FDMPC):
 
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=G.ufl_shape))
             tensor = coefficients.setdefault("Gq_facet", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), G), form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ifacet_inner(G, TestFunction(Q)), form_compiler_parameters=fcp).assemble, tensor=tensor))
             PT = Piola.T
             Q = FunctionSpace(mesh, finat.ufl.TensorElement(DGT, shape=PT.ufl_shape))
             tensor = coefficients.setdefault("PT_facet", Function(Q.dual()))
-            assembly_callables.append(partial(get_assembler(ifacet_inner(TestFunction(Q), PT), form_compiler_parameters=fcp).assemble, tensor=tensor))
+            assembly_callables.append(partial(get_assembler(ifacet_inner(PT, TestFunction(Q)), form_compiler_parameters=fcp).assemble, tensor=tensor))
 
         # make DGT functions with BC flags
         shape = V.ufl_element().reference_value_shape
@@ -2273,7 +2294,7 @@ class PoissonFDMPC(FDMPC):
                 if beta.ufl_shape:
                     beta = ufl.diag_vector(beta)
                 ds_ext = ufl.Measure(itype, domain=mesh, subdomain_id=it.subdomain_id(), metadata=md)
-                forms.append(ufl.inner(test, beta)*ds_ext)
+                forms.append(ufl.inner(beta, test)*ds_ext)
 
         tensor = coefficients.setdefault("bcflags", Function(Q.dual()))
         if len(forms):
@@ -2288,7 +2309,7 @@ class PoissonFDMPC(FDMPC):
 
 
 def get_piola_tensor(mapping, domain):
-    tdim = domain.topological_dimension()
+    tdim = domain.topological_dimension
     if mapping == 'identity':
         return None
     elif mapping == 'covariant piola':

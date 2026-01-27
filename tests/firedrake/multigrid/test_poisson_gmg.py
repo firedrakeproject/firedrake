@@ -21,10 +21,9 @@ def solver_parameters(solver_type):
                       "mat_type": "matfree",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
+                      "mg_coarse_mat_type": "aij",
                       "mg_coarse_ksp_type": "preonly",
-                      "mg_coarse_pc_type": "python",
-                      "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                      "mg_coarse_assembled_pc_type": "lu",
+                      "mg_coarse_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": max_its,
                       "mg_levels_pc_type": "jacobi"}

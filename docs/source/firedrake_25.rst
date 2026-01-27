@@ -2,15 +2,15 @@
 
 .. title:: Firedrake '25
 
-.. image:: images/leeds_som.png
-   :alt: University of Leeds, School of Mathematics
+.. image:: images/firedrake_25.jpg
+   :alt: Photo showing conference attendees
    :width: 100%
    :align: center
 
 Firedrake '25
 -------------
 
-The tenth Firedrake user and developer workshop will be held at the
+The tenth Firedrake user and developer workshop was held at the
 `School of Mathematics <https://eps.leeds.ac.uk/maths>`__ together
 with
 `Leeds Institute of Fluid Dynamics <https://fluids.leeds.ac.uk/>`__,
@@ -32,6 +32,11 @@ Key Dates
 - Abstract deadline: 22 August 2025
 - Registration deadline: 25 August 2025
 - Workshop: 15-17 September 2025
+
+Programme
+---------
+
+The `programme is available here <https://easychair.org/smart-program/Firedrake25/>`__.
 
 Conference venue
 ----------------
@@ -65,7 +70,7 @@ Conference dinner
 Registration includes a drinks reception and three-course dinner at University House, University of Leeds. The dinner will take place on the evening of 16 September. 
 
 It is possible to bring non-registered companions to the dinner. To do so please purchase a ticket
-by following `this link <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-dinner>`__.
+by following this link.
 
 .. image:: images/university_house_leeds.jpg
    :width: 80%
@@ -76,9 +81,7 @@ by following `this link <https://store.leeds.ac.uk/product-catalogue/faculty-of-
 Registration
 ------------
 
-`Registration
-<https://app.onlinesurveys.jisc.ac.uk/s/leeds/firedrake-2025-registration>`__
-is now open.
+Registration is now open.
 
 In addition to registering to attend, participants need to pay for their
 registration using the links below.
@@ -88,17 +91,10 @@ The registration fees will be as follows:
 .. list-table::
    :widths: 25 25
 
-   * - `Student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-student-fee>`__
+   * - Student
      - £25
-   * - `Non-student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-non-student-fee>`__
+   * - Non-student
      - £115
-
-Abstract submission
--------------------
-
-We welcome presentations about any aspect of Firedrake development or
-application. Please submit your abstract `here
-<https://easychair.org/my/conference?conf=firedrake25>`__.
 
 Support
 -------

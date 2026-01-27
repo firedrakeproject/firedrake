@@ -10,7 +10,6 @@ expressions (finite element variational forms written in UFL).
 import time
 from typing import Hashable
 
-from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
 
 from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
@@ -37,6 +36,7 @@ import petsctools
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 import copy
 
 from petsc4py import PETSc
@@ -147,7 +147,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
 
-    Citations().register("Gibson2018")
+    petsctools.cite("Gibson2018")
 
     orig_expr = slate_expr
     # Optimise slate expr, e.g. push blocks as far inward as possible
@@ -193,14 +193,20 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
-                       oriented=builder.bag.needs_cell_orientations,
                        subdomain_id=("otherwise",),
                        domain_number=0,
+                       active_domain_numbers=ActiveDomainNumbers(coordinates=(0, ) if builder.bag.needs_coordinates else (),
+                                                                 cell_orientations=(0, ) if builder.bag.needs_cell_orientations else (),
+                                                                 cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
+                                                                 exterior_facets=(),
+                                                                 interior_facets=(),
+                                                                 orientations_cell=(),
+                                                                 orientations_exterior_facet=(),
+                                                                 orientations_interior_facet=(),),
                        coefficient_numbers=coefficient_numbers,
                        constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
-                       needs_cell_sizes=builder.bag.needs_cell_sizes,
                        arguments=arguments,
                        events=events)
 

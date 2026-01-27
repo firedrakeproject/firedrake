@@ -55,7 +55,6 @@ __all__ = (
     "COMM_WORLD",
     "COMM_SELF",
     "MPI",
-    "internal_comm",
     "is_pyop2_comm",
     "incref",
     "decref",
@@ -64,11 +63,8 @@ __all__ = (
 
 # These are user-level communicators, we never send any messages on
 # them inside PyOP2.
-COMM_WORLD = PETSc.COMM_WORLD.tompi4py().Dup()
-COMM_WORLD.Set_name("PYOP2_COMM_WORLD")
-
-COMM_SELF = PETSc.COMM_SELF.tompi4py().Dup()
-COMM_SELF.Set_name("PYOP2_COMM_SELF")
+COMM_WORLD = MPI.COMM_WORLD
+COMM_SELF = MPI.COMM_SELF
 
 # Creation index counter
 _COMM_CIDX = count()
@@ -76,8 +72,6 @@ _COMM_CIDX = count()
 _DUPED_COMM_DICT = {}
 # Flag to indicate whether we are in cleanup (at exit)
 PYOP2_FINALIZED = False
-# Flag for outputting information at the end of testing (do not abuse!)
-_running_on_ci = bool(os.environ.get('PYOP2_CI_TESTS'))
 
 
 class PyOP2CommError(ValueError):
@@ -230,15 +224,25 @@ def delcomm_outer(comm, keyval, icomm):
     :arg icomm: The inner communicator, should have a reference to
         ``comm``.
     """
-    # Use debug printer that is safe to use at exit time
-    debug = finalize_safe_debug()
     if keyval not in (innercomm_keyval, compilationcomm_keyval):
         raise PyOP2CommError("Unexpected keyval")
 
+    # Use debug printer that is safe to use at exit time
+    debug = finalize_safe_debug()
     if keyval == innercomm_keyval:
         debug(f'Deleting innercomm keyval on {comm.name}')
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
+
+    # During finalisation the inner comms are cleaned up first so can be null here
+    if icomm == MPI.COMM_NULL:
+        debug("Inner comm is MPI_COMM_NULL")
+        return
+
+    # Disable the garbage collector during cleanup - we don't want to trigger
+    # any further destructors as this is progressing (believe me, ask how I know)
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
 
     ocomm = icomm.Get_attr(outercomm_keyval)
     if ocomm is None:
@@ -259,7 +263,6 @@ def delcomm_outer(comm, keyval, icomm):
     cidx = icomm.Get_attr(cidx_keyval)
     cidx = cidx[0]
     del _DUPED_COMM_DICT[cidx]
-    gc.collect()
     refcount = icomm.Get_attr(refcount_keyval)
     if refcount[0] > 1:
         # In the case where `comm` is a custom user communicator there may be references
@@ -270,6 +273,9 @@ def delcomm_outer(comm, keyval, icomm):
             "this will cause deadlock if the communicator has been incorrectly freed"
         )
     icomm.Free()
+
+    if gc_was_enabled:
+        gc.enable()
 
 
 # Reference count, creation index, inner/outer/compilation communicator
@@ -549,12 +555,10 @@ def finalize_safe_debug():
     finished writing debug information. In this case we fall back to using the
     Python `print` function to output debugging information.
 
-    Furthermore, we always want to see this finalization information when
-    running the CI tests.
     '''
     global debug
     if PYOP2_FINALIZED:
-        if logger.level > DEBUG and not _running_on_ci:
+        if logger.level > DEBUG:
             debug = lambda string: None
         else:
             debug = lambda string: print(string)
@@ -575,15 +579,7 @@ def _free_comms():
     debug("STATE0")
     debug(pyop2_comm_status())
 
-    debug("Freeing PYOP2_COMM_WORLD")
-    COMM_WORLD.Free()
-    debug("STATE1")
-    debug(pyop2_comm_status())
-
-    debug("Freeing PYOP2_COMM_SELF")
-    COMM_SELF.Free()
-    debug("STATE2")
-    debug(pyop2_comm_status())
+    # We free the comms in order because comm destruction is collective
     debug(f"Freeing comms in list (length {len(_DUPED_COMM_DICT)})")
     for key in sorted(_DUPED_COMM_DICT.keys(), reverse=True):
         comm = _DUPED_COMM_DICT[key]

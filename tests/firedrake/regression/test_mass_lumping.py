@@ -43,7 +43,7 @@ def mesh(request):
 def test_spectral_mass_lumping(mesh, degree):
     V = FunctionSpace(mesh, "Lagrange", degree)
 
-    dimension = mesh.topological_dimension()
+    dimension = mesh.topological_dimension
     quad_rule = gauss_lobatto_legendre_cube_rule(dimension=dimension, degree=degree)
 
     u = TrialFunction(V)

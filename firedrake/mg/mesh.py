@@ -4,8 +4,10 @@ from collections import defaultdict
 
 from pyop2.datatypes import IntType
 
+import petsctools
 import firedrake
 import firedrake.cython.dmcommon as dmcommon
+from firedrake import utils
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
@@ -34,8 +36,7 @@ class HierarchyBase(object):
     """
     def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
                  refinements_per_level=1, nested=False):
-        from firedrake_citations import Citations
-        Citations().register("Mitchell2016")
+        petsctools.cite("Mitchell2016")
         self._meshes = tuple(meshes)
         self.meshes = tuple(meshes[::refinements_per_level])
         self.coarse_to_fine_cells = coarse_to_fine_cells
@@ -54,13 +55,6 @@ class HierarchyBase(object):
         if not all(m.comm == comm for m in self):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
-
-    @cached_property
-    def _comm(self):
-        _comm = self[0]._comm
-        if not all(m._comm == _comm for m in self):
-            raise NotImplementedError("All meshes in hierarchy must be on same communicator")
-        return _comm
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -120,12 +114,9 @@ def MeshHierarchy(mesh, refinement_levels,
     """
 
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
-        try:
-            from ngsPETSc import NetgenHierarchy
-        except ImportError:
-            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
-                              "are installed and available to Firedrake (see "
-                              "https://www.firedrakeproject.org/install.html#netgen).")
+        utils.check_netgen_installed()
+        from firedrake.mg.netgen import NetgenHierarchy
+
         if hasattr(mesh, "netgen_mesh"):
             return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
         else:
@@ -160,7 +151,7 @@ def MeshHierarchy(mesh, refinement_levels,
             # of the boundary we're trying to conform to.  This
             # doesn't DTRT really for cubed sphere meshes (the
             # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension())
+            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
     lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
@@ -173,7 +164,7 @@ def MeshHierarchy(mesh, refinement_levels,
     meshes = [mesh] + [
         mesh_builder(
             dm,
-            dim=mesh.geometric_dimension(),
+            dim=mesh.geometric_dimension,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,
