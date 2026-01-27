@@ -83,6 +83,21 @@ class AuxiliaryOperatorSNES(SNESBase):
     For example, by changing the outer ``"snes_type"`` to ``"anderson"``,
     we can use preconditioned Anderson acceleration
     (`<https://petsc.org/release/manualpages/SNES/SNESANDERSON/>`_)
+
+    Notes
+    -----
+
+    If the auxiliary form is linear, i.e. :math:`G(u)=Au`, with
+    :math:`A\\approx\\nabla F` approximating the Jacobian of the
+    outer residual then the iteration is an inexact Newton method:
+
+    .. math ::
+
+        Au^{k+1} = Au^{k} - F(u^{k})
+
+        A\\delta u^{k} = - F(u^{k})
+
+        u^{k+1} = u^{k} + \\delta u^{k}
     """
 
     _prefix = "aux_"
