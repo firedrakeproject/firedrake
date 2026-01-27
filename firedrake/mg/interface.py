@@ -111,13 +111,14 @@ def prolong(coarse, fine):
     if needs_quadrature:
         Vf = Vf.reconstruct(element=element)
 
+    meshes = hierarchy._meshes
     finest = fine
     for j in range(repeat):
         next_level += 1
         if j == repeat - 1 and not needs_quadrature:
             fine = finest
         else:
-            fine = Function(Vf.reconstruct(mesh=hierarchy[next_level]))
+            fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
         Vf = fine.function_space()
         Vc = coarse.function_space()
 
@@ -146,7 +147,7 @@ def prolong(coarse, fine):
             if j == repeat - 1:
                 fine = finest
             else:
-                fine = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+                fine = Function(Vc.reconstruct(mesh=meshes[next_level]))
             fine.interpolate(qfine)
 
         coarse = fine
@@ -182,13 +183,14 @@ def restrict(fine_dual, coarse_dual):
     element = get_embedding_element(Vf.ufl_element(), Vf.value_shape)
     needs_quadrature = element != Vf.ufl_element()
 
+    meshes = hierarchy._meshes
     coarsest = coarse_dual.zero()
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
             coarse_dual = coarsest
         else:
-            coarse_dual = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+            coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse_dual.function_space()
 
         if needs_quadrature:
@@ -265,13 +267,14 @@ def inject(fine, coarse):
     if needs_quadrature:
         Vc = Vc.reconstruct(element=element)
 
+    meshes = hierarchy._meshes
     coarsest = coarse.zero()
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
         else:
-            coarse = Function(Vc.reconstruct(mesh=hierarchy[next_level]))
+            coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
         if not dg:
@@ -312,7 +315,7 @@ def inject(fine, coarse):
             if j == repeat - 1:
                 coarse = coarsest
             else:
-                coarse = Function(Vf.reconstruct(mesh=hierarchy[next_level]))
+                coarse = Function(Vf.reconstruct(mesh=meshes[next_level]))
             coarse.interpolate(qcoarse)
 
         fine = coarse
