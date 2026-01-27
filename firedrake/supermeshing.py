@@ -201,9 +201,6 @@ each supermesh cell.
     mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
     mat.setUp()
 
-    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), name="evaluate_kernel_A")
-    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), name="evaluate_kernel_B")
-
     # We only need one of these since we assume that the two meshes both have CG1 coordinates
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
@@ -211,10 +208,15 @@ each supermesh cell.
         reference_mesh = UnitTriangleMesh(comm=COMM_SELF)
     else:
         reference_mesh = UnitTetrahedronMesh(comm=COMM_SELF)
-    evaluate_kernel_S = compile_element(ufl.Coefficient(reference_mesh.coordinates.function_space()), name="evaluate_kernel_S")
 
+    V_S = reference_mesh.coordinates.function_space()
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
+
+    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()), name="evaluate_kernel_A")
+    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()), name="evaluate_kernel_B")
+    evaluate_kernel_S = compile_element(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()), name="evaluate_kernel_S")
+
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
