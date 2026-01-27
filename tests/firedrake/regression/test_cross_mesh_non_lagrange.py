@@ -5,6 +5,13 @@ from finat.quadrature import QuadratureRule
 from functools import partial
 
 
+def mat_equals(a, b) -> bool:
+    """Check that two Matrices are equal."""
+    a = a.petscmat.copy()
+    a.axpy(-1.0, b.petscmat)
+    return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
+
+
 def fs_shape(V):
     shape = V.ufl_function_space().value_shape
     if len(shape) == 1:
@@ -31,9 +38,9 @@ def make_quadrature_space(V):
     return fs_shape(V)(V.mesh(), element)
 
 
-@pytest.fixture(params=[("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
-                        ("BDFM", 2), ("HHJ", 2), ("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
-                        ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 2), ("GLS", 3),
+@pytest.fixture(params=[("RT", 1), ("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
+                        ("BDFM", 2), ("HHJ", 2), ("N1curl", 1), ("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
+                        ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 1), ("GLS", 2), ("GLS", 3),
                         ("GLS", 4), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
                 ids=lambda x: f"{x[0]}_{x[1]}")
 def V(request):
@@ -42,6 +49,7 @@ def V(request):
     return FunctionSpace(mesh, element, degree)
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [1, 2])
 def test_cross_mesh(V, rank):
     mesh1 = UnitSquareMesh(5, 5)
@@ -76,6 +84,7 @@ def test_cross_mesh(V, rank):
         # Direct assembly
         I_direct = assemble(interpolate(TrialFunction(V_source), V))  # V_source
         assert I_direct.arguments() == (TestFunction(V.dual()), TrialFunction(V_source))
+        assert mat_equals(I_manual, I_direct)
 
         f_interpolated_manual = assemble(action(I_manual, f_source))
         assert np.allclose(f_interpolated_manual.dat.data_ro, f_direct.dat.data_ro)
@@ -96,10 +105,19 @@ def test_cross_mesh(V, rank):
         assert np.allclose(f_interpolated_direct.dat.data_ro, f_direct.dat.data_ro)
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [0, 1, 2])
 def test_cross_mesh_adjoint(V, rank):
     # Can already do Lagrange -> RT adjoint
     # V^* -> Q^* -> V_target^*
+    name = V.ufl_element()._short_name
+    deg = V.ufl_element().degree()
+    if name in ["N1curl", "GLS", "RT"] and deg == 1:
+        if name == "RT" and rank == 0:
+            pass
+        else:
+            pytest.skip(f"Not exact for degree {deg} {name} elements")
+
     mesh1 = UnitSquareMesh(2, 2)
     x1 = SpatialCoordinate(mesh1)
     V_target = fs_shape(V)(mesh1, "CG", 1)
@@ -131,6 +149,7 @@ def test_cross_mesh_adjoint(V, rank):
         # Direct assembly
         I_direct = assemble(interpolate(TestFunction(V_target), V))  # V^* x V_target -> R
         assert I_direct.arguments() == (TestFunction(V_target), TrialFunction(V.dual()))
+        assert mat_equals(I_manual, I_direct)
 
         cofunc_Vtarget_manual = assemble(action(I_manual, oneform_V))
         assert np.allclose(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
@@ -149,9 +168,8 @@ def test_cross_mesh_adjoint(V, rank):
         cofunc_Vtarget = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
         assert np.allclose(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
     elif rank == 0:
+        if name == "GLS2" and deg == 1:
+            pytest.skip(f"Not exact for degree {deg} {name} elements")
         res = assemble(interpolate(target_expr, oneform_V))
         actual = assemble(inner(expr, expr) * dx)
         assert np.isclose(res, actual)
-
-if __name__ == "__main__":
-    pytest.main([__file__ + "::test_cross_mesh_adjoint[RT_2-1]"])
