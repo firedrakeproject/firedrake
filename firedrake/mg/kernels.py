@@ -120,9 +120,22 @@ def compile_element(operand, dual_arg, parameters=None,
         _.update(parameters)
         parameters = _
 
-    # Map into reference values
     domain = extract_unique_domain(operand)
-    operand = apply_mapping(operand, dual_arg.ufl_element(), domain)
+    cell = domain.ufl_cell()
+    dim = cell.topological_dimension
+
+    point_expr = gem.Variable("X", (1, dim))
+    point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(1, dim))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
+
+    # Map into reference values
+    point_element = finat.ufl.FiniteElement("Quadrature", cell=cell, quad_scheme=rule)
+    if operand.ufl_shape:
+        symmetry = None if len(operand.ufl_shape) == 1 else dual_arg.ufl_element().symmetry()
+        point_element = finat.ufl.TensorElement(point_element, shape=operand.ufl_shape, symmetry=symmetry)
+
+    operand = apply_mapping(operand, point_element, domain)
     operand = tsfc.ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
     operand = simplify_abs(operand, complex_mode)
     value_shape = operand.ufl_shape
@@ -158,19 +171,12 @@ def compile_element(operand, dual_arg, parameters=None,
 
     f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[c]) for c in builder.coefficient_map]
 
-    # Translate to GEM
-    cell = domain.ufl_cell()
-    dim = cell.topological_dimension
-
-    point_expr = gem.Variable("X", (1, dim))
-    point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(1, dim))
-    point_set = UnknownPointSet(point_expr)
-    rule = QuadratureRule(point_set, weights=[0.0])
-
-    to_element = finat.QuadratureElement(as_fiat_cell(cell), rule)
+    # Create a runtime Quadrature element
+    to_element = finat.QuadratureElement(rule.ref_el, rule)
     if value_shape:
         to_element = finat.TensorFiniteElement(to_element, value_shape)
 
+    # Translate to GEM
     config = dict(interface=builder,
                   ufl_cell=cell,
                   argument_multiindices=argument_multiindices,
@@ -424,7 +430,7 @@ def inject_kernel(Vf, Vc):
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.mesh().coordinates
-        evaluate_code = compile_element(ufl.Coefficient(Vf), ufl.TestFunction(Vf.dual()))
+        evaluate_code = compile_element(ufl.Coefficient(Vf), ufl.TestFunction(Vc.dual()))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         needs_coordinates = Vf.finat_element.mapping != "affine"
 

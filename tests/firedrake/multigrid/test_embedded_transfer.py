@@ -33,7 +33,7 @@ def space(request):
 
 
 @pytest.fixture
-def V(mesh, degree, space):
+def V(mesh, space, degree):
     if space == "CG":
         return VectorFunctionSpace(mesh, space, degree, variant="integral")
     else:
