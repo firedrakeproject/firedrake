@@ -530,7 +530,7 @@ class CrossMeshInterpolator(Interpolator):
             If the target space does not have point-evaluation dofs.
         """
         from firedrake.assemble import assemble
-        if target_space.ufl_element().mapping() != "identity":
+        if target_space.finat_element.mapping != "affine":
             raise ValueError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
@@ -571,18 +571,12 @@ class CrossMeshInterpolator(Interpolator):
         mat_type = mat_type or "aij"
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
-        if into_quadrature_space := self.target_space.ufl_element().mapping() != "identity":
-            Q_dest = self._get_quadrature_space(self.target_space)
+        if into_quadrature_space := self.target_space.finat_element.mapping != "affine":
+            target_space = self._get_quadrature_space(self.target_space)
+            f = Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
         else:
-            Q_dest = None
-        target_space = Q_dest or self.target_space
-
-        if into_quadrature_space and not self.ufl_interpolate.is_adjoint:
-            f = Function(target_space)
-        else:
-            # self.ufl_interpolate.function_space() is None in the 0-form case
-            f = Function(self.ufl_interpolate.function_space() or target_space)
-        # f = tensor or Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
+            target_space = self.target_space
+            f = tensor or Function(self.ufl_interpolate.function_space() or target_space)
 
         point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -600,12 +594,13 @@ class CrossMeshInterpolator(Interpolator):
             def callable() -> PETSc.Mat:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if into_quadrature_space:
+                    source_space = self.ufl_interpolate.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(Q_dest, 0), Argument(target_space.dual(), 1)), None, res)
-                        return assemble(action(I, interpolate(TestFunction(Q_dest), self.target_space))).petscmat
+                        I = AssembledMatrix((Argument(source_space, 0), Argument(target_space.dual(), 1)), None, res)
+                        return assemble(action(I, interpolate(TestFunction(target_space), self.target_space))).petscmat
                     else:
-                        I = AssembledMatrix((Argument(Q_dest.dual(), 0), Argument(target_space, 1)), None, res)
-                        return assemble(action(interpolate(TrialFunction(Q_dest), self.target_space), I)).petscmat
+                        I = AssembledMatrix((Argument(target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        return assemble(action(interpolate(TrialFunction(target_space), self.target_space), I)).petscmat
                 else:
                     return res
 
@@ -637,19 +632,20 @@ class CrossMeshInterpolator(Interpolator):
                 return f_target
         else:
             assert self.rank in {0, 1}
-            # We create the input-ordering Function before interpolating so we can
-            # set default missing values if required.
-            f_point_eval_input_ordering = Function(P0DG_vom_input_ordering)
-            if self.default_missing_val is not None:
-                f_point_eval_input_ordering.assign(self.default_missing_val)
-            elif self.allow_missing_dofs:
-                # If we allow missing points there may be points in the target
-                # mesh that are not in the source mesh. If we don't specify a
-                # default missing value we set these to NaN so we can identify
-                # them later.
-                f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
 
             def callable() -> Function | Number:
+                # We create the input-ordering Function before interpolating so we can
+                # set default missing values if required.
+                f_point_eval_input_ordering = Function(P0DG_vom_input_ordering)
+                if self.default_missing_val is not None:
+                    f_point_eval_input_ordering.assign(self.default_missing_val)
+                elif self.allow_missing_dofs:
+                    # If we allow missing points there may be points in the target
+                    # mesh that are not in the source mesh. If we don't specify a
+                    # default missing value we set these to NaN so we can identify
+                    # them later.
+                    f_point_eval_input_ordering.dat.data_wo[:] = numpy.nan
+
                 assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:

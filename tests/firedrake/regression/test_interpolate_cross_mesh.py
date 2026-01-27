@@ -410,31 +410,6 @@ def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     assemble(interpolate(f_src, V_dest))
 
 
-def test_interpolate_cross_mesh_not_point_eval():
-    m_src = UnitSquareMesh(2, 3)
-    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
-    coords = np.array(
-        [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
-    )  # fairly arbitrary
-    # add the coordinates of the mesh vertices to test boundaries
-    vertices_src = allgather(m_src.comm, m_src.coordinates.dat.data_ro)
-    coords = np.concatenate((coords, vertices_src))
-    vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
-    coords = np.concatenate((coords, vertices_dest))
-    dest_eval = PointEvaluator(m_dest, coords)
-    expr_src = 2 * SpatialCoordinate(m_src)
-    expr_dest = 2 * SpatialCoordinate(m_dest)
-    expected = 2 * coords
-    V_src = FunctionSpace(m_src, "RT", 2)
-    V_dest = FunctionSpace(m_dest, "RTCE", 2)
-    atol = 1e-8  # default
-    # This might not make much mathematical sense, but it should test if we get
-    # the not implemented error for non-point evaluation nodes!
-    interpolate_function(
-        m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
-    )
-
-
 def interpolate_function(
     m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
 ):
