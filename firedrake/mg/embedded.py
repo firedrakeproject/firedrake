@@ -60,7 +60,7 @@ class TransferManager(object):
         # Can we interpolate into this element?
         finat_element = create_element(element)
         try:
-            Q, ps = finat_element.dual_basis
+            finat_element.dual_basis
             return True
         except NotImplementedError:
             return False

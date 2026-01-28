@@ -1,6 +1,5 @@
 from pyop2 import op2
 
-import gem
 import numpy
 from finat.ufl import FiniteElement, TensorElement
 from finat.quadrature import QuadratureRule
@@ -40,7 +39,7 @@ def check_arguments(coarse, fine, needs_dual=False):
 def get_quadrature_element(V):
     ufl_element = V.ufl_element()
     finat_element = V.finat_element
-    if is_lagrange(finat_element):
+    if finat_element.has_pointwise_dual_basis:
         return ufl_element
 
     # Construct a Quadrature element
@@ -52,26 +51,6 @@ def get_quadrature_element(V):
     if V.value_shape:
         element = TensorElement(element, shape=V.value_shape)
     return element
-
-
-def is_lagrange(finat_element):
-    # TODO replace with finat_element.has_pointwise_dual_basis
-    try:
-        Q, ps = finat_element.dual_basis
-    except NotImplementedError:
-        return False
-    children = [Q]
-    while children:
-        nodes = []
-        for c in children:
-            if isinstance(c, gem.Delta):
-                pass
-            elif isinstance(c, gem.gem.Terminal):
-                return False
-            else:
-                nodes.extend(c.children)
-        children = nodes
-    return True
 
 
 @PETSc.Log.EventDecorator()
