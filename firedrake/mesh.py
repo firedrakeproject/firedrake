@@ -2728,16 +2728,40 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def entity_orientations(self):
-        num_extr_cells = self.layers - 1
-        return np.repeat(
-            np.repeat(
-                self._base_mesh.entity_orientations,
-                3,  # per-cell closure is 3 times larger
-                axis=1,
-            ),
-            num_extr_cells,
-            axis=0,
-        )
+        #
+        #
+        #
+        # x-----x-----x
+        # a     c     b
+        #
+        # x-----------x
+        # |           |
+        #
+        # ...
+        #
+        # aabb / ab / cc /c
+        #
+        #
+        orientations_per_dim = []
+        base_closure_sizes = self._base_mesh._closure_sizes[self._base_mesh.cell_label]
+        base_orientations = self._base_mesh.entity_orientations
+        start = 0
+        for base_dim, closure_size in base_closure_sizes.items():
+            base_entity_selector = slice(start, start+closure_size)
+
+            vert_orientations = (
+                np.repeat(base_orientations[:, base_entity_selector], 2).reshape((-1, closure_size*2))
+            )
+            edge_orientations = base_orientations[:, base_entity_selector]
+
+            orientations_per_dim.append(vert_orientations)
+            orientations_per_dim.append(edge_orientations)
+            start += closure_size
+        orientations_per_dim = np.concatenate(orientations_per_dim, axis=1)
+
+        # We now have the orientation for a single extruded cell, now blow this
+        # up for the whole column
+        return np.repeat(orientations_per_dim, self.layers-1, axis=0)
 
     # {{{ facet iteration
 

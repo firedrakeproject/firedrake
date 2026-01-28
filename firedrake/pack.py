@@ -170,8 +170,7 @@ def transform_packed_cell_closure_dat(
     # no reason. This orientation work should really only be necessary for hexes but I'm
     # leaving as is for now because we otherwise get small inconsistencies between the
     # old and new 'cell_node_list's which I want to avoid.
-    if False:
-        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     # FIXME: This is awful!
     if _needs_static_permutation(space.finat_element) or permutation is not None:
@@ -441,6 +440,19 @@ def _prepare_entity_permutations(element, dim_label):
         myvar = element.entity_permutations[dim_label]
         return utils.single_valued(myvar.values())
 
+    # myvar = element.entity_permutations[dim_label]
+    # valid_os_and_perms = utils.single_valued(myvar.values())
+    #
+    # retval = list(valid_os_and_perms.values())
+    # breakpoint()
+    # return retval
+    #
+    # perms = sum(valid_os_and_perms.values(), [])
+    # return 
+
+
+    #######################
+
     finat_element = element
     base_dim_label = dim_label
     nrepeats = 1
@@ -455,18 +467,28 @@ def _prepare_entity_permutations(element, dim_label):
     base_dim_label = utils.just_one(base_dim_label)
     perms = utils.single_valued(finat_element.entity_permutations[base_dim_label].values())
 
-    # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
+    #~~~ turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
+    # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [3, 4, 5, 0, 1, 2]
     # ndofs = utils.single_valued(map(len, perms.values()))
     # assert ndofs == dof_axis.size
 
     new_perms = []
     for perm in map(np.asarray, perms.values()):
         new_perm = []
-        offset = 0
-        for i in range(nrepeats):
-            new_perm.extend(perm+offset)
-            offset += len(perm)
+        for p in perm:
+            for i in range(nrepeats):
+                new_perm.append(p*nrepeats+i)
+        # new_perm = np.repeat(perm, nrepeats) + np.arange(nrepeats)
+        # new_perm = []
+        # offset = 0
+        # for i in range(nrepeats):
+        #     new_perm.extend(perm+offset)
+        #     offset += len(perm)
         new_perms.append(new_perm)
+
+    # print("orig: ", element.entity_permutations[dim_label])
+    print(new_perms)
+    # breakpoint()
 
     return new_perms
 
