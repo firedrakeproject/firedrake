@@ -170,9 +170,8 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         self.assemble_gk(tensor=self.b)
 
-        if f is not None:
-            with self.b.dat.vec as vec:
-                vec -= f
+        with self.b.dat.vec as vec:
+            vec -= f
 
         self.uk1.assign(self.uk)
         self.solver.solve()
