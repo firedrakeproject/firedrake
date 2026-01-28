@@ -1,7 +1,6 @@
 import numpy
 import string
 from itertools import chain
-from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
@@ -245,8 +244,17 @@ def prolong_kernel(expression, Vf):
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
     else:
         level_ratio = 1
+    if levelf > levelc:
+        # prolong
+        cmap = hierarchy.coarse_to_fine_cells
+        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+    else:
+        # inject
+        cmap = hierarchy.fine_to_coarse_cells
+        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+        ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
-    key = (("prolong" if levelf > levelc else "inject", level_ratio)
+    key = (("prolong", ncandidate)
            + (Vf.block_size,)
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
@@ -262,13 +270,6 @@ def prolong_kernel(expression, Vf):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         needs_coordinates = element.mapping != "affine"
-        if key[0] == "inject":
-            cmap = hierarchy.fine_to_coarse_cells
-        else:
-            cmap = hierarchy.coarse_to_fine_cells
-        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
-        if key[0] == "inject":
-            ncandidate *= level_ratio
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -336,8 +337,10 @@ def restrict_kernel(Vf, Vc):
     hierarchy, _ = utils.get_level(Vf.mesh())
     if Vf.extruded:
         assert Vc.extruded
+    cmap = hierarchy.fine_to_coarse_cells
+    ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
     coordinates = Vc.mesh().coordinates
-    key = (("restrict",)
+    key = (("restrict", ncandidate)
            + (Vf.block_size,)
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
@@ -354,8 +357,6 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
         needs_coordinates = element.mapping != "affine"
-        cmap = hierarchy.coarse_to_fine_cells
-        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
