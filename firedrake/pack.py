@@ -373,85 +373,23 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 
 # @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tuple[op3.LinearDatBufferExpression, ...]:
-    dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
-
-    # finat_element = space.finat_element
-    # base_dim_label = dim_label
-    # nrepeats = 1
-    # while isinstance(finat_element, finat.TensorProductElement):
-    #     finat_element, interval_element = finat_element.factors
-    #     base_dim_label, vert_or_edge = base_dim_label[:-1], base_dim_label[-1]
-    #
-    #     if vert_or_edge == 1:
-    #         # the extruded edge, can have repeats (not so for vertices)
-    #         ndofs_on_edge = len(interval_element.entity_dofs()[1][0])
-    #         nrepeats *= ndofs_on_edge
-    # base_dim_label = utils.just_one(base_dim_label)
-    # perms = utils.single_valued(finat_element.entity_permutations[base_dim_label].values())
-    #
-    # # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
-    # # ndofs = utils.single_valued(map(len, perms.values()))
-    # # assert ndofs == dof_axis.size
-    #
-    # new_perms = []
-    # for perm in map(np.asarray, perms.values()):
-    #     new_perm = []
-    #     offset = 0
-    #     for i in range(nrepeats):
-    #         new_perm.extend(perm+offset)
-    #         offset += len(perm)
-    #     new_perms.append(new_perm)
-
-    # new_perms = 
-
-    if isinstance(dim_label, tuple):
-        base_dim_label = dim_label[0]
-    else:
-        base_dim_label = dim_label
-    # perms = utils.single_valued(_prepare_entity_permutations(space.finat_element)[base_dim_label].values())
     perms = _prepare_entity_permutations(space.finat_element, dim_label)
-
-    # breakpoint()
-
-    # TODO: can optimise the dtype here to be as small as possible
     perms_array = np.concatenate(perms)
-    # perms_array = np.concatenate(perms)
-    # perms_array = np.concatenate(perms.values())
-
-    # breakpoint()
-
-    print(f"{dim_label = }, {perms_array = }")
-    # print(dof_axis)
-
-
-
     perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    # dof_axis = op3.Axis({"XXX": len(perms_array) // len(perms)}, label=f"dof{dim_label}")
+    dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)
 
 
+@op3.cache.serial_cache()
 def _prepare_entity_permutations(element, dim_label):
     if not isinstance(element, finat.TensorProductElement):
         myvar = element.entity_permutations[dim_label]
         return utils.single_valued(myvar.values())
-
-    # myvar = element.entity_permutations[dim_label]
-    # valid_os_and_perms = utils.single_valued(myvar.values())
-    #
-    # retval = list(valid_os_and_perms.values())
-    # breakpoint()
-    # return retval
-    #
-    # perms = sum(valid_os_and_perms.values(), [])
-    # return 
-
-
-    #######################
 
     finat_element = element
     base_dim_label = dim_label
@@ -467,28 +405,14 @@ def _prepare_entity_permutations(element, dim_label):
     base_dim_label = utils.just_one(base_dim_label)
     perms = utils.single_valued(finat_element.entity_permutations[base_dim_label].values())
 
-    #~~~ turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
     # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [3, 4, 5, 0, 1, 2]
-    # ndofs = utils.single_valued(map(len, perms.values()))
-    # assert ndofs == dof_axis.size
-
     new_perms = []
     for perm in map(np.asarray, perms.values()):
         new_perm = []
         for p in perm:
             for i in range(nrepeats):
                 new_perm.append(p*nrepeats+i)
-        # new_perm = np.repeat(perm, nrepeats) + np.arange(nrepeats)
-        # new_perm = []
-        # offset = 0
-        # for i in range(nrepeats):
-        #     new_perm.extend(perm+offset)
-        #     offset += len(perm)
         new_perms.append(new_perm)
-
-    # print("orig: ", element.entity_permutations[dim_label])
-    print(new_perms)
-    # breakpoint()
 
     return new_perms
 
@@ -497,7 +421,7 @@ def _prepare_entity_permutations(element, dim_label):
 @op3.cache.serial_cache()
 def _flatten_entity_dofs(element) -> np.ndarray:
     """Flatten FInAT element ``entity_dofs`` into an array."""
-    entity_dofs = _prepare_entity_dofs(element)
+    entity_dofs = element.entity_dofs()
 
     # now flatten
     flat_entity_dofs = []
@@ -508,51 +432,7 @@ def _flatten_entity_dofs(element) -> np.ndarray:
             flat_entity_dofs.extend(dofs)
     flat_entity_dofs = np.asarray(flat_entity_dofs, dtype=utils.IntType)
     assert utils.has_unique_entries(flat_entity_dofs)
-    print(f"{flat_entity_dofs = }")
     return utils.readonly(flat_entity_dofs)
-
-
-def _prepare_entity_dofs(element) -> dict:
-    """
-    TODO EXAMPLE
-
-    """
-    return element.entity_dofs()
-    if not isinstance(element, finat.TensorProductElement):
-        return element.entity_dofs()
-
-    # return flat_entity_dofs(element.entity_dofs())
-
-    # start with the innermost interval element
-    entity_dofs = None
-    for base_element, interval_element in reversed(list(utils.pairwise(element.factors))):
-        assert not isinstance(base_element, finat.TensorProductElement)
-
-        # Extruding a base element by an interval means that we have to
-        # add additional DoFs up the column
-        line_edofs = interval_element.entity_dofs()
-        flat_interval_edofs = line_edofs[0][0] + line_edofs[1][0] + line_edofs[0][1]
-        column_height = len(flat_interval_edofs)
-
-        entity_dofs = {}
-        for base_dim, base_edofs_per_dim in base_element.entity_dofs().items():
-            entity_dofs[base_dim] = {}
-            for entity, base_edofs_per_entity in base_edofs_per_dim.items():
-                entity_dofs[base_dim][entity] = []
-                for base_edof in base_edofs_per_entity:
-                    start_edof = base_edof * column_height
-                    repeated_edofs = (
-                        np.repeat(start_edof, column_height) + flat_interval_edofs
-                    )
-                    entity_dofs[base_dim][entity].extend(map(int, repeated_edofs))
-
-
-    print(f"{entity_dofs = }")
-    print(f"orig = {element.entity_dofs()}")
-    # print(f"expected: {flat_entity_dofs(element.entity_dofs())}")
-    assert entity_dofs is not None
-    breakpoint()
-    return entity_dofs
 
 
 def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tuple[op3.AxisTree, tuple]:

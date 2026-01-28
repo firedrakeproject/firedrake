@@ -2728,21 +2728,32 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def entity_orientations(self):
+        # As an example, consider extruding a single-cell interval mesh:
         #
+        #     x-----x-----x
+        #    o1    o3    o2
         #
+        # where 'o1', 'o2', and 'o3' are the orientations of the points in the
+        # cell closure. Note that we are ignoring the fact that vertices only
+        # have a single orientation.
         #
-        # x-----x-----x
-        # a     c     b
+        # If we extrude this mesh once then we have a new cell with the following
+        # orientations:
         #
-        # x-----------x
-        # |           |
+        #    o1    o3    o2
+        #     x-----------x
+        #     |           |
+        #  o1 |    o3     | o2
+        #     |           |
+        #     x-----------x
+        #    o1    o3    o2
         #
-        # ...
+        # The base mesh here has 'entity_orientations' as [o1, o2, o3] but we
+        # need the extruded counterpart which looks like:
         #
-        # aabb / ab / cc /c
-        #
-        #
-        orientations_per_dim = []
+        #     [ o1, o1, o2, o2 | o1, o2 | o3, o3 |  o3 ]
+        #           (0, 0)       (0, 1)   (1, 0)  (1, 1)
+        orientationss = []
         base_closure_sizes = self._base_mesh._closure_sizes[self._base_mesh.cell_label]
         base_orientations = self._base_mesh.entity_orientations
         start = 0
@@ -2753,15 +2764,14 @@ class ExtrudedMeshTopology(MeshTopology):
                 np.repeat(base_orientations[:, base_entity_selector], 2).reshape((-1, closure_size*2))
             )
             edge_orientations = base_orientations[:, base_entity_selector]
+            orientationss.extend([vert_orientations, edge_orientations])
 
-            orientations_per_dim.append(vert_orientations)
-            orientations_per_dim.append(edge_orientations)
             start += closure_size
-        orientations_per_dim = np.concatenate(orientations_per_dim, axis=1)
+        orientationss = np.concatenate(orientationss, axis=1)
 
         # We now have the orientation for a single extruded cell, now blow this
         # up for the whole column
-        return np.repeat(orientations_per_dim, self.layers-1, axis=0)
+        return np.repeat(orientationss, self.layers-1, axis=0)
 
     # {{{ facet iteration
 
