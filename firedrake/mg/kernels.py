@@ -236,16 +236,17 @@ def compile_element(operand, dual_arg, parameters=None,
 
 def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
-    hierarchy, levelc = utils.get_level(Vc.mesh())
     hierarchy, levelf = utils.get_level(Vf.mesh())
-    level = min(levelc, levelf) + Fraction(1, hierarchy.refinements_per_level)
-
+    hierarchy, levelc = utils.get_level(Vf.mesh())
     if Vc.mesh().extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        assert hierarchy._meshes[int(idx)].cell_set._extruded
+        assert hierarchy._meshes[int(idx)].extruded
+        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+    else:
+        level_ratio = 1
     coordinates = Vc.mesh().coordinates
-    key = (("prolong",)
+    key = (("prolong" if levelf > levelc else "inject", level_ratio)
            + (Vf.block_size,)
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
@@ -261,6 +262,13 @@ def prolong_kernel(expression, Vf):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
         needs_coordinates = element.mapping != "affine"
+        if key[0] == "inject":
+            cmap = hierarchy.fine_to_coarse_cells
+        else:
+            cmap = hierarchy.coarse_to_fine_cells
+        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+        if key[0] == "inject":
+            ncandidate *= level_ratio
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -313,7 +321,7 @@ def prolong_kernel(expression, Vf):
                "evaluate": evaluate_code,
                "kernel_args": "R, fi, Xc, Xref" if needs_coordinates else "R, fi, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
-               "ncandidate": hierarchy.fine_to_coarse_cells[level].shape[1],
+               "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -325,10 +333,7 @@ def prolong_kernel(expression, Vf):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, levelf = utils.get_level(Vf.mesh())
-    hierarchy, levelc = utils.get_level(Vc.mesh())
-    level = min(levelf, levelc) + Fraction(1, hierarchy.refinements_per_level)
-
+    hierarchy, _ = utils.get_level(Vf.mesh())
     if Vf.extruded:
         assert Vc.extruded
     coordinates = Vc.mesh().coordinates
@@ -349,6 +354,8 @@ def restrict_kernel(Vf, Vc):
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
         needs_coordinates = element.mapping != "affine"
+        cmap = hierarchy.coarse_to_fine_cells
+        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -402,7 +409,7 @@ def restrict_kernel(Vf, Vc):
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
                "kernel_args": "Ri, b, Xc, Xref" if needs_coordinates else "Ri, b, Xref",
-               "ncandidate": hierarchy.fine_to_coarse_cells[level].shape[1],
+               "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
