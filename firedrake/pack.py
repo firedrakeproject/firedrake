@@ -170,7 +170,8 @@ def transform_packed_cell_closure_dat(
     # no reason. This orientation work should really only be necessary for hexes but I'm
     # leaving as is for now because we otherwise get small inconsistencies between the
     # old and new 'cell_node_list's which I want to avoid.
-    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
+    if False:
+        packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
     # FIXME: This is awful!
     if _needs_static_permutation(space.finat_element) or permutation is not None:
@@ -373,11 +374,6 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 
 # @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tuple[op3.LinearDatBufferExpression, ...]:
-    # if space.extruded:
-    #     perms = flat_entity_permutations(space.finat_element.entity_permutations)
-    # else:
-    #     perms = space.finat_element.entity_permutations
-
     dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
 
     # finat_element = space.finat_element
@@ -413,16 +409,19 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tup
         base_dim_label = dim_label[0]
     else:
         base_dim_label = dim_label
-    perms = utils.single_valued(_prepare_entity_permutations(space.finat_element)[base_dim_label].values())
+    # perms = utils.single_valued(_prepare_entity_permutations(space.finat_element)[base_dim_label].values())
+    perms = _prepare_entity_permutations(space.finat_element, dim_label)
+
+    # breakpoint()
 
     # TODO: can optimise the dtype here to be as small as possible
-    perms_array = np.concatenate(list(perms.values()))
+    perms_array = np.concatenate(perms)
     # perms_array = np.concatenate(perms)
     # perms_array = np.concatenate(perms.values())
 
     # breakpoint()
 
-    # print(f"{dim_label = }, {nrepeats = }, {perms_array = }")
+    print(f"{dim_label = }, {perms_array = }")
     # print(dof_axis)
 
 
@@ -437,11 +436,40 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tup
     return op3.as_linear_buffer_expression(perm_dat)
 
 
-def _prepare_entity_permutations(element):
+def _prepare_entity_permutations(element, dim_label):
     if not isinstance(element, finat.TensorProductElement):
-        return element.entity_permutations
-    else:
-        return flat_entity_permutations(element.entity_permutations)
+        myvar = element.entity_permutations[dim_label]
+        return utils.single_valued(myvar.values())
+
+    finat_element = element
+    base_dim_label = dim_label
+    nrepeats = 1
+    while isinstance(finat_element, finat.TensorProductElement):
+        finat_element, interval_element = finat_element.factors
+        base_dim_label, vert_or_edge = base_dim_label[:-1], base_dim_label[-1]
+
+        if vert_or_edge == 1:
+            # the extruded edge, can have repeats (not so for vertices)
+            ndofs_on_edge = len(interval_element.entity_dofs()[1][0])
+            nrepeats *= ndofs_on_edge
+    base_dim_label = utils.just_one(base_dim_label)
+    perms = utils.single_valued(finat_element.entity_permutations[base_dim_label].values())
+
+    # turn something like [0, 1], [1, 0] into [0, 1, 2, 3, 4, 5], [1, 0, 3, 2, 5, 4]
+    # ndofs = utils.single_valued(map(len, perms.values()))
+    # assert ndofs == dof_axis.size
+
+    new_perms = []
+    for perm in map(np.asarray, perms.values()):
+        new_perm = []
+        offset = 0
+        for i in range(nrepeats):
+            new_perm.extend(perm+offset)
+            offset += len(perm)
+        new_perms.append(new_perm)
+
+    return new_perms
+
 
 
 @op3.cache.serial_cache()
@@ -467,10 +495,11 @@ def _prepare_entity_dofs(element) -> dict:
     TODO EXAMPLE
 
     """
+    return element.entity_dofs()
     if not isinstance(element, finat.TensorProductElement):
         return element.entity_dofs()
 
-    return flat_entity_dofs(element.entity_dofs())
+    # return flat_entity_dofs(element.entity_dofs())
 
     # start with the innermost interval element
     entity_dofs = None
@@ -497,8 +526,10 @@ def _prepare_entity_dofs(element) -> dict:
 
 
     print(f"{entity_dofs = }")
-    print(f"expected: {flat_entity_dofs(element.entity_dofs())}")
+    print(f"orig = {element.entity_dofs()}")
+    # print(f"expected: {flat_entity_dofs(element.entity_dofs())}")
     assert entity_dofs is not None
+    breakpoint()
     return entity_dofs
 
 
