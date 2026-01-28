@@ -31,7 +31,7 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo, DualEvaluationCallable
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
-from tsfc.ufl_utils import apply_mapping, simplify_abs
+from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
 
 from finat.element_factory import create_element, as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -169,11 +169,14 @@ def compile_element(operand, dual_arg, parameters=None,
     if has_type(operand, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-        coefficients.append(coords_coefficient)
         builder.domain_coordinate[domain] = coords_coefficient
         builder.set_cell_orientations((domain, ))
         builder.set_cell_sizes((domain, ))
+        coefficients.append(coords_coefficient)
     builder.set_coefficients(coefficients)
+
+    constants = extract_firedrake_constants(ufl_interpolate)
+    builder.set_constants(constants)
 
     # Translate to GEM
     config = dict(interface=builder,
@@ -181,7 +184,7 @@ def compile_element(operand, dual_arg, parameters=None,
                   integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                   argument_multiindices=argument_multiindices,
                   index_cache={},
-                  scalar_type=parameters["scalar_type"])
+                  scalar_type=scalar_type)
 
     # Create callable for translation of UFL expression to gem
     fn = DualEvaluationCallable(operand, config)

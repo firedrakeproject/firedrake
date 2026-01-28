@@ -137,12 +137,8 @@ def prolong(coarse, fine):
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
 
         if needs_quadrature:
-            qfine = fine
-            if j == repeat - 1:
-                fine = finest
-            else:
-                fine = Function(Vc.reconstruct(mesh=meshes[next_level]))
-            fine.interpolate(qfine)
+            new_fine = finest if j == repeat-1 else Function(Vc.reconstruct(mesh=meshes[next_level]))
+            fine = new_fine.interpolate(fine)
 
         coarse = fine
     return fine
@@ -305,12 +301,8 @@ def inject(fine, coarse):
                          coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
 
         if needs_quadrature:
-            qcoarse = coarse
-            if j == repeat - 1:
-                coarse = coarsest
-            else:
-                coarse = Function(Vf.reconstruct(mesh=meshes[next_level]))
-            coarse.interpolate(qcoarse)
+            new_coarse = coarsest if j == repeat - 1 else Function(Vf.reconstruct(mesh=meshes[next_level]))
+            coarse = new_coarse.interpolate(coarse)
 
         fine = coarse
     return coarse
