@@ -236,7 +236,7 @@ def compile_element(operand, dual_arg, parameters=None,
 def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
-    hierarchy, levelc = utils.get_level(Vf.mesh())
+    hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
@@ -246,12 +246,12 @@ def prolong_kernel(expression, Vf):
         level_ratio = 1
     if levelf > levelc:
         # prolong
-        cmap = hierarchy.coarse_to_fine_cells
-        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+        cmap = hierarchy.fine_to_coarse_cells
+        ncandidate = cmap[levelf].shape[1]
     else:
         # inject
-        cmap = hierarchy.fine_to_coarse_cells
-        ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+        cmap = hierarchy.coarse_to_fine_cells
+        ncandidate = cmap[levelf].shape[1]
         ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
@@ -313,6 +313,7 @@ def prolong_kernel(expression, Vf):
                 }
             }
             const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
+            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
             for ( int i = 0; i < %(Rdim)d; i++ ) {
                 R[i] = 0;
             }
@@ -320,7 +321,7 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": "R, fi, Xc, Xref" if needs_coordinates else "R, fi, Xref",
+               "kernel_args": "R, fi, Xci, Xref" if needs_coordinates else "R, fi, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
