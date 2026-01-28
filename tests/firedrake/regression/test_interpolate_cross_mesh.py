@@ -38,7 +38,7 @@ def make_high_order(m_low_order, degree):
 
 @pytest.fixture(
     params=[
-        "unitsquare_RT_N1curl_destination",
+        "unitsquare",
         "circlemanifold",
         "circlemanifold_to_high_order",
         "unitsquare_from_high_order",
