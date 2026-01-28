@@ -24,6 +24,8 @@ from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+from tsfc.exceptions import MismatchingDomainError
+
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -91,6 +93,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         complex_mode=complex_mode,
     )
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
+
+    validate_domains(form_data.preprocessed_form)
+
     # Create local kernels.
     kernels = []
     for integral_data in form_data.integral_data:
@@ -136,27 +141,16 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
             if coeff in form_data.coefficient_split:
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
-
     mesh = integral_data.domain
     all_meshes = extract_domains(form_data.original_form)
     domain_number = all_meshes.index(mesh)
-    coefficient_meshes = chain.from_iterable(map(extract_domains, coefficients))
-
-    domain_integral_type_map = dict.fromkeys(all_meshes, None)
-    domain_integral_type_map.update(dict.fromkeys(coefficient_meshes, "cell"))
-    domain_integral_type_map.update(integral_data.domain_integral_type_map)
-
-    for arg in arguments:
-        if domain_integral_type_map[extract_unique_domain(arg)] is None:
-            raise NotImplementedError("Assembly of forms over unrelated meshes is not supported. "
-                                      "Try using Submeshes or cross-mesh interpolation.")
 
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
-        domain_integral_type_map=domain_integral_type_map,
+        domain_integral_type_map={mesh: integral_data.domain_integral_type_map.get(mesh, None) for mesh in all_meshes},
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
@@ -185,6 +179,31 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+
+
+def validate_domains(form):
+    if len(extract_domains(form)) == 1:
+        # Not a multi-domain form, we do not need to keep checking
+        return
+
+    for itg in form.integrals():
+        # Check that all domains are related to each other
+        domain = itg.ufl_domain()
+        for other_domain in itg.extra_domain_integral_type_map():
+            if domain.submesh_youngest_common_ancester(other_domain) is None:
+                raise MismatchingDomainError("Assembly of forms over unrelated meshes is not supported. "
+                                             "Try using Submeshes or cross-mesh interpolation.")
+
+        # Check that all Arguments and Coefficients are defined on the valid domains
+        valid_domains = set(itg.extra_domain_integral_type_map())
+        valid_domains.add(domain)
+
+        itg_domains = set(extract_domains(itg))
+        if len(itg_domains - valid_domains) > 0:
+            raise MismatchingDomainError("Argument or Coefficient domain not found in integral. "
+                                         "Possibly, the form contains coefficients on different meshes "
+                                         "and requires measure intersection, for example: "
+                                         'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
 
 
 def preprocess_parameters(parameters):

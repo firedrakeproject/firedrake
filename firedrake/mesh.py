@@ -38,6 +38,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError
 from pyadjoint import stop_annotating
 import gem
 
@@ -56,7 +57,6 @@ __all__ = [
     'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
-    'VertexOnlyMeshMissingPointsError',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
@@ -3123,12 +3123,11 @@ values from f.)"""
             pyop2_index.extend(cell_node_map.values[ngidx])
 
         # Find the correct coordinate permutation for each cell
-        # NB: Coordinates must be cast to real when running Firedrake in complex mode
         permutation = find_permutation(
             physical_space_points,
-            new_coordinates.dat.data[pyop2_index].reshape(
+            new_coordinates.dat.data[pyop2_index].real.reshape(
                 physical_space_points.shape
-            ).astype(np.float64, copy=False),
+            ),
             tol=permutation_tol
         )
 
@@ -3584,26 +3583,6 @@ class MissingPointsBehaviour(enum.Enum):
     IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
-
-
-class VertexOnlyMeshMissingPointsError(Exception):
-    """Exception raised when 1 or more points are not found by a
-    :func:`~.VertexOnlyMesh` in its parent mesh.
-
-    Attributes
-    ----------
-    n_missing_points : int
-        The number of points which were not found in the parent mesh.
-    """
-
-    def __init__(self, n_missing_points):
-        self.n_missing_points = n_missing_points
-
-    def __str__(self):
-        return (
-            f"{self.n_missing_points} vertices are outside the mesh and have "
-            "been removed from the VertexOnlyMesh."
-        )
 
 
 @PETSc.Log.EventDecorator()
