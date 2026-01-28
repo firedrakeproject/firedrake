@@ -1,8 +1,10 @@
 from collections import OrderedDict
+from typing import Any, Iterable
 import itertools
 
 from mpi4py import MPI
 import numpy
+import ufl
 
 from pyop2.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
@@ -67,35 +69,43 @@ class ImplicitMatrixContext(object):
     # (0,0) block of a 1x1 block matrix is on the diagonal).
     on_diag = True
 
-    """This class gives the Python context for a PETSc Python matrix.
-
-    :arg a: The bilinear form defining the matrix
-
-    :arg row_bcs: An iterable of the :class.`.DirichletBC`s that are
-      imposed on the test space.  We distinguish between row and
-      column boundary conditions in the case of submatrices off of the
-      diagonal.
-
-    :arg col_bcs: An iterable of the :class.`.DirichletBC`s that are
-       imposed on the trial space.
-
-    :arg fcparams: A dictionary of parameters to pass on to the form
-       compiler.
-
-    :arg appctx: Any extra user-supplied context, available to
-       preconditioners and the like.
-
-    """
     @PETSc.Log.EventDecorator()
-    def __init__(self, a, row_bcs=[], col_bcs=[],
-                 fc_params=None, appctx=None):
+    def __init__(
+        self,
+        a: ufl.BaseForm,
+        row_bcs: Iterable[DirichletBC] = (),
+        col_bcs: Iterable[DirichletBC] = (),
+        fc_params: dict[str, Any] | None = None,
+        appctx: dict[str, Any] | None = None
+    ):
+        """This class gives the Python context for a PETSc Python matrix.
+
+        Parameters
+        ----------
+        a
+            The bilinear form defining the matrix.
+        row_bcs
+            An iterable of the :class.`.DirichletBC`s that are
+            imposed on the test space. We distinguish between row and
+            column boundary conditions in the case of submatrices off
+            of the diagonal. Empty tuple by default.
+        col_bcs
+            An iterable of the :class.`.DirichletBC`s that are imposed
+            on the trial space. Empty tuple by default.
+        fc_params
+            A dictionary of parameters to pass on to the form compiler.
+            By default None.
+        appctx
+            Any extra user-supplied context, available to preconditioners
+            and the like. By default None.
+        """
         from firedrake.assemble import get_assembler
 
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self.fc_params = fc_params
-        self.appctx = appctx
+        self.fc_params = {} if fc_params is None else fc_params
+        self.appctx = {} if appctx is None else appctx
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.
@@ -438,7 +448,6 @@ class ImplicitMatrixContext(object):
 
     @PETSc.Log.EventDecorator()
     def duplicate(self, mat, copy):
-
         if copy == 0:
             raise NotImplementedError("We do now know how to duplicate a matrix-free MAT when copy=0")
         newmat_ctx = ImplicitMatrixContext(self.a,
