@@ -277,7 +277,11 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         domain = extract_unique_domain(expression)
     assert domain is not None
     builder._domain_integral_type_map = {domain: "cell"}
-    builder._entity_ids = {domain: (0,)}
+    # When tabulating non-tensor product elements on extruded meshes,
+    # the dimension of the cell is the tuple (dim-1, 1)
+    # while the dimension of the element is an int.
+    # To resolve this, we call basis_evalution with entity=None instead of entity=(dim, 0)
+    builder._entity_ids = {domain: (None,)}
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)

@@ -243,10 +243,7 @@ def inject(fine, coarse):
     # For DG, for each coarse cell, instead:
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
-    kernel, dg = kernels.inject_kernel(Vf, Vc)
     hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
-    if dg and not hierarchy.nested:
-        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
     _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
@@ -256,6 +253,10 @@ def inject(fine, coarse):
     needs_quadrature = element != Vc.ufl_element()
     if needs_quadrature:
         Vc = Vc.collapse().reconstruct(element=element)
+
+    kernel, dg = kernels.inject_kernel(Vf, Vc)
+    if dg and not hierarchy.nested:
+        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
 
     meshes = hierarchy._meshes
     coarsest = coarse.zero()
@@ -268,25 +269,24 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
         if not dg:
-            node_locations = utils.physical_node_locations(Vc)
-
             fine_coords = get_coordinates(Vf)
-            coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
-            coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
+            coarse_to_fine = utils.coarse_node_to_fine_node_map(Vc, Vf)
+            coarse_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
+            node_locations = utils.physical_node_locations(Vc)
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, coarse.node_set,
-                         coarse.dat(op2.INC),
+                         coarse.dat(op2.WRITE),
+                         fine.dat(op2.READ, coarse_to_fine),
                          node_locations.dat(op2.READ),
-                         fine.dat(op2.READ, coarse_node_to_fine_nodes),
-                         fine_coords.dat(op2.READ, coarse_node_to_fine_coords))
+                         fine_coords.dat(op2.READ, coarse_to_fine_coords))
         else:
-            coarse_coords = Vc.mesh().coordinates
-            fine_coords = Vf.mesh().coordinates
+            coarse_coords = get_coordinates(Vc)
+            fine_coords = get_coordinates(Vf)
             coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
             coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
             # Have to do this, because the node set core size is not right for

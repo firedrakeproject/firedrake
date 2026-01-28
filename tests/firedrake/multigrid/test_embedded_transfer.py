@@ -81,6 +81,7 @@ def test_transfer(op, V):
     elif op == "inject":
         uf = Function(Vf)
         uc = Function(Vc)
+        uc.interpolate(expr(Vc))
         uf.interpolate(expr(Vf))
         inject(uf, uc)
         assert errornorm(expr(Vc), uc) < 1E-13
