@@ -4,9 +4,7 @@ import gem
 import numpy
 from finat.ufl import FiniteElement, TensorElement
 from finat.quadrature import QuadratureRule
-from finat.element_factory import create_element
 from firedrake import ufl_expr, dmhooks
-from firedrake.embedding import get_embedding_dg_element
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.petsc import PETSc
@@ -39,24 +37,20 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Mismatching function space shapes")
 
 
-def get_embedding_element(element, value_shape):
-    finat_element = create_element(element)
-    try:
-        Q, ps = finat_element.dual_basis
-    except NotImplementedError:
-        # Fail back to DG element
-        return get_embedding_dg_element(element, value_shape)
-
+def get_quadrature_element(V):
+    ufl_element = V.ufl_element()
+    finat_element = V.finat_element
     if is_lagrange(finat_element):
-        return element
+        return ufl_element
 
     # Construct a Quadrature element
+    Q, ps = finat_element.dual_basis
     degree = finat_element.degree
     wts = numpy.full(len(ps.points), numpy.nan)
     quad_scheme = QuadratureRule(ps, wts, finat_element.cell)
-    element = FiniteElement("Quadrature", cell=element.cell, degree=degree, quad_scheme=quad_scheme)
-    if value_shape != ():
-        element = TensorElement(element, shape=value_shape)
+    element = FiniteElement("Quadrature", cell=ufl_element.cell, degree=degree, quad_scheme=quad_scheme)
+    if V.value_shape:
+        element = TensorElement(element, shape=V.value_shape)
     return element
 
 
@@ -106,10 +100,10 @@ def prolong(coarse, fine):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
-    element = get_embedding_element(Vf.ufl_element(), Vf.value_shape)
+    element = get_quadrature_element(Vf)
     needs_quadrature = element != Vf.ufl_element()
     if needs_quadrature:
-        Vf = Vf.reconstruct(element=element)
+        Vf = Vf.collapse().reconstruct(element=element)
 
     meshes = hierarchy._meshes
     finest = fine
@@ -180,7 +174,7 @@ def restrict(fine_dual, coarse_dual):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = get_embedding_element(Vf.ufl_element(), Vf.value_shape)
+    element = get_quadrature_element(Vf)
     needs_quadrature = element != Vf.ufl_element()
 
     meshes = hierarchy._meshes
@@ -262,10 +256,10 @@ def inject(fine, coarse):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = get_embedding_element(Vc.ufl_element(), Vc.value_shape)
+    element = get_quadrature_element(Vc)
     needs_quadrature = element != Vc.ufl_element()
     if needs_quadrature:
-        Vc = Vc.reconstruct(element=element)
+        Vc = Vc.collapse().reconstruct(element=element)
 
     meshes = hierarchy._meshes
     coarsest = coarse.zero()

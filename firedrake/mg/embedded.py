@@ -4,7 +4,8 @@ import finat.ufl
 import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
-from firedrake.mg.interface import get_embedding_element
+from firedrake.embedding import get_embedding_dg_element
+from finat.element_factory import create_element
 
 __all__ = ("TransferManager", )
 
@@ -21,7 +22,7 @@ class TransferManager(object):
 
         :arg element: The element to use for the caching."""
         def __init__(self, ufl_element, value_shape):
-            self.embedding_element = get_embedding_element(ufl_element, value_shape)
+            self.embedding_element = get_embedding_dg_element(ufl_element, value_shape)
             self._dat_versions = {}
             self._V_DG_mass = {}
             self._DG_inv_mass = {}
@@ -56,8 +57,13 @@ class TransferManager(object):
             elif isinstance(element, finat.ufl.MixedElement):
                 return all(self.is_native(e, op) for e in element.sub_elements)
 
-        embedded = get_embedding_element(element, ())
-        return (embedded.family() in {element.family(), "Quadrature"})
+        # Can we interpolate into this element?
+        finat_element = create_element(element)
+        try:
+            Q, ps = finat_element.dual_basis
+            return True
+        except NotImplementedError:
+            return False
 
     def _native_transfer(self, element, op):
         try:
