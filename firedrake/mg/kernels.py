@@ -414,31 +414,30 @@ def restrict_kernel(Vf, Vc):
 
 
 def inject_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.mesh())
-    cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vf.mesh().coordinates
-    if Vf.extruded:
-        assert Vc.extruded
-        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-    else:
-        level_ratio = 1
-    key = (("inject", level_ratio)
-           + (Vf.block_size,)
-           + entity_dofs_key(Vc.finat_element.complex.get_topology())
-           + entity_dofs_key(Vf.finat_element.complex.get_topology())
-           + entity_dofs_key(Vc.finat_element.entity_dofs())
-           + entity_dofs_key(Vf.finat_element.entity_dofs())
-           + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
-           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
-    try:
-        return cache[key]
-    except KeyError:
-        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+    if Vc.finat_element.is_dg():
+        hierarchy, level = utils.get_level(Vc.mesh())
+        if Vf.extruded:
+            assert Vc.extruded
+            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
         else:
-            expression = ufl.Coefficient(Vf)
-            return cache.setdefault(key, (prolong_kernel(expression, Vc), False))
+            level_ratio = 1
+        key = (("inject", level_ratio)
+               + (Vf.block_size,)
+               + entity_dofs_key(Vc.finat_element.complex.get_topology())
+               + entity_dofs_key(Vf.finat_element.complex.get_topology())
+               + entity_dofs_key(Vc.finat_element.entity_dofs())
+               + entity_dofs_key(Vf.finat_element.entity_dofs())
+               + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
+               + entity_dofs_key(Vf.mesh().coordinates.function_space().finat_element.entity_dofs()))
+        cache = hierarchy._shared_data_cache["transfer_kernels"]
+        try:
+            return cache[key]
+        except KeyError:
+            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
+            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+    else:
+        expression = ufl.Coefficient(Vf)
+        return (prolong_kernel(expression, Vc), False)
 
 
 class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
