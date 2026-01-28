@@ -164,7 +164,7 @@ def restrict(fine_dual, coarse_dual):
 
         if needs_quadrature:
             Vf = fine_dual.function_space()
-            fine_dual = Function(Vf.reconstruct(mesh=Vf.mesh(), element=element)).interpolate(fine_dual)
+            fine_dual = Function(Vf.collapse().reconstruct(element=element)).interpolate(fine_dual)
         Vf = fine_dual.function_space()
 
         # XXX: Should be able to figure out locations by pushing forward
