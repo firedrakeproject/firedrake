@@ -626,7 +626,7 @@ class AbstractMeshTopology(abc.ABC):
         offsets = np.cumsum(num_entities)
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
-        map_from_cell_to_facet_orientations = self.entity_orientations_renum[:, local_facet_start:local_facet_end]
+        map_from_cell_to_facet_orientations = self.entity_orientations[:, local_facet_start:local_facet_end]
 
         # but shuffle to use the cell renumbering
         # NOTE: I am guessing that it is this way around
@@ -1803,14 +1803,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations(self):
-        # old attribute, keeping around for now
-        # return dmcommon.entity_orientations(self, self._fiat_cell_closures)
-        return self.entity_orientations_renum[self._new_to_old_cell_numbering]
-
-    @cached_property
-    def entity_orientations_renum(self):
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
-        # return self.entity_orientations[self._new_to_old_cell_numbering]
+        return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):
@@ -1823,8 +1816,8 @@ class MeshTopology(AbstractMeshTopology):
         # it without calling the map.
         closure_axis = self.closure(self.cells.iter()).axes.root
         axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
-        assert axis_tree.local_size == self.entity_orientations_renum.size
-        return op3.Dat(axis_tree, data=self.entity_orientations_renum.flatten(), prefix="orientations")
+        assert axis_tree.local_size == self.entity_orientations.size
+        return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
 
     @cached_property
     def local_cell_orientation_dat(self):
@@ -2734,11 +2727,11 @@ class ExtrudedMeshTopology(MeshTopology):
         )
 
     @cached_property
-    def entity_orientations_renum(self):
+    def entity_orientations(self):
         num_extr_cells = self.layers - 1
         return np.repeat(
             np.repeat(
-                self._base_mesh.entity_orientations_renum,
+                self._base_mesh.entity_orientations,
                 3,  # per-cell closure is 3 times larger
                 axis=1,
             ),
@@ -3517,7 +3510,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property
     def _entity_indices(self):
-        breakpoint()
+        raise NotImplementedError
 
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):

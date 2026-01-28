@@ -17,6 +17,8 @@ def test_scalar_convergence(extmesh, testcase, convrate):
         fspace = FunctionSpace(mesh, family, degree, vfamily=family, vdegree=degree)
         exactfspace = FunctionSpace(mesh, "Lagrange", 3)
 
+        breakpoint()
+
         u = TrialFunction(fspace)
         v = TestFunction(fspace)
 

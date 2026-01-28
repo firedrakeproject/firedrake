@@ -1,5 +1,6 @@
 import collections
 import functools
+import itertools
 from typing import Any
 
 import numpy as np
@@ -338,7 +339,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         dim_label = dim_axis_component.label
 
         dof_axis_label = f"dof{dim_label}"
-        dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == dof_axis_label)
+        # dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == dof_axis_label)
+        dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
         if dof_axis.size == 0:
             continue
 
@@ -346,12 +348,12 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         #
         #     'perm[i_which, i_dof]'
         # TODO: For some cases can avoid this permutation as it's just identity
-        perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
+        perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label, axes)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
         orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.as_slice(dim_label),)])
         selector_axis_var = utils.just_one(axis_var for axis_var in op3.collect_axis_vars(perm_expr) if axis_var.axis.label == "which")
-        perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr})
+        perm_expr = op3.replace(perm_expr, {selector_axis_var: orientation_expr}, assert_modified=True)
 
         # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
         # now plug into 'packed_dat'
@@ -360,7 +362,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         before = utils.just_one(new_targets[path][0])  # hack to get the right one...
         assert before.axis == "dof"
         new_targets[path] = [[before.__record_init__(
-            expr=op3.replace(before.expr, {op3.AxisVar(dof_axis): perm_expr}, assert_modified=True)
+            # expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr}, assert_modified=True)
+            expr=op3.replace_terminals(before.expr, {dof_axis.label: perm_expr})
         )]]
 
     new_targets = utils.freeze(new_targets)
@@ -368,15 +371,15 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
     return axes.__record_init__(_targets=new_targets)
 
 
-@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
-def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
-    if space.extruded:
-        perms = flat_entity_permutations(space.finat_element.entity_permutations)
-    else:
-        perms = space.finat_element.entity_permutations
+# @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tuple[op3.LinearDatBufferExpression, ...]:
+    # if space.extruded:
+    #     perms = flat_entity_permutations(space.finat_element.entity_permutations)
+    # else:
+    #     perms = space.finat_element.entity_permutations
 
-    # dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
-    #
+    dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
+
     # finat_element = space.finat_element
     # base_dim_label = dim_label
     # nrepeats = 1
@@ -404,24 +407,23 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
     #         offset += len(perm)
     #     new_perms.append(new_perm)
 
+    # new_perms = 
+
+    if isinstance(dim_label, tuple):
+        base_dim_label = dim_label[0]
+    else:
+        base_dim_label = dim_label
+    perms = utils.single_valued(_prepare_entity_permutations(space.finat_element)[base_dim_label].values())
+
     # TODO: can optimise the dtype here to be as small as possible
-    # perms_array = np.concatenate(new_perms)
-    perms_array = np.concatenate(perms.values())
+    perms_array = np.concatenate(list(perms.values()))
+    # perms_array = np.concatenate(perms)
+    # perms_array = np.concatenate(perms.values())
 
-    breakpoint()
+    # breakpoint()
 
-    # # repeat things (needed for tensor products)
-    # new_perms_array = np.empty(perms_array.size*nrepeats, dtype=perms_array.dtype)
-    # offset = 0
-    # for i in range(nrepeats):
-    #     for j, entry in enumerate(perms_array):
-    #         new_perms_array[j*len(perms_array)+i] = entry+offset
-    #     offset += ndofs
-    # old_perms_array = perms_array  # debug
-    # perms_array = new_perms_array
-
-    print(f"{dim_label = }, {nrepeats = }, {perms_array = }")
-    print(dof_axis)
+    # print(f"{dim_label = }, {nrepeats = }, {perms_array = }")
+    # print(dof_axis)
 
 
 
@@ -429,15 +431,25 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
+    # dof_axis = op3.Axis({"XXX": len(perms_array) // len(perms)}, label=f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)
 
 
+def _prepare_entity_permutations(element):
+    if not isinstance(element, finat.TensorProductElement):
+        return element.entity_permutations
+    else:
+        return flat_entity_permutations(element.entity_permutations)
+
+
 @op3.cache.serial_cache()
 def _flatten_entity_dofs(element) -> np.ndarray:
     """Flatten FInAT element ``entity_dofs`` into an array."""
-    entity_dofs = element.entity_dofs()
+    entity_dofs = _prepare_entity_dofs(element)
+
+    # now flatten
     flat_entity_dofs = []
     for dim in sorted(entity_dofs.keys()):
         num_entities = len(entity_dofs[dim])
@@ -445,7 +457,49 @@ def _flatten_entity_dofs(element) -> np.ndarray:
             dofs = entity_dofs[dim][entity_num]
             flat_entity_dofs.extend(dofs)
     flat_entity_dofs = np.asarray(flat_entity_dofs, dtype=utils.IntType)
+    assert utils.has_unique_entries(flat_entity_dofs)
+    print(f"{flat_entity_dofs = }")
     return utils.readonly(flat_entity_dofs)
+
+
+def _prepare_entity_dofs(element) -> dict:
+    """
+    TODO EXAMPLE
+
+    """
+    if not isinstance(element, finat.TensorProductElement):
+        return element.entity_dofs()
+
+    return flat_entity_dofs(element.entity_dofs())
+
+    # start with the innermost interval element
+    entity_dofs = None
+    for base_element, interval_element in reversed(list(utils.pairwise(element.factors))):
+        assert not isinstance(base_element, finat.TensorProductElement)
+
+        # Extruding a base element by an interval means that we have to
+        # add additional DoFs up the column
+        line_edofs = interval_element.entity_dofs()
+        flat_interval_edofs = line_edofs[0][0] + line_edofs[1][0] + line_edofs[0][1]
+        column_height = len(flat_interval_edofs)
+
+        entity_dofs = {}
+        for base_dim, base_edofs_per_dim in base_element.entity_dofs().items():
+            entity_dofs[base_dim] = {}
+            for entity, base_edofs_per_entity in base_edofs_per_dim.items():
+                entity_dofs[base_dim][entity] = []
+                for base_edof in base_edofs_per_entity:
+                    start_edof = base_edof * column_height
+                    repeated_edofs = (
+                        np.repeat(start_edof, column_height) + flat_interval_edofs
+                    )
+                    entity_dofs[base_dim][entity].extend(map(int, repeated_edofs))
+
+
+    print(f"{entity_dofs = }")
+    print(f"expected: {flat_entity_dofs(element.entity_dofs())}")
+    assert entity_dofs is not None
+    return entity_dofs
 
 
 def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tuple[op3.AxisTree, tuple]:
@@ -513,9 +567,9 @@ def flat_entity_dofs(entity_dofs):
             # We pick up the DoFs from the bottom point,
             # then the DoFs from the interior of the interval,
             # then finally the DoFs from the top point.
-            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i]
+            flat_entity_dofs[b][i] = list(map(int, (entity_dofs[(b, 0)][2*i]
                                       + entity_dofs[(b, 1)][i]
-                                      + entity_dofs[(b, 0)][2*i+1])
+                                      + entity_dofs[(b, 0)][2*i+1])))
     return flat_entity_dofs
 
 
