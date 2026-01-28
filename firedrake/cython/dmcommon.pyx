@@ -1705,40 +1705,46 @@ def facet_closure_nodes(V, sub_domain):
         np.ndarray points
         np.ndarray nodes
     if sub_domain == "on_boundary":
-        label = "exterior_facets"
-        sub_domain = (1, )
+        pointss = (dm.getStratumIS("exterior_facets", 1),)
+    elif sub_domain == "top":
+        pointss = (V.mesh()._exterior_facet_top_plex_indices,)
+    elif sub_domain == "bottom":
+        pointss = (V.mesh()._exterior_facet_bottom_plex_indices,)
     else:
-        label = FACE_SETS_LABEL
+        pointss = tuple(dm.getStratumIS(FACE_SETS_LABEL, i) for i in sub_domain)
 
-    if not dm.hasLabel(label) or all(dm.getStratumSize(label, marker)
-                                     for marker in sub_domain) == 0:
+    print(f"AAA: {sub_domain}")
+
+    for myIS in pointss:
+        print(myIS.indices)
+
+    if all(pts.size == 0 for pts in pointss):
         return np.empty(0, dtype=IntType)
 
+    print("BBB")
+
     nnodes = 0
-    for marker in sub_domain:
-        n = dm.getStratumSize(label, marker)
-        if n == 0:
-            continue
-        points = dm.getStratumIS(label, marker).indices
-        for i in range(n):
+    for points_is in pointss:
+        points = points_is.indices
+        for i in range(points.size):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
             nnodes += dof // V.block_size
 
+    print("nnodes: ", nnodes)
+
     nodes = np.empty(nnodes, dtype=IntType)
     j = 0
-    for marker in sub_domain:
-        n = dm.getStratumSize(label, marker)
-        if n == 0:
-            continue
-        points = dm.getStratumIS(label, marker).indices
-        for i in range(n):
+    for points_is in pointss:
+        points = points_is.indices
+        for i in range(points.size):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
             CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
             for d in range(dof//V.block_size):
                 nodes[j] = offset//V.block_size + d
                 j += 1
+    print("nodes: ", nodes)
     assert j == nnodes
     return np.unique(nodes)
 

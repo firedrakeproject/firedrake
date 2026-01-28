@@ -257,51 +257,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     )
 
 
-def flat_entity_dofs(entity_dofs):
-    flat_entity_dofs = {}
-    for b, v in entity_dofs:
-        # v in [0, 1].  Only look at the ones, then grab the data from zeros.
-        if v == 0:
-            continue
-        flat_entity_dofs[b] = {}
-        for i in entity_dofs[(b, v)]:
-            # This line is fairly magic.
-            # It works because an interval has two points.
-            # We pick up the DoFs from the bottom point,
-            # then the DoFs from the interior of the interval,
-            # then finally the DoFs from the top point.
-            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i]
-                                      + entity_dofs[(b, 1)][i]
-                                      + entity_dofs[(b, 0)][2*i+1])
-    return flat_entity_dofs
-
-
-def flat_entity_permutations(entity_permutations):
-    flat_entity_permutations = {}
-    for b in set(b for b, v in entity_permutations):
-        flat_entity_permutations[b] = {}
-        for eb in set(e // 2 for e in entity_permutations[(b, 0)]):
-            flat_entity_permutations[b][eb] = {}
-            for ob in set(ob for eo, ob, ov in entity_permutations[(b, 0)][2 * eb]):
-                # eo (extrinsic orientation) is always 0 for:
-                # -- quad x interval,
-                # -- triangle x interval,
-                # -- etc.
-                # eo = {0, 1}, but only eo = 0 is relevant for:
-                # -- interval x interval on dim = (1, 1).
-                eo = 0
-                # Orientation in the extruded direction is always 0
-                ov = 0
-                perm0 = entity_permutations[(b, 0)][2 * eb][(eo, ob, ov)]
-                perm1 = entity_permutations[(b, 1)][eb][(eo, ob, ov)]
-                n0, n1 = len(perm0), len(perm1)
-                flat_entity_permutations[b][eb][ob] = \
-                    list(perm0) + \
-                    [n0 + p for p in perm1] + \
-                    [n0 + n1 + p for p in perm0]
-    return flat_entity_permutations
-
-
 def entity_indices(cell):
     """Return a dict mapping topological entities on a cell to their integer index.
 
