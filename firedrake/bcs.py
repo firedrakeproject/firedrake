@@ -269,24 +269,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes.
-        DEPRECATED. The only way boundary nodes are identified is by
-        topological association.
 
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, method=None):
-        if method == "geometric":
-            raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
-        if method not in {None, "topological"}:
-            raise ValueError(f"Unhandled boundary condition method '{method}'")
-        if method is not None:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter('always', DeprecationWarning)
-                warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
-                              DeprecationWarning)
+    def __init__(self, V, g, sub_domain):
         super().__init__(V, sub_domain)
         if len(V.boundary_set) and not set(self.sub_domain).issubset(V.boundary_set):
             raise ValueError(f"Sub-domain {self.sub_domain} not in the boundary set of the restricted space {V.boundary_set}.")
