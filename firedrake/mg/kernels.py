@@ -8,7 +8,7 @@ from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
-from ufl.algorithms.analysis import extract_arguments, extract_coefficients
+from ufl.algorithms.analysis import extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.domain import extract_unique_domain
 from ufl.algorithms.analysis import has_type
@@ -120,66 +120,67 @@ def compile_element(operand, dual_arg, parameters=None,
         _.update(parameters)
         parameters = _
 
+    scalar_type = parameters.get("scalar_type", ScalarType)
     domain = extract_unique_domain(operand)
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
 
+    # Reconstruct the target space as a runtime Quadrature space
     point_expr = gem.Variable("X", (1, dim))
-    point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(1, dim))
+    point_arg = lp.GlobalArg("X", dtype=scalar_type, shape=(1, dim))
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
 
-    # Map into reference values
-    point_element = finat.ufl.FiniteElement("Quadrature", cell=cell, quad_scheme=rule)
+    point_element = finat.ufl.FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
     if operand.ufl_shape:
         symmetry = None if len(operand.ufl_shape) == 1 else dual_arg.ufl_element().symmetry()
         point_element = finat.ufl.TensorElement(point_element, shape=operand.ufl_shape, symmetry=symmetry)
+    point_space = ufl.FunctionSpace(domain, point_element)
 
-    operand = apply_mapping(operand, point_element, domain)
+    # Reconstruct the dual argument
+    if isinstance(dual_arg, ufl.Cofunction):
+        dual_arg = ufl.Cofunction(point_space.dual())
+    else:
+        dual_arg = ufl.Coargument(point_space.dual(), number=dual_arg.number())
+
+    # Map into reference values
+    operand = apply_mapping(operand, dual_arg.ufl_element(), domain)
     operand = tsfc.ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
     operand = simplify_abs(operand, complex_mode)
-    value_shape = operand.ufl_shape
+    ufl_interpolate = ufl.Interpolate(operand, dual_arg)
 
-    builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
+    builder = firedrake_interface.ExpressionKernelBuilder(scalar_type=scalar_type)
     builder._domain_integral_type_map = {domain: "cell"}
     builder._entity_ids = {domain: (0,)}
 
-    # Collect required coefficients
-    try:
-        # Forward interpolation: expression has a coefficient
-        arg, = extract_coefficients(operand)
-        builder._coefficient(arg, "f")
-    except ValueError:
-        # Adjoint interpolation: expression has an argument
-        arg, = extract_arguments(operand)
-        cofunction = ufl.Cofunction(arg.ufl_function_space().dual())
-        builder._coefficient(cofunction, "b")
+    # Create a runtime Quadrature element
+    to_element = builder.create_element(point_element)
 
-    ufl_interpolate = ufl.Interpolate(operand, dual_arg)
+    # Collect required arguments
     arguments = ufl_interpolate.arguments()
     argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
                              for arg in arguments}
 
-    # Replace coordinates (if any)
-    if has_type(operand, GeometricQuantity) or any(fem.needs_coordinate_mapping(arg.ufl_element()) for arg in arguments):
+    # Collect required coefficients
+    coefficients = extract_coefficients(ufl_interpolate)
+
+    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
+
+    if has_type(operand, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
+        coefficients.append(coords_coefficient)
         builder.domain_coordinate[domain] = coords_coefficient
-        builder._coefficient(coords_coefficient, "Xc")
         builder.set_cell_orientations((domain, ))
         builder.set_cell_sizes((domain, ))
-
-    f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[c]) for c in builder.coefficient_map]
-
-    # Create a runtime Quadrature element
-    to_element = finat.QuadratureElement(rule.ref_el, rule)
-    if value_shape:
-        to_element = finat.TensorFiniteElement(to_element, value_shape)
+    builder.set_coefficients(coefficients)
 
     # Translate to GEM
     config = dict(interface=builder,
                   ufl_cell=cell,
+                  integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                   argument_multiindices=argument_multiindices,
+                  index_cache={},
                   scalar_type=parameters["scalar_type"])
 
     # Create callable for translation of UFL expression to gem
@@ -192,8 +193,8 @@ def compile_element(operand, dual_arg, parameters=None,
     # Compute the action against the dual argument
     if isinstance(dual_arg, ufl.Cofunction):
         shape = tuple(i.extent for i in basis_indices)
-        size = numpy.prod(shape, dtype=int)
-        gem_dual = gem.reshape(gem.Variable("b", shape=(size,)), shape)
+        gem_dual, = gem.extract_type((builder.coefficient_map[dual_arg],), gem.Variable)
+        gem_dual = gem.reshape(gem_dual, shape)
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
@@ -208,7 +209,7 @@ def compile_element(operand, dual_arg, parameters=None,
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable("R", return_shape or (1,))
     return_expr = gem.Indexed(return_var, return_indices or (0,))
-    result_arg = lp.GlobalArg("R", dtype=ScalarType, shape=return_shape)
+    result_arg = lp.GlobalArg("R", dtype=scalar_type, shape=return_shape)
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -221,9 +222,10 @@ def compile_element(operand, dual_arg, parameters=None,
     evaluation, = gem.impero_utils.preprocess_gem([evaluation])
     impero_c = gem.impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
 
+    f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[c]) for c in builder.coefficient_map]
     loopy_args = [result_arg] + f_arg + [point_arg]
     kernel_code, _ = generate_loopy(
-        impero_c, loopy_args, ScalarType,
+        impero_c, loopy_args, scalar_type,
         kernel_name="pyop2_kernel_"+name, index_names={})
 
     return lp.generate_code_v2(kernel_code).device_code()
