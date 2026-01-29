@@ -4,6 +4,7 @@
 
 """Provides common base classes for cached objects."""
 
+import abc
 import atexit
 import cachetools
 import collections
@@ -138,7 +139,7 @@ class CacheMixin:
         self._cache[key] = value
 
 
-def cache_filter(comm=None, comm_name=None, alive=True, function=None, cache_type=None):
+def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
     """ Filter PyOP2 caches based on communicator, function or cache type.
     """
     caches = _KNOWN_CACHES
@@ -151,7 +152,7 @@ def cache_filter(comm=None, comm_name=None, alive=True, function=None, cache_typ
     if comm_name is not None:
         caches = filter(lambda c: c.comm_name == comm_name, caches)
     if alive:
-        caches = filter(lambda c: c.comm != MPI.COMM_NULL, caches)
+        caches = filter(lambda c: not isinstance(c, _DeadInstrumentedCache), caches)
     if function is not None:
         if isinstance(function, str):
             caches = filter(lambda c: function in c.func_name, caches)
@@ -189,51 +190,119 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
     return comm_caches
 
 
-class _CacheRecord:
-    """Object that records cache statistics."""
-    def __init__(self, cidx, comm, func, cache):
+class _AbstractInstrumentedCache(abc.ABC):
+    def __init__(self, cidx, comm, func):
         self.cidx = cidx
         self.comm = comm
         self.comm_name = comm.name
         self.func = func
         self.func_module = func.__module__
         self.func_name = func.__qualname__
-        self.cache = weakref.ref(cache)
+        self.known_cache_index = len(_KNOWN_CACHES)
+        _KNOWN_CACHES.append(weakref.proxy(self))
+
+    @property
+    @abc.abstractmethod
+    def size(self) -> int:
+        ...
+
+    @property
+    @abc.abstractmethod
+    def maxsize(self) -> int:
+        ...
+
+
+class _InstrumentedCache(_AbstractInstrumentedCache):
+    def __init__(self, cidx, comm, func, cache):
+        self.cache = cache
         self.cache_name = cache.__class__.__qualname__
         try:
             self.cache_loc = cache.cachedir
         except AttributeError:
             self.cache_loc = "Memory"
 
-    def get_stats(self):
-        cache = self.cache()
-        hit = miss = size = maxsize = -1
-        if isinstance(cache, cachetools.Cache):
-            size = cache.currsize
-            maxsize = cache.maxsize
-        if hasattr(cache, "instrument__"):
-            hit = cache.hit
-            miss = cache.miss
-            if size == -1:
-                try:
-                    size = len(cache)
-                except NotImplementedError:
-                    pass
-            if maxsize is None:
-                try:
-                    maxsize = cache.max_size
-                except AttributeError:
-                    pass
-        return hit, miss, size, maxsize
+        self.hit = 0
+        self.miss = 0
+
+        super().__init__(cidx, comm, func)
+
+    def __del__(self):
+        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm, self.func, self.hit, self.miss, self.size, self.maxsize)
+
+    def __getitem__(self, key):
+        try:
+            value = self.cache[key]
+        except KeyError as e:
+            self.miss += 1
+
+            if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
+                LOGGER.warning(
+                    f"Cache '{self}' has recorded 1000 misses at a hit rate of "
+                    "greater than 80%. This indicates a problem with your cache key."
+                )
+
+            raise e
+        else:
+            self.hit += 1
+            return value
+
+    def __setitem__(self, key, value) -> None:
+        self.cache[key] = value
+
+    def get(self, key, default=None):
+        try:
+            value = self[key]
+        except KeyError:
+            self.miss += 1
+            return default
+        else:
+            self.hit += 1
+            return value
+
+    # TODO: singledispatch
+    @property
+    def size(self) -> int:
+        # TODO: quite ick here
+        try:
+            return len(self.cache)
+        except:
+            return self.miss
+
+    # TODO: singledispatch
+    @property
+    def maxsize(self) -> int:
+        if isinstance(self.cache, cachetools.Cache):
+            return self.cache.maxsize
+        else:
+            return -1
+
+
+class _DeadInstrumentedCache(_AbstractInstrumentedCache):
+    def __init__(self, cidx, cache_name, cache_loc, comm, func, nhit, nmiss, size, maxsize):
+        self.cache_name = cache_name
+        self.cache_loc = cache_loc
+        self.hit = nhit
+        self.miss = nmiss
+        self._size = size
+        self._maxsize = maxsize
+        super().__init__(cidx, comm, func)
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def maxsize(self) -> int:
+        return self._maxsize
 
 
 def print_cache_stats(*args, **kwargs):
     """Print cache statistics."""
     data = defaultdict(lambda: defaultdict(list))
     for entry in cache_filter(*args, **kwargs):
-        active = (entry.comm != MPI.COMM_NULL)
+        active = not isinstance(entry, _DeadInstrumentedCache)
         data[(entry.comm_name, active)][(entry.cache_name, entry.cache_loc)].append(
-            (entry.cidx, entry.func_module, entry.func_name, entry.get_stats())
+            (entry.cidx, entry.func_module, entry.func_name, (entry.hit, entry.miss, entry.size, entry.maxsize))
         )
 
     tab = "  "
@@ -261,7 +330,7 @@ def print_cache_stats(*args, **kwargs):
                 print(f"|{cache_location:78}|")
             for entry in function_list:
                 function_title = f"{tab*2}id={entry[0]} {'.'.join(entry[1:3])}"
-                stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col))
+                stats_row = "|".join(f"{s:{w}}" for s, w in zip(entry[3], stats_col, strict=True))
                 print(f"|{function_title:{col[0]}}|{stats_row:{col[1]}}|")
         print(hline)
 
@@ -401,72 +470,13 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
     return default_hashkey(*hash_args, **hash_kwargs)
 
 
-# TODO: I think a class decorator isn't quite the right way of doing this
-def instrument(cls):
-    """ Class decorator for dict-like objects for counting cache hits/misses.
-    """
-    @wraps(cls, updated=())
-    class _wrapper(cls):
-        instrument__ = True
-
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.hit = 0
-            self.miss = 0
-
-        def get(self, key, default=None):
-            try:
-                value = self[key]
-            except KeyError:
-                self.miss += 1
-                return default
-            else:
-                self.hit += 1
-                return value
-
-        def __getitem__(self, key):
-            try:
-                value = super().__getitem__(key)
-            except KeyError as e:
-                self.miss += 1
-
-                if self.miss == 1000 and self.miss / (self.hit+self.miss) > 0.8:
-                    LOGGER.warning(
-                        f"Cache '{self}' has recorded 1000 misses at a hit rate of "
-                        "greater than 80%. This indicates a problem with your cache key."
-                    )
-
-                raise e
-            else:
-                self.hit += 1
-                return value
-    return _wrapper
-
-
-# @instrument
 class DEFAULT_CACHE(dict):
     pass
 
-    # def __del__(self):
-    #     print("Destroying a DEFAULT_CACHE")
-    #     dict.__del__(self)
-
-
-# InstrumentedDict = instrument(dict)
-
-
-
-
-# Example of how to instrument and use different default caches:
-# from functools import partial
-# EXOTIC_CACHE = partial(instrument(cachetools.LRUCache), maxsize=100)
 
 # Turn on cache measurements if printing cache info is enabled
 # FIXME: make a function, not global config
 # if configuration["print_cache_info"]:
-
-DEFAULT_CACHE = instrument(DEFAULT_CACHE)
-DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
 # TODO: One day should use the compilation comm to do the bcast
@@ -519,44 +529,45 @@ def parallel_cache(
                     cache_type = utils.AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
+                    def make_instrumented_cache():
+                        cache = make_cache()
+                        return _InstrumentedCache(cache_id, comm, func, cache)
+
                     comm_caches = get_comm_caches(comm)
                     if heavy:
-                        # The lifetime of the cache must be tied to the
-                        # heavy cache object, so the comm should only hold
-                        # a weakref.
+                        if cache_id not in comm_caches:
+                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+
                         caches = []
                         cache_type = None
-                        for heavy_caches in _heavy_caches.values():
-                            cache = make_cache()
+                        for lifetime_obj in _heavy_caches:
+                            try:
+                                cache = comm_caches[cache_id][lifetime_obj]
+                            except KeyError:
+                                cache = make_instrumented_cache()
+                                comm_caches[cache_id][lifetime_obj] = cache
+
                             if cache_type is None:
                                 cache_type = type(cache)
-                            heavy_caches.append(cache)
-                            caches.append(weakref.ref(cache))
-                            _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                            caches.append(cache)
                         caches = tuple(caches)
                         assert cache_type is not None
                         assert not issubclass(cache_type, DictLikeDiskAccess), "Disk caches cannot be heavy"
                     else:
                         try:
-                            caches, cache_type = comm_caches[cache_id]
+                            cache = comm_caches[cache_id]
                         except KeyError:
-                            cache = make_cache()
-                            caches = (cache,)
-                            cache_type = type(cache)
-                            _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
-
-                    comm_caches[cache_id] = caches, cache_type
+                            cache = make_instrumented_cache()
+                            comm_caches[cache_id] = cache
+                        caches = (cache,)
+                        cache_type = type(cache)
 
                     if config.debug and heavy:
-                        key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches.keys()))
+                        key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
                     else:
                         key = hashkey(*args, **kwargs)
 
                     for cache in caches:
-                        if heavy:
-                            cache = cache()
-                            if cache is None:  # TODO: need to make sure that at least one is valid!
-                                continue
                         try:
                             value = cache[key]
                             break
@@ -609,16 +620,11 @@ def parallel_cache(
                         value = comm.bcast(value, root=0)
                     else:
                         if config.debug and heavy:
-                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches.keys()))
+                            value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches))
                         else:
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))
 
                 for cache in caches:
-                    if heavy:
-                        cache = cache()
-                        # TODO: need to make sure that at least one is valid!
-                        if cache is None:
-                            continue
                     cache[key] = value
                 return value
         return wrapper
@@ -651,9 +657,9 @@ def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
     return decorator
 
 
-_heavy_caches = weakref.WeakKeyDictionary()
+_heavy_caches = weakref.WeakSet()
 
 
 def register_heavy_cache(obj: Any) -> None:
     assert obj not in _heavy_caches
-    _heavy_caches[obj] = []
+    _heavy_caches.add(obj)

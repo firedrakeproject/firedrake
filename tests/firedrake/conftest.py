@@ -185,13 +185,14 @@ def check_empty_tape(request):
     request.addfinalizer(finalizer)
 
 
-# debugging
-@pytest.fixture(scope="module", autouse=True)
-def mumble(request):
-    """Check that the tape is empty at the end of each module"""
-    import pyop3.cache
-
-    request.addfinalizer(pyop3.cache.print_cache_stats)
+# # debugging
+# # @pytest.fixture(scope="module", autouse=True)
+# @pytest.fixture(scope="module", autouse=True)
+# def mumble(request):
+#     """Check that the tape is empty at the end of each module"""
+#     import pyop3.cache
+#
+#     request.addfinalizer(pyop3.cache.print_cache_stats)
 
 
 class _petsc_raises:
