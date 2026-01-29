@@ -270,7 +270,7 @@ Supported finite elements
 Firedrake supports the use of the following finite elements.
 
 .. csv-table::
-    :header: "Name", "Short name", "Value shape", "Valid cells"
+    :header: "Name", "Short name", "Value shape", "Valid cells", "Can interpolate into?"
     :widths: 20, 10, 10, 40
     :file: element_list.csv
 
