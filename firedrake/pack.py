@@ -245,12 +245,12 @@ def transform_packed_cell_closure_mat(
 
         def transform_in(untransformed, transformed):
             return (
-                transform_in_kernel(orientations[row_cell_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
+                transform_in_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
             )
 
         def transform_out(transformed, untransformed):
             return (
-                transform_out_kernel(orientations[row_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
+                transform_out_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
             )
 
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
@@ -493,11 +493,10 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
     closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
     closure_size_acc = 0
     indent = 0
-    for dim in range(len(closure_sizes)):
+    for dim in range(len(closure_sizes) - 1):
         string += f"case {dim}:\n "
         indent += 1
-        string += indent*"\t" + "o_val = o[i + closure_size_acc]; \n "
-        #string += indent*"\t" + "o_val = 0; \n "
+        string += indent*"\t" + f"o_val = o{idx}[i + closure_size_acc]; \n "
         string += [indent*"\t" + "switch (i) { \n"]
         indent += 1
         for i in range(closure_sizes[dim]):
@@ -520,17 +519,6 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
             indent -= 1
         string += indent*"\t" + "default: break; }\n"
         closure_size_acc += dim
-        # string += indent*"\t" + "printf(\"res (before) %f, %f, %f\\n\", res[0], res[1], res[2]); \n"
-        # string += indent*"\t" + "printf(\"b (before) %f, %f, %f\\n\", b[0], b[1], b[2]); \n"
-        #string += indent*"\t" + "printf(\"d: %d, dim: %d, i: %d, o_val: %d \\n\", d, dim, i, o_val); \n"
-        #for i in range(n):
-        #    string += indent*"\t" + f"printf(\"a row {i}: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{i*n + j}]" for j in range(n))}); \n"
-        #string += indent*"\t" + f"printf(\"a row 1: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{n + i}]" for i in range(n))}); \n"
-        #string += indent*"\t" + f"printf(\"a row 2: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{2*n + i}]" for i in range(n))}); \n"
-        #string += indent*"\t" + "printf(\"a rows ...\\n\"); \n"
-        # string += indent*"\t" + "printf(\"\\n\");\n"
-        string += indent*"\t" + "\n"
-        string += indent*"\t" + "break;\n"
         indent -= 1
 
     string += "default: break; }\n"
@@ -569,31 +557,14 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
           f"{{[i,j,k]:0 <= i,k < {ns[0]} and 0 <= j < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + a[k,i]*b[k,j]
-          """, name=f"matmul0", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+          """, name=f"matmul1", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
         # computes res = BA
         matmuls += [lp.make_function(
           f"{{[i,j,k]:0 <= i < {ns[0]} and 0 <= j,k < {ns[1]}}}",
           f"""
               res[i,j] =  res[i,j] + b[i,k]*a[k,j]
-          """, name=f"matmul1", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
-        #for n1, n2, idx1, idx2 in zip(ns, reversed(ns), [a_idx, b_idx], [col_idx, row_idx]):
-       #  
-       #     matmuls += [lp.make_function(
-       #     f"{{[{idx1+","+idx2}]:0 <= {idx1} < {n1} and 0 <= {idx2} < {n2}}}",
-       #     f"""
-       #        res[{res_idx}] =  res[{res_idx}] + a[{idx2 + "," + iter_idx}]*b[{iter_idx +}]
-       #     """, name="matmul", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
+          """, name=f"matmul0", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
 
-    inc_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
-                lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
-    inc_knl = lp.make_function(
-        all_idxs,
-        [f"b[{res_idx}] = b[{res_idx}] + res[{res_idx}]"],
-        kernel_data=inc_args,
-        name="inc",
-        lang_version=LOOPY_LANG_VERSION, 
-        target=lp.CWithGNULibcTarget()
-    )
     set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
                 lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True)]
     set_knl = lp.make_function(
@@ -612,17 +583,7 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
         target=lp.CWithGNULibcTarget(),
         name="zero",
     )
-        #     child_knls[0] = lp.make_function(
-        #         f"{{[i, j, k]:0<=i, k < {shapes[0]} and 0<= j < {shapes[1]}}}",
-        #         """
-        #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
-        #         """, name=f"matmul{0}", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())
-        #     child_knls[1] = lp.make_function(
-        #         f"{{[i, j, k]:0<=k < {shapes[0]} and 0<=  j, i < {shapes[1]}}}",
-        #         """
-        #             res[k, j] =  res[k, j] + a[k, i]*b[i, j]
-        #         """, name=f"matmul{1}", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())
-    return matmuls + [set_knl, zero_knl, inc_knl], all_elems
+    return matmuls + [set_knl, zero_knl], all_elems
 
 
 def fuse_orientations(spaces: list[WithGeometry]):
@@ -633,10 +594,8 @@ def fuse_orientations(spaces: list[WithGeometry]):
     if not all(fuse_defined_spaces):
         return None, None
 
-    # TODO case where only one has matrices? or do all fuse elements have them, check
     if all(fuse_defined_spaces) and all(fuse_matrix_spaces) and any(fuse_needs_matrices):
         from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
-        print("NEW FUSE")
         mesh = spaces[0]._mesh
         mats = []
         reversed_mats = []
@@ -654,43 +613,38 @@ def fuse_orientations(spaces: list[WithGeometry]):
         utilities, all_elems = get_utility_kernels(ns) 
         args = [lp.ValueArg("d", dtype=utils.IntType),
                 lp.ValueArg("closure_size_acc", dtype=utils.IntType),
-                lp.ValueArg("o_val", dtype=utils.IntType),
-                lp.GlobalArg("o", dtype=utils.IntType, shape=(sum(closures)), is_input=True)] + [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
+                lp.ValueArg("o_val", dtype=utils.IntType)] + [lp.GlobalArg(f"o{i}", dtype=utils.IntType, shape=(sum(closures)), is_input=True) for i in range(len(ns))] + [lp.GlobalArg(f"a{i}", dtype=utils.ScalarType, shape=(ns[i], ns[i]), is_input=True, is_output=False) for i in range(len(ns))] + [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
                           lp.GlobalArg("res", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True)]
 
         a_list = ",".join([f"a{i}[:,:]" for i in range(len(ns))])
-        var_list = ["o", "d", "i", "o_val", "dim"]
+        o_list = ",".join([f"o{i}[:]" for i in range(len(ns))])
+        var_list = [f"o{i}" for i in range(len(ns))] + ["d", "i", "o_val", "dim"]
 
         def switch(space, mats, n, i, args, var_list, all_elems, name, reverse=False):
             dim_arg = [lp.ValueArg("dim", dtype=utils.IntType)]
             switch_string, args, var_list = construct_switch_statement(fs, mats, n, i, args, var_list)
             transform_insn = lp.CInstruction(tuple(), "".join(switch_string), assignees=(f"a{i}", "o_val"), read_variables=frozenset(var_list), within_inames=frozenset(["i"]), id="assign", depends_on="zero")
-            #arg_order = f"a{i}, b" if not reverse else f"b, a"
             matmul_insn = f"res[{all_elems}] = matmul{i}(a{i}, b, res) {{id=matmul, dep=*, dep=assign, inames=i}}"
-            print_insn = lp.CInstruction(tuple(),
-                         "printf(\"res: %f, %f, %f\\n\", res[0], res[1], res[2]);",
-                          assignees=(), read_variables=frozenset([]), within_inames=frozenset(["i"]), id="print", depends_on="matmul")
             return lp.make_function(
-                "{[i]:0<= i < d}",
+                "{[i]:0<= i < d }",
                 [f"res[{all_elems}] = zero(res) {{id=zero, inames=i}}",
-                 transform_insn, matmul_insn,
+                 transform_insn, matmul_insn, 
                  f"b[{all_elems}] = set(b[{all_elems}], res[{all_elems}]) {{id=set, dep=matmul, inames=i}}"
                  ],
                 name=name + "_switch_on_o",
                 kernel_data=dim_arg + args,
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
-        in_switches = [switch(spaces[i], mats[i], ns[i],i, args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
+        in_switches = [switch(spaces[i], mats[i], ns[i], i, args, var_list, all_elems, name="in"+str(i)) for i in range(len(spaces))]
         out_switches = [switch(spaces[i], reversed_mats[i], ns[i], i, args, var_list, all_elems, name="out"+str(i)) for i in range(len(spaces))]
 
         closure_arg = [lp.TemporaryVariable("closure_sizes", initializer=np.array(closures, dtype=np.int32), dtype=utils.IntType, read_only=True, address_space=lp.AddressSpace(1))]
-        printres_insn = lp.CInstruction(tuple(), "printf(\"replaces res: %f\\n\", res[0]);", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
         def loop_dims(direction, all_elems):
             num_switch = len(all_elems.split(","))
             labelling = [ f"{{id=switch{chr(i+65)} " + (",dep=*}" if i == 0 else f",dep=switch{chr(i+64)},dep=*}}") for i in range(num_switch)]
             switches = [f"""
-                         b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, o[:], {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
+                         b[{all_elems}], res[{all_elems}] = {direction + str(i)}_switch_on_o(dim, d, closure_size_acc, o_val, {o_list}, {a_list}, b[{all_elems}], res[{all_elems}]) {labelling[i]}"""
                         for i in range(num_switch)]
             return lp.make_function(
                 f"{{[dim]:{0} <= dim <= {mesh.dimension - 1}}}",
@@ -701,44 +655,26 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
 
-        #print_insn = lp.CInstruction(tuple(),
-        #            f"""printf(\"initial b: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(ns[0]))});
-        #                 printf(\"initial res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
-        #                 printf(\"initial temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});
-        #                 printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o[{j}]" for j in range(sum(closures)))});""", assignees=(), read_variables=frozenset([]), id="print")
-
-        #print_insn1 = lp.CInstruction(tuple(),
-        #              f"""printf(\"final res: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(ns[0]))});
-        #                  printf(\"final temp: {" ".join('%f' for i in range(ns[0]))}\\n\", {', '.join(f"temp[{j}]" for j in range(ns[0]))});"""
-        #              , assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
-
-        print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
-
-        print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         
         def overall(direction, all_elems):
-            tempArg = [lp.TemporaryVariable("temp", initializer=np.zeros(ns), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
             return lp.make_kernel(
             "{:}",
-            [print_insn, 
-             f"temp[{all_elems}] = set(temp[{all_elems}], res[{all_elems}]) {{id=store, dep=print}}",
-            f"b[{all_elems}], res[{all_elems}] = {direction}_loop_over_dims(0,0,0,o[:], {a_list}, b[{all_elems}], res[{all_elems}]) {{dep=store, id=loop}}",
+            [ 
+            f"b[{all_elems}], res[{all_elems}] = {direction}_loop_over_dims(0,0,0, {o_list}, {a_list}, b[{all_elems}], res[{all_elems}]) {{id=loop}}",
              f"res[{all_elems}] = set(res[{all_elems}], b[{all_elems}]) {{id=replace, dep=loop}}",
              f"b[{all_elems}] = zero(b[{all_elems}]) {{dep=replace, id=zerob}}",
-             f"temp[{all_elems}] = zero(temp[{all_elems}]) {{dep=replace, id=zero_temp}}",
-             print_insn1],
+             ],
             name=f"{direction}_transform",
-            kernel_data=args[3:] + tempArg,
+            kernel_data=args[3:],
             lang_version=LOOPY_LANG_VERSION, 
             target=lp.CWithGNULibcTarget())
     
         in_knl = lp.merge([overall("in", all_elems), loop_dims("in", all_elems)] + in_switches + utilities)
         out_knl = lp.merge([overall("out", all_elems), loop_dims("out", all_elems)] + out_switches + utilities)
-
         # b is modified in the transform functions but the result is written to res and therefore is not needed further.
-        transform_in = op3.Function(in_knl, [op3.READ] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+        transform_in = op3.Function(in_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
 
-        transform_out = op3.Function(out_knl, [op3.READ] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
+        transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
         return None, None

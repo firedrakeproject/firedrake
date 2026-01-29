@@ -2163,6 +2163,8 @@ class MeshTopology(AbstractMeshTopology):
         cell_axis = self.cells.root
         # # so instead we do
         # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+        if bool(os.environ.get("FIREDRAKE_USE_FUSE", 0)):
+            return self.entity_orientations_dat_no_renum
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
