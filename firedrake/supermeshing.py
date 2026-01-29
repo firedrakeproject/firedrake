@@ -6,7 +6,7 @@ import libsupermesh
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
-from firedrake.mg.kernels import to_reference_coordinates, compile_element
+from firedrake.mg.kernels import to_reference_coordinates, compile_element, _make_kernel_args
 from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
 from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
@@ -201,9 +201,6 @@ each supermesh cell.
     mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
     mat.setUp()
 
-    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), name="evaluate_kernel_A")
-    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), name="evaluate_kernel_B")
-
     # We only need one of these since we assume that the two meshes both have CG1 coordinates
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
@@ -211,10 +208,15 @@ each supermesh cell.
         reference_mesh = UnitTriangleMesh(comm=COMM_SELF)
     else:
         reference_mesh = UnitTetrahedronMesh(comm=COMM_SELF)
-    evaluate_kernel_S = compile_element(ufl.Coefficient(reference_mesh.coordinates.function_space()), name="evaluate_kernel_S")
 
+    V_S = reference_mesh.coordinates.function_space()
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
+
+    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()), name="evaluate_kernel_A")
+    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()), name="evaluate_kernel_B")
+    evaluate_kernel_S = compile_element(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()), name="evaluate_kernel_S")
+
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
@@ -361,7 +363,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -374,7 +376,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -408,7 +410,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop2_kernel_evaluate_kernel_A(%(kernel_args_A)s);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -419,7 +421,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop2_kernel_evaluate_kernel_B(%(kernel_args_B)s);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
@@ -443,6 +445,9 @@ each supermesh cell.
         "evaluate_S": str(evaluate_kernel_S),
         "evaluate_A": str(evaluate_kernel_A),
         "evaluate_B": str(evaluate_kernel_B),
+        "kernel_args_S": _make_kernel_args(V_S.finat_element, "physical_node_location", "BARF", "simplex_S", "reference_node_location"),
+        "kernel_args_A": _make_kernel_args(V_A.finat_element, "&R_AS[i][j]", "BARF", "coeffs_A", "reference_nodes_A[j]"),
+        "kernel_args_B": _make_kernel_args(V_B.finat_element, "&R_BS[i][j]", "BARF", "coeffs_B", "reference_nodes_B[j]"),
         "to_reference": str(to_reference_kernel),
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
