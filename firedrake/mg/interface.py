@@ -37,6 +37,7 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 
 def get_quadrature_element(V):
+    """Returns a ufl element with the quadrature points required by the dual of V."""
     ufl_element = V.ufl_element()
     finat_element = V.finat_element
     if finat_element.has_pointwise_dual_basis:
@@ -79,13 +80,13 @@ def prolong(coarse, fine):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
-    element = get_quadrature_element(Vf)
-    needs_quadrature = element != Vf.ufl_element()
-    if needs_quadrature:
-        Vf = Vf.collapse().reconstruct(element=element)
+    if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
+        # Introduce an intermidiate quadrature target space
+        Vf = Vf.collapse().reconstruct(element=get_quadrature_element(Vf))
 
-    meshes = hierarchy._meshes
     finest = fine
+    Vfinest = finest.function_space()
+    meshes = hierarchy._meshes
     for j in range(repeat):
         next_level += 1
         if j == repeat - 1 and not needs_quadrature:
@@ -116,7 +117,8 @@ def prolong(coarse, fine):
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
 
         if needs_quadrature:
-            new_fine = finest if j == repeat-1 else Function(Vc.reconstruct(mesh=meshes[next_level]))
+            # Transfer to the actual target space
+            new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
             fine = new_fine.interpolate(fine)
 
         coarse = fine
@@ -149,23 +151,24 @@ def restrict(fine_dual, coarse_dual):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = get_quadrature_element(Vf)
-    needs_quadrature = element != Vf.ufl_element()
+    if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
+        # Introduce an intermidiate quadrature source space
+        Vq = Vf.collapse().reconstruct(element=get_quadrature_element(Vf))
 
-    meshes = hierarchy._meshes
     coarsest = coarse_dual.zero()
+    meshes = hierarchy._meshes
     for j in range(repeat):
+        if needs_quadrature:
+            # Transfer to the quadrature source space
+            fine_dual = Function(Vq.reconstruct(mesh=meshes[next_level])).interpolate(fine_dual)
+
         next_level -= 1
         if j == repeat - 1:
             coarse_dual = coarsest
         else:
             coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
-        Vc = coarse_dual.function_space()
-
-        if needs_quadrature:
-            Vf = fine_dual.function_space()
-            fine_dual = Function(Vf.collapse().reconstruct(element=element)).interpolate(fine_dual)
         Vf = fine_dual.function_space()
+        Vc = coarse_dual.function_space()
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
@@ -228,17 +231,17 @@ def inject(fine, coarse):
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = get_quadrature_element(Vc)
-    needs_quadrature = element != Vc.ufl_element()
-    if needs_quadrature:
-        Vc = Vc.collapse().reconstruct(element=element)
+    if needs_quadrature := not Vc.finat_element.has_pointwise_dual_basis:
+        # Introduce an intermidiate quadrature target space
+        Vc = Vc.collapse().reconstruct(element=get_quadrature_element(Vc))
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
 
-    meshes = hierarchy._meshes
     coarsest = coarse.zero()
+    Vcoarsest = coarsest.function_space()
+    meshes = hierarchy._meshes
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
@@ -280,7 +283,8 @@ def inject(fine, coarse):
                          coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()))
 
         if needs_quadrature:
-            new_coarse = coarsest if j == repeat - 1 else Function(Vf.reconstruct(mesh=meshes[next_level]))
+            # Transfer to the actual target space
+            new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
 
         fine = coarse
