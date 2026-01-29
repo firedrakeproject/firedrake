@@ -22,10 +22,9 @@ def solver_parameters(solver_type):
                       "mat_type": "matfree",
                       "pc_type": "mg",
                       "pc_mg_type": "full",
+                      "mg_coarse_mat_type": "aij",
                       "mg_coarse_ksp_type": "preonly",
-                      "mg_coarse_pc_type": "python",
-                      "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                      "mg_coarse_assembled_pc_type": "lu",
+                      "mg_coarse_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
                       "mg_levels_ksp_max_it": max_its,
                       "mg_levels_pc_type": "jacobi"}
@@ -47,7 +46,7 @@ def solver_parameters(solver_type):
         parameters = {"snes_type": "newtonls",
                       "ksp_type": "preonly",
                       "pc_type": "none",
-                      "snes_linesearch_type": "l2",
+                      "snes_linesearch_type": "secant",
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip",
                       "npc_snes_type": "fas",
@@ -82,7 +81,7 @@ def manufacture_solution(V):
     return exact, f
 
 
-def run_poisson(solver_type):
+def run_poisson(solver_type, rhs_type="form"):
     parameters = solver_parameters(solver_type)
     mesh = UnitSquareMesh(10, 10)
 
@@ -94,7 +93,13 @@ def run_poisson(solver_type):
     exact, f = manufacture_solution(V)
     u = function.Function(V)
     v = TestFunction(V)
-    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+
+    L = inner(f, v)*dx
+    if rhs_type == "cofunction":
+        L = assemble(L)
+    elif rhs_type != "form":
+        raise ValueError("Unexpected RHS type")
+    F = inner(grad(u), grad(v))*dx - L
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
 
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
@@ -106,6 +111,10 @@ def run_poisson(solver_type):
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_poisson_gmg(solver_type):
     assert run_poisson(solver_type) < 4e-6
+
+
+def test_poisson_gmg_cofunction():
+    assert run_poisson("mg", rhs_type="cofunction") < 4e-6
 
 
 @pytest.mark.parallel

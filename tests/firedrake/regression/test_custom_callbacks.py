@@ -1,10 +1,6 @@
 from firedrake import *
 from firedrake.utils import ScalarType
 import numpy as np
-import pytest
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_callbacks():
@@ -28,7 +24,7 @@ def test_callbacks():
         alpha.assign(1.0)
 
     def update_beta(current_solution):
-        with temp.dat.vec as foo:
+        with temp.vec as foo:
             current_solution.copy(foo)
 
         # introduce current-solution-dependent behaviour

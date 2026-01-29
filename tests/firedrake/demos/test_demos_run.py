@@ -10,8 +10,6 @@ from os.path import abspath, basename, dirname, join, splitext
 import pyadjoint
 import pytest
 
-from firedrake.petsc import get_external_packages
-
 
 Demo = namedtuple("Demo", ["loc", "requirements"])
 
@@ -21,8 +19,10 @@ DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
+    Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
+    Demo(("deflation", "deflation"), ["matplotlib"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
     Demo(("extruded_continuity", "extruded_continuity"), []),
@@ -36,13 +36,21 @@ SERIAL_DEMOS = [
     Demo(("matrix_free", "poisson"), []),
     Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
     Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
+    Demo(("multicomponent", "multicomponent"), ["vtk, netgen"]),
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
-    Demo(("netgen", "netgen_mesh"), ["mumps", "ngsPETSc", "netgen", "slepc", "vtk"]),
+    Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("patch", "poisson_mg_patches"), []),
+    Demo(("patch", "stokes_vanka_patches"), []),
+    Demo(("patch", "hcurl_riesz_star"), []),
+    Demo(("patch", "hdiv_riesz_star"), []),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
+    Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
+    Demo(('vlasov_poisson_1d', 'vp1d'), []),
+    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"])
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
@@ -72,39 +80,13 @@ def test_no_missing_demos():
     assert not all_demo_locs, "Unrecognised demos listed"
 
 
-def _maybe_skip_demo(demo):
+def _maybe_skip_demo(demo, skip_dependency):
+    skip_dep, dependency_skip_markers_and_reasons = skip_dependency
     # Add pytest skips for missing imports or packages
-    if "mumps" in demo.requirements and "mumps" not in get_external_packages():
-        pytest.skip("MUMPS not installed with PETSc")
 
-    if "hypre" in demo.requirements and "hypre" not in get_external_packages():
-        pytest.skip("hypre not installed with PETSc")
-
-    if "slepc" in demo.requirements:
-        try:
-            # Do not use `pytest.importorskip` to check for slepc4py:
-            # It isn't sufficient to actually detect whether slepc4py
-            # is installed. Both petsc4py and slepc4py require
-            # `from xy4py import Xy`
-            # to actually load the library.
-            from slepc4py import SLEPc  # noqa: F401
-        except ImportError:
-            pytest.skip("SLEPc unavailable")
-
-    if "matplotlib" in demo.requirements:
-        pytest.importorskip("matplotlib", reason="Matplotlib unavailable")
-
-    if "netgen" in demo.requirements:
-        pytest.importorskip("netgen", reason="Netgen unavailable")
-
-    if "ngsPETSc" in demo.requirements:
-        pytest.importorskip("ngsPETSc", reason="ngsPETSc unavailable")
-
-    if "vtk" in demo.requirements:
-        try:
-            import vtkmodules.vtkCommonDataModel  # noqa: F401
-        except ImportError:
-            pytest.skip("VTK unavailable")
+    for dep, _, reason in dependency_skip_markers_and_reasons:
+        if dep in demo.requirements and skip_dep(dep):
+            pytest.skip(reason)
 
 
 def _prepare_demo(demo, monkeypatch, tmpdir):
@@ -146,8 +128,8 @@ def _exec_file(py_file):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", SERIAL_DEMOS, ids=["/".join(d.loc) for d in SERIAL_DEMOS])
-def test_serial_demo(demo, env, monkeypatch, tmpdir):
-    _maybe_skip_demo(demo)
+def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
+    _maybe_skip_demo(demo, skip_dependency)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
     _exec_file(py_file)
 
@@ -159,8 +141,8 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir):
 @pytest.mark.parallel(2)
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
-def test_parallel_demo(demo, env, monkeypatch, tmpdir):
-    _maybe_skip_demo(demo)
+def test_parallel_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
+    _maybe_skip_demo(demo, skip_dependency)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
     _exec_file(py_file)
 

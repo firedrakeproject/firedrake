@@ -66,7 +66,7 @@ def test_randomfunc(brng, meth_args):
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = getattr(rg_wrap, meth)(V, *args)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             if meth in ('rand', 'randn'):
                 assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
             else:
@@ -96,7 +96,7 @@ def test_randomfunc_parallel_pcg64():
     rg_wrap = randomfunctiongen.Generator(fgen)
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
 
 
@@ -116,7 +116,7 @@ def test_randomfunc_parallel_philox():
     rg_wrap = randomfunctiongen.Generator(randomfunctiongen.Philox(counter=12345678910))
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
-        with f.dat.vec_ro as v:
+        with f.vec_ro as v:
             assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
 
 
@@ -129,3 +129,39 @@ def test_randomfunc_generator_spawn():
     assert all([child.bit_generator._seed_seq.entropy == parent.bit_generator._seed_seq.entropy for child in children])
     assert all([child.bit_generator._seed_seq.spawn_key == parent.bit_generator._seed_seq.spawn_key + (i, ) for i, child in enumerate(children)])
     assert all([child.bit_generator._seed_seq.pool_size == parent.bit_generator._seed_seq.pool_size for child in children])
+
+
+@pytest.mark.parametrize("brng", ['PCG64'])
+@pytest.mark.parametrize("meth_args", [('beta', (0.3, 0.5))])
+def test_random_cofunction(brng, meth_args):
+    meth, args = meth_args
+
+    mesh = UnitSquareMesh(10, 10)
+    V0 = VectorFunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V = V0 * V1
+    V = V.dual()
+
+    seed = 123456789
+    # Original
+    bgen = getattr(randomgen, brng)(seed=seed)
+    if brng == 'PCG64':
+        state = bgen.state
+        state['state'] = {'state': seed, 'inc': V.comm.Get_rank()}
+        bgen.state = state
+    rg_base = randomgen.Generator(bgen)
+    # Firedrake wrapper
+    fgen = getattr(randomfunctiongen, brng)(seed=seed)
+    if brng == 'PCG64':
+        state = fgen.state
+        state['state'] = {'state': seed, 'inc': V.comm.Get_rank()}
+        fgen.state = state
+    rg_wrap = randomfunctiongen.Generator(fgen)
+    for i in range(1, 10):
+        f = getattr(rg_wrap, meth)(V, *args)
+        with f.vec_ro as v:
+            if meth in ('rand', 'randn'):
+                assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
+            else:
+                kwargs = {'size': (v.local_size, )}
+                assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), v.array[:])

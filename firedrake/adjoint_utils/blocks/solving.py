@@ -86,8 +86,15 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        try:
+            lhs_string = ufl2unicode(self.lhs)
+        except AttributeError:
+            lhs_string = str(self.lhs)
+        try:
+            rhs_string = ufl2unicode(self.rhs)
+        except AttributeError:
+            rhs_string = str(self.rhs)
+        return "solve({} = {})".format(lhs_string, rhs_string)
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
@@ -156,6 +163,13 @@ class GenericSolveBlock(Block):
     def adj_sol(self):
         return self.adj_state
 
+    @adj_sol.setter
+    def adj_sol(self, value):
+        if self.adj_state is None:
+            self.adj_state = value.copy(deepcopy=True)
+        else:
+            self.adj_state.assign(value)
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
@@ -180,7 +194,7 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -197,12 +211,9 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
-        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        # Homogenize and apply boundary conditions on adj_dFdu.
         bcs = self._homogenize_bcs()
         dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
-
-        for bc in bcs:
-            bc.zero(dJdu)
 
         adj_sol = firedrake.Function(self.function_space)
         firedrake.solve(
@@ -404,7 +415,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_state
+        adj_sol = self.adj_sol
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -526,18 +537,11 @@ class GenericSolveBlock(Block):
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
-        rhs_func = rhs.riesz_representation(riesz_map="l2")
-        for bc in bcs:
-            bc.apply(rhs_func)
-        rhs.assign(rhs_func.riesz_representation(riesz_map="l2"))
         firedrake.solve(lhs, func, rhs, **kwargs)
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        lhs = prepared[0]
-        rhs = prepared[1]
-        func = prepared[2]
-        bcs = prepared[3]
+        lhs, rhs, func, bcs = prepared
         result = self._forward_solve(lhs, rhs, func, bcs)
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)
@@ -572,9 +576,9 @@ def solve_init_params(self, args, kwargs, varform):
                 )
             self.adj_kwargs.pop("appctx", None)
 
-    if "mat_type" in kwargs.get("solver_parameters", {}):
-        self.assemble_kwargs["mat_type"] = \
-            kwargs["solver_parameters"]["mat_type"]
+    solver_params = kwargs.get("solver_parameters", None)
+    if solver_params is not None and "mat_type" in solver_params:
+        self.assemble_kwargs["mat_type"] = solver_params["mat_type"]
 
     if varform:
         if "appctx" in kwargs:
@@ -613,14 +617,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, adj_cache, problem_J,
-                 solver_params, solver_kwargs, **kwargs):
+                 solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
-        self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
@@ -645,7 +648,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
@@ -731,7 +733,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -754,7 +756,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
             mesh = F_form.ufl_domain()
@@ -791,7 +793,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanently upstream in UFL.
+            #  See: https://github.com/FEniCS/ufl/issues/395
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
@@ -875,7 +882,7 @@ class SupermeshProjectBlock(Block):
 
     def apply_mixedmass(self, a):
         b = firedrake.Function(self.target_space.dual())
-        with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
+        with a.vec_ro as vsrc, b.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)
         return b
 
@@ -898,7 +905,7 @@ class SupermeshProjectBlock(Block):
         tmp = firedrake.Function(self.target_space)
         # Adjoint of step 2 (mass is self-adjoint)
         self.projector.apply_massinv(tmp, inputs[0])
-        with tmp.dat.vec_ro as vtmp, out.dat.vec_wo as vout:
+        with tmp.vec_ro as vtmp, out.vec_wo as vout:
             self.mixed_mass.multTranspose(vtmp, vout)  # Adjoint of step 1
         return out
 

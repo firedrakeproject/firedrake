@@ -1,7 +1,7 @@
+import textwrap
 import numpy
 import string
 from fractions import Fraction
-from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
@@ -22,6 +22,7 @@ import gem.impero_utils as impero_utils
 import ufl
 import finat.ufl
 import tsfc
+import pyop3 as op3
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -30,6 +31,8 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
+from tsfc.ufl_utils import apply_mapping, simplify_abs
+
 from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
@@ -51,13 +54,13 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     code = {
         "geometric_dimension": gdim,
-        "topological_dimension": cell.topological_dimension(),
+        "topological_dimension": cell.topological_dimension,
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(cell.topological_dimension()),
-        "X_isub_dX": X_isub_dX(cell.topological_dimension()),
+        "dX_norm_square": dX_norm_square(cell.topological_dimension),
+        "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
     }
 
@@ -113,37 +116,44 @@ def compile_element(expression, dual_space=None, parameters=None,
     # # Collect required coefficients
 
     try:
+        # Forward interpolation: expression has a coefficient
         arg, = extract_coefficients(expression)
         argument_multiindices = ()
         coefficient = True
-        if expression.ufl_shape:
-            tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
-        else:
-            tensor_indices = ()
     except ValueError:
+        # Adjoint interpolation: expression has an argument
         arg, = extract_arguments(expression)
         finat_elem = create_element(arg.ufl_element())
-        argument_multiindices = (finat_elem.get_indices(), )
-        argument_multiindex, = argument_multiindices
-        value_shape = finat_elem.value_shape
+        argument_multiindex = finat_elem.get_indices()
+        argument_multiindices = (argument_multiindex, )
+        coefficient = False
+
+    # Map into reference values
+    domain = extract_unique_domain(expression)
+    expression = apply_mapping(expression, arg.ufl_element(), domain)
+    value_shape = expression.ufl_shape
+
+    # Get indices for the output tensor
+    if coefficient:
+        tensor_indices = tuple(gem.Index() for s in value_shape)
+    else:
         if value_shape:
             tensor_indices = argument_multiindex[-len(value_shape):]
         else:
             tensor_indices = ()
-        coefficient = False
 
     # Replace coordinates (if any)
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
-    domain = extract_unique_domain(expression)
+    builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     # Translate to GEM
     cell = domain.ufl_cell()
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     point_arg = lp.GlobalArg("X", dtype=ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=cell,
-                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -151,7 +161,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     context = tsfc.fem.GemPointContext(**config)
 
     # Abs-simplification
-    expression = tsfc.ufl_utils.simplify_abs(expression, complex_mode)
+    expression = simplify_abs(expression, complex_mode)
 
     # Translate UFL -> GEM
     if coefficient:
@@ -177,7 +187,6 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            value_shape = dual_space.value_shape
             if value_shape:
                 var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
@@ -202,9 +211,9 @@ def compile_element(expression, dual_space=None, parameters=None,
     loopy_args = [result_arg] + b_arg + f_arg + [point_arg]
     kernel_code, _ = generate_loopy(
         impero_c, loopy_args, ScalarType,
-        kernel_name="pyop2_kernel_"+name, index_names={})
+        kernel_name="pyop3_kernel_"+name, index_names={})
 
-    return lp.generate_code_v2(kernel_code).device_code()
+    return kernel_code
 
 
 def prolong_kernel(expression):
@@ -213,84 +222,102 @@ def prolong_kernel(expression):
     levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = extract_unique_domain(expression).coordinates
-    if meshc.cell_set._extruded:
+    if meshc.extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        assert hierarchy._meshes[int(idx)].cell_set._extruded
+        assert hierarchy._meshes[int(idx)].extruded
     V = expression.function_space()
     key = (("prolong",)
-           + V.value_shape
+           + (V.block_size,)
            + entity_dofs_key(V.finat_element.complex.get_topology())
            + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
-        mesh = extract_unique_domain(coordinates)
-        eval_code = compile_element(expression)
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
+        pass
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
-        {
-            PetscScalar Xref[%(tdim)d];
-            int cell = -1;
-            int bestcell = -1;
-            double bestdist = 1e10;
-            for (int i = 0; i < %(ncandidate)d; i++) {
-                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
-                to_reference_coords_kernel(Xref, X, Xci);
-                if (%(inside_cell)s) {
-                    cell = i;
-                    break;
-                }
+    mesh = extract_unique_domain(coordinates)
+    eval_kernel = compile_element(expression)
+    eval_code = lp.generate_code_v2(eval_kernel).device_code()
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+    element = create_element(expression.ufl_element())
+    coords_element = create_element(coordinates.ufl_element())
 
-                celldist = %(celldist_l1_c_expr)s;
-                if (celldist < bestdist) {
-                    bestdist = celldist;
-                    bestcell = i;
-                }
+    c_kernel = textwrap.dedent("""
+        PetscScalar Xref[%(tdim)d];
+        int cell = -1;
+        int bestcell = -1;
+        double bestdist = 1e10;
+        for (int i = 0; i < %(ncandidate)d; i++) {
+            const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+            double celldist = 2*bestdist;
+            to_reference_coords_kernel(Xref, X, Xci);
+            if (%(inside_cell)s) {
+                cell = i;
+                break;
+            }
 
+            celldist = %(celldist_l1_c_expr)s;
+            if (celldist < bestdist) {
+                bestdist = celldist;
+                bestcell = i;
             }
-            if (cell == -1) {
-                /* We didn't find a cell that contained this point exactly.
-                   Did we find one that was close enough? */
-                if (bestdist < 10) {
-                    cell = bestcell;
-                } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(spacedim)s; coord++) {
-                      fprintf(stderr, "%%.14e ", X[coord]);
-                    }
-                    fprintf(stderr, "\\n");
-                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                    abort();
-                }
-            }
-            const PetscScalar *coarsei = f + cell*%(coarse_cell_inc)d;
-            for ( int i = 0; i < %(Rdim)d; i++ ) {
-                R[i] = 0;
-            }
-            pyop2_kernel_evaluate(R, coarsei, Xref);
+
         }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": eval_code,
-               "spacedim": element.cell.get_spatial_dimension(),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "Rdim": V.value_size,
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
-               "Xc_cell_inc": coords_element.space_dimension(),
-               "coarse_cell_inc": element.space_dimension(),
-               "tdim": mesh.topological_dimension()}
+        if (cell == -1) {
+            /* We didn't find a cell that contained this point exactly.
+               Did we find one that was close enough? */
+            if (bestdist < 10) {
+                cell = bestcell;
+            } else {
+                fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                for (int coord = 0; coord < %(spacedim)s; coord++) {
+                  fprintf(stderr, "%%.14e ", X[coord]);
+                }
+                fprintf(stderr, "\\n");
+                fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                abort();
+            }
+        }
+        const PetscScalar *coarsei = f + cell*%(coarse_cell_inc)d;
+        for ( int i = 0; i < %(Rdim)d; i++ ) {
+            R[i] = 0;
+        }
+        pyop3_kernel_evaluate(R, coarsei, Xref);
+    """ % {"spacedim": element.cell.get_spatial_dimension(),
+           "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+           "Rdim": V.value_size,
+           "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+           "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
+           "Xc_cell_inc": coords_element.space_dimension(),
+           "coarse_cell_inc": element.space_dimension(),
+           "tdim": mesh.topological_dimension})
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+    # Now build a pyop3 'Function' wrapping this
+    loopy_kernel = lp.make_kernel(
+        "{ [i]: 0 < i < 1 }",
+        [
+            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
+        ],
+        [
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
+        ],
+        name="pyop3_kernel_prolong",
+        preambles=[
+            ("20_petsc", "#include <petsc.h>"),
+            ("20_to_reference_kernel", str(to_reference_kernel)),
+            ("20_eval", eval_code),
+        ],
+        target=tsfc.parameters.target,
+        lang_version=op3.LOOPY_LANG_VERSION,
+        )
+    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+
+    return cache.setdefault(key, func)
 
 
 def restrict_kernel(Vf, Vc):
@@ -301,7 +328,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.value_shape
+           + (Vf.block_size,)
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -310,73 +337,92 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
-        mesh = extract_unique_domain(coordinates)
-        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(Vc.ufl_element())
+        pass
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
+    assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
+    mesh = extract_unique_domain(coordinates)
+    evaluate_kernel = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
+    # TODO: This doesn't have to be literal-inserted
+    evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+    coords_element = create_element(coordinates.ufl_element())
+    element = create_element(Vc.ufl_element())
 
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
-        {
-            PetscScalar Xref[%(tdim)d];
-            int cell = -1;
-            int bestcell = -1;
-            double bestdist = 1e10;
-            for (int i = 0; i < %(ncandidate)d; i++) {
-                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
-                to_reference_coords_kernel(Xref, X, Xci);
-                if (%(inside_cell)s) {
-                    cell = i;
-                    break;
-                }
-
-                celldist = %(celldist_l1_c_expr)s;
-                /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
-                fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
-                if (celldist < bestdist) {
-                    bestdist = celldist;
-                    bestcell = i;
-                }
-            }
-            if (cell == -1) {
-                /* We didn't find a cell that contained this point exactly.
-                   Did we find one that was close enough? */
-                if (bestdist < 10) {
-                    cell = bestcell;
-                } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(spacedim)s; coord++) {
-                      fprintf(stderr, "%%.14e ", X[coord]);
-                    }
-                    fprintf(stderr, "\\n");
-                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                    abort();
-                }
-            }
-
-            {
-            const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(Ri, b, Xref);
-            }
+    c_kernel = textwrap.dedent("""
+    PetscScalar Xref[%(tdim)d];
+    int cell = -1;
+    int bestcell = -1;
+    double bestdist = 1e10;
+    for (int i = 0; i < %(ncandidate)d; i++) {
+        const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+        double celldist = 2*bestdist;
+        to_reference_coords_kernel(Xref, X, Xci);
+        if (%(inside_cell)s) {
+            cell = i;
+            break;
         }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
-               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
-               "Xc_cell_inc": coords_element.space_dimension(),
-               "coarse_cell_inc": element.space_dimension(),
-               "spacedim": element.cell.get_spatial_dimension(),
-               "tdim": mesh.topological_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
+        celldist = %(celldist_l1_c_expr)s;
+        /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
+        fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
+        if (celldist < bestdist) {
+            bestdist = celldist;
+            bestcell = i;
+        }
+    }
+    if (cell == -1) {
+        /* We didn't find a cell that contained this point exactly.
+           Did we find one that was close enough? */
+        if (bestdist < 10) {
+            cell = bestcell;
+        } else {
+            fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+            for (int coord = 0; coord < %(spacedim)s; coord++) {
+              fprintf(stderr, "%%.14e ", X[coord]);
+            }
+            fprintf(stderr, "\\n");
+            fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+            abort();
+        }
+    }
+
+    {
+    const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
+    pyop3_kernel_evaluate(Ri, b, Xref);
+    }
+    """ % {"ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+           "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+           "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
+           "Xc_cell_inc": coords_element.space_dimension(),
+           "coarse_cell_inc": element.space_dimension(),
+           "spacedim": element.cell.get_spatial_dimension(),
+           "tdim": mesh.topological_dimension})
+
+    # Now build a pyop3 'Function' wrapping this
+    # sniff arg sizes from the inner kernel
+    loopy_kernel = lp.make_kernel(
+        "{ [i]: 0 < i < 1 }",
+        [
+            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
+        ],
+        [
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("b", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
+        ],
+        name="pyop3_kernel_restrict",
+        preambles=[
+            ("20_petsc", "#include <petsc.h>"),
+            ("20_to_reference_kernel", str(to_reference_kernel)),
+            ("20_eval", evaluate_code),
+        ],
+        target=tsfc.parameters.target,
+        lang_version=op3.LOOPY_LANG_VERSION,
+        )
+    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+
+    return cache.setdefault(key, func)
 
 
 def inject_kernel(Vf, Vc):
@@ -389,7 +435,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.value_shape
+           + (Vf.block_size,)
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -399,76 +445,94 @@ def inject_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+        pass
 
-        coordinates = Vf.mesh().coordinates
-        evaluate_code = compile_element(ufl.Coefficient(Vf))
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+    ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
+    if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
+        return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coords_element = create_element(coordinates.ufl_element())
-        Vf_element = create_element(Vf.ufl_element())
-        kernel = """
-        %(to_reference)s
-        %(evaluate)s
+    coordinates = Vf.mesh().coordinates
+    evaluate_kernel = compile_element(ufl.Coefficient(Vf))
+    evaluate_code = lp.generate_code_v2(evaluate_kernel).device_code()
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_inject(PetscScalar *R, const PetscScalar *X, const PetscScalar *f, const PetscScalar *Xf)
-        {
-            PetscScalar Xref[%(tdim)d];
-            int cell = -1;
-            int bestcell = -1;
-            double bestdist = 1e10;
-            for (int i = 0; i < %(ncandidate)d; i++) {
-                const PetscScalar *Xfi = Xf + i*%(Xf_cell_inc)d;
-                double celldist = 2*bestdist;
-                to_reference_coords_kernel(Xref, X, Xfi);
-                if (%(inside_cell)s) {
-                    cell = i;
-                    break;
-                }
-
-                celldist = %(celldist_l1_c_expr)s;
-                if (celldist < bestdist) {
-                    bestdist = celldist;
-                    bestcell = i;
-                }
-            }
-            if (cell == -1) {
-                /* We didn't find a cell that contained this point exactly.
-                   Did we find one that was close enough? */
-                if (bestdist < 10) {
-                    cell = bestcell;
-                } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(spacedim)s; coord++) {
-                      fprintf(stderr, "%%.14e ", X[coord]);
-                    }
-                    fprintf(stderr, "\\n");
-                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                    abort();
-                }
-            }
-            const PetscScalar *fi = f + cell*%(f_cell_inc)d;
-            for ( int i = 0; i < %(Rdim)d; i++ ) {
-                R[i] = 0;
-            }
-            pyop2_kernel_evaluate(R, fi, Xref);
+    coords_element = create_element(coordinates.ufl_element())
+    Vf_element = create_element(Vf.ufl_element())
+    kernel = textwrap.dedent("""
+    PetscScalar Xref[%(tdim)d];
+    int cell = -1;
+    int bestcell = -1;
+    double bestdist = 1e10;
+    for (int i = 0; i < %(ncandidate)d; i++) {
+        const PetscScalar *Xfi = Xf + i*%(Xf_cell_inc)d;
+        double celldist = 2*bestdist;
+        to_reference_coords_kernel(Xref, X, Xfi);
+        if (%(inside_cell)s) {
+            cell = i;
+            break;
         }
-        """ % {
-            "to_reference": str(to_reference_kernel),
-            "evaluate": evaluate_code,
-            "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
-            "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
-            "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-            "tdim": Vc.mesh().topological_dimension(),
-            "ncandidate": ncandidate,
-            "Rdim": numpy.prod(Vf.value_shape),
-            "Xf_cell_inc": coords_element.space_dimension(),
-            "f_cell_inc": Vf_element.space_dimension()
+
+        celldist = %(celldist_l1_c_expr)s;
+        if (celldist < bestdist) {
+            bestdist = celldist;
+            bestcell = i;
         }
-        return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
+    }
+    if (cell == -1) {
+        /* We didn't find a cell that contained this point exactly.
+           Did we find one that was close enough? */
+        if (bestdist < 10) {
+            cell = bestcell;
+        } else {
+            fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+            for (int coord = 0; coord < %(spacedim)s; coord++) {
+              fprintf(stderr, "%%.14e ", X[coord]);
+            }
+            fprintf(stderr, "\\n");
+            fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+            abort();
+        }
+    }
+    const PetscScalar *fi = f + cell*%(f_cell_inc)d;
+    for ( int i = 0; i < %(Rdim)d; i++ ) {
+        R[i] = 0;
+    }
+    pyop3_kernel_evaluate(R, fi, Xref);
+    """ % {
+        "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
+        "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
+        "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
+        "tdim": Vc.mesh().topological_dimension,
+        "ncandidate": ncandidate,
+        "Rdim": numpy.prod(Vf.value_shape),
+        "Xf_cell_inc": coords_element.space_dimension(),
+        "f_cell_inc": Vf_element.space_dimension()
+    })
+
+    # Now build a pyop3 'Function' wrapping this
+    loopy_kernel = lp.make_kernel(
+        "{ [i]: 0 < i < 1 }",
+        [
+            lp.CInstruction((), kernel, frozenset({"R", "X", "f", "Xf"}), ("R",)),
+        ],
+        [
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xf", ScalarType, None, is_input=True, is_output=False),
+        ],
+        name="pyop3_kernel_inject",
+        preambles=[
+            ("20_petsc", "#include <petsc.h>"),
+            ("20_to_ref", str(to_reference_kernel)),
+            ("20_eval", evaluate_code),
+        ],
+        target=tsfc.parameters.target,
+        lang_version=op3.LOOPY_LANG_VERSION,
+        )
+    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+
+    return cache.setdefault(key, (func, False))
 
 
 class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
@@ -485,7 +549,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def set_coefficients(self, coefficients):
         self.coefficients = []
-        self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
@@ -520,6 +583,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
+    macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
+    macro_builder._entity_ids = {Vf.mesh(): (0,)}
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -534,12 +599,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
     parameters = default_parameters()
-    integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
-                     integral_type="cell",
                      integration_dim=integration_dim,
-                     entity_ids=entity_ids,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"])
@@ -558,25 +621,26 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
+                                domain_integral_type_map={Vc.mesh(): "cell"},
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
+                                coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
-    coarse_builder.set_coordinates(Vc.mesh())
+    coarse_builder.set_coordinates([Vc.mesh()])
+    coarse_builder.set_entity_numbers([Vc.mesh()])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
 
-    integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
     quadrature_rule = make_quadrature(Vce.cell, 0)
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
-                      integral_type="cell",
                       integration_dim=integration_dim,
-                      entity_ids=entity_ids,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
                       scalar_type=parameters["scalar_type"])
@@ -608,7 +672,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # Coarse basis function evaluated at fine quadrature points
     phi_c = fem.fiat_to_ufl(Vce.point_evaluation(0, X_a, (Vce.cell.get_dimension(), 0)), 0)
 
-    tensor_indices = tuple(gem.Index(extent=d) for d in f.ufl_shape)
+    index_shape = f.ufl_element().reference_value_shape
+    tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
     fexpr = gem.Indexed(fexpr, tensor_indices)
@@ -682,11 +747,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
-        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+        ScalarType, kernel_name="pyop3_kernel_evaluate", index_names=index_names)
     subkernels.append(eval_kernel)
 
     fill_insn, extra_domains = _generate_call_insn(
-        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        "pyop3_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
         depends_on=depends_on, within_inames_is_final=True)
     instructions.append(fill_insn)
     domains.extend(extra_domains)
@@ -716,14 +781,18 @@ def dg_injection_kernel(Vf, Vc, ncell):
     domains.extend(extra_domains)
     depends_on |= {inv_insn.id}
 
-    kernel_name = "pyop2_kernel_injection_dg"
+    kernel_name = "pyop3_kernel_injection_dg"
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+
+    # return op2.Kernel(
+    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+    #     headers=Ainv.headers, events=Ainv.events)
+    kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
+    return op3.Function(kernel, kernel_intents)
+
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

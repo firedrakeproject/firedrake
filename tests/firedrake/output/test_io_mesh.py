@@ -2,9 +2,8 @@ import pytest
 import os
 from firedrake import *
 from firedrake.utils import IntType
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import numpy as np
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 mesh_name = "m"
@@ -100,7 +99,15 @@ def _compute_integral(mesh):
     return assemble(inner(x, x) * dx)
 
 
-def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
+def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False, change_coords=False):
+    if change_coords:
+        # For extruded meshes this will discard the '_base_mesh' attribute
+        # for the mesh geometry (but not the topology)
+        new_coords = mesh.coordinates.copy(deepcopy=True)
+        new_coords *= 2
+        mesh = Mesh(new_coords, name=mesh_name)
+        assert mesh._base_mesh is None
+
     # Parameters
     fname = os.path.join(str(tmpdir), "test_io_mesh_extrusion_dump.h5")
     fname = COMM_WORLD.bcast(fname, root=0)
@@ -125,7 +132,7 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
                 assert np.array_equal(mesh.topology.layers, layers)
             v1 = _compute_integral(mesh)
             assert abs(v1 - v) < 5.e-14
-            if isinstance(mesh.topology, ExtrudedMeshTopology):
+            if isinstance(mesh.topology, ExtrudedMeshTopology) and not change_coords:
                 assert mesh.topology._base_mesh is mesh._base_mesh.topology
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
@@ -139,8 +146,9 @@ def test_io_mesh_base(base_mesh, tmpdir):
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_io_mesh_uniform_extrusion(uniform_mesh, tmpdir):
-    _test_io_mesh_extrusion(uniform_mesh, tmpdir)
+@pytest.mark.parametrize("change_coords", [False, True])
+def test_io_mesh_uniform_extrusion(uniform_mesh, change_coords, tmpdir):
+    _test_io_mesh_extrusion(uniform_mesh, tmpdir, change_coords=change_coords)
 
 
 @pytest.mark.parallel(nprocs=3)

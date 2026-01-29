@@ -1,95 +1,52 @@
 import pytest
 from firedrake import *
-from firedrake.petsc import get_external_packages
 
 
-if "hypre" not in get_external_packages():
-    pytest.skip("hypre not installed with PETSc", allow_module_level=True)
+@pytest.fixture(params=["simplex", "hexahedron"])
+def V(request):
+    cell = request.param
+    if cell == "simplex":
+        mesh = UnitCubeMesh(10, 10, 10)
+        V = FunctionSpace(mesh, "RT", 1)
+    elif cell == "hexahedron":
+        mesh = ExtrudedMesh(UnitSquareMesh(10, 10, quadrilateral=True), 10)
+        V = FunctionSpace(mesh, "NCF", 1)
+    else:
+        raise ValueError(f"Unrecognized cell {cell}.")
+    return V
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
-@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
-def test_homogeneous_field_linear():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("mat_type,interface", [("aij", "linear"), ("matfree", "linear"), ("aij", "nonlinear")])
+def test_homogeneous_field(V, mat_type, interface):
     u = TrialFunction(V)
     v = TestFunction(V)
 
+    u_exact = Constant((1, 0.5, 4))
     a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
+    L = inner(u_exact, v)*dx
 
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+    bc = DirichletBC(V, u_exact, (1, 2, 3, 4))
 
-    params = {'snes_type': 'ksponly',
-              'ksp_type': 'cg',
-              'ksp_max_it': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HypreADS',
-              }
+    params = {
+        'snes_type': 'ksponly',
+        'mat_type': mat_type,
+        'pmat_type': 'aij',
+        'ksp_type': 'cg',
+        'ksp_max_it': '30',
+        'ksp_rtol': '2e-15',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.HypreADS',
+    }
 
     u = Function(V)
     solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    assert (errornorm(u_exact, u, 'L2') < 1e-10)
 
 
-def test_homogeneous_field_matfree():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
-
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
-
-    params = {'snes_type': 'ksponly',
-              'mat_type': 'matfree',
-              'ksp_type': 'cg',
-              'ksp_max_it': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.AssembledPC',
-              'assembled_pc_type': 'python',
-              'assembled_pc_python_type': 'firedrake.HypreADS',
-              }
-
-    u = Function(V)
-    solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
-
-
-def test_homogeneous_field_nonlinear():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
-    u = Function(V)
-    v = TestFunction(V)
-
-    F = inner(div(u), div(v))*dx + inner(u, v)*dx - inner(Constant((1, 0.5, 4)), v)*dx
-
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
-
-    params = {'snes_type': 'ksponly',
-              'ksp_type': 'cg',
-              'ksp_itmax': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HypreADS',
-              }
-
-    solve(F == 0, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
-
-
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear_convergence():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)

@@ -1,41 +1,145 @@
+from __future__ import annotations
+
+import abc
+import dataclasses
+import numbers
+import typing
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
-from pyop2.mpi import internal_comm
-from pyop3.utils import just_one, strict_int
+
+
+if typing.TYPE_CHECKING:
+    from pyop3.tree.axis_tree import AxisComponentRegionSizeT
+
+
+from ._sf_cy import filter_petsc_sf, create_petsc_section_sf, renumber_petsc_sf  # noqa: F401
+
+
+class ParallelAwareObject(abc.ABC):
+    """Abstract class for objects that know about communicators.
+
+    Unlike `DistributedObject`s, it is allowed for objects inheriting from
+    this class to have `None` for communicator values.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def comm(self) -> MPI.Comm | None:
+        pass
+
+
+class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
+    """Abstract class for objects that have a parallel execution context.
+
+    The expected usage is for classes to implement the attribute `user_comm`.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def comm(self) -> MPI.Comm:
+        pass
 
 
 class BufferSizeMismatchException(Exception):
     pass
 
 
-class StarForest:
+class AbstractStarForest(DistributedObject, abc.ABC):
+
+    # {{{ abstract methods
+
+    @abc.abstractmethod
+    def __hash__(self) -> int:
+        pass
+
+    @abc.abstractmethod
+    def __eq__(self, other: Any, /) -> bool:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def num_owned(self) -> AxisComponentRegionSizeT:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def num_ghost(self) -> AxisComponentRegionSizeT:
+        pass
+
+    @abc.abstractmethod
+    def broadcast_begin(self, *args):
+        pass
+
+    @abc.abstractmethod
+    def broadcast_end(self, *args):
+        pass
+
+    # }}}
+
+
+    def broadcast(self, *args):
+        self.broadcast_begin(*args)
+        self.broadcast_end(*args)
+
+
+@utils.record()
+class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
 
-    def __init__(self, sf, size: IntType):
-        self.sf = sf
-        self.size = strict_int(size)
+    # {{{ instance attrs
+
+    sf: PETSc.SF
+    _comm: MPI.Comm
+
+    # }}}
+
+    # {{{ interface impls
+
+    comm = utils.attr("_comm")
+
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            # self.nroots,  # this isn't a meaningful attr
+            self.ilocal.data.tobytes(),
+            self.iremote.data.tobytes(),
+        ))
+
+    def __eq__(self, /, other: Any) -> bool:
+        return (
+            type(other) is type(self)
+            # and other.nroots == self.nroots  # this isn't a meaningful attr
+            and (other.ilocal == self.ilocal).all()
+            and (other.iremote == self.iremote).all()
+        )
+
+    # }}}
+
+    @property
+    def size(self):
+        return self.graph[0]
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.sf}, {self.size})"
 
     @classmethod
-    def from_graph(cls, size: IntType, nroots: IntType, ilocal, iremote, comm):
-        size = strict_int(size)
+    def from_graph(cls, size: IntType, ilocal, iremote, comm):
+        size = utils.strict_int(size)
         ilocal = ilocal.astype(IntType, casting="safe")
         iremote = iremote.astype(IntType, casting="safe")
 
         sf = PETSc.SF().create(comm)
-        sf.setGraph(nroots, ilocal, iremote)
-        return cls(sf, size)
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm.tompi4py()
+        sf.setGraph(size, ilocal, iremote)
+        return cls(sf, comm)
 
     @cached_property
     def iroot(self):
@@ -47,7 +151,7 @@ class StarForest:
 
         # now clear the leaf indices, the remaining marked indices are roots
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
     @property
     def ileaf(self):
@@ -59,15 +163,18 @@ class StarForest:
         mask = np.full(self.size, True, dtype=bool)
         mask[self.iroot] = False
         mask[self.ileaf] = False
-        return just_one(np.nonzero(mask))
+        return utils.just_one(np.nonzero(mask))
 
-    @property
-    def nroots(self):
-        return self.graph[0]
+    # not useful
+    # @property
+    # def nroots(self):
+    #     return self.graph[0]
 
     @property
     def nowned(self):
-        return self.size - self.nleaves
+        num_owned =  self.size - self.nleaves
+        assert num_owned >= 0
+        return num_owned
 
     # better alias
     @property
@@ -94,10 +201,6 @@ class StarForest:
     @property
     def graph(self):
         return self.sf.getGraph()
-
-    def broadcast(self, *args):
-        self.broadcast_begin(*args)
-        self.broadcast_end(*args)
 
     def broadcast_begin(self, *args):
         bcast_args = self._prepare_args(*args)
@@ -129,6 +232,7 @@ class StarForest:
             raise ValueError
 
         if any(len(buf) != self.size for buf in [from_buffer, to_buffer]):
+            breakpoint()
             raise BufferSizeMismatchException
 
         # what about cdim?
@@ -136,7 +240,65 @@ class StarForest:
         return (dtype, from_buffer, to_buffer, op)
 
 
-def single_star_sf(comm, size=1, root=0):
+class NullStarForest(AbstractStarForest):
+
+    # {{{ instance attrs
+
+    def __init__(self, size):
+        self.size = size
+        self.__post_init__()
+
+    def __post_init__(self):
+        assert isinstance(self.size, numbers.Integral)
+
+    # }}}
+
+    # {{{ interface impls
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.size))
+
+    def __eq__(self, /, other: Any) -> bool:
+        return type(other) is type(self) and other.size == self.size
+
+    @property
+    def num_owned(self) -> AxisComponentRegionSizeT:
+        return self.size
+
+    @property
+    def num_ghost(self) -> int:
+        return 0
+
+    def broadcast_begin(self, *args):
+        pass
+
+    def broadcast_end(self, *args):
+        pass
+
+    # }}}
+
+    def __repr__(self, /) -> str:
+        return f"NullStarForest({self.size})"
+
+    # TODO: This leads to some very unclear semantics. Basically there are
+    # subtle differences between having a null star forest and an SF that is
+    # 'None' and sometimes we want to treat them as equivalent and other
+    # times not.
+    def __bool__(self) -> bool:
+        return False
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
+
+    def reduce_begin(self, *args):
+        pass
+
+    def reduce_end(self, *args):
+        pass
+
+
+def single_star_sf(comm: MPI.Comm, size: IntType = IntType.type(1), root: int = 0):
     """Construct a star forest containing a single star.
 
     The single star has leaves on all ranks apart from the "root" rank that
@@ -145,19 +307,24 @@ def single_star_sf(comm, size=1, root=0):
 
     """
     if comm.rank == root:
-        nroots = size
         # there are no leaves on the root process
         ilocal = np.empty(0, dtype=np.int32)
         iremote = np.empty(0, dtype=np.int32)
     else:
-        nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
         iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
 
 
-def local_sf(size: IntType, comm: MPI.Comm) -> StarForest:
-    nroots = IntType.type(0)
+def local_sf(size: numbers.Integral, comm: MPI.Comm) -> StarForest:
+    size = IntType.type(size)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
+    return StarForest.from_graph(size, ilocal, iremote, comm)
+
+
+def _check_sf(sf: PETSc.SF):
+    # sanity check: leaves should always be at the end of the array
+    size, leaf_indices, _ = sf.getGraph()
+    num_leaves = len(leaf_indices)
+    assert (leaf_indices == np.arange(size-num_leaves, size, dtype=IntType)).all()

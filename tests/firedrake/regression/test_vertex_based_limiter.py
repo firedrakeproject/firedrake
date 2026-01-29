@@ -3,9 +3,6 @@ from firedrake import *
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(params=["periodic-interval",
                         "periodic-square-tri", "periodic-square-quad"])
 def mesh(request):

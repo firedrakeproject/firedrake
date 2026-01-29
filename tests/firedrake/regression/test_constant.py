@@ -7,7 +7,7 @@ import pytest
 
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         # Check that the constant has the correct dimension.
         assert c._ad_dim() == 1
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
@@ -15,7 +15,7 @@ def test_scalar_constant():
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
         c.assign(4)
         assert abs(assemble(c*dx(domain=m)) - 4.0) < 1e-10
@@ -45,6 +45,18 @@ def test_constant_cast_to_complex():
     assert complex(c) == val
 
 
+@pytest.mark.skipreal
+def test_constant_complex_division():
+    a = Constant(1.0 + 2.0j)
+    b = Constant(3.0 + 4.0j)
+    expected = complex(a) / complex(b)
+    c = Constant(a / b)
+    assert complex(c) == expected
+    d = Constant(0.0)
+    d.assign(a / b)
+    assert complex(d) == expected
+
+
 def test_indexed_vector_constant_cast_to_float():
     val = [10.0, 20.0]
     c = Constant(val)
@@ -58,7 +70,7 @@ def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
 
-    c = Constant([1, -1], domain=m)
+    c = Constant([1, -1])
     # Mesh is:
     # ,---.
     # |\  |
@@ -66,20 +78,20 @@ def test_vector_constant_2d():
     # |  \|
     # `---'
     # Normal is in (1, 1) direction
-    assert abs(assemble(dot(c('+'), n('+'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m))) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m))) < 1e-10
 
     c.assign([1, 1])
-    assert abs(assemble(dot(c('+'), n('+'))*dS) - 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS) - 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m)) - 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m)) - 2) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m)) + 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m)) + 2) < 1e-10
 
 
 def test_tensor_constant():
@@ -159,11 +171,10 @@ def test_constant_assign_to_mixed():
     f.sub(0).assign(c)
     f.sub(1).assign(c)
 
-
     assert np.allclose(f.sub(0).sub(0).dat.data_ro, 10)
     assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
     assert np.allclose(f.sub(1).sub(0).dat.data_ro, 10)
-    assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
+    assert np.allclose(f.sub(1).sub(1).dat.data_ro, 11)
 
 
 def test_constant_multiplies_function():
@@ -190,7 +201,6 @@ def test_fresh_constant_hashes_different():
 
 def test_constants_are_renumbered_in_form_signature():
     mesh = UnitSquareMesh(1, 1)
-    mesh.init()
     c = Constant(1)
     d = Constant(1)
 
@@ -278,7 +288,7 @@ def test_constant_ufl2unicode():
     _ = ufl2unicode(dFda)
     _ = ufl2unicode(dFdb)
 
-    dFda_du = derivative(F, u=a, du=ufl.classes.IntValue(1))
-    dFdb_du = derivative(F, u=b, du=ufl.classes.IntValue(1))
+    dFda_du = derivative(F, u=a, du=IntValue(1))
+    dFdb_du = derivative(F, u=b, du=IntValue(1))
     _ = ufl2unicode(dFda_du)
     _ = ufl2unicode(dFdb_du)

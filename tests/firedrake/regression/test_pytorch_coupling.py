@@ -2,7 +2,6 @@ import pytest
 
 from firedrake import *
 from pyadjoint.tape import get_working_tape, pause_annotation
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 try:

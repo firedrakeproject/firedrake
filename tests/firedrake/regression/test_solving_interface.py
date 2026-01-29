@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm
@@ -85,6 +86,14 @@ def test_assembled_solver_gced(a_L_out):
     assert before == after
 
 
+def test_linear_solve_zero_rhs(a_L_out):
+    a, L, out = a_L_out
+
+    out.assign(1)
+    solve(a == 0, out)
+    assert np_norm(out.dat.data_ro) < 1E-13
+
+
 def test_nonlinear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
@@ -130,14 +139,13 @@ def test_linear_solves_equivalent():
     """solve(a == L, out) should return the same as solving with the assembled objects.
 
     This relies on two different code paths agreeing on the same set of solver parameters."""
-    # mesh = UnitSquareMesh(50, 50)
-    mesh = UnitSquareMesh(5, 5)
+    mesh = UnitSquareMesh(50, 50)
 
     V = FunctionSpace(mesh, "CG", 1)
 
     f = Function(V)
     f.assign(1)
-    f.vector()[:] = 1.
+    f.dat.data_wo[:] = 1.
     t = TestFunction(V)
     q = TrialFunction(V)
 
@@ -151,17 +159,12 @@ def test_linear_solves_equivalent():
     # And again
     sol2 = Function(V)
     solve(a == L, sol2)
-    assert np_norm(sol.vector()[:] - sol2.vector()[:]) == 0
+    assert np_norm(sol.dat.data_ro - sol2.dat.data_ro) == 0
 
     # Solve the system using preassembled objects
     sol3 = Function(V)
     solve(assemble(a), sol3, assemble(L))
-    assert np_norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
-
-    # Same, solving into vector
-    sol4 = sol3.vector()
-    solve(assemble(a), sol4, assemble(L))
-    assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
+    assert np_norm(sol.dat.data_ro - sol3.dat.data_ro) < 5e-14
 
 
 def test_linear_solver_flattens_params(a_L_out):
@@ -222,8 +225,12 @@ def test_constant_jacobian_lvs():
     assert not (norm(assemble(out*5 - f)) < 2e-7)
 
 
-def test_solve_cofunction_rhs():
-    mesh = UnitIntervalMesh(10)
+@pytest.fixture
+def mesh(request):
+    return UnitIntervalMesh(10)
+
+
+def test_solve_cofunction_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -243,8 +250,7 @@ def test_solve_cofunction_rhs():
     assert np.allclose(L.dat.data, Lold.dat.data)
 
 
-def test_solve_empty_form_rhs():
-    mesh = UnitIntervalMesh(10)
+def test_solve_empty_form_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
 
     u = TrialFunction(V)
@@ -258,3 +264,107 @@ def test_solve_empty_form_rhs():
     w = Function(V)
     solve(a == L, w, bcs)
     assert errornorm(x, w) < 1E-10
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+def test_solve_assembled_lhs(mesh, mat_type):
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    bcs = [DirichletBC(V, x, "on_boundary")]
+
+    # Assemble the matrix with bcs
+    A = assemble(a, bcs=bcs, mat_type=mat_type)
+    w = Function(V)
+
+    # Test four different RHS types
+    form = inner(Constant(0), v) * dx
+    cofun = Cofunction(V.dual())
+    empty = Form([])
+    zbf = ZeroBaseForm([v])
+
+    for L in (form, cofun, empty, zbf):
+        w.zero()
+        solve(A == L, w)
+        assert errornorm(x, w) < 1E-10
+
+    # Test that we raise an error when passing bcs twice
+    with pytest.raises(RuntimeError):
+        solve(A == form, w, bcs=bcs)
+
+
+@pytest.mark.parametrize("sub_mat_type", ["baij", "aij"])
+def test_solve_sub_mat_type(mesh, sub_mat_type):
+    V = VectorFunctionSpace(mesh, "DG", 0, dim=2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+
+    z = Function(Z)
+    a = inner(TrialFunction(Z), TestFunction(Z))*dx
+    L = inner(as_vector(np.ones(z.ufl_shape)), TestFunction(Z))*dx
+
+    params = {"mat_type": "nest", "sub_mat_type": sub_mat_type}
+    problem = LinearVariationalProblem(a, L, z)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    A, P = solver.snes.ksp.pc.getOperators()
+    assert P.getType() == "nest"
+    for (i, j) in np.ndindex((len(Z), len(Z))):
+        P.getNestSubMatrix(i, j).getType() == sub_mat_type
+
+
+@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
+@pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
+def test_solve_pre_apply_bcs(mesh, mixed):
+    """Solve a 1D hyperelasticity problem with linear exact solution.
+       The default DirichletBC treatment would raise NaNs if the problem is
+       linearised around an initial guess that satisfies the bcs and is zero on the interior.
+       Here we test that we can linearise around an initial guess that
+       does not satisfy the DirichletBCs by passing pre_apply_bcs=True."""
+
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    if mixed:
+        Q = FunctionSpace(mesh, "DG", 0)
+        Z = V * Q
+        V = Z.sub(0)
+        z = Function(Z)
+        u, p = split(z)
+    else:
+        u = Function(V)
+        z = u
+        p = None
+
+    # Boundary conditions
+    eps = Constant(0.1)
+    x = SpatialCoordinate(mesh)
+    g = -eps * x
+    bcs = [DirichletBC(V, g, "on_boundary")]
+
+    # Hyperelastic energy functional
+    lam = Constant(1E3)
+    dim = mesh.geometric_dimension
+    F = grad(u) + Identity(dim)
+    J = det(F)
+    logJ = 0.5*ln(J**2)
+    if p is None:
+        p = lam*logJ
+
+    W = (1/2)*(inner(F, F) - dim - 2*logJ) * dx + (inner(p, logJ - (1/(2*lam))*p)) * dx
+    uh = z.subfunctions[0]
+
+    # Raises NaNs if pre_apply_bcs=True
+    F = derivative(W, z)
+    z.zero()
+    solve(F == 0, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10
+
+    # Test that pre_apply_bcs=False works with a linear problem
+    a = derivative(F, z)
+    L = Form([])
+    z.zero()
+    solve(a == L, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10

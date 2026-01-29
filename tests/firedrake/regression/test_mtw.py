@@ -1,9 +1,6 @@
 from firedrake import *
 import numpy as np
 
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 
 convergence_orders = lambda x: np.log2(np.array(x)[:-1] / np.array(x)[1:])
 
@@ -100,8 +97,8 @@ def test_mtw_interior_facet():
     L = inner(n, v)*ds + inner(n('+'), v('+'))*dS + inner(n('-'), v('-'))*dS
     b = assemble(L)
 
-    with b.vector().dat.vec_ro as L_vec:
-        with uh.vector().dat.vec_ro as uh_vec:
+    with b.vec_ro as L_vec:
+        with uh.vec_ro as uh_vec:
             surface = L_vec.dot(uh_vec)
 
     assert abs(volume - surface) < 1E-10
@@ -116,7 +113,7 @@ def test_mtw_interior_facet():
     A = assemble(a).petscmat
 
     y = A.createVecLeft()
-    with uh.vector().dat.vec_ro as uh_vec:
+    with uh.vec_ro as uh_vec:
         A.mult(uh_vec, y)
         surface = y.sum()
 

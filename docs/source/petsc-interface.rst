@@ -51,7 +51,7 @@ different.  For a bilinear form, the matrix is obtained with:
 
 .. code-block:: python3
 
-   petsc_mat = assemble(bilinear_form).M.handle
+   petsc_mat = assemble(bilinear_form).petscmat
 
 For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
@@ -59,14 +59,14 @@ read-write access to the PETSc object.  For read-only access, we use:
 
 .. code-block:: python3
 
-   with assemble(linear_form).dat.vec_ro as v:
+   with assemble(linear_form).vec_ro as v:
        petsc_vec_ro = v
 
 For write-only access, use ``.vec_wo``, and for read-write access, use:
 
 .. code-block:: python3
 
-   with assemble(linear_form).dat.vec as v:
+   with assemble(linear_form).vec as v:
        petsc_vec = v
 
 These context managers ensure that if PETSc writes to the vector,
@@ -136,14 +136,14 @@ newly defined class to compute the matrix action:
 
    # Assemble the bilinear form that defines A and get the concrete
    # PETSc matrix
-   A = assemble(bilinear_form).M.handle
+   A = assemble(bilinear_form).petscmat
 
    # Now do the same for the linear forms for u and v, making a copy
 
-   with assemble(u_form).dat.vec_ro as u_vec:
+   with assemble(u_form).vec_ro as u_vec:
        u = u_vec.copy()
 
-   with assemble(v_form).dat.vec_ro as v_vec:
+   with assemble(v_form).vec_ro as v_vec:
        v = v_vec.copy()
 
 
@@ -179,8 +179,8 @@ Now we can solve a system using this ``ksp`` object:
 
    rhs = assemble(rhs_form)
 
-   with rhs.dat.vec_ro as b:
-       with solution.dat.vec as x:
+   with rhs.vec_ro as b:
+       with solution.vec as x:
            ksp.solve(b, x)
 
 
@@ -307,8 +307,8 @@ before going on to solve the system as before:
 
    rhs = assemble(rhs_form)
 
-   with rhs.dat.vec_ro as b:
-       with solution.dat.vec as x:
+   with rhs.vec_ro as b:
+       with solution.vec as x:
            ksp.solve(b, x)
 
 
@@ -351,7 +351,7 @@ and the `PETSc manual`_ for details.
 
 If vertex coordinate information is to be accessed from the
 DMPlex then we must first establish a mapping between
-`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+its numbering and the coordinates in the Firedrake mesh. This is done
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
 For a :math:`d`-dimensional mesh, we seek to establish offsets to recover
@@ -375,8 +375,8 @@ Accordingly, set
 
 .. code-block:: python3
 
-    dim = mesh.topological_dimension()
-    gdim = mesh.geometrical_dimension()
+    dim = mesh.topological_dimension
+    gdim = mesh.geometric_dimension
     entity_dofs = np.zeros(dim+1, dtype=np.int32)
     entity_dofs[0] = gdim
     entity_dofs[1] = gdim*(p-1)
@@ -408,4 +408,3 @@ entity ``d`` (according to the DMPlex numbering) by
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
 .. _PETSc manual: https://petsc.org/release/manual/dmplex/
-.. _its numbering: https://petsc.org/release/manual/dmplex/#data-layout-by-hand

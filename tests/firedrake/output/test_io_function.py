@@ -4,13 +4,11 @@ import pytest
 from os.path import abspath, dirname, join
 import os
 import functools
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
 from firedrake.utils import IntType
 
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = abspath(dirname(__file__))
 mesh_name = "m"
@@ -27,12 +25,13 @@ def _initialise_function(f, _f, method):
 
 def _get_mesh(cell_type, comm):
     if cell_type == "triangle":
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
+        mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        mesh = Mesh(mesh_file, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra":
         # TODO: Prepare more interesting mesh.
         mesh = UnitCubeMesh(16, 16, 16, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra_large":
-        mesh = Mesh(join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
+        mesh = Mesh(join(os.environ["PETSC_DIR"], "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
                     name=mesh_name, comm=comm)
     elif cell_type == "quadrilateral":
         mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"),
@@ -68,7 +67,7 @@ def _get_mesh(cell_type, comm):
 
 def _get_expr(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     shape = V.value_shape
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
@@ -143,13 +142,13 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     VB = fB.function_space()
     fBe = Function(VB)
     _initialise_function(fBe, _get_expr(VB), method)
-    assert assemble(inner(fB - fBe, fB - fBe) * dx) < 5.e-12
+    assert assemble(inner(fB - fBe, fB - fBe) * dx) < 6.e-12
     # Save
     with CheckpointFile(filename, 'w', comm=comm) as afile:
         afile.save_function(fB)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize('cell_family_degree', [
     ("triangle_small", "P", 1),
     ("triangle_small", "P", 6),

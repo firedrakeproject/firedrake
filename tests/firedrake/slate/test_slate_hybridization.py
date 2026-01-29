@@ -20,13 +20,9 @@ u = 42
 
 which appears in the variational form as the term: -<42*tau, n>
 """
-
-
 import pytest
+
 from firedrake import *
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module")
@@ -41,10 +37,8 @@ def setup_poisson():
     tau, v = TestFunctions(W)
 
     # Define the source function
-    f = Function(V)
-    import numpy as np
-    fvector = f.vector()
-    fvector.set_local(np.random.uniform(size=fvector.local_size()))
+    rg = RandomGenerator(PCG64(seed=1234))
+    f = rg.uniform(V)
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
@@ -465,3 +459,30 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
+
+
+@pytest.mark.parametrize('counts', [(10001, 10002), (10002, 10001)])
+def test_slate_hybridization_count_safe(counts):
+    g_count, c_count = counts
+    mesh = UnitTriangleMesh()
+    BDM = FunctionSpace(mesh, "BDM", 2)
+    DG = FunctionSpace(mesh, "DG", 1)
+    V = BDM * DG
+    VectorDG = VectorFunctionSpace(mesh, 'DG', 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    g = Function(VectorDG, count=g_count)
+    c = Function(DG, count=c_count)
+    a = (
+        inner(u, v) * dx
+        + inner(g[0] * u[0], v[0]) * dx
+        + inner(c * grad(u[0]), grad(v[0])) * dx
+    )
+    sol = Function(V)
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.HybridizationPC',
+    }
+    solve(lhs(a) == rhs(a), sol, solver_parameters=solver_parameters)

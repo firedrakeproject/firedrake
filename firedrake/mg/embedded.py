@@ -10,7 +10,7 @@ from firedrake.embedding import get_embedding_dg_element
 __all__ = ("TransferManager", )
 
 
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
+native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement", "Crouzeix-Raviart", "Kong-Mulder-Veldhuizen"])
 alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
                              "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
                              "Guzman-Neilan", "Guzman-Neilan Bubble"])
@@ -70,8 +70,11 @@ class TransferManager(object):
     def is_native(self, element, op):
         if element in self.native_transfers.keys():
             return self.native_transfers[element][op] is not None
-        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return all(self.is_native(e, op) for e in element.sub_elements)
+        if isinstance(element.cell, ufl.TensorProductCell):
+            if isinstance(element, finat.ufl.TensorProductElement):
+                return all(self.is_native(e, op) for e in element.factor_elements)
+            elif isinstance(element, finat.ufl.MixedElement):
+                return all(self.is_native(e, op) for e in element.sub_elements)
         return (element.family() in native_families) and not (element.variant() in non_native_variants)
 
     def _native_transfer(self, element, op):
@@ -84,11 +87,14 @@ class TransferManager(object):
         return None
 
     def cache(self, V):
-        key = (V.ufl_element(), V.value_shape)
+        key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
             return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(*key))
+            return self.caches.setdefault(key, TransferManager.Cache(*key[:2]))
+
+    def cache_key(self, V):
+        return (V.dim(),)
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -97,7 +103,7 @@ class TransferManager(object):
         :returns: A PETSc Vec.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_dof_weights[key]
         except KeyError:
@@ -111,7 +117,7 @@ class TransferManager(object):
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
                                {"A": (f, firedrake.INC)})
-            with f.dat.vec_ro as fv:
+            with f.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
 
     def V_DG_mass(self, V, DG):
@@ -122,7 +128,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_DG_mass[key]
         except KeyError:
@@ -153,7 +159,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
@@ -171,13 +177,13 @@ class TransferManager(object):
         :returns: A PETSc KSP for inverting (V, V).
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V._comm)
+            ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")
@@ -193,7 +199,7 @@ class TransferManager(object):
         """
         needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V)
-        key = (V.dim(), needs_dual)
+        key = self.cache_key(V) + (needs_dual,)
         try:
             return cache._DG_work[key]
         except KeyError:
@@ -210,11 +216,11 @@ class TransferManager(object):
         :returns: A PETSc Vec for V.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._work_vec[key]
         except KeyError:
-            return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
+            return cache._work_vec.setdefault(key, V.template_vec.duplicate())
 
     def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
@@ -263,7 +269,7 @@ class TransferManager(object):
 
             # Project into DG space
             # u \in Vs -> u \in VDGs
-            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+            with source.vec_ro as sv, dgsource.vec_wo as dgv:
                 self.V_DG_mass(Vs, VDGs).mult(sv, dgwork)
                 self.DG_inv_mass(VDGs).mult(dgwork, dgv)
 
@@ -273,7 +279,7 @@ class TransferManager(object):
 
             # Project back
             # u \in VDGt -> u \in Vt
-            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+            with dgtarget.vec_ro as dgv, target.vec_wo as t:
                 if self.use_averaging:
                     self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
                     t.pointwiseDivide(t, self.V_dof_weights(Vt))
@@ -330,7 +336,7 @@ class TransferManager(object):
             dgwork = self.work_vec(VDGt)
 
             # g \in Vs^* -> g \in VDGs^*
-            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+            with source.vec_ro as sv, dgsource.vec_wo as dgv:
                 if self.use_averaging:
                     work.pointwiseDivide(sv, self.V_dof_weights(Vs))
                     self.V_approx_inv_mass(Vs, VDGs).multTranspose(work, dgv)
@@ -342,7 +348,7 @@ class TransferManager(object):
             self.restrict(dgsource, dgtarget)
 
             # g \in VDGt^* -> g \in Vt^*
-            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+            with dgtarget.vec_ro as dgv, target.vec_wo as t:
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)

@@ -8,11 +8,7 @@ from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
 
-pytest.skip(allow_module_level=True, reason="Some BC stuff is not implemented, see error raised when tests are run")
-
-
-def nonlinear_poisson(solver_parameters, mesh_num, porder):
-
+def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
@@ -32,7 +28,7 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
     e2 = as_vector([0., 1.])
     bc1 = EquationBC((-inner(dot(grad(u), e2), dot(grad(v), e2)) + 3 * pi * pi * inner(u, v) + 1 * pi * pi * inner(g, v)) * ds(1) == 0, u, 1)
 
-    solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
+    solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters, pre_apply_bcs=pre_apply_bcs)
 
     f = cos(x * pi * 2) * cos(y * pi * 2)
     return sqrt(assemble(inner(u - f, u - f) * dx))
@@ -177,8 +173,8 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     u1 = cos(2 * pi * y) / 2
     n = FacetNormal(mesh)
 
-    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
+    a = inner(sigma, tau)*dx + inner(u, div(tau))*dx + inner(div(sigma), v + div(tau))*dx
+    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v + div(tau)) * dx
 
     g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
@@ -202,7 +198,13 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 @pytest.mark.parametrize("with_bbc", [False, True])
-def test_EquationBC_poisson_matrix(eq_type, with_bbc):
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_EquationBC_poisson_matrix(eq_type, with_bbc, pre_apply_bcs):
+
+    # Only test pre_apply_bcs=False for nonlinear case
+    if not pre_apply_bcs and (eq_type == "linear"):
+        pytest.skip(reason="Only test pre_apply_bcs=False in the nonlinear case")
+
     mat_type = "aij"
     porder = 2
     # Test standard poisson with EquationBCs
@@ -228,7 +230,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
                 err.append(linear_poisson(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
             for mesh_num in mesh_sizes:
-                err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
+                err.append(nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=pre_apply_bcs))
 
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
@@ -328,24 +330,24 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     eq_type = "linear"
     porder = 0
     # Mixed poisson with EquationBCs
-    # matfree with fieldsplit pc
+    # matfree with fieldsplit schur direct solver
 
     solver_parameters = {'mat_type': mat_type,
-                         'ksp_type': 'fgmres',
-                         'ksp_atol': 1e-11,
-                         'ksp_max_it': 200,
+                         'ksp_type': 'preonly',
                          'pc_type': 'fieldsplit',
                          'pc_fieldsplit_type': 'schur',
                          'pc_fieldsplit_schur_fact_type': 'full',
-                         'fieldsplit_0_ksp_type': 'cg',
+                         'fieldsplit_0_ksp_type': 'preonly',
                          'fieldsplit_0_pc_type': 'python',
                          'fieldsplit_0_pc_python_type': 'firedrake.AssembledPC',
                          'fieldsplit_0_assembled_pc_type': 'lu',
-                         'fieldsplit_1_ksp_type': 'cg',
-                         'fieldsplit_1_pc_use_amat': True,
+                         'fieldsplit_0_assembled_pc_factor_mat_solver_type': 'mumps',
+                         'fieldsplit_1_ksp_type': 'gmres',
                          'fieldsplit_1_pc_type': 'python',
                          'fieldsplit_1_pc_python_type': 'firedrake.MassInvPC',
-                         'fieldsplit_1_Mp_pc_type': 'icc'}
+                         'fieldsplit_1_Mp_pc_type': 'lu',
+                         'fieldsplit_1_Mp_pc_factor_mat_solver_type': 'mumps',
+                         }
     err = []
     mesh_sizes = [16, 32]
     if eq_type == "linear":

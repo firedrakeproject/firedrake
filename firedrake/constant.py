@@ -1,10 +1,12 @@
+import numbers
+from collections.abc import Sequence
 import numpy as np
 import ufl
-import finat.ufl
+from mpi4py import MPI
 
 from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
-from pyop2.mpi import collective
+from pyop3.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -30,81 +32,55 @@ def _create_const(value, comm):
     rank = len(shape)
 
     if rank == 0:
-        axes = op3.AxisTree(op3.Axis(1))
+        # could maybe be a Scalar
+        sf = op3.sf.single_star_sf(comm)
+        axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
-        axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
-        for i, s in enumerate(shape[1:]):
-            axes = axes.add_axis(op3.Axis({"XXX": s}, label=f"dim{i+1}"), *axes.leaf)
+        sf = op3.sf.single_star_sf(comm, shape[0])
+        root_component = op3.AxisComponent(shape[0], sf=sf)
+        components = [root_component]
+        for size in shape[1:]:
+            components.append(op3.AxisComponent(size))
+        axes = op3.AxisTree.from_iterable((
+            op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
+        ))
     dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
 
 class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin, Counted):
-    """A "constant" coefficient
+    """A parameter.
 
-    A :class:`Constant` takes one value over the whole
-    :func:`~.Mesh`. The advantage of using a :class:`Constant` in a
-    form rather than a literal value is that the constant will be
-    passed as an argument to the generated kernel which avoids the
-    need to recompile the kernel if the form is assembled for a
-    different value of the constant.
+    The advantage of using a `Constant` in a form rather than a literal value
+    is that the constant will be passed as an argument to the generated kernel
+    which avoids the need to recompile the kernel if the form is assembled for
+    a different value of the constant.
 
-    :arg value: the value of the constant.  May either be a scalar, an
-         iterable of values (for a vector-valued constant), or an iterable
-         of iterables (or numpy array with 2-dimensional shape) for a
-         tensor-valued constant.
+    Arguments
+    ---------
+    value :
+        The value of the constant.  May either be a scalar, an
+        iterable of values (for a vector-valued constant), or an iterable
+        of iterables (or numpy array with 2-dimensional shape) for a
+        tensor-valued constant.
+    name :
+        Optional name for the constant.
+    count :
+        Internal identifier.
 
-    :arg domain: an optional :func:`~.Mesh` on which the constant is defined.
-
-    .. note::
-
-       If you intend to use this :class:`Constant` in a
-       :class:`~ufl.form.Form` on its own you need to pass a
-       :func:`~.Mesh` as the domain argument.
     """
     _ufl_typecode_ = UFLType._ufl_num_typecodes_
     _ufl_handler_name_ = "firedrake_constant"
 
-    def __new__(cls, value, domain=None, name=None, count=None):
-        if domain:
-            # Avoid circular import
-            from firedrake.function import Function
-            from firedrake.functionspace import FunctionSpace
-            import warnings
-            warnings.warn(
-                "Giving Constants a domain is no longer supported. Instead please "
-                "create a Function in the Real space.", FutureWarning
-            )
-
-            dat, rank, shape = _create_const(value, domain._comm)
-
-            if not isinstance(domain, ufl.AbstractDomain):
-                cell = ufl.as_cell(domain)
-                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension())
-                domain = ufl.Mesh(coordinate_element)
-
-            cell = domain.ufl_cell()
-            if rank == 0:
-                element = finat.ufl.FiniteElement("R", cell, 0)
-            elif rank == 1:
-                element = finat.ufl.VectorElement("R", cell, 0, shape[0])
-            else:
-                element = finat.ufl.TensorElement("R", cell, 0, shape=shape)
-
-            R = FunctionSpace(domain, element, name="firedrake.Constant")
-            return Function(R, val=dat).assign(value)
-        else:
-            return object.__new__(cls)
-
     @collective
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None, name=None, count=None):
-        """"""
-
-        # Init also called in mesh constructor, but constant can be built without mesh
-        utils._init()
-
-        self.dat, rank, self._ufl_shape = _create_const(value, None)
+    def __init__(
+        self,
+        value: numbers.Number | Sequence,
+        name: str | None = None,
+        count: int | None = None,
+    ) -> None:
+        self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
 
         super().__init__()
         Counted.__init__(self, count, Counted)
@@ -157,11 +133,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def subfunctions(self):
         return (self,)
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
         if bcs is not None:
@@ -198,6 +169,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             raise ValueError("Cannot assign to constant, value has incorrect shape")
         self.dat.data_wo[...] = value
         return self
+
+    def zero(self):
+        """Set the value of this constant to zero."""
+        return self.assign(0)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")

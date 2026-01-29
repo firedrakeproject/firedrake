@@ -2,9 +2,6 @@ from firedrake import *
 import pytest
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture
 def W():
     m = UnitSquareMesh(4, 4)
@@ -135,7 +132,7 @@ def test_nested_fieldsplit_solve(W, A, b, expect, parameters):
     assert norm(f) < 1e-11
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     parameters = {"ksp_type": "preonly",
                   "pc_type": "fieldsplit",

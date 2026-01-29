@@ -1,6 +1,7 @@
 # cython: language_level=3
 
 # Utility functions common to all DMs used in Firedrake
+import enum
 import functools
 import math
 import cython
@@ -12,8 +13,9 @@ from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
-from pyrsistent import pmap
 import pyop3 as op3
+
+from firedrake import utils
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -25,6 +27,28 @@ include "petschdr.pxi"
 
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
+
+
+class DistributedMeshOverlapType(enum.Enum):
+    """How should the mesh overlap be grown for distributed meshes?
+
+    Possible options are:
+
+     - :attr:`NONE`:  Don't overlap distributed meshes, only useful for problems with
+              no interior facet integrals.
+     - :attr:`FACET`: Add ghost entities in the closure of the star of
+              facets.
+     - :attr:`RIDGE`: Add ghost entities in the closure of the star of
+              ridges.
+     - :attr:`VERTEX`: Add ghost entities in the closure of the star
+              of vertices.
+
+    Defaults to :attr:`FACET`.
+    """
+    NONE = 4
+    FACET = 1
+    RIDGE = 2
+    VERTEX = 3
 
 
 def get_topological_dimension(PETSc.DM dm):
@@ -227,6 +251,58 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, MPI.Comm comm) -> PETSc.Section:
+    """Return a PETSc section representing the renumbering of a set of points.
+
+    The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
+    entity-wise indices in the range [0, selected_points.size). This mapping is
+    achieved by calling 'section.getOffset(plex_point)'.
+
+    Parameters
+    ----------
+    selected_points :
+        The 'plex' indices that we wish to include in the numbering.
+    new_to_old_renumbering :
+        The mesh numbering.
+
+    Returns
+    -------
+    PETSc.Section :
+        A PETSc section encoding the numbering.
+
+    """
+    section = PETSc.Section().create(comm=comm)
+    section.setChart(0, new_to_old_numbering.size)
+    section.setPermutation(new_to_old_numbering)
+    for pt in selected_points.indices:
+        section.setDof(pt, 1)
+    section.setUp()
+    return section
+
+
+def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: bool = False) -> PETSc.IS:
+    """Return the section offsets for a given set of points."""
+    offsets = np.empty(selected_points.size, dtype=IntType)
+    for i, pt in enumerate(selected_points.indices):
+        offsets[i] = section.getOffset(pt)
+
+    offsets_is = PETSc.IS().createGeneral(offsets, comm=MPI.COMM_SELF)
+    if sort:
+        offsets_is.sort()
+    return offsets_is
+
+
+# TODO: This should be in petsc4py
+def intersect_is(is1: PETSc.IS, is2: PETSc.IS) -> PETSc.IS:
+    """Return the intersection of two PETSc ISs."""
+    cdef:
+        PETSc.IS is_intersected
+
+    is_intersected = PETSc.IS().create(comm=MPI.COMM_SELF)
+    PETSc.CHKERR(ISIntersect(is1.iset, is2.iset, &is_intersected.iset))
+    return is_intersected
+
+
 def count_labelled_points(PETSc.DM dm, name,
                           PetscInt start, PetscInt end):
     """Return the number of points in the chart [start, end)
@@ -254,8 +330,7 @@ def count_labelled_points(PETSc.DM dm, name,
     CHKERR(DMLabelDestroyIndex(label))
     return n
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
+# TODO: don't pass the mesh, it screws with the abstraction
 def local_facet_number(mesh, facet_type):
     cdef:
         const PetscInt *cells=NULL
@@ -265,48 +340,57 @@ def local_facet_number(mesh, facet_type):
         PetscInt ci, fi
         PETSc.DM plex
         np.ndarray facets
-        np.ndarray cell_numbering
-        np.ndarray facet_numbering
+        PETSc.Section cell_numbering
+        PETSc.Section facet_numbering
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh.points.component_numbering(mesh.cell_label)
-    facet_numbering = mesh.points.component_numbering(mesh.facet_label)
+    cell_numbering = mesh._plex_to_entity_numbering(mesh.dimension)
 
     fStart, _ = plex.getHeightStratum(1)
 
-    # TODO This could be easier to access
-    key = pmap({mesh.name: mesh.cell_label})
-    tdim = mesh.dimension
-    closure_facets_map = mesh._fiat_closure.connectivity[key][tdim-1]
-    nfacets_in_closure = closure_facets_map.arity
-    closure_facets = closure_facets_map.array.data_ro.reshape(
-        (mesh.num_cells(), nfacets_in_closure)
-    )
-
     if facet_type == "exterior":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 1
-        facets = mesh.exterior_facets._facet_data_default
-    else:
-        assert facet_type == "interior"
+        facets = mesh._exterior_facet_plex_indices.indices
+        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
+        specific_numbering = mesh._old_to_new_exterior_facet_numbering
+    elif facet_type == "interior":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 2
-        facets = mesh.interior_facets._facet_data_default
+        facets = mesh._interior_facet_plex_indices.indices
+        facet_numbering = mesh._plex_to_entity_numbering(mesh.dimension-1)
+        specific_numbering = mesh._old_to_new_interior_facet_numbering
+    elif facet_type == "exterior_vert":
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        ncells_per_facet = 1
+        facets = mesh._exterior_facet_vert_plex_indices.indices
+        facet_numbering = mesh._old_to_new_facet_vert_numbering
+        specific_numbering = mesh._old_to_new_exterior_facet_vert_numbering
+    else:
+        assert facet_type == "interior_vert"
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        ncells_per_facet = 2
+        facets = mesh._interior_facet_vert_plex_indices.indices
+        facet_numbering = mesh._old_to_new_facet_vert_numbering
+        specific_numbering = mesh._old_to_new_interior_facet_vert_numbering
 
+    nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)
     for fi, facet in enumerate(facets):
-        facet_renum = facet_numbering[facet - fStart]
+        facet_renum = facet_numbering.getOffset(facet)
+        specific_facet_renum = specific_numbering.getOffset(facet)
 
         CHKERR(DMPlexGetSupport(plex.dm, facet, &cells))
         CHKERR(DMPlexGetSupportSize(plex.dm, facet, &ncells))
 
         for ci in range(ncells):
             cell = cells[ci]
-            cell_renum = cell_numbering[cell]
-
+            cell_renum = cell_numbering.getOffset(cell)
             for closure_fi in range(nfacets_in_closure):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:
-                    facet_number[fi, ci] = closure_fi
+                    facet_number[specific_facet_renum, ci] = closure_fi
                     break
 
     return facet_number
@@ -521,6 +605,43 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         fiat_closure[8] = plex_closure[2 * 0]
         # raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
+        # FInAT (tensor-product) hex numbering:
+        #
+        #           v3╶───╴e11╶─────╴v7            v3╶─────e11─────╴v7
+        #           ╱                ╱│            ╱|                │
+        #          ╱                ╱ │           ╱ |                │
+        #        e3       f5      e7  │         e3  |                │
+        #        ╱                ╱  e5         ╱  e1       f3      e5
+        #       ╱                ╱    │        ╱    |                │
+        #     v1╶─────e9──────╴v5     │      v1     |                │
+        #      │                │ f1  │       │ f0  |                │
+        #      │                │    v6       │     v2-----e10------v6
+        #      │                │    ╱        │    /                ╱
+        #     e0      f2       e4   ╱        e0   /                ╱
+        #      │                │ e6          │ e2       f4      e6
+        #      │                │ ╱           │ /                ╱
+        #      │                │╱            │/                ╱
+        #     v0╶─────e8──────╴v4            v0╶──────e8─────╴v4
+        #
+        # DMPlex hex numbering:
+        #
+        #
+        #           v7╶────╴e6╶─────╴v6            v7╶─────╴e6─────╴v6
+        #           ╱                ╱│            ╱|                │
+        #          ╱                ╱ │           ╱ |                │
+        #        e7       f1      e5  │         e7  |                │
+        #        ╱                ╱ e11         ╱ e10       f3     e11
+        #       ╱                ╱    │        ╱    |                │
+        #     v4╶─────e4──────╴v5     │      v4     |                │
+        #      │                │ f4  │       │ f5  |                │
+        #      │                │    v2       │     v1------e1------v2
+        #      │                │    ╱        │    /                ╱
+        #     e9      f2       e8   ╱        e9   /                ╱
+        #      │                │ e2          │ e0       f0      e2
+        #      │                │ ╱           │ /                ╱
+        #      │                │╱            │/                ╱
+        #     v0╶─────e3──────╴v3            v0╶──────e3─────╴v3
+        #
         # UFCHexahedron:            3--19---7     3--19---7
         #                         13.       |   13  25  15|
         # cell = 26               1 9  23  11   1--17---5 11
@@ -579,37 +700,52 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_cell_closure(PETSc.DM dm,
-                        _closureSize):
+def create_cell_closure(plex_closures):
     """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
 
     :arg dm: The DM object encapsulating the mesh topology
     :arg _closureSize: Number of entities in the cell
     """
     cdef:
-        PetscInt c, cStart, cEnd, cell, i
-        PetscInt closureSize = _closureSize, closureSize1
-        PetscInt *closure = NULL
+        PetscInt c, cStart, cEnd, cell, i, ncells
+        PetscInt closureSize
+        PetscInt *plex_closure = NULL
         PetscInt *fiat_closure = NULL
         np.ndarray cell_closure
 
-    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    if cEnd == cStart:
-        return np.empty((cEnd - cStart, closureSize), dtype=IntType)
-    for c in range(cStart, cEnd):
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        if closureSize1 != closureSize:
-            raise RuntimeError(f"point 0 and point {c} have different cell types")
-        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-    cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
-    CHKERR(PetscMalloc1(closureSize, &fiat_closure))
-    for c in range(cStart, cEnd):
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        _reorder_plex_closure(dm, c, closure, fiat_closure)
-        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        for i in range(closureSize):
-            cell_closure[c, i] = fiat_closure[i]
-    CHKERR(PetscFree(fiat_closure))
+    ncells, closureSize = plex_closures.shape
+    cell_closure = np.empty_like(plex_closures)
+    # CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    for c in range(ncells):
+        # plex_closure = plex_closures[c]
+        cell_closure[c, 0] = plex_closures[c, 19]
+        cell_closure[c, 1] = plex_closures[c, 23]
+        cell_closure[c, 2] = plex_closures[c, 20]
+        cell_closure[c, 3] = plex_closures[c, 26]
+        cell_closure[c, 4] = plex_closures[c, 22]
+        cell_closure[c, 5] = plex_closures[c, 24]
+        cell_closure[c, 6] = plex_closures[c, 21]
+        cell_closure[c, 7] = plex_closures[c, 25]
+        cell_closure[c, 8] = plex_closures[c, 16]
+        cell_closure[c, 9] = plex_closures[c, 17]
+        cell_closure[c, 10] = plex_closures[c, 15]
+        cell_closure[c, 11] = plex_closures[c, 18]
+        cell_closure[c, 12] = plex_closures[c, 7]
+        cell_closure[c, 13] = plex_closures[c, 14]
+        cell_closure[c, 14] = plex_closures[c, 9]
+        cell_closure[c, 15] = plex_closures[c, 12]
+        cell_closure[c, 16] = plex_closures[c, 10]
+        cell_closure[c, 17] = plex_closures[c, 11]
+        cell_closure[c, 18] = plex_closures[c, 8]
+        cell_closure[c, 19] = plex_closures[c, 13]
+        cell_closure[c, 20] = plex_closures[c, 6]
+        cell_closure[c, 21] = plex_closures[c, 5]
+        cell_closure[c, 22] = plex_closures[c, 3]
+        cell_closure[c, 23] = plex_closures[c, 4]
+        cell_closure[c, 24] = plex_closures[c, 1]
+        cell_closure[c, 25] = plex_closures[c, 2]
+        cell_closure[c, 26] = plex_closures[c, 0]
+    # PETSc.CHKERR(PetscFree(fiat_closure))
     return cell_closure
 
 
@@ -656,7 +792,7 @@ def closure_ordering(mesh, closure_data_plex):
     tdim = mesh.dimension
     assert tdim <= 3
 
-    nverts_per_cell = mesh._closure_sizes[tdim][0]
+    nverts_per_cell = mesh._closure_sizes[tdim][0] if tdim > 0 else 0
     nedges_per_cell = mesh._closure_sizes[tdim][1] if tdim > 2 else 0
     nfacets_per_cell = mesh._closure_sizes[tdim][tdim-1] if tdim > 1 else 0
 
@@ -682,14 +818,20 @@ def closure_ordering(mesh, closure_data_plex):
     CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
     # Must call this before loop collectively.
-    mesh._global_numbering
+    mesh._global_old_to_new_vertex_numbering
 
     closure_data_reord = np.empty_like(closure_data_plex)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data_plex[cell, vert_offset_plex:]):
             verts[vi] = vert
-            global_verts[vi] = mesh._global_numbering[vert]
+            v = mesh._global_old_to_new_vertex_numbering.getOffset(vert)
+
+            # Correct -ve offsets for non-owned entities
+            if v >= 0:
+                global_verts[vi] = v
+            else:
+                global_verts[vi] = -(v+1)
 
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
@@ -807,11 +949,11 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
     get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
 
     ncells = cEnd - cStart
+    entity_per_cell = 4 + 4 + 1
 
-    cell_closure = tuple(
-        np.empty((ncells, n), dtype=IntType) for n in [4, 4, 1]
-    )
+    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
+        cell = mesh._old_to_new_cell_numbering.getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # First extract the facets (edges) and the vertices
@@ -834,7 +976,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
-                g_vertices[vi] = mesh.debug_global_numbering[pt]
+                g_vertices[vi] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(pt))
                 vi += 1
             elif fStart <= pt < fEnd:
                 c_facets[fi] = pt
@@ -843,7 +985,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         assert fi == 4
 
         # The first vertex is given by the entry in cell_orientations.
-        start_v = cell_orientations[c]
+        start_v = cell_orientations[cell]
 
         # Based on the cell orientation, we reorder the vertices and facets
         # (edges) from 'c_vertices' and 'c_facets' into 'vertices' and 'facets'.
@@ -920,21 +1062,15 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell = mesh.points.default_to_applied_component_number(mesh.cell_label, c)
-
-        def renum(pt):
-            stratum, stratum_pt = mesh.points.axis_to_component_number(pt)
-            return mesh.points.default_to_applied_component_number(stratum, stratum_pt)
-
-        cell_closure[0][cell, 0] = renum(vertices[0])
-        cell_closure[0][cell, 1] = renum(vertices[1])
-        cell_closure[0][cell, 2] = renum(vertices[3])
-        cell_closure[0][cell, 3] = renum(vertices[2])
-        cell_closure[1][cell, 0] = renum(facets[0])
-        cell_closure[1][cell, 1] = renum(facets[2])
-        cell_closure[1][cell, 2] = renum(facets[3])
-        cell_closure[1][cell, 3] = renum(facets[1])
-        cell_closure[2][cell] = cell  # already renumbered
+        cell_closure[c, 0] = vertices[0]
+        cell_closure[c, 1] = vertices[1]
+        cell_closure[c, 2] = vertices[3]
+        cell_closure[c, 3] = vertices[2]
+        cell_closure[c, 4 + 0] = facets[0]
+        cell_closure[c, 4 + 1] = facets[2]
+        cell_closure[c, 4 + 2] = facets[3]
+        cell_closure[c, 4 + 3] = facets[1]
+        cell_closure[c, 8] = c
 
     if closure != NULL:
         restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -1165,7 +1301,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         PetscInt *entity_cone_map_offset = NULL
         np.ndarray entity_orientations
 
-    if type(mesh) is not firedrake.mesh.MeshTopology:
+    if not isinstance(mesh, firedrake.mesh.MeshTopology):
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
 
     # Make entity-cone map for the FIAT cell.
@@ -1255,7 +1391,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         np.ndarray nodes
         np.ndarray layer_extents
         np.ndarray points
-        bint variable, extruded, on_base_
+        bint extruded, on_base_
         PETSc.SF point_sf
         PetscInt nleaves
         const PetscInt *ilocal = NULL
@@ -1264,16 +1400,12 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     dm = mesh.topology_dm
     if isinstance(dm, PETSc.DMSwarm) and on_base:
         raise NotImplementedError("Vertex Only Meshes cannot be extruded.")
-    variable = mesh.variable_layers
     extruded = mesh.cell_set._extruded
     extruded_periodic = mesh.cell_set._extruded_periodic
     on_base_ = on_base
     dimension = get_topological_dimension(dm)
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
-    if variable:
-        layer_extents = mesh.layer_extents
-        nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    elif extruded:
+    if extruded:
         if on_base:
             nodes = sum(nodes_per_entity[:, i] for i in range(2)).reshape(dimension + 1, -1)
         else:
@@ -1283,7 +1415,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 nodes = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2)).reshape(dimension + 1, -1)
     else:
         nodes = nodes_per_entity.reshape(dimension + 1, -1)
-    section = PETSc.Section().create(comm=mesh._comm)
+    section = PETSc.Section().create(comm=mesh.comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
 
@@ -1291,113 +1423,108 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         raise NotImplementedError()
         # renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
     else:
-        renumbering = mesh._dm_renumbering
+        renumbering = mesh._new_to_old_point_renumbering
 
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
     for i in range(dimension + 1):
         get_depth_stratum(dm.dm, i, &pStart, &pEnd) # gets all points at dim i
-        if not variable:
-            ndof = nodes[i, 0]
+        ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
-            if variable:
-                if on_base_:
-                    ndof = nodes[i, 1]
-                else:
-                    layers = layer_extents[p, 1] - layer_extents[p, 0]
-                    ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
 
-    if boundary_set and extruded and variable:
-        raise NotImplementedError("Not implemented for variable layer extrusion")
-    if boundary_set:
-        # Handle "bottom" and "top" first.
-        if "bottom" in boundary_set and "top" in boundary_set:
-            factor = 2
-        elif "bottom" in boundary_set or "top" in boundary_set:
-            factor = 1
-        else:
-            factor = 0
-        if factor > 0:
-            for i in range(dimension + 1):
-                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
-                dof = nodes_per_entity[i, 0]
-                for p in range(pStart, pEnd):
-                    CHKERR(PetscSectionSetConstraintDof(section.sec, p, factor * dof))
-        # Potentially overwrite ds_t and dS_t constrained DoFs set in the {"bottom", "top"} cases.
-        for marker in boundary_set:
-            if marker in ["bottom", "top"]:
-                continue
-            elif marker == "on_boundary":
-                label = "exterior_facets"
-                marker = 1
-            else:
-                label = FACE_SETS_LABEL
-            n = dm.getStratumSize(label, marker)
-            if n == 0:
-                continue
-            points = dm.getStratumIS(label, marker).indices
-            for i in range(n):
-                p = points[i]
-                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
-    section.setUp()
-    if boundary_set:
-        # have to loop again as we need to call section.setUp() first
-        CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
-        CHKERR(PetscMalloc1(dof, &dof_array))
-        for i in range(dof):
-            dof_array[i] = -1
-        if "bottom" in boundary_set or "top" in boundary_set:
-            for i in range(dimension + 1):
-                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
-                if pEnd == pStart:
-                    continue
-                dof = nodes_per_entity[i, 0]
-                j = 0
-                if "bottom" in boundary_set:
-                    for k in range(dof):
-                        dof_array[j] = k
-                        j += 1
-                if "top" in boundary_set:
-                    offset_top = (nodes_per_entity[i, 0] + nodes_per_entity[i, 1]) * (mesh.layers - 1)
-                    for k in range(dof):
-                        dof_array[j] = offset_top + k
-                        j += 1
-                for p in range(pStart, pEnd):
-                    # Potentially set wrong values for ds_t and dS_t constrained DoFs here,
-                    # but we will overwrite them in the below.
-                    CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-        for marker in boundary_set:
-            if marker in ["bottom", "top"]:
-                continue
-            elif marker == "on_boundary":
-                label = "exterior_facets"
-                marker = 1
-            else:
-                label = FACE_SETS_LABEL
-            n = dm.getStratumSize(label, marker)
-            if n == 0:
-                continue
-            points = dm.getStratumIS(label, marker).indices
-            for i in range(n):
-                p = points[i]
-                CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-                for j in range(dof):
-                    dof_array[j] = j
-                CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-        CHKERR(PetscFree(dof_array))
-    constrained_nodes = 0
-    get_chart(dm.dm, &pStart, &pEnd)
-    point_sf = dm.getPointSF()
-    CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
-    for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
-        constrained_nodes += dof
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
-        constrained_nodes -= dof
-    return section, constrained_nodes
+    raise NotImplementedError
+
+    # if boundary_set and extruded and variable:
+    #     raise NotImplementedError("Not implemented for variable layer extrusion")
+    # if boundary_set:
+    #     # Handle "bottom" and "top" first.
+    #     if "bottom" in boundary_set and "top" in boundary_set:
+    #         factor = 2
+    #     elif "bottom" in boundary_set or "top" in boundary_set:
+    #         factor = 1
+    #     else:
+    #         factor = 0
+    #     if factor > 0:
+    #         for i in range(dimension + 1):
+    #             get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+    #             dof = nodes_per_entity[i, 0]
+    #             for p in range(pStart, pEnd):
+    #                 CHKERR(PetscSectionSetConstraintDof(section.sec, p, factor * dof))
+    #     # Potentially overwrite ds_t and dS_t constrained DoFs set in the {"bottom", "top"} cases.
+    #     for marker in boundary_set:
+    #         if marker in ["bottom", "top"]:
+    #             continue
+    #         elif marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #         n = dm.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         points = dm.getStratumIS(label, marker).indices
+    #         for i in range(n):
+    #             p = points[i]
+    #             CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+    #             CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
+    # section.setUp()
+    # if boundary_set:
+    #     # have to loop again as we need to call section.setUp() first
+    #     CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
+    #     CHKERR(PetscMalloc1(dof, &dof_array))
+    #     for i in range(dof):
+    #         dof_array[i] = -1
+    #     if "bottom" in boundary_set or "top" in boundary_set:
+    #         for i in range(dimension + 1):
+    #             get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+    #             if pEnd == pStart:
+    #                 continue
+    #             dof = nodes_per_entity[i, 0]
+    #             j = 0
+    #             if "bottom" in boundary_set:
+    #                 for k in range(dof):
+    #                     dof_array[j] = k
+    #                     j += 1
+    #             if "top" in boundary_set:
+    #                 offset_top = (nodes_per_entity[i, 0] + nodes_per_entity[i, 1]) * (mesh.layers - 1)
+    #                 for k in range(dof):
+    #                     dof_array[j] = offset_top + k
+    #                     j += 1
+    #             for p in range(pStart, pEnd):
+    #                 # Potentially set wrong values for ds_t and dS_t constrained DoFs here,
+    #                 # but we will overwrite them in the below.
+    #                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+    #     for marker in boundary_set:
+    #         if marker in ["bottom", "top"]:
+    #             continue
+    #         elif marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #         n = dm.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         points = dm.getStratumIS(label, marker).indices
+    #         for i in range(n):
+    #             p = points[i]
+    #             CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+    #             for j in range(dof):
+    #                 dof_array[j] = j
+    #             CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+    #     CHKERR(PetscFree(dof_array))
+    # constrained_nodes = 0
+    # get_chart(dm.dm, &pStart, &pEnd)
+    # point_sf = dm.getPointSF()
+    # CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
+    # for p in range(pStart, pEnd):
+    #     CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
+    #     constrained_nodes += dof
+    # for i in range(nleaves):
+    #     p = ilocal[i] if ilocal else i
+    #     CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
+    #     constrained_nodes -= dof
+    # return section, constrained_nodes
 
 
 @cython.boundscheck(False)
@@ -1595,7 +1722,7 @@ def get_facet_nodes(mesh, np.ndarray cell_nodes, label,
     CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
     CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
 
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
 
     facet = 0
@@ -1625,7 +1752,7 @@ def get_facet_nodes(mesh, np.ndarray cell_nodes, label,
             facet += 1
 
     CHKERR(DMLabelDestroyIndex(clabel))
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     return facet_nodes
 
 
@@ -1653,28 +1780,6 @@ def facet_closure_nodes(V, sub_domain):
         sub_domain = (1, )
     else:
         label = FACE_SETS_LABEL
-        if V.mesh().variable_layers:
-            # We can't use the generic code in this case because we
-            # need to manually take closure of facets on each external
-            # face (rather than using the label completion and section
-            # information).
-            # The reason for this is that (for example) a stack of
-            # vertices may extend higher than the faces
-            #
-            #            Y---.
-            #            |   |
-            #    .---x---x---.
-            #    |   | O |
-            #    .---x---x
-            #    |   |
-            #    .---Y
-            #
-            # BCs on the facet marked with 'O' should produce 4 values
-            # for a P1 field (marked X). But if we just include
-            # everything from the sections we'd get 6: additionally we
-            # see the points marked Y.
-            from firedrake.cython import extrusion_numbering as extnum
-            return extnum.facet_closure_nodes(V, sub_domain)
 
     if not dm.hasLabel(label) or all(dm.getStratumSize(label, marker)
                                      for marker in sub_domain) == 0:
@@ -1689,7 +1794,7 @@ def facet_closure_nodes(V, sub_domain):
         for i in range(n):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
-            nnodes += dof
+            nnodes += dof // V.block_size
 
     nodes = np.empty(nnodes, dtype=IntType)
     j = 0
@@ -1702,8 +1807,8 @@ def facet_closure_nodes(V, sub_domain):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
             CHKERR(PetscSectionGetOffset(sec.sec, p, &offset))
-            for d in range(dof):
-                nodes[j] = offset + d
+            for d in range(dof//V.block_size):
+                nodes[j] = offset//V.block_size + d
                 j += 1
     assert j == nnodes
     return np.unique(nodes)
@@ -1917,16 +2022,16 @@ def transform_vec_from_firedrake_to_petsc(PETSc.DM dm,
     CHKERR(VecGetArrayRead(firedrake_vec.vec, &firedrake_array))
     CHKERR(VecGetArray(petsc_vec.vec, &petsc_array))
     for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetDof(firedrake_sec.sec, p, &firedrake_dof))  # scalar offset
+        CHKERR(PetscSectionGetDof(firedrake_sec.sec, p, &firedrake_dof))
         CHKERR(PetscSectionGetDof(petsc_sec.sec, p, &petsc_dof))
-        if petsc_dof != bs * firedrake_dof:
-            raise RuntimeError(f"petsc_dof ({petsc_dof}) != bs * firedrake_dof ({bs} * {firedrake_dof})")
+        if petsc_dof != firedrake_dof:
+            raise RuntimeError(f"petsc_dof ({petsc_dof}) != firedrake_dof ({firedrake_dof})")
         CHKERR(DMPlexGetPointHeight(dm.dm, p, &height))
-        CHKERR(PetscSectionGetOffset(firedrake_sec.sec, p, &firedrake_offset))  # scalar offset
+        CHKERR(PetscSectionGetOffset(firedrake_sec.sec, p, &firedrake_offset))
         CHKERR(PetscSectionGetOffset(petsc_sec.sec, p, &petsc_offset))
         for i in range(ndofs[height]):
             for j in range(bs):
-                petsc_array[petsc_offset + bs * perm[perm_offsets[height] + i] + j] = firedrake_array[bs * firedrake_offset + bs * i + j]
+                petsc_array[petsc_offset + bs * perm[perm_offsets[height] + i] + j] = firedrake_array[firedrake_offset + bs * i + j]
         total_dof += petsc_dof
     CHKERR(VecRestoreArray(petsc_vec.vec, &petsc_array))
     CHKERR(VecRestoreArrayRead(firedrake_vec.vec, &firedrake_array))
@@ -1948,9 +2053,9 @@ def _set_dg_coordinates(PETSc.DM dm,
         `PETSc.DM` representing the periodic mesh topology.
     finat_element: finat.finiteelementbase.FiniteElementBase
         Scalar DG finat element.
-    firedrake_dg_coord_sec: Function
+    firedrake_dg_coord_sec: PETSc.Section
         `PETSc.Section` containing the Firedrake scalar DG DoF layout.
-    firedrake_dg_coord_vec: Function
+    firedrake_dg_coord_vec: PETSc.Vec
         `PETSc.Vec` containing the Firedrake DG coordinates.
 
     """
@@ -2012,18 +2117,17 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
     if isinstance(dm, PETSc.DMPlex):
         if not dm.getCoordinatesLocalized():
-            # Use CG coordiantes.
+            # Use CG coordinates
             dm_sec = dm.getCoordinateSection()
-            dm_coords = dm.getCoordinatesLocal().array.reshape(shape)
+            dm_coords = dm.getCoordinatesLocal().array_r.reshape(shape)
             coords = np.empty_like(dm_coords)
             for v in range(vStart, vEnd):
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
                 CHKERR(PetscSectionGetOffset(dm_sec.sec, v, &dm_offset))
-                dm_offset = dm_offset//dim
                 for i in range(dim):
-                    coords[offset, i] = dm_coords[dm_offset, i]
+                    coords[offset//dim, i] = dm_coords[dm_offset//dim, i]
         else:
-            # Use DG coordiantes.
+            # Use DG coordinates
             get_height_stratum(dm.dm, 0, &cStart, &cEnd)
             dim = dm.getCoordinateDim()
             ndofs, perm, perm_offsets = _get_firedrake_plex_permutation_dg_transitive_closure(dm)
@@ -2031,12 +2135,11 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
             dm_coords = dm.getCellCoordinatesLocal().array.reshape(((cEnd - cStart) * ndofs[0], dim))
             coords = np.empty_like(dm_coords)
             for c in range(cStart, cEnd):
-                CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))  # scalar offset
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, c, &offset))
                 CHKERR(PetscSectionGetOffset(dm_sec.sec, c, &dm_offset))
-                dm_offset = dm_offset // dim
                 for j in range(ndofs[0]):
                     for i in range(dim):
-                        coords[offset + j, i] = dm_coords[dm_offset + perm[perm_offsets[0] + j], i]
+                        coords[offset//dim + j, i] = dm_coords[dm_offset//dim + perm[perm_offsets[0] + j], i]
     elif isinstance(dm, PETSc.DMSwarm):
         # NOTE DMSwarm coords field isn't copied so make sure
         # dm.restoreField is called too!
@@ -2050,7 +2153,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
         for v in range(vStart, vEnd):
             CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
             for i in range(dim):
-                coords[offset, i] = dm_coords[v - vStart, i]
+                coords[offset//dim, i] = dm_coords[v - vStart, i]
         dm.restoreField(swarm_field_name)
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
@@ -2082,8 +2185,11 @@ def mark_owned_points(PETSc.DM dm) -> None:
         const PetscInt *ilocal = NULL
         DMLabel clabel
 
+    # It is possible to call this function multiple times on the same DM - for
+    # example when creating a periodic mesh. If that is the case then we
+    # do nothing the second time around.
     if dm.hasLabel("firedrake_is_ghost"):
-        raise AssertionError("mark_owned_points should only be called once")
+        return
 
     dm.createLabel("firedrake_is_ghost")
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
@@ -2122,6 +2228,8 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         PetscInt nswarmCells, swarmCell, blocksize
         PetscInt *swarmParentCells = NULL
         PetscDataType ctype = PETSC_DATATYPE_UNKNOWN
+        const char *cellid = NULL
+        PETSc.PetscDMSwarmCellDM celldm
 
     plex = swarm.getCellDM()
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
@@ -2147,20 +2255,22 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
         CHKERR(DMCreateLabel(swarm.dm, op2class))
         CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
-    CHKERR(DMSwarmGetField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(DMSwarmGetCellDMActive(swarm.dm, &celldm))
+    CHKERR(DMSwarmCellDMGetCellID(celldm, &cellid))
+    CHKERR(DMSwarmGetField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
     assert ctype == PETSC_INT
     assert blocksize == 1
     CHKERR(DMSwarmGetLocalSize(swarm.dm, &nswarmCells))
     for swarmCell in range(nswarmCells):
         plex_cell_class = plex_cell_classes[swarmParentCells[swarmCell] - cStart]
         CHKERR(DMLabelSetValue(swarm_labels[plex_cell_class], swarmCell, label_value))
-    CHKERR(DMSwarmRestoreField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(DMSwarmRestoreField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
     CHKERR(PetscFree(plex_cell_classes))
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
+def get_cell_markers(PETSc.DM dm, np.ndarray cell_numbering,
                      subdomain_id):
     """Get the cells marked by a given subdomain_id.
 
@@ -2212,8 +2322,7 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     for i in range(n):
         c = indices[i]
         if cStart <= c < cEnd:
-            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
-            cells[j] = offset
+            cells[j] = cell_numbering[c]
             j += 1
     return cells
 
@@ -2379,8 +2488,8 @@ def validate_mesh(PETSc.DM dm):
 @cython.wraparound(False)
 def compute_dm_renumbering(
     mesh: MeshGeometry,
-    reordering: np.ndarray | None = None,
-    boundary_set=None,
+    new_to_old_cell_numbering_is: PETSc.IS | None = None,
+    # boundary_set=None,
 ) -> PETSc.IS:
     """Return a renumbering of DM points that maximises locality.
 
@@ -2404,7 +2513,7 @@ def compute_dm_renumbering(
     """
     # TODO: clean this up
     cdef:
-        PETSc.IS renumbering_is
+        PETSc.IS ordering_is, renumbering_is, perm_is
         PETSc.DM dm
 
         PetscInt pStart_c, pEnd_c, nPoints_c
@@ -2412,20 +2521,22 @@ def compute_dm_renumbering(
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
         PetscInt *facets = NULL
         PetscInt *closure = NULL
-        PetscInt *renumbering = NULL
+        PetscInt *ordering = NULL
         PetscBT seen_points = NULL
         PetscInt is_ghost
         DMLabel clabel
-        bint reorder = reordering is not None
+        bint reorder
 
     dm = mesh.topology_dm
 
-    DMPlexGetChart(dm.dm, &pStart_c, &pEnd_c)
+    reorder = new_to_old_cell_numbering_is is not None
+
+    pStart_c, pEnd_c = dm.getChart()
     nPoints_c = pEnd_c - pStart_c
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
-    CHKERR(PetscMalloc1(nPoints_c, &renumbering))
+    CHKERR(PetscMalloc1(nPoints_c, &ordering))
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
 
     # if boundary_set:
@@ -2438,10 +2549,6 @@ def compute_dm_renumbering(
     # CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &labels[2]))
     # for idx in range(3):
     #     CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
-    # TODO: Make a constant somewhere
-    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
-    DMLabelGetStratumSize(clabel, 1, &nGhost_c)
-    nOwned_c = nPoints_c - nGhost_c
 
     # Get boundary points (if the boundary_set exists) and count each type
     # constrained_core = 0
@@ -2474,8 +2581,7 @@ def compute_dm_renumbering(
 
     for cell in range(cStart, cEnd):
         if reorder:
-            # is this wrong? invert! YES
-            cell = reordering[cell]
+            cell = new_to_old_cell_numbering_is.indices[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -2485,7 +2591,7 @@ def compute_dm_renumbering(
                 continue
             else:
                 PetscBTSet(seen_points, point)
-                renumbering[ptr] = point
+                ordering[ptr] = point
                 ptr += 1
 
     assert ptr == nPoints_c
@@ -2495,151 +2601,76 @@ def compute_dm_renumbering(
 
     CHKERR(PetscBTDestroy(&seen_points))
 
-    # if boundary_set:
-    #     CHKERR(PetscBTDestroy(&seen_boundary))
+    # This gives us the ordering of old points (i.e. new to old) when we want to be dealing with
+    # a mapping from old to new
+    #
+    # For example:
+    #
+    #    x-----x-----x
+    #    2  0  3  1  4
+    #   (1  0  2  3  4)   going to
+    #
+    # ordering is: [0, 2, 3, 1, 4] / [0->0, 1->2, 2->3, 3->1, 4->4]
+    #
+    # but we want: [0->0, 1->3, 2->1, 3->2, 4->4] / [0, 3, 1, 2, 4]
 
-    renumbering_is = PETSc.IS().create(comm=dm.comm)
-    renumbering_is.setType("general")
-    CHKERR(
-        ISGeneralSetIndices(
-            renumbering_is.iset, mesh.num_points, renumbering, PETSC_OWN_POINTER
-        )
-    )
-    return renumbering_is
+    ordering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
+    ordering_is.setType("general")
+    CHKERR(ISGeneralSetIndices(ordering_is.iset, mesh.num_points, ordering, PETSC_OWN_POINTER))
+    # renumbering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
+    # renumbering_is.setType("general")
+
+    # return ordering_is.invertPermutation()
+    return ordering_is
+    # CHKERR(ISInvertPermutation(ordering_is.iset, -1, &renumbering_is.iset))
+    # return renumbering_is
 
 
-def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
+def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -> PETSc.IS:
     """Partition a serial point renumbering into owned and ghost points."""
     cdef:
-        PETSc.IS       parallel_renumbering
+        PETSc.IS       parallel_new_to_old_renumbering
 
-        DMLabel        ghostLabel_c
-        PetscInt       nPoints_c, nOwned_c, nGhost_c, isGhost_c, ownedPtr_c, ghostPtr_c, i_c, p_c
-        const PetscInt *serial_renumbering_c = NULL
-        PetscInt       *parallel_renumbering_c = NULL
+        DMLabel        ghost_label_c
+        PetscInt       n_points_c, n_owned_c, n_ghost_c, is_ghost_c
+        PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
+        const PetscInt *serial_new_to_old_renumbering_c = NULL
+        PetscInt       *parallel_new_to_old_renumbering_c = NULL
 
-    CHKERR(ISGetIndices(serial_renumbering.iset, &serial_renumbering_c))
-    CHKERR(ISGetLocalSize(serial_renumbering.iset, &nPoints_c))
-    CHKERR(PetscMalloc1(nPoints_c, &parallel_renumbering_c))
+    CHKERR(ISGetIndices(serial_new_to_old_renumbering.iset, &serial_new_to_old_renumbering_c))
+    CHKERR(ISGetLocalSize(serial_new_to_old_renumbering.iset, &n_points_c))
+    CHKERR(PetscMalloc1(n_points_c, &parallel_new_to_old_renumbering_c))
 
-    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghostLabel_c))
-    CHKERR(DMLabelGetStratumSize(ghostLabel_c, 1, &nGhost_c))
-    nOwned_c = nPoints_c - nGhost_c
+    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghost_label_c))
+    CHKERR(DMLabelGetStratumSize(ghost_label_c, 1, &n_ghost_c))
+    n_owned_c = n_points_c - n_ghost_c
 
-    ownedPtr_c = 0
-    ghostPtr_c = nOwned_c
-
-    for i_c in range(nPoints_c):
-        p_c = serial_renumbering_c[i_c]
-        CHKERR(DMLabelGetValue(ghostLabel_c, p_c, &isGhost_c))
-        if isGhost_c == 1:
-            parallel_renumbering_c[ghostPtr_c] = p_c
-            ghostPtr_c += 1
+    owned_ptr_c = 0
+    ghost_ptr_c = n_owned_c
+    for i_c in range(n_points_c):
+        pt_c = serial_new_to_old_renumbering_c[i_c]
+        CHKERR(DMLabelGetValue(ghost_label_c, pt_c, &is_ghost_c))
+        if is_ghost_c == 1:
+            parallel_new_to_old_renumbering_c[ghost_ptr_c] = pt_c
+            ghost_ptr_c += 1
         else:
-            parallel_renumbering_c[ownedPtr_c] = p_c
-            ownedPtr_c += 1
+            parallel_new_to_old_renumbering_c[owned_ptr_c] = pt_c
+            owned_ptr_c += 1
 
-    assert ownedPtr_c == nOwned_c
-    assert ghostPtr_c == nPoints_c
+    assert owned_ptr_c == n_owned_c
+    assert ghost_ptr_c == n_points_c
 
-    parallel_renumbering = PETSc.IS().create(comm=dm.comm)
-    parallel_renumbering.setType("general")
+    parallel_new_to_old_renumbering = PETSc.IS().create(comm=MPI.COMM_SELF)
+    parallel_new_to_old_renumbering.setType("general")
     CHKERR(
         ISGeneralSetIndices(
-            parallel_renumbering.iset,
-            nPoints_c,
-            parallel_renumbering_c,
+            parallel_new_to_old_renumbering.iset,
+            n_points_c,
+            parallel_new_to_old_renumbering_c,
             PETSC_OWN_POINTER,
         )
     )
-    return parallel_renumbering
-
-
-# TODO: Just int array not IS
-def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
-    """Renumber an SF.
-
-    Parameters
-    ----------
-    sf :
-        The input SF.
-    renumbering :
-        The renumbering to apply.
-
-    Returns
-    -------
-    PETSc.SF :
-        The renumbered SF.
-
-    Notes
-    -----
-    To renumber the SF we create a Section containing 1 DoF per point, set
-    its permutation, and then call ``PetscSFCreateSectionSF()``.
-
-    """
-    cdef:
-        PETSc.SF      sf_renum
-        PETSc.Section section
-
-        PetscInt      nPoints_c, p_c
-        PetscInt      *remoteOffsets_c = NULL
-
-    nPoints_c = renumbering.getLocalSize()
-
-    section = PETSc.Section().create(sf.comm)
-    section.setChart(0, nPoints_c)
-    for p_c in range(nPoints_c):
-        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
-    section.setPermutation(renumbering)
-    section.setUp()
-
-    return create_section_sf(sf, section)
-
-
-def filter_sf(
-    sf: PETSc.SF,
-    selected_points: np.ndarray[IntType],
-    p_start: IntType,
-    p_end: IntType,
-) -> PETSc.SF:
-    """
-    neednt be ordered
-
-    """
-    cdef:
-        PETSc.SF      sf_filtered
-        PETSc.Section section
-
-        PetscInt      nPoints_c, i_c, p_c
-        PetscInt      *remoteOffsets_c = NULL
-
-    nPoints_c = len(selected_points)
-
-    section = PETSc.Section().create(comm=sf.comm)
-    section.setChart(p_start, p_end)
-    for i_c in range(nPoints_c):
-        p_c = selected_points[i_c]
-        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
-    section.setUp()
-
-    return create_section_sf(sf, section)
-
-
-def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
-    """Create an SF from an existing SF and section."""
-    cdef:
-        PETSc.SF sf_new
-        PetscInt *remoteOffsets_c = NULL
-        PetscInt start_c, stop_c
-
-    sf_new = PETSc.SF().create(comm=sf.comm)
-    if sf.comm.size > 1:
-        CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
-    else:
-        start_c, stop_c = section.getChart()
-        CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
-    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
-    return sf_new
+    return parallel_new_to_old_renumbering
 
 
 @cython.boundscheck(False)
@@ -2685,13 +2716,13 @@ cdef inline PetscInt cabs(PetscInt i):
         return cneg(i)
 
 cdef inline void get_edge_global_vertices(PETSc.DM plex,
-                                          np.ndarray vertex_numbering,
+                                          PETSc.Section vertex_numbering,
                                           PetscInt facet,
                                           PetscInt *global_v):
     """Returns the global numbers of the vertices of an edge.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the global vertex numbering
+    :arg vertex_numbering: Section describing the global vertex numbering
     :arg facet: The edge
     :arg global_v: Return buffer, must have capacity for 2 values
     """
@@ -2704,30 +2735,38 @@ cdef inline void get_edge_global_vertices(PETSc.DM plex,
 
     CHKERR(DMPlexGetCone(plex.dm, facet, &vs))
 
-    global_v[0] = vertex_numbering[vs[0]]
-    global_v[1] = vertex_numbering[vs[1]]
+    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[0], &ndofs))
+    assert cabs(ndofs) == 1
+    CHKERR(PetscSectionGetDof(vertex_numbering.sec, vs[1], &ndofs))
+    assert cabs(ndofs) == 1
 
-    # global_v[0] = cabs(global_v[0])
-    # global_v[1] = cabs(global_v[1])
+    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[0], &global_v[0]))
+    CHKERR(PetscSectionGetOffset(vertex_numbering.sec, vs[1], &global_v[1]))
+
+    global_v[0] = cabs(global_v[0])
+    global_v[1] = cabs(global_v[1])
+
 
 cdef inline np.int8_t get_global_edge_orientation(PETSc.DM plex,
-                                                  np.ndarray vertex_numbering,
+                                                  PETSc.Section vertex_numbering,
                                                   PetscInt facet):
     """Returns the local plex direction (ordering in plex cone) relative to
     the global edge direction (from smaller to greater global vertex number).
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the global vertex numbering
+    :arg vertex_numbering: Section describing the global vertex numbering
     :arg facet: The edge
     """
     cdef PetscInt v[2]
     get_edge_global_vertices(plex, vertex_numbering, facet, v)
     return v[0] > v[1]
 
+
 cdef struct CommFacet:
     PetscInt remote_rank
     PetscInt global_u, global_v
     PetscInt local_facet
+
 
 cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
     """Three-way comparison C function for CommFacet structs."""
@@ -2755,7 +2794,7 @@ cdef int CommFacet_cmp(const void *x_, const void *y_) noexcept nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void get_communication_lists(
-    PETSc.DM plex, np.ndarray vertex_numbering,
+    PETSc.DM plex, PETSc.Section vertex_numbering,
     np.ndarray cell_ranks,
     # Output parameters:
     PetscInt *nranks, PetscInt **ranks, PetscInt **offsets,
@@ -2764,7 +2803,7 @@ cdef inline void get_communication_lists(
     """Create communication lists for shared facet information exchange.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg vertex_numbering: Array describing the universal vertex numbering
+    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
 
@@ -3030,7 +3069,7 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
-                                       np.ndarray vertex_numbering,
+                                       PETSc.Section vertex_numbering,
                                        PetscInt *cell_ranks,
                                        PetscInt *facet2index,
                                        PetscInt nfacets_shared,
@@ -3182,27 +3221,25 @@ cdef inline void exchange_edge_orientation_data(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def quadrilateral_facet_orientations(
-    mesh, np.ndarray cell_ranks,
-):
-    # FIXME
-    """Return globally synchronised facet orientations (edge directions)
+    PETSc.DM plex, PETSc.Section vertex_numbering,
+    np.ndarray cell_ranks):
+
+    """Returns globally synchronised facet orientations (edge directions)
     incident to locally owned quadrilateral cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_ranks: MPI rank of the owner of each (visible) non-owned cell,
                      or -1 for (locally) owned cell.
     """
     cdef:
-        PETSc.DM plex
-        np.ndarray[PetscInt, ndim=1, mode="c"] vertex_numbering
-
         PetscInt nranks
         PetscInt *ranks = NULL
         PetscInt *offsets = NULL
         PetscInt *facets = NULL
         PetscInt *facet2index = NULL
 
-        MPI.Comm comm
+        MPI.Comm comm = plex.comm.tompi4py()
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
         np.ndarray affects
@@ -3213,10 +3250,6 @@ def quadrilateral_facet_orientations(
         PetscInt cells[2]
 
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
-
-    plex = mesh.topology_dm
-    vertex_numbering = mesh.debug_global_numbering
-    comm = plex.comm.tompi4py()
 
     # Get communication lists
     get_communication_lists(plex, vertex_numbering, cell_ranks,
@@ -3363,6 +3396,8 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
+            cell = mesh._old_to_new_cell_numbering.getOffset(c)
+
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
 
@@ -3417,15 +3452,14 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
                 v = cone[0]
             else:
                 v = cone[1]
-            cell_orientations[c] = mesh.debug_global_numbering[v]
+            cell_orientations[cell] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(v))
 
     return cell_orientations
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def exchange_cell_orientations(mesh, np.ndarray orientations):
-    # FIXME
+def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientations):
     """Halo exchange of cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -3456,7 +3490,6 @@ def exchange_cell_orientations(mesh, np.ndarray orientations):
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
     if plex.comm.size > 1 and plex.isDistributed():
-        raise NotImplementedError("Think I just have to do a broadcast using orientations as a buffer")
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
@@ -3584,19 +3617,117 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                 numAdj += 1
             # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
-                SETERR(77)
+                CHKERR(PETSC_ERR_LIB)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
     adjSize[0] = numAdj
     return 0
 
 
-def set_adjacency_callback(PETSc.DM dm not None):
+cdef int DMPlexGetAdjacency_Closure_Star_Ridge(
+    PETSc.PetscDM dm,
+    PetscInt p,
+    PetscInt *adjSize,
+    PetscInt adj[],
+    void *ctx
+) noexcept nogil:
+    """Custom adjacency callback for closure(star(ridge)) halo.
+
+    Parameters
+    ----------
+    dm
+        The DMPlex object.
+    p
+        The mesh point to compute the adjacency of.
+    adjSize
+        Output parameter, the size of the computed adjacency.
+    adj
+        Output parameter, the adjacent mesh points.
+    ctx
+        User context.
+
+    The halo we need for owner-computes is everything in the stencil
+    of the owned mesh points.  For cells, we already have everything,
+    for edges, if we own the edge, we need the mesh points in
+    closure(star(edge)).  This function returns non-zero adjacency
+    only for edges, which then means that everything else falls
+    through right.
+
+    """
+    cdef:
+        PetscInt *star = NULL;
+        PetscInt numAdj = 0
+        PetscInt maxAdjSize = adjSize[0]
+        PetscInt starSize
+        PetscInt s
+        PetscInt pStart, pEnd
+        PetscInt point, closureSize, ci, q
+        PetscInt *closure = NULL
+        DMLabel label = <DMLabel>ctx;
+        PetscBool flg = PETSC_TRUE
+
+    # This function is general, and should also be able to replace
+    # `DMPlexGetAdjacency_Facet_Support()` just by replacing
+    # 2 with 1 in the line below.
+    CHKERR(DMPlexGetHeightStratum(dm, 2, &pStart, &pEnd))
+    if not (pStart <= p < pEnd):
+        # Not a point of interest, no adjacent points
+        adjSize[0] = 0
+        return 0
+    if label != NULL:
+        # If a label is provided to filter out points, use it.
+        # Requires that the label has already had an index created.
+        # The label should mark those points that are not owned.
+        # If the point is owned, then we would like to grow the halo.
+        # So we need the remote process to donate those points.
+        # Hence, if we own the point, we return an empty adjacency (we
+        # don't want to donate those points to the remote process),
+        # and vice versa.
+        CHKERR(DMLabelHasPoint(label, p, &flg))
+        if not flg:
+            # This point is owned, no adjacency.
+            adjSize[0] = 0
+            return 0
+    # A remote point, gather the adjacency
+    CHKERR(DMPlexGetTransitiveClosure(dm, p, PETSC_FALSE, &starSize, &star))
+    for s in range(starSize):
+        point = star[2*s]
+        CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+        for ci in range(closureSize):
+            # This is just ensuring that the adjacency is unique.
+            for q in range(numAdj):
+                if closure[2*ci] == adj[q]:
+                    break
+            else:
+                adj[numAdj] = closure[2*ci]
+                numAdj += 1
+            # Too many adjacent points for the provided output array.
+            if numAdj > maxAdjSize:
+                CHKERR(PETSC_ERR_LIB)
+    CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+    CHKERR(DMPlexRestoreTransitiveClosure(dm, p, PETSC_FALSE, &starSize, &star))
+    adjSize[0] = numAdj
+    return 0
+
+
+def set_adjacency_callback(
+    PETSc.DM dm not None,
+    overlap_type,
+):
     """Set the callback for DMPlexGetAdjacency.
 
-    :arg dm: The DMPlex object.
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The DMPlex object.
+    overlap_type : DistributedMeshOverlapType
+        `DistributedMeshOverlapType.FACET` or `DistributedMeshOverlapType.RIDGE`.
 
+    Notes
+    -----
     This is used during DMPlexDistributeOverlap to determine where to
-    grow the halos."""
+    grow the halos.
+
+    """
     cdef:
         PetscInt pStart, pEnd, p
         DMLabel label = NULL
@@ -3618,7 +3749,12 @@ def set_adjacency_callback(PETSc.DM dm not None):
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(label, ilocal[p] if ilocal else p, 1))
         CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
-    CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
+    if overlap_type == DistributedMeshOverlapType.FACET:
+        CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
+    elif overlap_type == DistributedMeshOverlapType.RIDGE:
+        CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Closure_Star_Ridge, NULL))
+    else:
+        raise NotImplementedError(f"Unknown overlap type: {overlap_type}")
 
 
 def clear_adjacency_callback(PETSc.DM dm not None):
@@ -3737,107 +3873,68 @@ def to_petsc_local_numbering(PETSc.Vec vec, V):
     return out
 
 
-def create_halo_exchange_sf(PETSc.DM dm):
-    """Create the halo exchange sf.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        The section dm.
-
-    Returns
-    -------
-    PETSc.SF
-        The halo exchange sf.
-
-    Notes
-    -----
-    The output sf is to update all ghost DoFs including constrained ones if any.
-
-    """
-    cdef:
-        PETSc.SF halo_exchange_sf
-        PetscInt dof_nroots, dof_nleaves
-        PetscInt *dof_ilocal = NULL
-        PetscSFNode *dof_iremote = NULL
-        PETSc.SF point_sf
-        PetscInt nroots, nleaves
-        const PetscInt *ilocal = NULL
-        const PetscSFNode *iremote = NULL
-        PETSc.Section local_sec
-        PetscInt pStart, pEnd, p, dof, off, m, n, i, j
-        np.ndarray local_offsets
-        np.ndarray remote_offsets
-
-    point_sf = dm.getPointSF()
-    local_sec = dm.getLocalSection()
-    CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-    pStart, pEnd = local_sec.getChart()
-    assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
-    assert pStart == 0
-    m = 0
-    local_offsets = np.empty(pEnd - pStart, dtype=IntType)
-    remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
-    for p in range(pStart, pEnd):
-        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
-        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
-        local_offsets[p] = off
-        m += dof
-    unit = MPI._typedict[np.dtype(IntType).char]
-    point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
-    point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
-    n = 0
-    # ilocal == NULL if local leaf points are [0, 1, 2, ...).
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
-        n += dof
-    CHKERR(PetscMalloc1(n, &dof_ilocal))
-    CHKERR(PetscMalloc1(n, &dof_iremote))
-    n = 0
-    for i in range(nleaves):
-        # ilocal == NULL if local leaf points are [0, 1, 2, ...).
-        p = ilocal[i] if ilocal else i
-        assert remote_offsets[p] >= 0
-        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
-        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
-        for j in range(dof):
-            dof_ilocal[n] = off + j
-            dof_iremote[n].rank = iremote[i].rank
-            dof_iremote[n].index = remote_offsets[p] + j
-            n += 1
-    halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
-    CHKERR(PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, PETSC_OWN_POINTER, dof_iremote, PETSC_OWN_POINTER))
-    return halo_exchange_sf
-
-
 # -- submesh --
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
+                   PetscInt subdim,
                    label_name,
-                   PetscInt label_value):
+                   PetscInt label_value,
+                   PetscBool ignore_label_halo,
+                   comm=None):
     """Create submesh.
 
     Parameters
     ----------
     dm : PETSc.DM
         DMPlex representing the mesh topology
+    subdim : int
+        Topological dimension of the submesh
     label_name : str
         Name of the label
     label_value : int
         Value in the label
+    ignore_label_halo : bool
+        If labeled points in the halo are ignored.
+    comm : PETSc.Comm | None
+        An optional sub-communicator to define the submesh.
 
     """
     cdef:
-        PETSc.DM subdm = PETSc.DMPlex()
-        PETSc.DMLabel label
-        PETSc.SF ownership_transfer_sf = PETSc.SF()
+        PETSc.DMLabel label, temp_label
+        char *temp_label_name = <char *>"firedrake_submesh_temp_label"
+        PetscInt pStart, pEnd, p, i, stratum_size
+        PETSc.PetscIS stratum_is = NULL
+        const PetscInt *stratum_indices = NULL
 
     label = dm.getLabel(label_name)
-    CHKERR(DMPlexFilter(dm.dm, label.dmlabel, label_value, PETSC_FALSE, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
+    # Create temp_label that contains no lower-dimensional points.
+    dm.createLabel(temp_label_name)
+    temp_label = dm.getLabel(temp_label_name)
+    CHKERR(DMLabelGetStratumSize(<DMLabel>label.dmlabel, label_value, &stratum_size))
+    if stratum_size > 0:
+        CHKERR(DMLabelGetStratumIS(<DMLabel>label.dmlabel, label_value, &stratum_is))
+        CHKERR(ISGetIndices(stratum_is, &stratum_indices))
+        CHKERR(DMPlexGetDepthStratum(dm.dm, subdim, &pStart, &pEnd))
+        for i in range(stratum_size):
+            p = stratum_indices[i]
+            # Only include points on the submesh topological dimension,
+            # culling all lower-dimensional points.
+            if pStart <= p < pEnd:
+                CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
+        CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
+        CHKERR(ISDestroy(&stratum_is))
+    # Make submesh using temp_label.
+    subdm, ownership_transfer_sf = dm.filter(label=temp_label,
+                                             value=label_value,
+                                             ignoreHalo=ignore_label_halo,
+                                             sanitizeSubMesh=PETSC_TRUE,
+                                             comm=comm)
+    # Destroy temp_label.
+    dm.removeLabel(temp_label_name)
+    subdm.removeLabel(temp_label_name)
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
     return subdm
@@ -3869,55 +3966,53 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         const PetscInt *subpoint_indices = NULL
         np.ndarray ownership_loss
         np.ndarray ownership_gain
-        DMLabel lbl_core, lbl_owned, lbl_ghost
+        DMLabel is_ghost
         PetscBool has
 
     if dm.comm.size == 1:
         return
+
     CHKERR(DMPlexGetChart(dm.dm, &pStart, &pEnd))
     CHKERR(DMPlexGetChart(subdm.dm, &subpStart, &subpEnd))
-    CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
-    assert nroots == pEnd - pStart
     assert pStart == 0
-    ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
-    ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        ownership_loss[p] = 1
-    unit = MPI._typedict[np.dtype(IntType).char]
-    ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
-    subpoint_is = subdm.getSubpointIS()
-    CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
-    assert nsubpoints == subpEnd - subpStart
     assert subpStart == 0
-    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_core", &lbl_core))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_owned", &lbl_owned))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_ghost", &lbl_ghost))
-    CHKERR(DMLabelCreateIndex(lbl_core, subpStart, subpEnd))
-    CHKERR(DMLabelCreateIndex(lbl_owned, subpStart, subpEnd))
-    CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
-    for subp in range(subpStart, subpEnd):
-        p = subpoint_indices[subp]
-        if ownership_loss[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
-        if ownership_gain[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
-    CHKERR(DMLabelDestroyIndex(lbl_core))
-    CHKERR(DMLabelDestroyIndex(lbl_owned))
-    CHKERR(DMLabelDestroyIndex(lbl_ghost))
-    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
+    CHKERR(DMGetLabel(subdm.dm, b"firedrake_is_ghost", &is_ghost))
+    CHKERR(DMLabelCreateIndex(is_ghost, subpStart, subpEnd))
+
+    if subdm.comm.size == 1:
+        # Undistributed case: relabel every point as core
+        for subp in range(subpStart, subpEnd):
+            CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+    else:
+        ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)
+        ownership_gain = np.zeros(pEnd - pStart, dtype=IntType)
+        CHKERR(PetscSFGetGraph(ownership_transfer_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+        assert nroots == pEnd - pStart
+        for i in range(nleaves):
+            p = ilocal[i] if ilocal else i
+            ownership_loss[p] = 1
+        unit = MPI._typedict[np.dtype(IntType).char]
+        ownership_transfer_sf.reduceBegin(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+        ownership_transfer_sf.reduceEnd(unit, ownership_loss, ownership_gain, MPI.REPLACE)
+
+        subpoint_is = subdm.getSubpointIS()
+        CHKERR(ISGetSize(subpoint_is.iset, &nsubpoints))
+        assert nsubpoints == subpEnd - subpStart
+        CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+
+        for subp in range(subpStart, subpEnd):
+            p = subpoint_indices[subp]
+            if ownership_loss[p] == 1:
+                CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+                assert not has
+                CHKERR(DMLabelSetValue(is_ghost, subp, 1))
+            if ownership_gain[p] == 1:
+                CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+                assert has
+                CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+
+        CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
+    CHKERR(DMLabelDestroyIndex(is_ghost))
 
 
 @cython.boundscheck(False)
@@ -3950,13 +4045,17 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
         PETSc.DMLabel sub_int_facet_label, sub_ext_facet_label
         PetscBool has_point
 
+    dim = dm.getDimension()
+    subdim = subdm.getDimension()
+    if subdim != dim:
+        # What labels the submesh should have by default is not trivial.
+        # Think harder and do something useful here if necessary.
+        return
     # Mark interior and exterior facets
     label_facets(subdm)
     sub_int_facet_label = subdm.getLabel("interior_facets")
     sub_ext_facet_label = subdm.getLabel("exterior_facets")
     # Mark new exterior facets with current max label value + 1 in "Face Sets"
-    dim = dm.getDimension()
-    subdim = subdm.getDimension()
     subpoint_is = subdm.getSubpointIS()
     CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
     if subdim == dim:
@@ -3993,11 +4092,14 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
-                                             PETSc.DM dm,
-                                             PETSc.Section subcell_numbering,
-                                             PETSc.Section cell_numbering,
-                                             np.ndarray cell_closure):
+def submesh_create_cell_closure(
+    PETSc.DM subdm,
+    PETSc.DM dm,
+    PETSc.Section subcell_numbering,
+    PETSc.Section cell_numbering,
+    np.ndarray cell_closure,
+    np.ndarray entity_per_subcell,
+):
     """Inherit cell_closure from parent.
 
     Parameters
@@ -4012,17 +4114,26 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
         The cell_numbering of the parent mesh.
     cell_closure : numpy.ndarray
         The cell_closure of the parent mesh.
+    entity_per_subcell : numpy.ndarray
+        List of the number of entity points in each dimension on subcell.
 
     """
     cdef:
         PETSc.IS subpoint_is
         const PetscInt *subpoint_indices = NULL
         PetscInt *subpoint_indices_inv = NULL
+        PetscInt dim, subdim
         PetscInt subpStart, subpEnd, subp, subcStart, subcEnd, subc, subcell
         PetscInt pStart, pEnd, p, cStart, cEnd, c, cell
-        PetscInt nclosure, cl
+        PetscInt nclosure, cl, nsubclosure, subcl, nsupport
+        PetscInt *subclosure = NULL
+        const PetscInt *support
         np.ndarray subcell_closure
 
+    dim = get_topological_dimension(dm)
+    subdim = get_topological_dimension(subdm)
+    if subdim != dim and subdim !=  dim - 1:
+        raise NotImplementedError(f"subdim = {subdim} and dim = {dim}")
     get_chart(subdm.dm, &subpStart, &subpEnd)
     get_height_stratum(subdm.dm, 0, &subcStart, &subcEnd)
     get_chart(dm.dm, &pStart, &pEnd)
@@ -4032,21 +4143,213 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscMalloc1(pEnd - pStart, &subpoint_indices_inv))
     for p in range(pStart, pEnd):
         subpoint_indices_inv[p - pStart] = -1
-    for subp in range(subpStart, subpEnd):
-        subpoint_indices_inv[subpoint_indices[subp] - pStart] = subp
+    subcell_closure = np.empty((subcEnd - subcStart, sum(entity_per_subcell)), dtype=IntType)
     nclosure = cell_closure.shape[1]
-    subcell_closure = np.empty((subcEnd - subcStart, nclosure), dtype=IntType)
+    nsubclosure = subcell_closure.shape[1]
     for subc in range(subcStart, subcEnd):
         c = subpoint_indices[subc]
-        CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        if subdim == dim:
+            pass
+        elif subdim == dim - 1:
+            CHKERR(DMPlexGetSupportSize(dm.dm, c, &nsupport))
+            CHKERR(DMPlexGetSupport(dm.dm, c, &support))
+            if nsupport <= 0:
+                raise RuntimeError(f"Num. support = {nsupport} (<= 0) for parent facet {c}")
+            # Assume single cell type mesh and pick arbitrary side.
+            c = support[0]
+        # CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
+        # CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        get_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
+        for subcl in range(nsubclosure):
+            subp = subclosure[2*subcl]
+            p = subpoint_indices[subp]
+            subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
+        subcl = 0
         for cl in range(nclosure):
-            p = cell_closure[cell, cl]
+            # p = cell_closure[cell, cl]
+            p = cell_closure[c, cl]
             subp = subpoint_indices_inv[p]
             if subp >= 0:
-                subcell_closure[subcell, cl] = subp
-            else:
-                raise RuntimeError(f"subcell = {subcell}, cell = {cell}, p = {p}, subp = {subp}")
+                # subcell_closure[subcell, subcl] = subp
+                subcell_closure[subc-subcStart, subcl] = subp
+                subcl += 1
+        if subcl != nsubclosure:
+            raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
+        for subcl in range(nsubclosure):
+            subp = subclosure[2*subcl]
+            p = subpoint_indices[subp]
+            subpoint_indices_inv[p - pStart] = -1  # set back to -1.
+        restore_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_dm_cell_types(PETSc.DM dm):
+    """Return all cell types in the mesh.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The parent dm.
+
+    Returns
+    -------
+    tuple
+        Tuple of all cell types in the mesh.
+
+    """
+    cdef:
+        PetscInt cStart, cEnd, c
+        np.ndarray found, found_all
+        PetscDMPolytopeType celltype
+
+    cStart, cEnd = dm.getHeightStratum(0)
+    found = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    found_all = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexGetCellType(dm.dm, c, &celltype))
+        found[celltype] = 1
+    dm.comm.tompi4py().Allreduce(found, found_all, op=MPI.MAX)
+    return tuple(
+        polytope_type_enum for polytope_type_enum, found in enumerate(found_all) if found
+    )
+
+
+def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETSc.DM:
+    cdef:
+        PETSc.DM extruded_mesh
+
+        PetscBool tensor_c = PETSC_TRUE
+        PetscBool symmetric_c = PETSC_FALSE
+        PetscBool periodic_c = periodic
+        PetscReal *normal_c = NULL
+        PetscReal *thicknesses_c = NULL
+        DMLabel active_label_c = NULL
+
+    # Label the points in the base mesh with their dimension so we can determine
+    # the different facet types in the extruded mesh.
+    # Also label with the base entity
+    mesh.createLabel("base_dim")
+    base_dim_label = mesh.getLabel("base_dim")
+    mesh.createLabel("base_point")
+    base_point_label = mesh.getLabel("base_point")
+    for dim in range(mesh.getDimension()+1):
+        for pt in range(*mesh.getDepthStratum(dim)):
+            base_dim_label.setValue(pt, dim)
+            base_point_label.setValue(pt, pt)
+
+    extruded_mesh = PETSc.DMPlex().create(comm=mesh.comm)
+    PETSc.CHKERR(DMPlexExtrude(
+        mesh.dm,
+        nlayers,
+        thickness,
+        tensor_c,
+        symmetric_c,
+        periodic_c,
+        normal_c,
+        thicknesses_c,
+        active_label_c,
+        &extruded_mesh.dm,
+    ))
+
+    # CHKERR(PetscObjectReference(extruded_mesh.obj[0]))
+
+    # label_extruded_entities(extruded_mesh)
+
+    return extruded_mesh
+
+
+# def label_extruded_entities(PETSc.DM plex) -> None:
+#     """Label points with a tensor-like entity label.
+#
+#     Since labels store integers the label is stored in lexicographic form. That
+#     is, (1, 1) is stored as 11 and so on.
+#
+#     Note that this routine modifies the 'entity' label of the DMPlex in-place.
+#
+#     """
+#     cdef:
+#         char          *label_name_c = <char *>"entity"
+#         DMLabel label_c, orig_label_c
+#         PetscInt      dim_c, d_c, p_start_c, p_end_c, p_c, base_entity_c, entity_c
+#
+#     CHKERR(DMGetLabel(plex.dm, label_name_c, &label_c))
+#     CHKERR(DMLabelDuplicate(label_c, &orig_label_c))
+#     CHKERR(DMLabelReset(label_c))
+#
+#     dim_c = get_topological_dimension(plex)
+#     for d_c in range(dim_c+1):
+#         get_depth_stratum(plex.dm, d_c, &p_start_c, &p_end_c)
+#         for p_c in range(p_start_c, p_end_c):
+#             CHKERR(DMLabelGetValue(orig_label_c, p_c, &base_entity_c))
+#
+#             if base_entity_c >= 10:
+#                 raise NotImplementedError("Not currently considering nested extrusion")
+#
+#             if base_entity_c == d_c:
+#                 # transformed to entity with equal dimension, append 0
+#                 entity_c = base_entity_c * 10
+#             else:
+#                 # transformed to entity with one greater dimension, append 1
+#                 assert base_entity_c + 1 == d_c
+#                 entity_c = base_entity_c * 10 + 1
+#
+#             CHKERR(DMLabelSetValue(label_c, p_c, entity_c))
+#
+#     CHKERR(DMLabelDestroy(&orig_label_c))
+
+
+def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
+    cdef:
+        PETSc.IS filtered_is
+
+    filtered_is = is_.duplicate()
+    PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
+    return filtered_is
+
+
+# TODO: also do for ragged maps
+# TODO: the naming conventions here do not make it clear that we are 'localising'
+# the indices when we call getOffset
+def renumber_map_fixed(
+    # src_pts: np.ndarray[IntType, ndim=1],  should be cnp.ndarray...
+    # map_data: np.ndarray[IntType, ndim=2],
+    src_pts,
+    map_data,
+    src_numbering: PETSc.Section,
+    dest_numbering: PETSc.Section,
+) -> np.ndarray[IntType]:
+    """
+    """
+    cdef:
+        PetscInt num_src_pts_c, num_dest_pts_c, i_c, j_c, src_pt_c, src_pt_renum_c, dest_pt_c, dest_pt_renum_c
+
+    num_src_pts_c, num_dest_pts_c = map_data.shape
+    assert src_pts.shape == (num_src_pts_c,)
+
+    map_data_renum = np.empty_like(map_data)
+    for i_c in range(num_src_pts_c):
+        src_pt_c = src_pts[i_c]
+        PETSc.CHKERR(PetscSectionGetOffset(src_numbering.sec, src_pt_c, &src_pt_renum_c))
+        for j_c in range(num_dest_pts_c):
+            dest_pt_c = map_data[i_c, j_c]
+            if dest_pt_c == -1:
+                map_data_renum[src_pt_renum_c, j_c] = -1
+            elif dest_numbering.getDof(dest_pt_c) == 1:
+                PETSc.CHKERR(PetscSectionGetOffset(dest_numbering.sec, dest_pt_c, &dest_pt_renum_c))
+                map_data_renum[src_pt_renum_c, j_c] = dest_pt_renum_c
+            else:
+                map_data_renum[src_pt_renum_c, j_c] = -1
+    return utils.readonly(map_data_renum)
+
+
+# TODO: petsc4py
+# NOTE: copy=False doesnt appear to work
+def is_on_comm(is_: PETSc.IS, comm: MPI.Comm, *, copy=True) -> PETSc.IS:
+    new_is: PETSc.IS = PETSc.IS()
+    copy_mode: PetscCopyMode = PETSC_COPY_VALUES if copy else PETSC_USE_POINTER
+    CHKERR(ISOnComm(is_.iset, comm.ob_mpi, copy_mode, &new_is.iset))
+    return new_is

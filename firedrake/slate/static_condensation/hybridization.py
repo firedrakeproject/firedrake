@@ -1,8 +1,6 @@
 import functools
 
-import numpy as np
 import ufl
-import finat.ufl
 
 import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
@@ -37,14 +35,14 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import get_assembler
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
-        prefix = pc.getOptionsPrefix() + "hybridization_"
+        prefix = (pc.getOptionsPrefix() or "") + "hybridization_"
         _, P = pc.getOperators()
         self.ctx = P.getPythonContext()
 
@@ -55,6 +53,10 @@ class HybridizationPC(SCBase):
 
         V = test.function_space()
         mesh = V.mesh()
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
 
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
@@ -84,22 +86,21 @@ class HybridizationPC(SCBase):
             except TypeError:
                 tdegree = W.ufl_element().degree() - 1
 
-        TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
+        TraceSpace = FunctionSpace(mesh[self.vidx], "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = finat.ufl.MixedElement([finat.ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
-        V_d = FunctionSpace(mesh, broken_elements)
+        V_d = V.broken_space()
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Cofunction(V_d.dual())
-        self.broken_residual = Function(V_d)
+        self.broken_solution = Function(V_d)
+        self.broken_residual = Cofunction(V_d.dual())
         self.trace_solution = Function(TraceSpace)
-        self.unbroken_solution = Cofunction(V.dual())
-        self.unbroken_residual = Function(V)
+        self.unbroken_solution = Function(V)
+        self.unbroken_residual = Cofunction(V.dual())
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
-                  np.prod(V[self.vidx].shape))
+                  V[self.vidx].block_size)
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
@@ -123,10 +124,10 @@ class HybridizationPC(SCBase):
                    trial: TrialFunction(V_d)}
         Atilde = Tensor(replace(self.ctx.a, arg_map))
         gammar = TestFunction(TraceSpace)
-        n = ufl.FacetNormal(mesh)
+        n = ufl.FacetNormal(mesh_unique)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        if mesh.cell_set._extruded:
+        if mesh_unique.extruded:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
                      + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
@@ -160,7 +161,7 @@ class HybridizationPC(SCBase):
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
-            if mesh.cell_set._extruded:
+            if mesh_unique.extruded:
                 ds = ufl.ds_v
                 for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
@@ -171,14 +172,14 @@ class HybridizationPC(SCBase):
                 measures.append(ds)
             else:
                 measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh.exterior_facets.unique_markers]
+                markers = [int(x) for x in mesh_unique.exterior_facets.unique_markers]
                 dirichlet_subdomains = set(markers) - neumann_subdomains
                 trace_subdomains.extend(sorted(dirichlet_subdomains))
 
             for measure in measures:
                 Kform += integrand*measure
 
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
@@ -186,9 +187,9 @@ class HybridizationPC(SCBase):
             # the exterior boundary. Extruded cells will have both
             # horizontal and vertical facets
             trace_subdomains = ["on_boundary"]
-            if mesh.cell_set._extruded:
+            if mesh_unique.extruded:
                 trace_subdomains.extend(["bottom", "top"])
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
@@ -316,7 +317,7 @@ class HybridizationPC(SCBase):
         """
 
         with PETSc.Log.Event("HybridBreak"):
-            with self.unbroken_residual.dat.vec_wo as v:
+            with self.unbroken_residual.vec_wo as v:
                 x.copy(v)
 
             # Transfer unbroken_rhs into broken_rhs
@@ -356,11 +357,11 @@ class HybridizationPC(SCBase):
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
 
             # Solve the system for the Lagrange multipliers
-            with self.schur_rhs.dat.vec_ro as b:
+            with self.schur_rhs.vec_ro as b:
                 if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec
+                    acc = self.trace_solution.vec
                 else:
-                    acc = self.trace_solution.dat.vec_wo
+                    acc = self.trace_solution.vec_wo
                 with acc as x_trace:
                     self.trace_ksp.solve(b, x_trace)
 
@@ -394,7 +395,7 @@ class HybridizationPC(SCBase):
                       "vec_in": (broken_hdiv, READ),
                       "vec_out": (unbroken_hdiv, INC)})
 
-        with self.unbroken_solution.dat.vec_ro as v:
+        with self.unbroken_solution.vec_ro as v:
             v.copy(y)
 
     def view(self, pc, viewer=None):

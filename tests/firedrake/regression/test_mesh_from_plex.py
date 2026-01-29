@@ -1,7 +1,5 @@
 from firedrake import *
 import numpy as np
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def remove_pyop2_label(plex):
@@ -15,8 +13,8 @@ def get_plex_with_update_coordinates(mesh):
     """
     Update the coordinates of the dmplex in mesh and return a copy of the dmplex
     """
-    tdim = mesh.topological_dimension()
-    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension
+    gdim = mesh.geometric_dimension
     entity_dofs = np.zeros(tdim + 1, dtype=np.int32)
     entity_dofs[0] = gdim
     coord_section, _ = mesh.create_section(entity_dofs)

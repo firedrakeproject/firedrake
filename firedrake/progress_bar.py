@@ -1,5 +1,5 @@
 """A module providing progress bars."""
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from progress.bar import FillingSquaresBar
 
 

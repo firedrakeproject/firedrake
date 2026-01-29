@@ -112,7 +112,8 @@ def solver(Z, permute, solution, solver_parameters):
                                       solver_parameters=solver_parameters)
 
 
-def run(solver, solution, permute):
+@pytest.mark.parallel([1, 2])
+def test_fieldsplit_split_reorder_bcs(solver, solution, permute):
     u_ex, p_ex, B_ex, E_ex = solution
     solver.solve()
     sol = solver._problem.u
@@ -123,14 +124,3 @@ def run(solver, solution, permute):
                                              0.22550499155,
                                              0.17968476000]))
     assert all(diff < 1e-7)
-
-
-@pytest.mark.skip(reason="pyop3 TODO")
-def test_fieldsplit_split_reorder_bcs(solver, solution, permute):
-    run(solver, solution, permute)
-
-
-@pytest.mark.skip(reason="pyop3 TODO")
-@pytest.mark.parallel(nprocs=2)
-def test_fieldsplit_split_reorder_bcs_parallel(solver, solution, permute):
-    run(solver, solution, permute)

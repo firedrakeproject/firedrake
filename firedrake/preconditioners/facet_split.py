@@ -1,11 +1,15 @@
 from functools import partial
-from mpi4py import MPI
-from pyop2 import op2, PermutedMap
-from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
+import pyop3 as op3
+from pyop3.mpi import MPI, temp_internal_comm
+from finat.ufl import MixedElement
+from firedrake.function import Function
+from firedrake.pack import pack
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
 import numpy
+
 
 __all__ = ['FacetSplitPC']
 
@@ -19,7 +23,7 @@ class FacetSplitPC(PCBase):
     This allows for statically-condensed preconditioners to be applied to
     linear systems involving the matrix applied to the full set of DOFs. Code
     generated for the matrix-free operator evaluation in the space with full
-    DOFs will run faster than the one with interior-facet decoposition, since
+    DOFs will run faster than the one with interior-facet decomposition, since
     the full element has a simpler structure.
     """
 
@@ -32,16 +36,17 @@ class FacetSplitPC(PCBase):
         key = (V, W)
         if key not in self._index_cache:
             indices = get_restriction_indices(V, W)
-            if V._comm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
-                self._index_cache[key] = None
-            else:
-                self._index_cache[key] = indices
+            with temp_internal_comm(V.comm) as icomm:
+                if icomm.allreduce(len(indices) == V.dof_count and numpy.all(indices[:-1] <= indices[1:]), MPI.PROD):
+                    self._index_cache[key] = None
+                else:
+                    self._index_cache[key] = indices
         return self._index_cache[key]
 
     def initialize(self, pc):
         from firedrake import FunctionSpace, TestFunction, TrialFunction, split
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")
@@ -56,8 +61,10 @@ class FacetSplitPC(PCBase):
             raise ValueError("Decomposition of mixed elements is not supported")
 
         element = V.ufl_element()
-        elements = [restrict(element, domain) for domain in domains]
-        W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(elements))
+        elements = [element[domain] for domain in domains]
+        W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(*elements))
+        if V.boundary_set:
+            W = restricted_function_space(W, [V.boundary_set]*len(W))
 
         args = (TestFunction(W), TrialFunction(W))
         if len(W) > 1:
@@ -88,7 +95,7 @@ class FacetSplitPC(PCBase):
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
         elif self.subset:
-            global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
+            global_indices = V.axes.lgmap(V.block_shape).apply(self.subset.indices)
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             self.mixed_opmat = self._permute_op()
@@ -200,17 +207,6 @@ class FacetSplitPC(PCBase):
                 self.subset.destroy()
 
 
-def restrict(ele, restriction_domain):
-    """ Restrict a UFL element, keeping VectorElement and TensorElement as the outermost modifier.
-    """
-    if isinstance(ele, VectorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
-    elif isinstance(ele, TensorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
-    else:
-        return RestrictedElement(ele, restriction_domain)
-
-
 def split_dofs(elem):
     """ Split DOFs into interior and facet DOF, where facets are sorted by entity.
     """
@@ -239,7 +235,7 @@ def restricted_dofs(celem, felem):
     cdofs = celem.entity_dofs()
     fdofs = felem.entity_dofs()
     for dim in sorted(cdofs):
-        for entity in cdofs[dim]:
+        for entity in sorted(cdofs[dim]):
             ndofs = len(cdofs[dim][entity])
             indices[cdofs[dim][entity]] = fdofs[dim][entity][:ndofs]
     return indices
@@ -248,27 +244,27 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
-    vdat = V.make_dat(val=numpy.arange(V.dof_count, dtype=PETSc.IntType))
-    wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
-    wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)
+    v_func = Function(V, val=numpy.arange(V.axes.size, dtype=PETSc.IntType), dtype=PETSc.IntType)
+    w_func = Function(W, val=numpy.full(W.axes.size, -1, dtype=PETSc.IntType), dtype=PETSc.IntType)
 
     vsize = sum(Vsub.finat_element.space_dimension() for Vsub in V)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     if len(eperm) < vsize:
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
-    pmap = PermutedMap(V.cell_node_map(), eperm)
+    eperm_dat = op3.Dat.from_array(eperm, prefix="perm", buffer_kwargs={"constant": True})
 
-    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.block_size for Vsub in W)
-    kernel_code = f"""
-    void copy(PetscInt *restrict w, const PetscInt *restrict v) {{
-        for (PetscInt i=0; i<{wsize}; i++) w[i] = v[i];
-    }}"""
-    kernel = op2.Kernel(kernel_code, "copy", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set,
-                 wdat(op2.WRITE, W.cell_node_map()),
-                 vdat(op2.READ, pmap),
-                 )
-    indices = wdat.data_ro
-    if len(W) > 1:
-        indices = numpy.concatenate(indices)
-    return indices
+    # TODO: now we can pass permutation to pack do we need this?
+
+    # debug
+    c = V.mesh().cells.owned.iter()
+    b = pack(v_func, c, "cell")[eperm_dat]
+    a = pack(w_func, c, "cell").reshape(b.axes.materialize())
+
+    # import pyop3.extras.debug
+    # pyop3.extras.debug.enable_conditional_breakpoints()
+    op3.loop(
+        c,
+        a.assign(b),
+        eager=True,
+    )
+    return w_func.dat.data_ro

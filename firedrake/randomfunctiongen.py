@@ -3,7 +3,7 @@ Overview
 ========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
-and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
+and enables users to generate a randomised :class:`.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
 Generator
@@ -11,7 +11,7 @@ Generator
 
 A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
-and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
+and they can be used to generate a randomised :class:`.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
 
 Example:
 
@@ -105,8 +105,8 @@ import numpy as np
 import numpy.random as randomgen
 
 from firedrake.function import Function
-from pyop2.mpi import COMM_WORLD
-from ufl import FunctionSpace
+from pyop3.mpi import COMM_WORLD
+from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]
 
@@ -280,7 +280,7 @@ def __getattr__(module_attr):
 
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             raise NotImplementedError("%s.%s does not take FunctionSpace as argument" % (module_attr, c_a))
                         else:
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
@@ -294,14 +294,14 @@ def __getattr__(module_attr):
                 def funcgen(c_a):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             # Extract size from V
                             if 'size' in kwargs.keys():
                                 raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
                             V = args[0]
                             f = Function(V)
                             args = args[1:]
-                            with f.dat.vec_wo as v:
+                            with f.vec_wo as v:
                                 kwargs['size'] = (v.local_size,)
                                 v.array[:] = getattr(self, c_a)(*args, **kwargs)
                             return f
@@ -326,8 +326,8 @@ def __getattr__(module_attr):
 
         def __init__(self, *args, **kwargs):
             _kwargs = kwargs.copy()
-            self._comm = _kwargs.pop('comm', COMM_WORLD)
-            if self._comm.Get_size() > 1 and module_attr not in ['PCG64', 'PCG64DXSM', 'Philox']:
+            self.comm = _kwargs.pop('comm', COMM_WORLD)
+            if self.comm.Get_size() > 1 and module_attr not in ['PCG64', 'PCG64DXSM', 'Philox']:
                 raise TypeError("Use 'PCG64', 'PCG64DXSM', or 'Philox', for parallel RNG")
             self._init(*args, **_kwargs)
 
@@ -338,8 +338,8 @@ def __getattr__(module_attr):
             def _init(self, *args, **kwargs):
                 if 'inc' in kwargs:
                     raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
-                rank = self._comm.Get_rank()
-                size = self._comm.Get_size()
+                rank = self.comm.Get_rank()
+                size = self.comm.Get_size()
                 _kwargs = kwargs.copy()
                 seed = _kwargs.get("seed")
                 if seed is None:
@@ -348,7 +348,7 @@ def __getattr__(module_attr):
                         seed = randomgen.SeedSequence().entropy
                     else:
                         seed = None
-                    seed = self._comm.bcast(seed, root=0)
+                    seed = self.comm.bcast(seed, root=0)
                 if isinstance(seed, randomgen.SeedSequence):
                     # We assume that the user has generated
                     # a parallel-safe SeedSequence.
@@ -363,8 +363,8 @@ def __getattr__(module_attr):
                 seed = kwargs.get("seed")
                 # counter = kwargs.get("counter")
                 key = kwargs.get("key")
-                if self._comm.Get_size() > 1:
-                    rank = self._comm.Get_rank()
+                if self.comm.Get_size() > 1:
+                    rank = self.comm.Get_rank()
                     if seed is not None:
                         raise TypeError("'seed' should not be used when using 'Philox' in parallel.  A random 'key' is automatically generated and used unless specified.")
                     # if 'key' is to be passed, it is users' responsibility

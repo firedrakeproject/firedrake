@@ -197,80 +197,104 @@ class SubfunctionBlock(Block):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
-        self.idx = idx
+        self.sub_idx = idx
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         eval_adj = firedrake.Cofunction(block_variable.output.function_space().dual())
-        if type(adj_inputs[0]) is firedrake.Cofunction:
-            eval_adj.sub(self.idx).assign(adj_inputs[0])
-        else:
-            eval_adj.sub(self.idx).assign(adj_inputs[0].function)
+        eval_adj.sub(self.sub_idx).assign(adj_inputs[0])
         return eval_adj
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx,
                                prepared=None):
-        return firedrake.Function.sub(tlm_inputs[0], self.idx)
+        return tlm_inputs[0].sub(self.sub_idx)
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
         eval_hessian = firedrake.Cofunction(block_variable.output.function_space().dual())
-        eval_hessian.sub(self.idx).assign(hessian_inputs[0])
+        eval_hessian.sub(self.sub_idx).assign(hessian_inputs[0])
         return eval_hessian
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        return maybe_disk_checkpoint(
-            firedrake.Function.sub(inputs[0], self.idx)
-        )
+        return maybe_disk_checkpoint(inputs[0].sub(self.sub_idx))
 
     def __str__(self):
-        return f"{self.get_dependencies()[0]}[{self.idx}]"
+        return f"{self.get_dependencies()[0]}[{self.sub_idx}]"
 
 
 class FunctionMergeBlock(Block):
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
-        self.idx = idx
+        self.sub_idx = idx
         for output in func._ad_outputs:
             self.add_dependency(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
+        # The merge block appears whenever a subfunction is the output of a block.
+        # This means that the subfunction has been modified, so we need to make
+        # sure that this modification is accounted for when evaluating the adjoint.
+        #
+        # When recomputing the merge block, the indexed subfunction in the full
+        # Function is completely overwritten, meaning that the pre-existing value
+        # of the subfunction in the full function is ignored.
+        # The equivalent adjoint operation is to:
+        #   1. send the subfunction component of the adjoint value back up
+        #      the branch of the tape corresponding to the subfunction
+        #      dependency (idx=0).
+        #   2. zero out the subfunction component of the adjoint value sent
+        #      back up the full Function branch of the tape (idx=1).
+        # This means that when the adjoint values of each branch are combined
+        # after the SubfunctionBlock only the adjoint value from the subfunction
+        # branch is used.
+        #
+        # See https://github.com/firedrakeproject/firedrake/pull/4177 for more
+        # detail and for diagrams of the tape produced when accessing subfunctions.
+
         if idx == 0:
-            return adj_inputs[0].subfunctions[self.idx]
+            return adj_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
         else:
+            adj_inputs[0].subfunctions[self.sub_idx].zero()
             return adj_inputs[0]
 
-    def evaluate_tlm(self, markings=False):
-        tlm_input = self.get_dependencies()[0].tlm_value
-        if tlm_input is None:
-            return
-        output = self.get_outputs()[0]
-        if markings and not output.marked_in_path:
-            return
-        fs = output.output.function_space()
-        f = type(output.output)(fs)
-        output.add_tlm_output(
-            type(output.output).assign(f.sub(self.idx), tlm_input)
-        )
+    def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
+        sub_tlm = tlm_inputs[0]
+        parent_in = tlm_inputs[1]
+
+        if sub_tlm is None and parent_in is None:
+            return None
+
+        output = self.get_outputs()[0].output
+        parent_out = type(output)(output.function_space())
+
+        if parent_in is not None:
+            parent_out.assign(parent_in)
+        if sub_tlm is not None:
+            parent_out.sub(self.sub_idx).assign(sub_tlm)
+
+        return parent_out
 
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        return hessian_inputs[0]
+        if idx == 0:
+            return hessian_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
+        else:
+            hessian_inputs[0].subfunctions[self.sub_idx].zero()
+            return hessian_inputs[0]
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         sub_func = inputs[0]
         parent_in = inputs[1]
         parent_out = type(parent_in)(parent_in)
-        parent_out.sub(self.idx).assign(sub_func)
+        parent_out.sub(self.sub_idx).assign(sub_func)
         return maybe_disk_checkpoint(parent_out)
 
     def __str__(self):
         deps = self.get_dependencies()
-        return f"{deps[1]}[{self.idx}].assign({deps[0]})"
+        return f"{deps[1]}[{self.sub_idx}].assign({deps[0]})"
 
 
 class CofunctionAssignBlock(Block):

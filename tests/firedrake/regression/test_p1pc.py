@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=[1, 2, 3],
@@ -17,11 +16,11 @@ def mesh(request):
 
 @pytest.fixture
 def expected(mesh):
-    if mesh.geometric_dimension() == 1:
+    if mesh.geometric_dimension == 1:
         return [2, 2, 2]
-    elif mesh.geometric_dimension() == 2:
+    elif mesh.geometric_dimension == 2:
         return [5, 5, 5]
-    elif mesh.geometric_dimension() == 3:
+    elif mesh.geometric_dimension == 3:
         return [7, 7, 7]
 
 

@@ -247,15 +247,6 @@ def test_iadd_combination(sfs):
     assert np.allclose(f.dat.data_ro, 2 + 2)
 
 
-def test_iadd_vector(sfs):
-    f = Function(sfs)
-    g = Function(sfs)
-    g.assign(1)
-    f.assign(2)
-    f += g.vector()
-    assert np.allclose(f.dat.data_ro, 3)
-
-
 def test_different_fs_assign_fails(fs_combinations):
     """Assigning to a Function on a different function space should raise
     ValueError."""
@@ -309,8 +300,8 @@ def test_assign_vector_const_to_vfs(vcg1):
     c = Constant(range(1, f.function_space().value_shape[0]+1))
 
     f.assign(c)
-    assert np.allclose(f.dat.data_ro[::2], 1)
-    assert np.allclose(f.dat.data_ro[1::2], 2)
+    assert np.allclose(f.dat.data_ro[:, 0], 1)
+    assert np.allclose(f.dat.data_ro[:, 1], 2)
 
 
 def test_assign_scalar_const_to_vfs(vcg1):

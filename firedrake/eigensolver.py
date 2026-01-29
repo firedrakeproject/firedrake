@@ -1,10 +1,10 @@
 """Specify and solve finite element eigenproblems."""
+from petsctools import OptionsManager, flatten_parameters
 from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
-from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
 try:
@@ -15,10 +15,10 @@ __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
 
-class LinearEigenproblem():
+class LinearEigenproblem:
     """Generalised linear eigenvalue problem.
 
-    The problem has the form, find `u`, `λ` such that::
+    The problem has the form, find ``u``, ``λ`` such that::
 
         A(u, v) = λM(u, v)    ∀ v ∈ V
 
@@ -57,19 +57,19 @@ class LinearEigenproblem():
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
-                "(try firedrake-update --slepc)"
+                "(see https://www.firedrakeproject.org/install.html#slepc)"
             )
 
         args = A.arguments()
         v, u = args
         self.output_space = u.function_space()
         self.bc_shift = bc_shift
-        self.restrict = restrict
+        self.restrict = restrict and bcs
 
         if not M:
             M = inner(u, v) * dx
 
-        if restrict and bcs:  # assumed u and v are in the same space here
+        if self.restrict:  # assumed u and v are in the same space here
             V_res = restricted_function_space(self.output_space, extract_subdomain_ids(bcs))
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)
@@ -142,9 +142,10 @@ class LinearEigensolver(OptionsManager):
         "eps_largest_real": None
     """
 
-    DEFAULT_EPS_PARAMETERS = {"eps_type": "krylovschur",
-                              "eps_tol": 1e-10,
-                              "eps_target": 0.0}
+    DEFAULT_EPS_PARAMETERS = {
+        "eps_type": "krylovschur",
+        "eps_tol": 1e-10,
+    }
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
                  solver_parameters=None, ncv=None, mpd=None):
@@ -158,8 +159,6 @@ class LinearEigensolver(OptionsManager):
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
-        if self._problem.bcs:
-            solver_parameters.setdefault("st_type", "sinvert")
         super().__init__(solver_parameters, options_prefix)
         self.set_from_options(self.es)
 
@@ -186,11 +185,11 @@ class LinearEigensolver(OptionsManager):
         int
             The number of Eigenvalues found.
         """
-        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
+        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).petscmat
         self.M_mat = assemble(
             self._problem.M, bcs=self._problem.bcs,
             weight=self._problem.bc_shift and 1./self._problem.bc_shift
-        ).M.handle
+        ).petscmat
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
@@ -219,8 +218,8 @@ class LinearEigensolver(OptionsManager):
         else:
             eigenmodes_real = Function(self._problem.output_space)  # fn of V
             eigenmodes_imag = Function(self._problem.output_space)
-        with eigenmodes_real.dat.vec_wo as vr:
-            with eigenmodes_imag.dat.vec_wo as vi:
+        with eigenmodes_real.vec_wo as vr:
+            with eigenmodes_imag.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
         if self._problem.restrict:
             eigenmodes_real = Function(self._problem.output_space).interpolate(eigenmodes_real)

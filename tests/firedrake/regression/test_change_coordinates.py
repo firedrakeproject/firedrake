@@ -13,7 +13,7 @@ def test_immerse_1d(dim):
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == dim
+    assert m.geometric_dimension == dim
 
 
 def test_immerse_2d():
@@ -23,7 +23,7 @@ def test_immerse_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3
 
 
 def test_project_2d():
@@ -33,10 +33,9 @@ def test_project_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 1
+    assert m.geometric_dimension == 1
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_immerse_extruded():
     m1 = UnitIntervalMesh(5)
     m = ExtrudedMesh(m1, 10)
@@ -45,4 +44,4 @@ def test_immerse_extruded():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3

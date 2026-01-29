@@ -29,14 +29,3 @@ This is open to all, but you must `request an invite to join
 the channel. Should this not work for whatever reason, please get in
 touch via `GitHub discussions
 <https://github.com/firedrakeproject/firedrake/discussions>`__.
-
-
-Mailing list
-------------
-
-Please join the Firedrake mailing list: firedrake@imperial.ac.uk.  This is a
-very low traffic list but it does carry important announcements, for example
-when we change a user-facing interface. Join the list on `this page
-<mailing_list_>`_.
-
-.. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake

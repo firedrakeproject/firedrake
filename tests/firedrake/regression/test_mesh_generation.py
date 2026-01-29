@@ -2,9 +2,6 @@ import pytest
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 from firedrake import *
 # Must come after firedrake import (that loads MPI)
 try:
@@ -251,7 +248,6 @@ def test_periodic_unit_cube_parallel():
 def assert_num_exterior_facets_equals_zero(m):
     # Need to initialise the mesh so that exterior facets have been
     # built.
-    m.init()
     assert m.exterior_facets.set.total_size == 0
 
 
@@ -424,13 +420,12 @@ def test_bendy_cube_unit_parallel(degree):
 
 def _mesh_is_reordered(mesh):
     default_numbering = np.arange(mesh.num_points(), dtype=IntType)
-    assert (mesh._dm_renumbering.indices != default_numbering).any()
+    assert (mesh._new_to_old_point_renumbering.indices != default_numbering).any()
 
 
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
-    m.init()
 
     assert _mesh_is_reordered(m)
 
@@ -458,7 +453,6 @@ def test_mesh_validation_parallel():
                          [False, True])
 def test_force_reordering_works(reorder):
     m = UnitSquareMesh(1, 1, reorder=reorder)
-    m.init()
 
     assert _mesh_is_reordered(m) == reorder
 
@@ -470,7 +464,6 @@ def test_changing_default_reorder_works(reorder):
     try:
         parameters["reorder_meshes"] = reorder
         m = UnitSquareMesh(1, 1)
-        m.init()
 
         assert _mesh_is_reordered(m) == reorder
     finally:
@@ -481,7 +474,6 @@ def test_changing_default_reorder_works(reorder):
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    m.init()
     assert m.num_cells() == num_cells
 
 
@@ -529,3 +521,18 @@ def test_split_comm_dm_mesh():
     bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
     with pytest.raises(ValueError):
         mesh2 = Mesh(dm, comm=bad_comm)  # noqa: F841
+
+
+def test_immerse_mesh():
+    """This test exists to ensure that the code used in the manual runs
+    correctly."""
+
+    # start_immerse
+    mesh = UnitSquareMesh(10, 10)
+    x, y = SpatialCoordinate(mesh)
+    coord_fs = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+    new_coord = assemble(interpolate(as_vector([x, y, sin(2*pi*x)]), coord_fs))
+    new_mesh = Mesh(new_coord)
+    # end_immerse
+
+    new_mesh  # Variable reference to silence linter.

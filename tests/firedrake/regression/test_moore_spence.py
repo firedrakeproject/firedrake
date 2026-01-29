@@ -3,15 +3,9 @@ from firedrake import *
 from firedrake.petsc import PETSc
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
+@pytest.mark.skipslepc
 def test_moore_spence():
-
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        pytest.skip(reason="SLEPc unavailable, skipping eigenvalue test")
+    from slepc4py import SLEPc
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)
@@ -55,7 +49,7 @@ def test_moore_spence():
     ev_re, ev_im = petsc_B.getVecs()
     es.getEigenpair(0, ev_re, ev_im)
     eigenmode = Function(V)
-    eigenmode.vector().set_local(ev_re)
+    eigenmode.dat.data_wo[...] = ev_re.buffer_r
 
     Z = MixedFunctionSpace([V, R, V])
 
@@ -77,7 +71,7 @@ def test_moore_spence():
     bcs = [DirichletBC(Z.sub(0), 0.0, "on_boundary"), DirichletBC(Z.sub(2), 0.0, "on_boundary")]
 
     solve(F == 0, z, bcs=bcs)
-    with z.sub(1).dat.vec_ro as x:
+    with z.sub(1).vec_ro as x:
         param = x.norm()
 
     assert abs(param - pi) < 1.0e-4

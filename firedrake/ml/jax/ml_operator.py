@@ -21,6 +21,7 @@ import warnings
 from functools import partial
 from typing import Union, Optional, Callable
 
+import petsctools
 import ufl
 from firedrake.external_operators import MLOperator
 from firedrake import utils
@@ -39,36 +40,40 @@ class JaxOperator(MLOperator):
             *operands: Union[ufl.core.expr.Expr, ufl.form.BaseForm],
             function_space: WithGeometryBase,
             derivatives: Optional[tuple] = None,
-            argument_slots: Optional[tuple[Union[ufl.coefficient.BaseCoefficient, ufl.argument.BaseArgument]]],
+            argument_slots: tuple[Union[ufl.coefficient.BaseCoefficient, ufl.argument.BaseArgument]] = (),
             operator_data: Optional[dict] = {}
     ):
-        """External operator class representing machine learning models implemented in JAX.
+        """
+        External operator class representing machine learning models implemented in JAX.
 
         The :class:`.JaxOperator` allows users to embed machine learning models implemented in JAX
-        into PDE systems implemented in Firedrake. The actual evaluation of the :class:`.JaxOperator` is
-        delegated to the specified JAX model. Similarly, differentiation through the :class:`.JaxOperator`
-        class is achieved using JAX differentiation on the JAX model associated with the :class:`.JaxOperator` object.
+        into PDE systems implemented in Firedrake. The actual evaluation of the :class:`.JaxOperator`
+        is delegated to the specified JAX model. Similarly, differentiation through the
+        :class:`.JaxOperator` is achieved using JAX differentiation on the associated JAX model.
 
         Parameters
         ----------
         *operands
-                    Operands of the :class:`.JaxOperator`.
+            Operands of the :class:`.JaxOperator`.
         function_space
-                         The function space the ML operator is mapping to.
+            The function space the ML operator is mapping to.
         derivatives
-                      Tuple specifiying the derivative multiindex.
-        *argument_slots
-                          Tuple containing the arguments of the linear form associated with the ML operator,
-                          i.e. the arguments with respect to which the ML operator is linear. Those arguments
-                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
-                          as a result of taking the action on a given function.
+            Tuple specifying the derivative multi-index.
+        argument_slots
+            Tuple containing the arguments of the linear form associated with the ML operator,
+            i.e., the arguments with respect to which the ML operator is linear. These arguments
+            can be ``ufl.argument.BaseArgument`` objects, as a result of differentiation,
+            or both ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` objects,
+            as a result of taking the action on a given function.
         operator_data
-                        Dictionary to stash external data specific to the ML operator. This dictionary must
-                        at least contain the following:
-                        (i) 'model': The machine learning model implemented in JaX
-                        (ii) 'inputs_format': The format of the inputs to the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
-                        Other strategies can also be considered by subclassing the :class:`.JaxOperator` class.
+            Dictionary to stash external data specific to the ML operator. This dictionary must
+            contain the following:
+            (i) ``'model'`` : The machine learning model implemented in JaX.
+            (ii) ``'model'`` : The format of the inputs to the ML model: ``0`` for models acting
+            globally on the inputs. ``1`` for models acting locally/pointwise on the inputs.
+            Other strategies can also be considered by subclassing the :class:`.JaxOperator` class.
         """
+
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                             argument_slots=argument_slots, operator_data=operator_data)
 
@@ -90,8 +95,7 @@ class JaxOperator(MLOperator):
 
     def _post_forward_callback(self, y_P: "jax.Array") -> Union[Function, Cofunction]:
         """Callback function to convert the JAX output of the ML model to a Firedrake function."""
-        space = self.ufl_function_space()
-        return from_jax(y_P, space)
+        return from_jax(y_P, self.ufl_function_space())
 
     # -- JAX routines for computing AD-based quantities -- #
 
@@ -186,8 +190,7 @@ def ml_operator(model: Callable, function_space: WithGeometryBase, inputs_format
     typing.Callable
         The partially initialised :class:`~.JaxOperator` class.
     """
-    from firedrake_citations import Citations
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

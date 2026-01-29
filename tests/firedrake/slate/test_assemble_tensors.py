@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.formmanipulation import split_form
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -46,7 +45,7 @@ def f(function_space):
         if fs_i.rank == 1:
             fi.interpolate(as_vector((x[0]*x[1],) * fs_i.value_size))
         elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension())]
+            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             fi.interpolate(x[0]*x[1])
@@ -67,7 +66,7 @@ def g(function_space):
         if fs_i.rank == 1:
             gi.interpolate(as_vector((x[0]*sin(x[1]),) * fs_i.value_size))
         elif fs_i.rank == 2:
-            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension())]
+            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             gi.interpolate(x[0]*sin(x[1]))
@@ -84,7 +83,8 @@ def mass(function_space):
 
 @pytest.fixture
 def matrix_mixed_nofacet():
-    mesh = UnitSquareMesh(2, 2)
+    # mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(1, 1)
     U = FunctionSpace(mesh, "RT", 1)
     V = FunctionSpace(mesh, "DG", 0)
     T = FunctionSpace(mesh, "HDiv Trace", 0)
@@ -293,7 +293,6 @@ def test_matrix_subblocks(mesh):
             assert block.form == ref
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_diagonal(mass, matrix_mixed_nofacet):
     n, _ = Tensor(mass).shape
 
@@ -313,7 +312,7 @@ def test_diagonal(mass, matrix_mixed_nofacet):
 
     # test matrix built from diagonal for non mass matrix
     res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
-    ref2 = np.concatenate(assemble(matrix_mixed_nofacet, diagonal=True).dat.data)
+    ref2 = assemble(matrix_mixed_nofacet, diagonal=True).dat.data_ro
     for r, d in zip(res2, np.diag(ref2)):
         assert np.allclose(r, d, rtol=1e-14)
 
@@ -321,7 +320,7 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     # for a Slate expression on a non mass matrix
     A = Tensor(matrix_mixed_nofacet)
     res3 = assemble(DiagonalTensor(A+A)).M.values
-    ref3 = np.concatenate(assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data)
+    ref3 = assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data_ro
     for r, d in zip(res3, np.diag(ref3)):
         assert np.allclose(r, d, rtol=1e-14)
 

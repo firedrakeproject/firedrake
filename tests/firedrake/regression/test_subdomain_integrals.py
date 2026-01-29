@@ -2,15 +2,14 @@ from firedrake import *
 import pytest
 import numpy as np
 from functools import reduce
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_overlap_subdomain_facets():
     m = UnitSquareMesh(10, 10)
 
-    c = Constant(1, domain=m)
+    c = Constant(1)
 
-    f = assemble(c * (ds(1) + ds))
+    f = assemble(c * (ds(1, domain=m) + ds(domain=m)))
 
     assert np.allclose(f, 5.0)
 

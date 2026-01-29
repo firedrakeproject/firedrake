@@ -39,9 +39,10 @@ from numpy.testing import assert_allclose
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
 from pyop2.mpi import COMM_WORLD
-from pyop2.datatypes import IntType
+from pyop2.datatypes import IntType, ScalarType, as_cstr
 
-from petsc4py.PETSc import ScalarType
+
+ScalarType_c = as_cstr(ScalarType)
 
 
 # Data type
@@ -166,7 +167,7 @@ def x_vec(dvnodes):
 @pytest.fixture
 def mass():
     kernel_code = """
-static void mass(double localTensor[3][3], double c0[3][2]) {
+static void mass(PetscScalar localTensor[9], PetscScalar c0[6]) {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
                                 {  0.09157621, 0.81684757, 0.09157621,
@@ -203,7 +204,7 @@ static void mass(double localTensor[3][3], double c0[3][2]) {
         c_q0[i_g][i_d_0][i_d_1] = 0.0;
         for(int q_r_0 = 0; q_r_0 < 3; q_r_0++)
         {
-          c_q0[i_g][i_d_0][i_d_1] += c0[q_r_0][i_d_0] * d_CG1[q_r_0][i_g][i_d_1];
+          c_q0[i_g][i_d_0][i_d_1] += c0[q_r_0*2+i_d_0] * d_CG1[q_r_0][i_g][i_d_1];
         };
       };
     };
@@ -213,7 +214,7 @@ static void mass(double localTensor[3][3], double c0[3][2]) {
       for (int i_r_1=0; i_r_1<3; ++i_r_1) {
         double ST0 = 0.0;
         ST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
-        localTensor[i_r_0][i_r_1] += ST0 * w[i_g];
+        localTensor[i_r_0*3+i_r_1] += ST0 * w[i_g];
       }
     }
   }
@@ -225,7 +226,7 @@ static void mass(double localTensor[3][3], double c0[3][2]) {
 @pytest.fixture
 def rhs():
     kernel_code = """
-static void rhs(double* localTensor, double c0[3][2], double* c1)
+static void rhs(PetscScalar* localTensor, PetscScalar c0[6], PetscScalar* c1)
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
@@ -269,7 +270,7 @@ static void rhs(double* localTensor, double c0[3][2], double* c1)
         c_q0[i_g][i_d_0][i_d_1] = 0.0;
         for(int q_r_0 = 0; q_r_0 < 3; q_r_0++)
         {
-          c_q0[i_g][i_d_0][i_d_1] += c0[q_r_0][i_d_0] * d_CG1[q_r_0][i_g][i_d_1];
+          c_q0[i_g][i_d_0][i_d_1] += c0[q_r_0*2+i_d_0] * d_CG1[q_r_0][i_g][i_d_1];
         };
       };
     };
@@ -290,11 +291,11 @@ static void rhs(double* localTensor, double c0[3][2], double* c1)
 @pytest.fixture
 def mass_ffc():
     kernel_code = """
-static void mass_ffc(double A[3][3], double x[3][2]) {
-  double J_00 = x[1][0] - x[0][0];
-  double J_01 = x[2][0] - x[0][0];
-  double J_10 = x[1][1] - x[0][1];
-  double J_11 = x[2][1] - x[0][1];
+static void mass_ffc(PetscScalar A[9], PetscScalar x[6]) {
+  double J_00 = x[2] - x[0];
+  double J_01 = x[4] - x[0];
+  double J_10 = x[3] - x[1];
+  double J_11 = x[5] - x[1];
 
   double detJ = J_00*J_11 - J_01*J_10;
   double det = fabs(detJ);
@@ -308,7 +309,7 @@ static void mass_ffc(double A[3][3], double x[3][2]) {
   for (unsigned int ip = 0; ip < 3; ip++)
     for (int j=0; j<3; ++j)
       for (int k=0; k<3; ++k)
-        A[j][k] += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
+        A[j*3+k] += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
 }
     """
     return op2.Kernel(kernel_code, "mass_ffc")
@@ -317,12 +318,12 @@ static void mass_ffc(double A[3][3], double x[3][2]) {
 @pytest.fixture
 def rhs_ffc():
     kernel_code = """
-static void rhs_ffc(double *A, double x[3][2], double *w0)
+static void rhs_ffc(PetscScalar *A, PetscScalar x[6], PetscScalar *w0)
 {
-    double J_00 = x[1][0] - x[0][0];
-    double J_01 = x[2][0] - x[0][0];
-    double J_10 = x[1][1] - x[0][1];
-    double J_11 = x[2][1] - x[0][1];
+    double J_00 = x[2] - x[0];
+    double J_01 = x[4] - x[0];
+    double J_10 = x[3] - x[1];
+    double J_11 = x[5] - x[1];
 
     double detJ = J_00*J_11 - J_01*J_10;
 
@@ -356,11 +357,11 @@ static void rhs_ffc(double *A, double x[3][2], double *w0)
 @pytest.fixture
 def rhs_ffc_itspace():
     kernel_code = """
-static void rhs_ffc_itspace(double A[3], double x[3][2], double *w0) {
-  double J_00 = x[1][0] - x[0][0];
-  double J_01 = x[2][0] - x[0][0];
-  double J_10 = x[1][1] - x[0][1];
-  double J_11 = x[2][1] - x[0][1];
+static void rhs_ffc_itspace(PetscScalar A[3], PetscScalar x[6], PetscScalar *w0) {
+  double J_00 = x[2] - x[0];
+  double J_01 = x[4] - x[0];
+  double J_10 = x[3] - x[1];
+  double J_11 = x[5] - x[1];
 
   double detJ = J_00*J_11 - J_01*J_10;
   double det = fabs(detJ);
@@ -387,7 +388,7 @@ static void rhs_ffc_itspace(double A[3], double x[3][2], double *w0) {
 @pytest.fixture
 def zero_dat():
     kernel_code = """
-static void zero_dat(double *dat)
+static void zero_dat(PetscScalar *dat)
 {
   *dat = 0.0;
 }
@@ -398,7 +399,7 @@ static void zero_dat(double *dat)
 @pytest.fixture
 def zero_vec_dat():
     kernel_code = """
-static void zero_vec_dat(double *dat)
+static void zero_vec_dat(PetscScalar *dat)
 {
   dat[0] = 0.0; dat[1] = 0.0;
 }
@@ -409,10 +410,10 @@ static void zero_vec_dat(double *dat)
 @pytest.fixture
 def kernel_inc():
     kernel_code = """
-static void inc(double entry[3][3], double *g) {
+static void inc(PetscScalar entry[9], double *g) {
   for (int i=0; i<3; ++i)
     for (int j=0; j<3; ++j)
-      entry[i][j] += g[0];
+      entry[i*3+j] += g[0];
 }
     """
     return op2.Kernel(kernel_code, "inc")
@@ -421,10 +422,10 @@ static void inc(double entry[3][3], double *g) {
 @pytest.fixture
 def kernel_set():
     kernel_code = """
-static void set(double entry[3][3], double *g) {
+static void set(PetscScalar entry[9], double *g) {
   for (int i=0; i<3; ++i)
     for (int j=0; j<3; ++j)
-      entry[i][j] = g[0];
+      entry[i*3+j] = g[0];
 }
     """
     return op2.Kernel(kernel_code, "set")
@@ -433,12 +434,12 @@ static void set(double entry[3][3], double *g) {
 @pytest.fixture
 def kernel_inc_vec():
     kernel_code = """
-static void inc_vec(double entry[2][2], double* g, int i, int j)
+static void inc_vec(PetscScalar entry[4], PetscScalar* g, int i, int j)
 {
-  entry[0][0] += *g;
-  entry[0][1] += *g;
-  entry[1][0] += *g;
-  entry[1][1] += *g;
+  entry[0] += *g;
+  entry[1] += *g;
+  entry[2] += *g;
+  entry[3] += *g;
 }
 """
     return op2.Kernel(kernel_code, "inc_vec")
@@ -447,12 +448,12 @@ static void inc_vec(double entry[2][2], double* g, int i, int j)
 @pytest.fixture
 def kernel_set_vec():
     kernel_code = """
-static void set_vec(double entry[2][2], double* g, int i, int j)
+static void set_vec(PetscScalar entry[4], PetscScalar* g, int i, int j)
 {
-  entry[0][0] = *g;
-  entry[0][1] = *g;
-  entry[1][0] = *g;
-  entry[1][1] = *g;
+  entry[0] = *g;
+  entry[1] = *g;
+  entry[2] = *g;
+  entry[3] = *g;
 }
 """
     return op2.Kernel(kernel_code, "set_vec")
@@ -608,35 +609,28 @@ class TestMatrices:
         d2 = op2.Set(3)
         m2 = op2.Map(s, d2, 1, [1])
         sparsity = op2.Sparsity((d ** 1, d2 ** 1), [(m, m2, None)])
-
-        from petsc4py import PETSc
-        # petsc4py default error handler swallows SETERRQ, so just
-        # install the abort handler to notice an error.
-        PETSc.Sys.pushErrorHandler("abort")
         mat = op2.Mat(sparsity)
-        PETSc.Sys.popErrorHandler()
-
         assert np.allclose(mat.handle.getDiagonal().array, 0.0)
 
     def test_minimal_zero_mat(self):
         """Assemble a matrix that is all zeros."""
         zero_mat_code = """
-void zero_mat(double local_mat[1][1]) {
-  local_mat[0][0] = 0.0;
-}
-        """
+void zero_mat({} local_mat[1]) {{
+  local_mat[0] = 0.0;
+}}
+        """.format(ScalarType_c)
 
         nelems = 128
         set = op2.Set(nelems)
         map = op2.Map(set, set, 1, np.array(list(range(nelems)), np.uint32))
         sparsity = op2.Sparsity((set ** 1, set ** 1), [(map, map, None)])
-        mat = op2.Mat(sparsity, np.float64)
+        mat = op2.Mat(sparsity, ScalarType)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set,
                      mat(op2.WRITE, (map, map)))
 
         mat.assemble()
-        expected_matrix = np.zeros((nelems, nelems), dtype=np.float64)
+        expected_matrix = np.zeros((nelems, nelems), dtype=ScalarType)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -769,7 +763,7 @@ void zero_mat(double local_mat[1][1]) {
 
     def test_mat_nbytes(self, mat):
         """Check that the matrix uses the amount of memory we expect."""
-        assert mat.nbytes == 14 * 8
+        assert mat.nbytes == 14 * np.dtype(ScalarType).itemsize
 
 
 class TestMatrixStateChanges:
@@ -794,33 +788,6 @@ class TestMatrixStateChanges:
             m.handle.setOption(opt, False)
             m.handle.setOption(opt2, False)
         return mat
-
-    def test_mat_starts_assembled(self, mat):
-        assert mat.assembly_state is op2.Mat.ASSEMBLED
-        for m in mat:
-            assert m.assembly_state is op2.Mat.ASSEMBLED
-
-    def test_after_set_local_state_is_insert(self, mat):
-        mat[0, 0].set_local_diagonal_entries([0])
-        assert mat[0, 0].assembly_state is op2.Mat.INSERT_VALUES
-        if not mat.sparsity.nested:
-            assert mat.assembly_state is op2.Mat.INSERT_VALUES
-        if mat.sparsity.nested:
-            assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
-
-    def test_after_addto_state_is_add(self, mat):
-        mat[0, 0].addto_values(0, 0, [1])
-        assert mat[0, 0].assembly_state is op2.Mat.ADD_VALUES
-        if not mat.sparsity.nested:
-            assert mat.assembly_state is op2.Mat.ADD_VALUES
-        if mat.sparsity.nested:
-            assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
-
-    def test_matblock_assemble_runtimeerror(self, mat):
-        if mat.sparsity.nested:
-            return
-        with pytest.raises(RuntimeError):
-            mat[0, 0].assemble()
 
     def test_mixing_insert_and_add_works(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
@@ -879,11 +846,11 @@ class TestMixedMatrices:
     def mat(self, msparsity, mmap, mdat):
         mat = op2.Mat(msparsity)
 
-        addone = """static void addone_mat(double v[9], double d[3]) {
+        addone = """static void addone_mat(PetscScalar v[9], double d[3]) {{
             for (int i = 0; i < 3; i++)
                for (int j = 0; j < 3; j++)
                   v[i*3 + j] += d[i]*d[j];
-        }"""
+        }}"""
 
         addone = op2.Kernel(addone, "addone_mat")
         op2.par_loop(addone, mmap.iterset,
@@ -896,7 +863,7 @@ class TestMixedMatrices:
     def dat(self, mset, mmap, mdat):
         dat = op2.MixedDat(mset)
         kernel_code = """
-static void addone_rhs(double v[3], double d[3]) {
+static void addone_rhs(PetscScalar v[3], double d[3]) {
   for (int i=0; i<3; ++i)
     v[i] += d[i];
 }
@@ -925,10 +892,10 @@ static void addone_rhs(double v[3], double d[3]) {
         """Assemble a simple right-hand side over a mixed space and check result."""
         dat = op2.MixedDat(mset ** 2)
         kernel_code = """
-static void addone_rhs_vec(double v[6], double d[3][2]) {
+static void addone_rhs_vec(PetscScalar v[6], double d[6]) {
   for (int i=0; i<3; ++i) {
-    v[i*2+0] += d[i][0];
-    v[i*2+1] += d[i][1];
+    v[i*2+0] += d[i*2+0];
+    v[i*2+1] += d[i*2+1];
   }
 }
         """

@@ -1,8 +1,6 @@
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 '''
 The spaces N1div, N1curl, N2div and N2curl have the special property that the interpolation in these
@@ -42,7 +40,7 @@ def V(request, mesh, degree):
 
 def test_div_curl_preserving(V):
     mesh = V.mesh()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     if dim == 2:
         x, y = SpatialCoordinate(mesh)
     elif dim == 3:
@@ -68,7 +66,7 @@ def test_div_curl_preserving(V):
 
 def compute_interpolation_error(baseMesh, nref, space, degree):
     mh = MeshHierarchy(baseMesh, nref)
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
 
     error = np.zeros((nref+1, 2))
     for i, mesh in enumerate(mh):

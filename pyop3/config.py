@@ -1,133 +1,150 @@
-# NOTE: This file should be the first initialised by pyop3 as it inspects the
-# environment and sets some things immutably.
-# It would also be good if the user could import this prior to anything else
-# and set things - we therefore need a configuration that is mutable until pyop3 init.
+from __future__ import annotations
 
+import collections
+import dataclasses
 import os
-from tempfile import gettempdir
+import pathlib
+import tempfile
+import warnings
 
 
-class ConfigurationError(RuntimeError):
-    pass
+def paramclass(cls: type) -> type:
+    """Decorator that turns a class into a dataclass for storing parameters."""
+    return dataclasses.dataclass(kw_only=True, unsafe_hash=True)(cls)
 
 
-# TODO I prefer this as a namedtuple or dataclass, this should not be mutable!
-class Configuration(dict):
-    r"""pyop3 configuration parameters
+_default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
 
-    :param cc: C compiler (executable name eg: `gcc`
-        or path eg: `/opt/gcc/bin/gcc`).
-    :param cxx: C++ compiler (executable name eg: `g++`
-        or path eg: `/opt/gcc/bin/g++`).
-    :param ld: Linker (executable name `ld`
-        or path eg: `/opt/gcc/bin/ld`).
-    :param cflags: extra flags to be passed to the C compiler.
-    :param cxxflags: extra flags to be passed to the C++ compiler.
-    :param ldflags: extra flags to be passed to the linker.
-    :param simd_width: number of doubles in SIMD instructions
-        (e.g. 4 for AVX2, 8 for AVX512).
-    :param debug: Turn on debugging for generated code (turns off
-        compiler optimisations).
-    :param type_check: Should PyOP2 type-check API-calls?  (Default,
-        yes)
-    :param check_src_hashes: Should PyOP2 check that generated code is
-        the same on all processes?  (Default, yes).  Uses an allreduce.
-    :param cache_dir: Where should generated code be cached?
-    :param node_local_compilation: Should generated code by compiled
-        "node-local" (one process for each set of processes that share
-         a filesystem)?  You should probably arrange to set cache_dir
-         to a node-local filesystem too.
-    :param log_level: How chatty should PyOP2 be?  Valid values
-        are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    :param print_cache_size: Should PyOP2 print the size of caches at
-        program exit?
-    :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
-    :param block_sparsity: Should sparsity patterns on datasets with
-        cdim > 1 be built as block sparsities, or dof sparsities.  The
-        former saves memory but changes which preconditioners are
-        available for the resulting matrices.  (Default yes)
+
+@paramclass
+class Pyop3Configuration:
+    """Global configuration options for pyop3."""
+
+    # {{{ debugging options
+
+    debug: bool = False
+    """Enable debug mode."""
+
+    check_src_hashes: bool = True
+    """Check that generated code is the same on all processes.
+
+    This option is always enabled in debug mode.
 
     """
-    # name, env variable, type, default, write once
-    DEFAULTS = {
-        "debug": ("PYOP3_DEBUG", bool, False),
-        "max_static_array_size": ("PYOP3_MAX_STATIC_ARRAY_SIZE", int, 100),
-    }
-    """Default values for PyOP2 configuration parameters"""
 
-    def __init__(self):
-        def convert(env, typ, v):
-            if not isinstance(typ, type):
-                typ = typ[0]
-            try:
-                if typ is bool:
-                    return bool(int(os.environ.get(env, v)))
-                return typ(os.environ.get(env, v))
-            except ValueError:
-                raise ValueError(
-                    "Cannot convert value of environment variable %s to %r" % (env, typ)
-                )
+    spmd_strict: bool = False
+    """Turn on additional parallel correctness checks.
 
-        defaults = dict(
-            (k, convert(env, typ, v))
-            for k, (env, typ, v) in Configuration.DEFAULTS.items()
-        )
-        super(Configuration, self).__init__(**defaults)
-        self._set = set()
-        self._defaults = defaults
+    Setting this option will enable barriers for calls marked with @collective
+    and for cache accesses. This adds considerable overhead, but is useful for
+    tracking down deadlocks.
 
-    def reset(self):
-        """Reset the configuration parameters to the default values."""
-        self.update(self._defaults)
-        self._set = set()
+    """
 
-    def reconfigure(self, **kwargs):
-        """Update the configuration parameters with new values."""
-        for k, v in kwargs.items():
-            self[k] = v
+    # }}}
 
-    def unsafe_reconfigure(self, **kwargs):
-        """ "Unsafely reconfigure (just replacing the values)"""
-        self.update(kwargs)
+    # {{{ code generation options
 
-    def __setitem__(self, key, value):
-        """Set the value of a configuration parameter.
+    max_static_array_size: int = 128
+    """The maximum size of hard-coded constant arrays.
 
-        :arg key: The parameter to set
-        :arg value: The value to set it to.
+    Constant arrays that exceed this limit are passed to the kernel as
+    arguments instead.
+
+    """
+
+    # }}}
+
+    # {{{ compilation options
+
+    cflags: tuple[str, ...] | None = None
+    """Extra flags to be passed to the C compiler."""
+
+    cxxflags: tuple[str, ...] | None = None
+    """Extra flags to be passed to the C++ compiler."""
+
+    ldflags: tuple[str, ...] | None = None
+    """Extra flags to be passed to the linker."""
+
+    cache_dir: pathlib.Path = _default_cache_dir
+    """Location of the generated code (libraries)."""
+
+    node_local_compilation: bool = True
+    """Compile generated code separately on each node.
+
+    If set it is likely that ``cache_dir`` will have to be set to to a
+    node-local filesystem too.
+
+    """
+
+    # }}}
+
+    @classmethod
+    def _from_env(cls, env_options: collections.abc.Mapping) -> Pyop3Configuration:
+        """Create a configuration object from environment variables.
+
+        This factory method handles the conversion of any non-string types.
+
         """
-        assert False, "global config should be readonly!" # and only set using env variables
-        if key in Configuration.DEFAULTS:
-            valid_type = Configuration.DEFAULTS[key][1]
-            if not isinstance(value, valid_type):
-                raise ConfigurationError(
-                    "Values for configuration key %s must be of type %r, not %r"
-                    % (key, valid_type, type(value))
-                )
-        self._set.add(key)
-        super(Configuration, self).__setitem__(key, value)
+        env_options = dict(env_options)
+        parsed_options = {}
+
+        # debugging options
+        if (key := "debug") in env_options:
+            parsed_options[key] = bool(env_options.pop(key))
+        if (key := "check_src_hashes") in env_options:
+            parsed_options[key] = bool(env_options.pop(key))
+        if (key := "spmd_strict") in env_options:
+            parsed_options[key] = bool(env_options.pop(key))
+
+        # code generation options
+        if (key := "max_static_array_size") in env_options:
+            parsed_options[key] = int(env_options.pop(key))
+
+        # compilation options
+        for key in ["cflags", "cxxflags", "ldflags"]:  # tuple[str, ...]
+            if key in env_options:
+                parsed_options[key] = tuple(env_options.pop(key).split(" "))
+        if (key := "cache_dir") in env_options:
+            parsed_options[key] = pathlib.Path(env_options.pop(key))
+        if (key := "node_local_compilation") in env_options:
+            parsed_options[key] = bool(env_options.pop(key))
+
+        assert not env_options
+        return cls(**parsed_options)
 
 
-config = Configuration()
+# TODO: Included for the PyOP2->pyop3 migration, remove in a later release
+_REMOVED_PYOP2_OPTIONS = (
+    "PYOP2_COMPUTE_KERNEL_FLOPS",
+    "PYOP2_SIMD_WIDTH",
+    "PYOP2_TYPE_CHECK",
+    "PYOP2_NO_FORK_AVAILABLE",
+    "PYOP2_CACHE_INFO",
+    "PYOP2_MATNEST",
+    "PYOP2_BLOCK_SPARSITY",
+)
 
 
-def get_petsc_dir():
-    try:
-        arch = "/" + os.environ.get("PETSC_ARCH", "")
-        dir = os.environ["PETSC_DIR"]
-        return (dir, dir + arch)
-    except KeyError:
-        try:
-            import petsc4py
-
-            config = petsc4py.get_config()
-            petsc_dir = config["PETSC_DIR"]
-            petsc_arch = config["PETSC_ARCH"]
-            return petsc_dir, f"{petsc_dir}/{petsc_arch}"
-        except ImportError:
-            sys.exit(
-                """Error: Could not find PETSc library.
-
-Set the environment variable PETSC_DIR to your local PETSc base
-directory or install PETSc from PyPI: pip install petsc"""
+def _prepare_configuration() -> Pyop3Configuration:
+    for removed_option in _REMOVED_PYOP2_OPTIONS:
+        if removed_option in os.environ:
+            warnings.warn(
+                f"{removed_option} detected in your environment but is no "
+                "longer supported. This option will be ignored."
             )
+
+    env_options = {}
+    for field_name in Pyop3Configuration.__dataclass_fields__.keys():
+        if (env_key := f"PYOP3_{field_name.upper()}") in os.environ:
+            env_options[field_name] = os.environ[env_key]
+        elif (env_key := f"PYOP2_{field_name.upper()}") in os.environ:
+            warnings.warn(
+                f"{env_key} is deprecated, please use 'PYOP3_{field_name.upper()}' instead.",
+                FutureWarning,
+            )
+            env_options[field_name] = os.environ[env_key]
+    return Pyop3Configuration._from_env(env_options)
+
+
+config = _prepare_configuration()

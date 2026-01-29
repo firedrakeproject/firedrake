@@ -3,7 +3,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def run_helmholtz_sphere(MeshClass, r, d):
@@ -31,9 +30,9 @@ def run_helmholtz_mixed_sphere(MeshClass, r, meshd, eltd):
     m = MeshClass(refinement_level=r, degree=meshd)
     x = SpatialCoordinate(m)
     m.init_cell_orientations(x)
-    if m.ufl_cell().cellname() == "triangle":
+    if m.ufl_cell().cellname == "triangle":
         V = FunctionSpace(m, 'RT', eltd+1)
-    elif m.ufl_cell().cellname() == "quadrilateral":
+    elif m.ufl_cell().cellname == "quadrilateral":
         V = FunctionSpace(m, 'RTCF', eltd+1)
     Q = FunctionSpace(m, 'DG', eltd)
     W = V*Q

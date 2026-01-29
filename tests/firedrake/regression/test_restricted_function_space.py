@@ -176,7 +176,8 @@ def test_restricted_function_space_coord_change(j):
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
-def test_poisson_restricted_mixed_space():
+@pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
+def test_poisson_restricted_mixed_space(assembled_rhs):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "RT", 1)
     Q = FunctionSpace(mesh, "DG", 0)
@@ -186,6 +187,8 @@ def test_poisson_restricted_mixed_space():
     v, q = TestFunctions(Z)
     a = inner(u, v)*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(1, q)*dx
+    if assembled_rhs:
+        L = assemble(L)
 
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
 
@@ -233,7 +236,7 @@ def test_poisson_mixed_restricted_spaces(i, j):
     assert errornorm(w.subfunctions[1], w2.subfunctions[1]) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_restricted_function_space_extrusion_basics():
     #
     #                  rank 0                 rank 1
@@ -247,7 +250,7 @@ def test_restricted_function_space_extrusion_basics():
     #            +-------+-------+      +-------+-------+
     #            2   0  (3) (1) (4)    (4) (1)  2   0   3    () = ghost
     #
-    #  mesh._dm_renumbering:
+    #  mesh._new_to_old_point_renumbering:
     #
     #            [0, 2, 3, 1, 4]        [0, 3, 2, 1, 4]
     #
@@ -289,7 +292,7 @@ def test_restricted_function_space_extrusion_basics():
     local_array = 1.0 * np.arange(V_res.dof_dset.total_size)
     f = Function(V_res)
     f.dat.data_wo_with_halos[:] = local_array
-    with f.dat.vec as v:
+    with f.vec as v:
         assert np.allclose(v.getArray(), local_array[:n][local_global_filter])
         v *= 2.
     assert np.allclose(f.dat.data_ro_with_halos[:n][local_global_filter], 2. * local_array[:n][local_global_filter])
@@ -362,3 +365,131 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
+
+
+def test_reconstruct_mixed_restricted():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    Z = V * Q
+
+    Vres = RestrictedFunctionSpace(V, ("on_boundary",))
+    Qres = RestrictedFunctionSpace(Q, (2,))
+    Zres = Vres * Qres
+
+    new_mesh = UnitSquareMesh(3, 3)
+    for i in range(len(Z)):
+        # Test reconstruct for unrestricted component spaces
+        Zsub = Z.sub(i)
+
+        W = Zsub.reconstruct(mesh=new_mesh)
+        assert W.mesh() is new_mesh
+        assert W.parent is not None
+        assert W.index == Zsub.index
+        assert not W.boundary_set
+        assert not W.collapse().boundary_set
+
+        Zsub = Zres.sub(i)
+        boundary_set = Zsub.boundary_set
+
+        # Test reconstruct for restricted component spaces
+        W = Zsub.reconstruct(mesh=new_mesh)
+        assert W.mesh() is new_mesh
+        assert W.parent is not None
+        assert W.index == Zsub.index
+        assert W.boundary_set == boundary_set
+        assert W.collapse().boundary_set == boundary_set
+
+
+@pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
+def test_restrict_fieldsplit(names):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1, name=names[0])
+    Q = FunctionSpace(mesh, "CG", 2, name=names[1])
+    Z = V * Q
+
+    z = Function(Z)
+    test = TestFunction(Z)
+    z_exact = Constant([1, -1])
+
+    F = inner(z - z_exact, test) * dx
+    bcs = [DirichletBC(Z.sub(i), z_exact[i], (i+1, i+3)) for i in range(len(Z))]
+
+    problem = NonlinearVariationalProblem(F, z, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+        f"fieldsplit_{names[0] or 0}_pc_type": "lu",
+        f"fieldsplit_{names[1] or 1}_pc_type": "lu"},
+        options_prefix="")
+    solver.solve()
+
+    # Test prefixes for the restricted spaces
+    pc = solver.snes.ksp.pc
+    for field, ksp in enumerate(pc.getFieldSplitSubKSP()):
+        name = Z[field].name or field
+        assert ksp.getOptionsPrefix() == f"fieldsplit_{name}_"
+
+    assert errornorm(z_exact[0], z.subfunctions[0]) < 1E-10
+    assert errornorm(z_exact[1], z.subfunctions[1]) < 1E-10
+
+
+def test_restrict_python_pc():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    test = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    u_exact = x + y
+    g = Function(V).interpolate(u_exact)
+
+    F = inner(u - u_exact, test) * dx
+    bcs = [DirichletBC(V, g, 1), DirichletBC(V, u_exact, 2)]
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "mat_type": "matfree",
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.AssembledPC",
+        "assembled_pc_type": "lu"})
+    solver.solve()
+
+    assert errornorm(u_exact, u) < 1E-10
+
+
+def test_restrict_multigrid():
+    base = UnitSquareMesh(2, 2)
+    refine = 2
+    mh = MeshHierarchy(base, refine)
+    mesh = mh[-1]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    test = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    u_exact = x + y
+    g = Function(V).interpolate(u_exact)
+
+    F = inner(grad(u - u_exact), grad(test)) * dx
+    bcs = [DirichletBC(V, g, 1), DirichletBC(V, u_exact, 2)]
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "ksp_type": "cg",
+        "ksp_rtol": 1E-10,
+        "ksp_max_it": 10,
+        "ksp_monitor": None,
+        "pc_type": "mg",
+        "mg_levels_ksp_type": "chebyshev",
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_pc_type": "lu"})
+    solver.solve()
+
+    assert errornorm(u_exact, u) < 1E-10

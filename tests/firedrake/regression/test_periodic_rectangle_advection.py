@@ -1,7 +1,6 @@
 import pytest
 from firedrake import *
 import numpy as np
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=[0, 1, 2],
@@ -80,8 +79,8 @@ def test_periodic_rectangle_advection(degree, threshold,
         mass_diag = assemble(a_mass, diagonal=True)
 
         def solve(mass_diag, arhs, rhs, update):
-            with assemble(arhs, tensor=rhs).dat.vec_ro as x:
-                with update.dat.vec as y, mass_diag.dat.vec_ro as d:
+            with assemble(arhs, tensor=rhs).vec_ro as x:
+                with update.vec as y, mass_diag.vec_ro as d:
                     y.pointwiseDivide(x, d)
 
         for _ in range(nstep):

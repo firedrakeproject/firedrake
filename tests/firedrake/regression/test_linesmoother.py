@@ -2,9 +2,6 @@ import pytest
 from firedrake import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
 def mesh_type(request):
     return request.param
@@ -49,8 +46,8 @@ def backend(request):
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 def test_linesmoother(mesh, S1family, expected, backend, rhs):
     base_cell = mesh._base_mesh.ufl_cell()
-    S2family = "DG" if base_cell.is_simplex() else "DQ"
-    DGfamily = "DG" if mesh.ufl_cell().is_simplex() else "DQ"
+    S2family = "DG" if base_cell.is_simplex else "DQ"
+    DGfamily = "DG" if mesh.ufl_cell().is_simplex else "DQ"
     nits = []
     for degree in range(2):
         S1 = FiniteElement(S1family, base_cell, degree+1)

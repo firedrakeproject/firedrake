@@ -132,6 +132,7 @@ def test_restore_bc_value(a, u, V, f):
     bc.homogenize()
     solve(a == 0, u, bcs=[bc])
     assert abs(u.dat.data_ro).max() == 0.0
+
     bc.restore()
     solve(a == 0, u, bcs=[bc])
     assert np.allclose(u.dat.data_ro, 10.0)
@@ -142,6 +143,7 @@ def test_set_bc_value(a, u, V, f):
     bc.set_value(7)
 
     solve(a == 0, u, bcs=[bc])
+
     assert np.allclose(u.dat.data_ro, 7.0)
 
 
@@ -295,7 +297,7 @@ def test_overlapping_bc_nodes(quad):
            DirichletBC(V, 1, 4)]
     A = assemble(inner(u, v)*dx, bcs=bcs).M.values
 
-    assert np.allclose(A, np.identity(V.axes.size))
+    assert np.allclose(A, np.identity(V.axes.local_size))
 
 
 @pytest.mark.parametrize("diagonal",
@@ -311,14 +313,11 @@ def test_mixed_bcs(diagonal):
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
-    for pt in V.axes[bc.constrained_points].iter():
-        if diagonal:
-            assert A.dat[1].get_value(pt.target_exprs, path=pt.target_path) == 1.0
-        else:
-            data = A.M[1, 1]
-            row_offset = data.raxes.offset(pt.target_exprs, path=pt.target_path)
-            col_offset = data.caxes.offset(pt.target_exprs, path=pt.target_path)
-            assert data.values[row_offset, col_offset] == 1.0
+    if diagonal:
+        data = A.dat[1].data_ro
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
@@ -329,7 +328,7 @@ def test_bcs_rhs_assemble(a, V):
         bc.zero(b1_func)
     b1.assign(b1_func.riesz_representation(riesz_map="l2"))
     b2 = assemble(a, bcs=bcs)
-    assert np.allclose(b1.dat.data, b2.dat.data)
+    assert np.allclose(b1.dat.data_ro, b2.dat.data_ro)
 
 
 def test_invalid_marker_raises_error(a, V):
@@ -340,7 +339,6 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
-@pytest.mark.xfail(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
@@ -400,7 +398,7 @@ def test_bc_nodes_cover_ghost_dofs():
     assert np.array_equal(offsets, expected)
 
 
-@pytest.mark.xfail(reason="pyop3 TODO extruded mesh needs fixing")
+@pytest.mark.skip(reason="pyop3 TODO")  # extruded
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)
@@ -421,7 +419,6 @@ def test_bcs_string_bc_list():
     assert np.allclose(u0.dat.data, u1.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = FunctionSpace(mesh, "CG", 1)
@@ -432,11 +429,10 @@ def test_bcs_mixed_real():
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
-    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+    assert np.allclose(A.M[0, 1].values, [0, 0, 0.25, 0.25])
+    assert np.allclose(A.M[1, 0].values, [0, 0, 0.25, 0.25])
 
 
-@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real_vector():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = VectorFunctionSpace(mesh, "CG", 1)
@@ -447,5 +443,23 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
-    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
+    assert np.allclose(A.M[0, 1].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
+    assert np.allclose(A.M[1, 0].values, [[0.25, 0], [0.25, 0], [0.25, 0.25], [0.25, 0.25]])
+
+
+def test_homogeneous_bc_residual():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    bc = DirichletBC(V, 0, "on_boundary")
+
+    u = Function(V).assign(42)
+    r = Function(V).assign(333)
+    bc.apply(r, u=u)
+
+    r_data = r.dat.data_ro.reshape((-1, 2))
+    u_data = u.dat.data_ro.reshape((-1, 2))
+
+    assert np.allclose(r_data[bc.nodes], u_data[bc.nodes])
+
+    interior = np.setdiff1d(range(r_data.shape[0]), bc.nodes)
+    assert np.allclose(r_data[interior], 333)

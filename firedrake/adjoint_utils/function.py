@@ -1,8 +1,9 @@
 from functools import wraps
+from pyop3.mpi import temp_internal_comm
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
+from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
@@ -57,21 +58,19 @@ class FunctionMixin(FloatingType):
         @wraps(subfunctions)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
-            annotate = annotate_tape(kwargs)
             with stop_annotating():
                 output = subfunctions(self, *args, **kwargs)
 
-            if annotate:
-                output = tuple(type(self)(output[i].function_space(),
-                                          output[i],
-                                          block_class=SubfunctionBlock,
-                                          _ad_floating_active=True,
-                                          _ad_args=[self, i],
-                                          _ad_output_args=[i],
-                                          output_block_class=FunctionMergeBlock,
-                                          _ad_outputs=[self],
-                                          ad_block_tag=ad_block_tag)
-                               for i in range(len(output)))
+            output = tuple(type(self)(output[i].function_space(),
+                                      output[i],
+                                      block_class=SubfunctionBlock,
+                                      _ad_floating_active=True,
+                                      _ad_args=[self, i],
+                                      _ad_output_args=[i],
+                                      output_block_class=FunctionMergeBlock,
+                                      _ad_outputs=[self],
+                                      ad_block_tag=ad_block_tag)
+                           for i in range(len(output)))
             return output
         return wrapper
 
@@ -220,72 +219,15 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, value, options=None):
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
+
+    def _ad_init_zero(self, dual=False):
         from firedrake import Function, Cofunction
-
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
-        if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            return Function(V)
-
-        if not isinstance(value, (Cofunction, Function)):
-            raise TypeError("Expected a Cofunction or a Function")
-
-        if riesz_representation == "l2":
-            return Function(V, val=value.dat)
-
-        elif riesz_representation in ("L2", "H1"):
-            if not isinstance(value, Cofunction):
-                raise TypeError("Expected a Cofunction")
-
-            ret = Function(V)
-            a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == value, ret, **solver_options)
-            return ret
-
-        elif callable(riesz_representation):
-            return riesz_representation(value)
-
+        if dual:
+            return Cofunction(self.function_space().dual())
         else:
-            raise ValueError(
-                "Unknown Riesz representation %s" % riesz_representation)
-
-    def _define_riesz_map_form(self, riesz_representation, V):
-        from firedrake import TrialFunction, TestFunction
-
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        if riesz_representation == "L2":
-            a = firedrake.inner(u, v)*firedrake.dx
-
-        elif riesz_representation == "H1":
-            a = firedrake.inner(u, v)*firedrake.dx \
-                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
-        return a
-
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
-        options = {} if options is None else options.copy()
-        options.setdefault("riesz_representation", "L2")
-        if options["riesz_representation"] is None:
-            if value == 0.:
-                # In adjoint-based differentiation, value == 0. arises only when
-                # the functional is independent on the control variable.
-                V = options.get("function_space", self.function_space())
-                return firedrake.Cofunction(V.dual())
-            else:
-                return value
-        else:
-            return self._ad_convert_riesz(value, options=options)
+            return Function(self.function_space())
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
@@ -294,9 +236,7 @@ class FunctionMixin(FloatingType):
             return checkpoint
 
     def _ad_will_add_as_dependency(self):
-        """Method called when the object is added as a Block dependency.
-
-        """
+        """Method called when the object is added as a Block dependency."""
         with checkpoint_init_data():
             super()._ad_will_add_as_dependency()
 
@@ -304,7 +244,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        # `self` can be a Cofunction in which case only left multiplication
+        # with a scalar is allowed.
         r.assign(other * self)
         return r
 
@@ -316,7 +257,10 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
-        from firedrake import assemble
+        from firedrake import assemble, action, Cofunction
+
+        if isinstance(other, Cofunction):
+            return assemble(action(other, self))
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
@@ -326,29 +270,21 @@ class FunctionMixin(FloatingType):
             return assemble(firedrake.inner(self, other)*firedrake.dx)
         elif riesz_representation == "H1":
             return assemble((firedrake.inner(self, other)
-                            + firedrake.inner(firedrake.grad(self), other))*firedrake.dx)
+                            + firedrake.inner(firedrake.grad(self), firedrake.grad(other)))*firedrake.dx)
         else:
             raise NotImplementedError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        range_begin, range_end = dst.vector().local_range()
-        m_a_local = src[offset + range_begin:offset + range_end]
-        dst.vector().set_local(m_a_local)
-        dst.vector().apply('insert')
-        offset += dst.vector().size()
+        range_begin, range_end = dst.function_space().template_vec.getOwnershipRange()
+        dst.dat.data_wo[...] = src[offset + range_begin:offset + range_end]
+        offset += range_end - range_begin
         return dst, offset
 
     @staticmethod
     def _ad_to_list(m):
-        if not hasattr(m, "gather"):
-            m_v = m.vector()
-        else:
-            m_v = m
-        m_a = m_v.gather()
-
-        return m_a.tolist()
+        return m.dat.global_data.tolist()
 
     def _ad_copy(self):
         from firedrake import Function
@@ -372,32 +308,25 @@ class FunctionMixin(FloatingType):
         return self.ufl_function_space()
 
     def _reduce(self, r, r0):
-        vec = self.vector().get_local()
+        vec = self.dat.data_ro
         for i in range(len(vec)):
             r0 = r(vec[i], r0)
         return r0
 
     def _applyUnary(self, f):
-        vec = self.vector()
-        npdata = vec.get_local()
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i])
-        vec.set_local(npdata)
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i])
 
     def _applyBinary(self, f, y):
-        vec = self.vector()
-        npdata = vec.get_local()
-        npdatay = y.vector().get_local()
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i], npdatay[i])
-        vec.set_local(npdata)
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i], y.dat.data_ro[i])
 
     def _ad_from_petsc(self, vec):
-        with self.dat.vec_wo as self_v:
+        with self.vec_wo as self_v:
             vec.copy(result=self_v)
 
     def _ad_to_petsc(self, vec=None):
-        with self.dat.vec_ro as self_v:
+        with self.vec_ro as self_v:
             if vec:
                 self_v.copy(result=vec)
             else:
@@ -406,3 +335,9 @@ class FunctionMixin(FloatingType):
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
+
+
+class CofunctionMixin(FunctionMixin):
+
+    def _ad_dot(self, other):
+        return firedrake.assemble(firedrake.action(self, other))

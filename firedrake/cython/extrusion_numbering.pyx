@@ -191,7 +191,6 @@ from firedrake.cython.dmcommon import count_labelled_points
 from mpi4py import MPI
 from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
-from pyop2 import op2
 from firedrake.utils import IntType
 from finat.element_factory import as_fiat_cell
 
@@ -291,7 +290,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
     tmp = numpy.copy(layer_extents)
     # To get owned points correct, we do a reduction over the SF.
-    CHKERR(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
+    CHKERRMPI(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
     CHKERR(PetscSFReduceBegin(sf.sf, contig.ob_mpi,
                               <const void*>layer_extents.data,
                               <void *>tmp.data,
@@ -300,7 +299,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
                             <const void*>layer_extents.data,
                             <void *>tmp.data,
                             EXTENTS_REDUCER))
-    CHKERR(MPI_Op_free(&EXTENTS_REDUCER))
+    CHKERRMPI(MPI_Op_free(&EXTENTS_REDUCER))
     layer_extents[:] = tmp[:]
     # OK, now we have the correct extents for owned points, but
     # potentially incorrect extents for ghost points, so do a SF Bcast
@@ -333,6 +332,8 @@ def node_classes(mesh, nodes_per_entity):
         numpy.ndarray[PetscInt, ndim=2, mode="c"] stratum_bounds
         numpy.ndarray[PetscInt, ndim=1, mode="c"] node_classes
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
+
+    assert False, "old code"
 
     nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
 
@@ -387,6 +388,8 @@ def facet_closure_nodes(V, sub_domain):
         int nfacet, nlocal, layers
         PetscInt local_facet
         PetscInt offset
+
+    assert False, "old code"
 
     # We don't have to handle the "on_boundary" case, because the
     # caller handles it.
@@ -458,13 +461,13 @@ def facet_closure_nodes(V, sub_domain):
     # we need to do this by hand.
     # See github.com/firedrakeproject/firedrake/issues/1135 for even
     # more details.
-    d = op2.Dat(V.dof_dset.set, dtype=numpy.int8)
-    d.data_with_halos[nodes] = 1
-    d.global_to_local_begin(op2.READ)
-    d.global_to_local_end(op2.READ)
-    indices, = numpy.where(d.data_ro_with_halos == 1)
-    # cast, because numpy.where returns an int64
-    return indices.astype(IntType)
+    # d = op2.Dat(V.dof_dset.set, dtype=numpy.int8)
+    # d.data_with_halos[nodes] = 1
+    # d.global_to_local_begin(op2.READ)
+    # d.global_to_local_end(op2.READ)
+    # indices, = numpy.where(d.data_ro_with_halos == 1)
+    # # cast, because numpy.where returns an int64
+    # return indices.astype(IntType)
 
 
 @cython.wraparound(False)
@@ -503,7 +506,7 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
         CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
@@ -518,7 +521,7 @@ def entity_layers(mesh, height, label=None):
             layers[offset, 1] = layer_extents[point, 3]
             offset += 1
 
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._new_to_old_point_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers
@@ -564,7 +567,7 @@ def top_bottom_boundary_nodes(mesh,
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
-    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets()
+    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets
     assert facet_points.shape[0] == n_vert_facet + 2
 
     bottom_facet = facet_points[n_vert_facet]

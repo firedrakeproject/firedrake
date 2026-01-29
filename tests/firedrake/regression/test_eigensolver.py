@@ -1,14 +1,6 @@
 import numpy as np
 import pytest
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
-try:
-    from slepc4py import SLEPc  # noqa: F401
-except ImportError:
-    # SLEPc is not installed
-    pytest.skip("SLEPc not installed", allow_module_level=True)
 
 
 def evals(n, degree=1, mesh=None, restrict=False):
@@ -28,10 +20,13 @@ def evals(n, degree=1, mesh=None, restrict=False):
     bc = DirichletBC(V, 0.0, "on_boundary")
     eigenprob = LinearEigenproblem(a, bcs=bc, bc_shift=-6666., restrict=restrict)
 
-    # Create corresponding eigensolver, looking for n eigenvalues
-    eigensolver = LinearEigensolver(
-        eigenprob, n, solver_parameters={"eps_largest_real": None}
-    )
+    # Create corresponding eigensolver, looking for n eigenvalues close to 0
+    # We use shift-and-invert as spectral transform (SLEPc's default is shift)
+    solver_parameters = {
+        "eps_target": 0,
+        "st_type": "sinvert",
+    }
+    eigensolver = LinearEigensolver(eigenprob, n, solver_parameters=solver_parameters)
     ncov = eigensolver.solve()
 
     # boffi solns
@@ -52,6 +47,7 @@ def evals(n, degree=1, mesh=None, restrict=False):
     return sorted(true_values), sorted(estimates)
 
 
+@pytest.mark.skipslepc
 @pytest.mark.parametrize("restrict", [True, False])
 @pytest.mark.parametrize(('n', 'degree', 'tolerance'),
                          [(5, 1, 1e-13),
@@ -74,18 +70,47 @@ def poisson_eigenvalue_2d(i):
     ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
                             bcs=bc, bc_shift=666.0)
 
-    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None,
-                                                     "eps_largest_real": None})
+    solver_parameters = {
+        "eps_gen_hermitian": None,
+        "eps_target": 0,
+        "st_type": "sinvert",
+    }
+    es = LinearEigensolver(ep, 1, solver_parameters=solver_parameters)
 
     es.solve()
     return es.eigenvalue(0)-2.0
 
 
+@pytest.mark.skipslepc
 def test_evals_2d():
     """2D Eigenvalue convergence test. As with Boffi, we observe that the
-    convergence rate convergest to 2 from above."""
+    convergence rate converges to 2 from above."""
     errors = np.array([poisson_eigenvalue_2d(i) for i in range(5)])
 
     convergence = np.log(errors[:-1]/errors[1:])/np.log(2.0)
 
     assert all(convergence > 2.0)
+
+
+@pytest.mark.skipslepc
+def test_no_bcs():
+    mesh = SquareMesh(4, 4, pi)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
+                            inner(u, v)*dx)
+
+    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_non_hermitian": None,
+                                                     "eps_smallest_magnitude": None})
+
+    nconv = es.solve()
+    assert nconv > 0
+    eig = es.eigenvalue(0)
+    assert np.isclose(eig, 0, atol=1e-12)
+
+    re, im = es.eigenfunction(0)
+    assert np.allclose(re.dat.data[:], re.dat.data[0])
+    assert np.allclose(im.dat.data[:], im.dat.data[0])

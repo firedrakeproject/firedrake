@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop3.mpi import COMM_WORLD
 
 from firedrake import function
 from firedrake.logging import warning
@@ -16,8 +16,7 @@ class VectorSpaceBasis(object):
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Vector`\s or :class:`.Function`\s
-         spanning the space.
+    :arg vecs: a list of :class:`.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -46,7 +45,7 @@ class VectorSpaceBasis(object):
             self._vecs = tuple(vecs)
         petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 petsc_vecs.append(v_)
         self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
@@ -58,7 +57,6 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -71,7 +69,7 @@ class VectorSpaceBasis(object):
             warning("Specify comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
         return self._nullspace
 
     @PETSc.Log.EventDecorator()
@@ -109,7 +107,7 @@ class VectorSpaceBasis(object):
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec as v:
+        with b.vec as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -224,7 +222,6 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm, self)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -261,7 +258,7 @@ class MixedVectorSpaceBasis(object):
 
         self._petsc_vecs = []
         for v in self._vecs:
-            with v.dat.vec_ro as v_:
+            with v.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
         # orthonormalize:
@@ -276,7 +273,7 @@ class MixedVectorSpaceBasis(object):
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
 
     def _apply_monolithic(self, matrix, transpose=False, near=False):
         r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a

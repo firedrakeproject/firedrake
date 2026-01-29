@@ -33,19 +33,23 @@
 
 """The PyOP2 logger, based on the Python standard library logging module."""
 
-import logging
 from contextlib import contextmanager
+import logging
 
-logger = logging.getLogger("pyop3")
-handler = logging.StreamHandler()
-logger.addHandler(handler)
+from pyop3.config import config
 
 
-debug = logger.debug
-info = logger.info
-warning = logger.warning
-error = logger.error
-critical = logger.critical
+LOGGER = logging.getLogger('pyop3')
+
+if config.debug:
+    LOGGER.setLevel(logging.DEBUG)
+
+
+debug = LOGGER.debug
+info = LOGGER.info
+warning = LOGGER.warning
+error = LOGGER.error
+critical = LOGGER.critical
 
 DEBUG = logging.DEBUG
 INFO = logging.INFO
@@ -54,20 +58,13 @@ ERROR = logging.ERROR
 CRITICAL = logging.CRITICAL
 
 
-def set_log_level(level):
-    """Set the log level of the PyOP2 logger.
-
-    :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL"""
-    logger.setLevel(level)
-
-
 def log(level, msg, *args, **kwargs):
-    """Print 'msg % args' with the severity 'level'.
+    ''' Print 'msg % args' with the severity 'level'.
 
     :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    :arg msg: the message"""
+    :arg msg: the message '''
 
-    logger.log(level, msg, *args, **kwargs)
+    LOGGER.log(level, msg, *args, **kwargs)
 
 
 _indent = 0
@@ -86,8 +83,8 @@ def progress(level, msg, *args, **kwargs):
     See :func:`log` for more details.
     """
     global _indent
-    log(level, (" " * _indent) + msg + "...", *args, **kwargs)
+    log(level, (' ' * _indent) + msg + '...', *args, **kwargs)
     _indent += 2
     yield
     _indent -= 2
-    log(level, (" " * _indent) + msg + "...done", *args, **kwargs)
+    log(level, (' ' * _indent) + msg + '...done', *args, **kwargs)

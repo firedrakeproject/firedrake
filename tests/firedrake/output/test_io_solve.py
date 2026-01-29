@@ -1,8 +1,7 @@
 import pytest
 from firedrake import *
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import os
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 
@@ -19,7 +18,7 @@ def _solve_poisson(msh):
     u = TrialFunction(V)
     a = inner(u, v) * dx
     L = inner(f, v) * dx
-    bc = DirichletBC(V, Constant(1., domain=msh), labelVal)
+    bc = DirichletBC(V, Constant(1.), labelVal)
     sol = Function(V, name=func_name)
     solve(a == L, sol, bcs=[bc, ])
     return sol
@@ -32,7 +31,8 @@ def test_io_solve_poisson(tmpdir):
     mycolor = (COMM_WORLD.rank > COMM_WORLD.size - 1)
     comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
     if mycolor == 0:
-        msh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
+        mesh_file = os.path.join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        msh = Mesh(mesh_file, name=mesh_name, comm=comm)
         solA = _solve_poisson(msh)
         with CheckpointFile(filename, 'w', comm=comm) as afile:
             afile.save_function(solA)

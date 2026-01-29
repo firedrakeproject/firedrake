@@ -54,14 +54,12 @@ def adjoint_example(mesh):
 
     assert np.allclose(J, Jnew)
 
-    grad_Jnew = Jhat.derivative()
+    grad_Jnew = Jhat.derivative(apply_riesz=True)
 
     return Jnew, grad_Jnew
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.skipcomplex
-# A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
     from firedrake.adjoint import enable_disk_checkpointing, \
@@ -82,7 +80,6 @@ def test_disk_checkpointing():
     tape.clear_tape()
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
     from firedrake.adjoint import enable_disk_checkpointing, \

@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def run_facet_split(quadrilateral, pc_type, refine=2):

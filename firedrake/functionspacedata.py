@@ -22,13 +22,10 @@ from functools import partial
 
 from finat.element_factory import create_element as _create_element
 
-from pyop2 import op2
 from firedrake.utils import IntType
-from pyop2.utils import as_tuple
 
 from firedrake.cython import extrusion_numbering as extnum
 from firedrake.cython import dmcommon
-from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
 from firedrake.petsc import PETSc
@@ -182,27 +179,6 @@ def get_entity_node_lists(mesh, key, entity_dofs, entity_permutations, global_nu
 
 
 @cached
-def get_map_cache(mesh, key):
-    """Get the map cache for this mesh.
-
-    :arg mesh: The mesh to use.
-    :arg key: a (entity_dofs_key, real_tensorproduct, entity_permutations_key,
-        boundary_set) tuple where entity_dofs is Canonicalised entity_dofs
-        (see :func:`entity_dofs_key`); real_tensorproduct is True if the
-        function space is a degenerate fs x Real tensorproduct; boundary_set is
-        the set of subdomains a restricted function space is applied to, or
-        None if using a regular function space.
-    """
-    if type(mesh.topology) is mesh_mod.VertexOnlyMeshTopology:
-        return {mesh.cell_set: None}
-    else:
-        return {mesh.cell_set: None,
-                mesh.interior_facets.set: None,
-                mesh.exterior_facets.set: None,
-                "boundary_node": None}
-
-
-@cached
 def get_boundary_masks(mesh, key, finat_element):
     """Get masks for facet dofs.
 
@@ -216,7 +192,7 @@ def get_boundary_masks(mesh, key, finat_element):
         with points in the closure of point p.  The basis function
         indices are in the index array, starting at section.getOffset(p).
     """
-    if not mesh.cell_set._extruded:
+    if not isinstance(mesh.topology, mesh_mod.ExtrudedMeshTopology):
         return None
     _, kind = key
     assert kind in {"cell", "interior_facet"}
@@ -411,22 +387,16 @@ class FunctionSpaceData(object):
                  "extruded", "mesh", "global_numbering", "boundary_set")
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, ufl_element):
-        #FIXME PYOP3 I don't want to be using this class. DoF stuff is getting moved
-        # inside pyop3. Also it seems like giving the plex a numbering and knowing the
-        # FInAT element is sufficient to determine all of this in a much less complex way.
-        assert False
+    def __init__(self, mesh, ufl_element, boundary_set):
         if type(ufl_element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
         self.boundary_set = boundary_set
 
         finat_element = create_element(ufl_element)
-        self.finat_element = finat_element
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-        breakpoint()
         try:
             entity_permutations = finat_element.entity_permutations
         except NotImplementedError:
@@ -435,9 +405,6 @@ class FunctionSpaceData(object):
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
         key = (nodes_per_entity, real_tensorproduct, boundary_set)
-        # These are keyed only on nodes per topological entity.
-        # global_numbering = get_global_numbering(mesh, key)
-        node_set = get_node_set(mesh, key)
 
         edofs_key = entity_dofs_key(entity_dofs)
         # entity_permutations is None if not yet implemented
@@ -448,7 +415,7 @@ class FunctionSpaceData(object):
         # implementation because of the need to support boundary
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
-        self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set))
+        # self.map_cache = get_map_cache(mesh, (edofs_key, real_tensorproduct, eperm_key, boundary_set))
 
         if isinstance(mesh, mesh_mod.ExtrudedMeshTopology):
             self.offset = eutils.calculate_dof_offset(finat_element)
@@ -460,10 +427,9 @@ class FunctionSpaceData(object):
             self.offset_quotient = None
 
         # self.entity_node_lists = get_entity_node_lists(mesh, (edofs_key, real_tensorproduct, eperm_key), entity_dofs, entity_permutations, global_numbering, self.offset)
-        self.node_set = node_set
         self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
         self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
-        self.extruded = mesh.cell_set._extruded
+        self.extruded = isinstance(mesh, mesh_mod.ExtrudedMeshTopology)
         self.mesh = mesh
         # self.global_numbering = global_numbering
 

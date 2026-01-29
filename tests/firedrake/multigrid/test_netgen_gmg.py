@@ -1,13 +1,6 @@
-from firedrake import *
 import pytest
 
-try:
-    import netgen
-    del netgen
-    import ngsPETSc
-    del ngsPETSc
-except ImportError:
-    pytest.skip("Netgen not installed", allow_module_level=True)
+from firedrake import *
 
 
 def create_netgen_mesh_circle():
@@ -21,7 +14,9 @@ def create_netgen_mesh_circle():
     return ngmesh
 
 
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
+@pytest.mark.skipnetgen
 def test_netgen_mg_circle():
     ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
@@ -49,7 +44,9 @@ def test_netgen_mg_circle():
     assert (norm(assemble(u - expect)) <= 1e-6)
 
 
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
+@pytest.mark.skipnetgen
 def test_netgen_mg_circle_non_uniform_degree():
     ngmesh = create_netgen_mesh_circle()
     mesh = Mesh(ngmesh)
@@ -77,7 +74,9 @@ def test_netgen_mg_circle_non_uniform_degree():
     assert (norm(assemble(u - expect)) <= 1e-6)
 
 
+@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
+@pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_netgen_mg_circle_parallel():
     ngmesh = create_netgen_mesh_circle()

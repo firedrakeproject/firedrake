@@ -2,8 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.utils import ScalarType_c
-from firedrake.__future__ import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module")
@@ -129,7 +127,7 @@ def test_dict_order_parallel():
     d = Function(FunctionSpace(mesh, "DG", 0))
     consts = []
     for i in range(20):
-        consts.append(Constant(i, domain=mesh))
+        consts.append(Constant(i))
 
     arg = {}
     if mesh.comm.rank == 0:

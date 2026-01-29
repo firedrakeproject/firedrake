@@ -3,8 +3,6 @@ import numpy
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 
 @pytest.fixture(scope='module')
 def mesh():
@@ -42,10 +40,9 @@ def test_patch_precompute_element_tensors(mesh, V):
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "mg_coarse_assembled_pc_type": "lu",
-        "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        "mg_coarse_mat_type": "aij",
+        "mg_coarse_pc_type": "lu",
+        "mg_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         "mg_levels_ksp_type": "richardson",
         "mg_levels_ksp_max_it": 1,
         "mg_levels_ksp_richardson_scale": 1/3,

@@ -1,15 +1,23 @@
 import pytest
+import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(params=[2, 3],
-                ids=["Rectangle", "Box"])
+@pytest.fixture(params=[(2, False, False), (2, True, False), (1, True, True)],
+                ids=["Rectangle", "Rectangle-Extruded", "Interval-Extruded-Periodic"])
 def tp_mesh(request):
-    nx = 4
+    dim, extruded, periodic = request.param
+
+    nx = 2
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
-    if request.param == 3:
-        m = ExtrudedMesh(m, nx)
+    if dim == 1:
+        m = UnitIntervalMesh(nx, distribution_parameters=distribution)
+    elif dim == 2:
+        m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
+    else:
+        m = UnitCubeMesh(nx, nx, nx, hexahedral=True, distribution_parameters=distribution)
+    if extruded:
+        m = ExtrudedMesh(m, nx, periodic=periodic)
 
     x = SpatialCoordinate(m)
     xnew = as_vector([acos(1-2*xj)/pi for xj in x])
@@ -20,7 +28,7 @@ def tp_mesh(request):
 @pytest.fixture(params=[0, 1, 2],
                 ids=["H1", "HCurl", "HDiv"])
 def tp_family(tp_mesh, request):
-    tdim = tp_mesh.topological_dimension()
+    tdim = tp_mesh.topological_dimension
     if tdim == 3:
         families = ["Q", "NCE", "NCF"]
     else:
@@ -40,7 +48,7 @@ def mixed_family(tp_mesh, request):
     if request.param == 0:
         Vfamily = "Q"
     else:
-        tdim = tp_mesh.topological_dimension()
+        tdim = tp_mesh.topological_dimension
         Vfamily = "NCF" if tdim == 3 else "RTCF"
     Qfamily = "DQ"
     return Vfamily, Qfamily
@@ -66,21 +74,42 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+@pytest.mark.parametrize("family", ["Q", "NCE", "NCF", "DQ"])
+def test_prolong_basic(tp_mesh, family):
+    """ Interpolate a constant function between low-order and high-order spaces
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+    if tp_mesh.topological_dimension == 2:
+        family = family.replace("N", "RT")
+
+    fs = [FunctionSpace(tp_mesh, family, degree) for degree in (1, 2)]
+    u, v = [Function(V) for V in fs]
+
+    u.assign(1)
+    P = prolongation_matrix_matfree(u, v).getPythonContext()
+    P._prolong()
+    assert np.allclose(v.dat.data, 1)
+
+
 def test_prolong_de_rham(tp_mesh):
     """ Interpolate a linear vector function between [H1]^d, HCurl and HDiv spaces
         where it can be exactly represented
     """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
 
-    tdim = tp_mesh.topological_dimension()
+    tdim = tp_mesh.topological_dimension
     b = Constant(list(range(tdim)))
-    mat = diag(Constant([tdim+1]*tdim)) + Constant([[-1]*tdim]*tdim)
-    expr = dot(mat, SpatialCoordinate(tp_mesh)) + b
+    if tp_mesh.extruded_periodic:
+        expr = b
+    else:
+        mat = diag(Constant([tdim+1]*tdim)) + Constant([[-1]*tdim]*tdim)
+        expr = b + dot(mat, SpatialCoordinate(tp_mesh))
 
     cell = tp_mesh.ufl_cell()
     elems = [VectorElement(FiniteElement("Q", cell=cell, degree=2)),
              FiniteElement("NCE" if tdim == 3 else "RTCE", cell=cell, degree=2),
              FiniteElement("NCF" if tdim == 3 else "RTCF", cell=cell, degree=2)]
+
     fs = [FunctionSpace(tp_mesh, e) for e in elems]
     us = [Function(V) for V in fs]
     us[0].interpolate(expr)
@@ -89,7 +118,7 @@ def test_prolong_de_rham(tp_mesh):
             if u != v:
                 P = prolongation_matrix_matfree(u, v).getPythonContext()
                 P._prolong()
-                assert norm(v-expr, "L2") < 1E-14
+                assert errornorm(expr, v) < 1E-14
 
 
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
@@ -137,7 +166,8 @@ def mat_type(request):
     return request.param
 
 
-def test_p_multigrid_scalar(mesh, mat_type):
+@pytest.mark.parametrize("restrict", [False, True], ids=("unrestrict", "restrict"))
+def test_p_multigrid_scalar(mesh, mat_type, restrict):
     V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)
@@ -148,8 +178,7 @@ def test_p_multigrid_scalar(mesh, mat_type):
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
 
     relax = {"ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
+             "ksp_convergence_test": "skip",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
@@ -159,23 +188,15 @@ def test_p_multigrid_scalar(mesh, mat_type):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_levels_transfer_mat_type": mat_type,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "mg",
-          "pmg_mg_coarse_pc_mg_type": "multiplicative",
           "pmg_mg_coarse_mg_levels": relax,
-          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
-    problem = NonlinearVariationalProblem(F, u, bcs)
+    problem = NonlinearVariationalProblem(F, u, bcs, restrict=restrict)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
 
@@ -196,8 +217,6 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
     F = inner((Constant(1.0) + u**2) * grad(u), grad(v))*dx - inner(f, v)*dx
 
     relax = {"ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
@@ -207,20 +226,12 @@ def test_p_multigrid_nonlinear_scalar(mesh, mat_type):
           "ksp_monitor_true_residual": None,
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_levels_transfer_mat_type": mat_type,
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "mg",
-          "pmg_mg_coarse_pc_mg_type": "multiplicative",
           "pmg_mg_coarse_mg_levels": relax,
-          "pmg_mg_coarse_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
     problem = NonlinearVariationalProblem(F, u, bcs)
@@ -266,14 +277,9 @@ def test_p_multigrid_vector():
           "pc_python_type": "firedrake.PMGPC",
           "pmg_pc_mg_type": "full",
           "pmg_mg_levels_ksp_type": "chebyshev",
-          "pmg_mg_levels_ksp_monitor_true_residual": None,
-          "pmg_mg_levels_ksp_norm_type": "unpreconditioned",
           "pmg_mg_levels_ksp_max_it": 2,
           "pmg_mg_levels_pc_type": "pbjacobi",
-          "pmg_mg_coarse_ksp_type": "richardson",
-          "pmg_mg_coarse_ksp_max_it": 1,
-          "pmg_mg_coarse_ksp_norm_type": "unpreconditioned",
-          "pmg_mg_coarse_ksp_monitor": None,
+          "pmg_mg_coarse_ksp_type": "preonly",
           "pmg_mg_coarse_pc_type": "lu"}
     problem = NonlinearVariationalProblem(F, u, bcs)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
@@ -299,16 +305,12 @@ def test_p_multigrid_mixed(mat_type):
 
     relax = {"transfer_mat_type": mat_type,
              "ksp_type": "chebyshev",
-             "ksp_monitor_true_residual": None,
-             "ksp_norm_type": "unpreconditioned",
+             "ksp_convergence_test": "skip",
              "ksp_max_it": 3,
              "pc_type": "jacobi"}
 
     coarse = {"mat_type": "aij",  # This circumvents the need for AssembledPC
-              "ksp_type": "richardson",
-              "ksp_max_it": 1,
-              "ksp_norm_type": "unpreconditioned",
-              "ksp_monitor": None,
+              "ksp_type": "preonly",
               "pc_type": "cholesky",
               "pc_factor_shift_type": "nonzero",
               "pc_factor_shift_amount": 1E-10}
@@ -321,7 +323,6 @@ def test_p_multigrid_mixed(mat_type):
           "pc_type": "python",
           "pc_python_type": "firedrake.PMGPC",
           "mat_type": mat_type,
-          "pmg_pc_mg_type": "multiplicative",
           "pmg_mg_levels": relax,
           "pmg_mg_coarse": coarse}
 
@@ -386,7 +387,7 @@ def test_p_fas_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.dat.vec_ro as Fvec:
+    with rhs.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -395,13 +396,10 @@ def test_p_fas_scalar():
     coarse = {
         "mat_type": "aij",
         "ksp_type": "preonly",
-        "ksp_norm_type": None,
         "pc_type": "cholesky"}
 
     relax = {
         "ksp_type": "chebyshev",
-        "ksp_monitor_true_residual": None,
-        "ksp_norm_type": "unpreconditioned",
         "pc_type": "jacobi"}
 
     pmg = {
@@ -466,7 +464,7 @@ def test_p_fas_nonlinear_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.dat.vec_ro as Fvec:
+    with rhs.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -483,12 +481,10 @@ def test_p_fas_nonlinear_scalar():
 
     coarse = {
         "ksp_type": "preonly",
-        "ksp_norm_type": None,
         "pc_type": "cholesky"}
 
     relax = {
         "ksp_type": "chebyshev",
-        "ksp_norm_type": "unpreconditioned",
         "ksp_chebyshev_esteig": "0.75,0.25,0,1",
         "ksp_max_it": 3,
         "pc_type": "jacobi"}
@@ -502,7 +498,6 @@ def test_p_fas_nonlinear_scalar():
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",
         "pc_python_type": "firedrake.PMGPC",
-        "pmg_pc_mg_type": "multiplicative",
         "pmg_mg_levels": relax,
         "pmg_mg_levels_transfer_mat_type": mat_type,
         "pmg_mg_coarse": coarse}
@@ -591,11 +586,11 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
 
     uc = Function(Vc)
     uf = Function(Vf)
-    with uc.dat.vec_wo as xc:
+    with uc.vec_wo as xc:
         xc.setRandom()
     for bc in Vc_bcs:
         bc.zero(uc)
-    with uc.dat.vec_ro as xc, uf.dat.vec as xf:
+    with uc.dat.vec_ro as xc, uf.dat.vec_wo as xf:
         P.mult(xc, xf)
     assert norm(uf - uc) < 1E-12
 
@@ -605,7 +600,7 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
         xf.setRandom()
     for bc in Vf_bcs:
         bc.zero(rf)
-    with rf.dat.vec_ro as xf, rc.dat.vec as xc:
+    with rf.dat.vec_ro as xf, rc.dat.vec_wo as xc:
         P.multTranspose(xf, xc)
 
     assert abs(assemble(action(rf, uf)) - assemble(action(rc, uc))) < 1E-11

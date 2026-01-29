@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from mpi4py import MPI
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.mark.parallel(nprocs=4)
@@ -36,7 +35,7 @@ def test_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        const = Constant((1, 0), domain=m)
+        const = Constant((1, 0))
         solve(inner(u, v) * dx == inner(const, v) * dx, f)
 
         expect = Function(V).interpolate(const)

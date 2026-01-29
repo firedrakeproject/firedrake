@@ -83,7 +83,7 @@ for 3 wave sources. Therefore, we will have 3 emsemble members, each with 2 rank
 processes launched by mpiexec must therefore be equal to the product of number of ensemble members
 (3, in this case) with the number of processes to be used for each ensemble member (``M=2``, in this case).
 Additional details about the ensemble parallelism can be found in the
-`Firedrake documentation <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+`Firedrake documentation <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
 
 The subcommunicators in each ensemble member are: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
 ``Ensemble.comm`` is the spatial communicator. ``Ensemble.ensemble_comm`` allows communication between
@@ -104,15 +104,17 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
 ::
 
     import os
-    if os.getenv("FIREDRAKE_CI_TESTS") == "1": 
+    if os.getenv("FIREDRAKE_CI") == "1": 
         # Setup for a faster test execution.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
         nx, ny = 15, 15
+        ftol = 0.9  # optimisation tolerance
     else:
         dt = 0.002  # time step in seconds
         final_time = 1.0  # final time in seconds
         nx, ny = 80, 80
+        ftol = 1e-2  # optimisation tolerance
 
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
 
@@ -217,8 +219,6 @@ The receiver mesh is required in order to interpolate the wave equation solution
 
 We are now able to proceed with the synthetic data computations and record them on the receivers::
 
-    from firedrake.__future__ import interpolate
-
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
     f = Cofunction(V.dual())  # Wave equation forcing term.
@@ -280,7 +280,9 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
 We now instantiate :class:`~.EnsembleReducedFunctional`::
 
-    J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
+    J_hat = EnsembleReducedFunctional(J_val,
+                                      Control(c_guess, riesz_map="l2"),
+                                      my_ensemble)
 
 which enables us to recompute :math:`J` and its gradient :math:`\nabla_{\mathtt{c\_guess}} J`,
 where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` are computed in parallel
@@ -288,13 +290,18 @@ based on the ``my_ensemble`` configuration.
 
 
 **Steps 4-6**: The instance of the :class:`~.EnsembleReducedFunctional`, named ``J_hat``,
-is then passed as an argument to the ``minimize`` function::
+is then passed as an argument to the ``minimize`` function. The default ``minimize`` function
+uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunctionalNumPy``
+that handles transferring data between Firedrake and numpy data structures. However, because
+we have a custom ``ReducedFunctional``, we need to do this ourselves::
 
-    c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
-                            bounds=(1.5, 2.0), derivative_options={"riesz_representation": 'l2'}
-                            )
+    from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
+    Jnumpy = ReducedFunctionalNumPy(J_hat)
 
-The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
+    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "ftol": ftol},
+                           bounds=(1.5, 2.0))
+
+The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``ftol``) is met.
 For 20 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
@@ -305,9 +312,7 @@ For 20 iterations, the predicted velocity model is shown in the following figure
 .. warning::
 
     The ``minimize`` function uses the SciPy library for optimisation. However, for scenarios that require higher
-    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem.
-    SciPy's optimisation algorithm is not inner-product-aware. Therefore, we configure the options with
-    ``derivative_options={"riesz_representation": 'l2'}`` to account for this requirement.
+    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem such as the pyadjoint's TAOSolver.
 
 .. note::
 

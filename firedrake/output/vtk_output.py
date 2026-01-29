@@ -6,9 +6,10 @@ import ufl
 import finat.ufl
 from ufl.domain import extract_unique_domain
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, internal_comm
-from pyop2.utils import as_tuple
+from pyop3.mpi import COMM_WORLD, temp_internal_comm
+from pyop3.pyop2_utils import as_tuple
 from pyadjoint import no_annotations
+from firedrake.mesh import ExtrudedMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
@@ -66,7 +67,7 @@ def is_cg(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.mesh().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices
     entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
@@ -81,7 +82,7 @@ def is_dg(V):
 
     :arg V: A FunctionSpace.
     """
-    return V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs()
+    return V.finat_element.is_dg()
 
 
 def is_linear(V):
@@ -89,7 +90,7 @@ def is_linear(V):
 
     :arg V: A FunctionSpace.
     """
-    nvertex = V.mesh().ufl_cell().num_vertices()
+    nvertex = V.mesh().ufl_cell().num_vertices
     return V.finat_element.space_dimension() == nvertex
 
 
@@ -108,7 +109,7 @@ def get_sup_element(*elements, continuous=False, max_degree=None):
     if continuous:
         family = "CG"
     else:
-        if cell.cellname() in {"interval", "triangle", "tetrahedron"}:
+        if cell.cellname in {"interval", "triangle", "tetrahedron"}:
             family = "DG"
         else:
             family = "DQ"
@@ -130,10 +131,11 @@ def get_topology(coordinates):
     nonLinear = not is_linear(V)
     mesh = V.mesh().topology
     cell = mesh.ufl_cell()
-    values = V.cell_node_map().values
+    values = V.cell_node_list
     value_shape = values.shape
     basis_dim = value_shape[1]
-    offsetMap = V.cell_node_map().offset
+    # TODO
+    # offsetMap = V.cell_node_map().offset
     perm = None
     # Non-simplex cells and non-linear cells need reordering
     # Connectivity of bottom cell in extruded mesh
@@ -189,35 +191,38 @@ def get_topology(coordinates):
         raise ValueError("Unhandled cell type %r" % cell)
 
     # Repeat up the column
-    num_cells = mesh.cell_set.size
-    if not mesh.cell_set._extruded:
-        cell_layers = 1
-        offsets = 0
-    else:
-        if perm is not None:
-            offsetMap = offsetMap[perm]
-        if mesh.variable_layers:
-            layers = mesh.cell_set.layers_array[:num_cells, ...]
-            cell_layers = layers[:, 1] - layers[:, 0] - 1
-
-            def vrange(cell_layers):
-                return numpy.repeat(cell_layers - cell_layers.cumsum(),
-                                    cell_layers) + numpy.arange(cell_layers.sum())
-            offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
-            num_cells = cell_layers.sum()
-        else:
-            cell_layers = mesh.cell_set.layers - 1
-            offsets = numpy.outer(numpy.arange(cell_layers, dtype=IntType), offsetMap)
-            offsets = numpy.tile(offsets, (num_cells, 1))
-            num_cells *= cell_layers
-    connectivity = numpy.repeat(values, cell_layers, axis=0)
+    num_cells = mesh.cells.owned.local_size
+    # if not isinstance(mesh, ExtrudedMeshTopology):
+    #     cell_layers = 1
+    #     offsets = 0
+    # else:
+    #     raise NotImplementedError
+    #     if perm is not None:
+    #         offsetMap = offsetMap[perm]
+    #     if mesh.variable_layers:
+    #         layers = mesh.cell_set.layers_array[:num_cells, ...]
+    #         cell_layers = layers[:, 1] - layers[:, 0] - 1
+    #
+    #         def vrange(cell_layers):
+    #             return numpy.repeat(cell_layers - cell_layers.cumsum(),
+    #                                 cell_layers) + numpy.arange(cell_layers.sum())
+    #         offsets = numpy.outer(vrange(cell_layers), offsetMap).astype(IntType)
+    #         num_cells = cell_layers.sum()
+    #     else:
+    #         cell_layers = mesh.cell_set.layers - 1
+    #         offsets = numpy.outer(numpy.arange(cell_layers, dtype=IntType), offsetMap)
+    #         offsets = numpy.tile(offsets, (num_cells, 1))
+    #         num_cells *= cell_layers
+    # connectivity = numpy.repeat(values, cell_layers, axis=0)
+    connectivity = values
     # Add offsets going up the column
-    con = connectivity + offsets
+    # con = connectivity + offsets
+    con = connectivity
     connectivity = con.flatten()
     if not nonLinear:
-        offsets_into_con = numpy.arange(start=cell.num_vertices(),
-                                        stop=cell.num_vertices() * (num_cells + 1),
-                                        step=cell.num_vertices(),
+        offsets_into_con = numpy.arange(start=cell.num_vertices,
+                                        stop=cell.num_vertices * (num_cells + 1),
+                                        step=cell.num_vertices,
                                         dtype=IntType)
     else:
         offsets_into_con = numpy.arange(start=basis_dim,
@@ -347,7 +352,7 @@ def get_array(function):
     return array
 
 
-class VTKFile(object):
+class VTKFile:
     _header = (b'<?xml version="1.0" ?>\n'
                b'<VTKFile type="Collection" version="0.1" '
                b'byte_order="LittleEndian">\n'
@@ -393,15 +398,14 @@ class VTKFile(object):
             mode = "w"
 
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
 
-        if self._comm.rank == 0 and mode == "w":
+        if self.comm.rank == 0 and mode == "w":
             if not os.path.exists(basename):
                 os.makedirs(basename)
-        elif self._comm.rank == 0 and mode == "a":
+        elif self.comm.rank == 0 and mode == "a":
             if not os.path.exists(os.path.abspath(filename)):
                 raise ValueError("Need a file to restart from.")
-        self._comm.barrier()
+        self.comm.barrier()
 
         self.filename = filename
         self.basename = basename
@@ -424,11 +428,11 @@ class VTKFile(object):
             raise ValueError("target_continuity must be either 'H1' or 'L2'.")
         countstart = 0
 
-        if self._comm.rank == 0 and mode == "w":
+        if self.comm.rank == 0 and mode == "w":
             with open(self.filename, "wb") as f:
                 f.write(self._header)
                 f.write(self._footer)
-        elif self._comm.rank == 0 and mode == "a":
+        elif self.comm.rank == 0 and mode == "a":
             import xml.etree.ElementTree as ElTree
             tree = ElTree.parse(os.path.abspath(filename))
             # Count how many the file already has
@@ -440,7 +444,8 @@ class VTKFile(object):
 
         if mode == "a":
             # Need to communicate the count across all cores involved; default op is SUM
-            countstart = self._comm.allreduce(countstart)
+            with temp_internal_comm(self.comm) as icomm:
+                countstart = icomm.allreduce(countstart)
 
         self.counter = itertools.count(countstart)
         self.timestep = itertools.count(countstart)

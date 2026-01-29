@@ -132,38 +132,45 @@ class LocalLoopyKernelBuilder:
             that are coordinates, orientations, cell sizes and cofficients.
         """
 
-        kernel_data = [(mesh.coordinates, self.coordinates_arg_name)]
+        kernel_data = []
+        for coord_domain_number in kinfo.active_domain_numbers.coordinates:
+            if coord_domain_number != 0:
+                raise ValueError("Slate currently only supports single domain")
+            self.bag.needs_coordinates = True
+            kernel_data.append((mesh.coordinates, self.coordinates_arg_name))
 
-        if kinfo.oriented:
+        for cell_orientation_domain_number in kinfo.active_domain_numbers.cell_orientations:
+            if cell_orientation_domain_number != 0:
+                raise ValueError("Slate currently only supports single domain")
             self.bag.needs_cell_orientations = True
             kernel_data.append((mesh.cell_orientations(), self.cell_orientations_arg_name))
 
-        if kinfo.needs_cell_sizes:
+        for cell_size_domain_number in kinfo.active_domain_numbers.cell_sizes:
+            if cell_size_domain_number != 0:
+                raise ValueError("Slate currently only supports single domain")
             self.bag.needs_cell_sizes = True
             kernel_data.append((mesh.cell_sizes, self.cell_sizes_arg_name))
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
         tsfc_coefficients = {tsfc_coefficients[i]: indices for i, indices in kinfo.coefficient_numbers}
-        for c, cinfo in wrapper_coefficients.items():
-            if c in tsfc_coefficients:
-                if isinstance(cinfo, tuple):
-                    if tsfc_coefficients[c]:
-                        ind, = tsfc_coefficients[c]
-                        if ind != 0:
-                            raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
-                        kernel_data.append((c, cinfo[0]))
-                else:
-                    for ind, (c_, info) in enumerate(cinfo.items()):
-                        if ind in tsfc_coefficients[c]:
-                            kernel_data.append((c_, info[0]))
+        for c in tsfc_coefficients:
+            cinfo = wrapper_coefficients[c]
+            if isinstance(cinfo, tuple):
+                if tsfc_coefficients[c]:
+                    ind, = tsfc_coefficients[c]
+                    if ind != 0:
+                        raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
+                    kernel_data.append((c, cinfo[0]))
+            else:
+                for ind, (c_, info) in enumerate(cinfo.items()):
+                    if ind in tsfc_coefficients[c]:
+                        kernel_data.append((c_, info[0]))
 
         # Pick the constants associated with a Tensor()/TSFC kernel
         tsfc_constants = tuple(tsfc_constants[i] for i in kinfo.constant_numbers)
-        kernel_data.extend([
-            (constant, constant_name)
-            for constant, constant_name in wrapper_constants
-            if constant in tsfc_constants
-        ])
+        wrapper_constants = dict(wrapper_constants)
+        for c in tsfc_constants:
+            kernel_data.append((c, wrapper_constants[c]))
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):
@@ -194,11 +201,11 @@ class LocalLoopyKernelBuilder:
 
     def facet_integral_predicates(self, mesh, integral_type, kinfo, subdomain_id):
         self.bag.needs_cell_facets = True
-        # Number of recerence cell facets
-        if mesh.cell_set._extruded:
-            self.num_facets = mesh._base_mesh.ufl_cell().num_facets()
+        # Number of reference cell facets
+        if mesh.extruded:
+            self.num_facets = mesh._base_mesh.ufl_cell().num_facets
         else:
-            self.num_facets = mesh.ufl_cell().num_facets()
+            self.num_facets = mesh.ufl_cell().num_facets
 
         # Index for loop over cell faces of reference cell
         fidx = self.bag.index_creator((self.num_facets,))
@@ -339,10 +346,11 @@ class LocalLoopyKernelBuilder:
         args = []
         tmp_args = []
 
-        coords_extent = self.extent(self.expression.ufl_domain().coordinates)
-        coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
-                                           dtype=self.tsfc_parameters["scalar_type"])
-        args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
+        if self.bag.needs_coordinates:
+            coords_extent = self.extent(self.expression.ufl_domain().coordinates)
+            coords_loopy_arg = loopy.GlobalArg(self.coordinates_arg_name, shape=coords_extent,
+                                               dtype=self.tsfc_parameters["scalar_type"])
+            args.append(kernel_args.CoordinatesKernelArg(coords_loopy_arg))
 
         if self.bag.needs_cell_orientations:
             ori_extent = self.extent(self.expression.ufl_domain().cell_orientations())
@@ -442,9 +450,15 @@ class LocalLoopyKernelBuilder:
                         if subdomain_id != "otherwise":
                             raise NotImplementedError("No subdomain markers for cells yet")
                     elif self.is_integral_type(integral_type, "facet_integral"):
-                        predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo, subdomain_id)
-                        reads.append(facet_arg)
-                        inames_dep.append(fidx[0].name)
+                        if kinfo.active_domain_numbers._asdict()[{"exterior_facet": "exterior_facets",
+                                                                  "exterior_facet_vert": "exterior_facets",
+                                                                  "interior_facet": "interior_facets",
+                                                                  "interior_facet_vert": "interior_facets"}[kinfo.integral_type]] != ():
+                            predicates, fidx, facet_arg = self.facet_integral_predicates(mesh, integral_type, kinfo, subdomain_id)
+                            reads.append(facet_arg)
+                            inames_dep.append(fidx[0].name)
+                        else:
+                            predicates = None
                     elif self.is_integral_type(integral_type, "layer_integral"):
                         predicates = self.layer_integral_predicates(slate_tensor, integral_type)
                     else:
@@ -471,6 +485,7 @@ class SlateWrapperBag:
         self.coefficients = coeffs
         self.constants = constants
         self.inames = OrderedDict()
+        self.needs_coordinates = False
         self.needs_cell_orientations = False
         self.needs_cell_sizes = False
         self.needs_cell_facets = False

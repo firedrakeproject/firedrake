@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from FIAT.dual_set import DualSet
 from FIAT.finite_element import CiarletElement
 from FIAT.reference_element import UFCInterval
@@ -13,7 +12,6 @@ from finat.element_factory import convert, as_fiat_cell
 import finat.ufl
 
 ufcint = UFCInterval()
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 # Purpose of these tests: test interpolation with a simple 1D element newly

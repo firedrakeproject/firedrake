@@ -1,11 +1,14 @@
 import itertools
 import ufl
 
-from pyop2 import op2
-from pyop2.mpi import internal_comm
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import PETSc
-from types import SimpleNamespace
+
+
+class DummyOP2Mat:
+    """A hashable implementation of M.handle"""
+    def __init__(self, handle):
+        self.handle = handle
 
 
 class MatrixBase(ufl.Matrix):
@@ -20,8 +23,9 @@ class MatrixBase(ufl.Matrix):
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
     :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
+    :kwarg fc_params: a dict of form compiler parameters of this matrix
     """
-    def __init__(self, a, bcs, mat_type):
+    def __init__(self, a, bcs, mat_type, fc_params=None):
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
@@ -42,9 +46,10 @@ class MatrixBase(ufl.Matrix):
         self._analyze_form_arguments()
         self._arguments = arguments
 
+        if bcs is None:
+            bcs = ()
         self.bcs = bcs
         self.comm = test.function_space().comm
-        self._comm = internal_comm(self.comm, self)
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
         self.mat_type = mat_type
@@ -52,6 +57,7 @@ class MatrixBase(ufl.Matrix):
 
         Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
         or 'matfree' for matrix-free."""
+        self.form_compiler_parameters = fc_params
 
     def arguments(self):
         if self.a:
@@ -97,6 +103,33 @@ class MatrixBase(ufl.Matrix):
         return "assembled %s(a=%s, bcs=%s)" % (type(self).__name__,
                                                self.a, self.bcs)
 
+    def __add__(self, other):
+        if isinstance(other, MatrixBase):
+            mat = self.petscmat + other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
+        else:
+            return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, MatrixBase):
+            mat = self.petscmat - other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
+        else:
+            return NotImplemented
+
+    def assign(self, val):
+        """Set matrix entries."""
+        if isinstance(val, MatrixBase):
+            val.petscmat.copy(self.petscmat)
+        else:
+            raise TypeError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
+        return self
+
+    def zero(self):
+        """Set all matrix entries to zero."""
+        self.petscmat.zeroEntries()
+        return self
+
 
 class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.
@@ -108,6 +141,8 @@ class Matrix(MatrixBase):
         conditions to apply.
 
     :arg mat_type: matrix type of assembled matrix.
+
+    :kwarg fc_params: a dict of form compiler parameters for this matrix.
 
     A ``pyop2.types.mat.Mat`` will be built from the remaining
     arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
@@ -122,12 +157,12 @@ class Matrix(MatrixBase):
 
     # TODO need to think about the interface now we're not passing a sparsity but
     # a zeroed matrix
-    def __init__(self, a, bcs, mat_type, pyop3_mat, *, options_prefix=None):
-        # sets self._a, self._bcs, and self._mat_type
-        MatrixBase.__init__(self, a, bcs, mat_type)
+    def __init__(self, a, bcs, mat_type, pyop3_mat, *, options_prefix=None, fc_params=None):
+        MatrixBase.__init__(self, a, bcs, mat_type, fc_params=fc_params)
         self.M = pyop3_mat
         self.petscmat = self.M.buffer.mat
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
 
         # TODO can sniff from pyop3_mat
         self.mat_type = mat_type
@@ -149,6 +184,7 @@ class ImplicitMatrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
+    :kwarg fc_params: a dict of form compiler parameters for this matrix.
 
     .. note::
 
@@ -158,8 +194,9 @@ class ImplicitMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a, self._bcs, and self._mat_type
-        super(ImplicitMatrix, self).__init__(a, bcs, "matfree")
+        # sets self.a, self.bcs, self.mat_type, and self.fc_params
+        fc_params = kwargs["fc_params"]
+        super(ImplicitMatrix, self).__init__(a, bcs, "matfree", fc_params)
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
@@ -168,9 +205,9 @@ class ImplicitMatrix(MatrixBase):
         ctx = ImplicitMatrixContext(a,
                                     row_bcs=self.bcs,
                                     col_bcs=self.bcs,
-                                    fc_params=kwargs["fc_params"],
+                                    fc_params=fc_params,
                                     appctx=appctx)
-        self.petscmat = PETSc.Mat().create(comm=self._comm)
+        self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)
@@ -199,19 +236,15 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
+        options_prefix = kwargs.pop("options_prefix", None)
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
 
-        # this allows call to self.M.handle without a new class
-        self.M = SimpleNamespace(handle=self.mat())
+        # this mimics op2.Mat.handle
+        self.M = DummyOP2Mat(self.mat())
 
     def mat(self):
         return self.petscmat
-
-    def __add__(self, other):
-        if isinstance(other, AssembledMatrix):
-            return self.petscmat + other.petscmat
-        else:
-            raise TypeError("Unable to add %s to AssembledMatrix"
-                            % (type(other)))

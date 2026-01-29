@@ -1,11 +1,9 @@
 import pytest
 from firedrake import *
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import numpy as np
 import os
 
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 mesh_name = "m"
@@ -41,7 +39,8 @@ def test_io_freeze_dist_perm_base(case, tmpdir):
         x, = SpatialCoordinate(mesh)
         f = Function(V, name=func_name).interpolate(cos(2 * pi * x))
     elif case == "triangle":
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name)
+        mesh_file = os.path.join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        mesh = Mesh(mesh_file, name=mesh_name)
         V = FunctionSpace(mesh, "BDMF", 3)
         x, y = SpatialCoordinate(mesh)
         f = Function(V, name=func_name).interpolate(as_vector([cos(x), 2 * sin(y)]))

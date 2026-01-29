@@ -15,7 +15,7 @@ def mesh(request):
 @pytest.fixture(params=("SV", "GN", "GN2", "GNH1div"))
 def space(request, mesh):
     family = request.param
-    dim = mesh.topological_dimension()
+    dim = mesh.topological_dimension
     if family == "GN":
         V = FunctionSpace(mesh, "GN", 1)
         Q = FunctionSpace(mesh, "DG", 0)
@@ -48,7 +48,7 @@ def test_stokes_complex(mesh, space):
 
 # Test that DirichletBC does not set derivative nodes of supersmooth H1 functions
 def test_supersmooth_bcs(mesh):
-    tdim = mesh.topological_dimension()
+    tdim = mesh.topological_dimension
     if tdim == 3:
         V = FunctionSpace(mesh, "GNH1div", 3)
     else:

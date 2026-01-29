@@ -2,7 +2,7 @@ import numpy as np
 
 import ufl
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
@@ -11,7 +11,7 @@ from firedrake import (
     Function,
     Constant,
     assemble,
-    Interpolate,
+    interpolate,
     FiniteElement,
     interval,
     tetrahedron,
@@ -30,9 +30,14 @@ from firedrake import (
     real
 )
 from firedrake.cython import dmcommon
-from firedrake import mesh
-from firedrake import function
-from firedrake import functionspace
+from firedrake.mesh import (
+    Mesh, DistributedMeshOverlapType, DEFAULT_MESH_NAME,
+    plex_from_cell_list, _generate_default_mesh_topology_name,
+    _generate_default_mesh_coordinates_name, MeshTopology,
+    make_mesh_from_mesh_topology, RelabeledMesh,
+    make_mesh_from_coordinates, ExtrudedMesh
+)
+from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 from pyadjoint.tape import no_annotations
@@ -75,23 +80,23 @@ __all__ = [
 
 
 distribution_parameters_no_overlap = {"partition": True,
-                                      "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
+                                      "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
 reorder_noop = False
 
 
 def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
     dm = coords.function_space().mesh().topology.topology_dm
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("firedrake_is_ghost")
     dm.removeLabel("exterior_facets")
     dm.removeLabel("interior_facets")
     V = coords.function_space()
-    dmcommon._set_dg_coordinates(dm,
-                                 V.finat_element,
-                                 V.dm.getLocalSection(),
-                                 coords.dat._vec)
-    return mesh.Mesh(
+
+    with coords.vec_rw as coords_vec:
+        dmcommon._set_dg_coordinates(dm,
+                                     V.finat_element,
+                                     V.dm.getLocalSection(),
+                                     coords_vec)
+    return Mesh(
         dm,
         comm=comm,
         distribution_parameters=distribution_parameters,
@@ -110,7 +115,7 @@ def IntervalMesh(
     distribution_parameters=None,
     reorder=False,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -158,8 +163,8 @@ def IntervalMesh(
             np.arange(1, len(coords), dtype=np.int32),
         )
     ).reshape(-1, 2)
-    plex = mesh.plex_from_cell_list(
-        1, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        1, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
     # Apply boundary IDs
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -173,7 +178,7 @@ def IntervalMesh(
         if vcoord[0] == coords[-1]:
             plex.setLabelValue(dmcommon.FACE_SETS_LABEL, v, 2)
 
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
@@ -191,7 +196,7 @@ def UnitIntervalMesh(
     distribution_parameters=None,
     reorder=False,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -234,7 +239,7 @@ def PeriodicIntervalMesh(
     distribution_parameters=None,
     reorder=False,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -274,7 +279,7 @@ cells are not currently supported"
         m, FiniteElement("DG", interval, 1, variant="equispaced"), dim=1
     )
     new_coordinates = Function(
-        coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
+        coord_fs, name=_generate_default_mesh_coordinates_name(name)
     )
     x, y = SpatialCoordinate(m)
     eps = 1.e-14
@@ -302,7 +307,7 @@ def PeriodicUnitIntervalMesh(
     distribution_parameters=None,
     reorder=False,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -340,7 +345,7 @@ def OneElementThickMesh(
     Ly,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -372,12 +377,17 @@ def OneElementThickMesh(
     coords = np.array([X, Y]).T
 
     # a line of coordinates, with a looped topology
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
-    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters, comm=comm)
-    mesh1.topology.init()
-    cell_numbering = mesh1._cell_numbering
+    tmesh1 = MeshTopology(
+        plex,
+        plex.getName(),
+        reorder=parameters["reorder_meshes"],
+        distribution_parameters=distribution_parameters,
+        comm=comm,
+    )
+    cell_numbering = tmesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
     cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
 
@@ -474,17 +484,15 @@ def OneElementThickMesh(
 
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
-
-    mesh1.init()
-
+    tmesh1.cell_closure = np.array(cell_closure, dtype=IntType)
+    mesh1 = make_mesh_from_mesh_topology(tmesh1, "temp")
     fe_dg = FiniteElement("DQ", mesh1.ufl_cell(), 1, variant="equispaced")
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(
-        Vc, name=mesh._generate_default_mesh_coordinates_name(name)
+        Vc, name=_generate_default_mesh_coordinates_name(name)
     ).interpolate(mesh1.coordinates)
 
-    mash = mesh.Mesh(
+    mash = Mesh(
         fc,
         name=name,
         distribution_name=distribution_name,
@@ -521,7 +529,7 @@ def UnitTriangleMesh(
     refinement_level=0,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -541,7 +549,7 @@ def UnitTriangleMesh(
     """
     coords = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
     cells = [[0, 1, 2]]
-    plex = mesh.plex_from_cell_list(2, cells, coords, comm)
+    plex = plex_from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -567,8 +575,8 @@ def UnitTriangleMesh(
     for i in range(refinement_level):
         plex = plex.refine()
 
-    plex.setName(mesh._generate_default_mesh_topology_name(name))
-    return mesh.Mesh(
+    plex.setName(_generate_default_mesh_topology_name(name))
+    return Mesh(
         plex,
         reorder=False,
         distribution_parameters=distribution_parameters,
@@ -592,7 +600,7 @@ def RectangleMesh(
     diagonal="left",
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -656,7 +664,7 @@ def TensorRectangleMesh(
     diagonal="left",
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -731,8 +739,8 @@ def TensorRectangleMesh(
             # two cells per cell above...
             cells = cells[:, idx].reshape(-1, 3)
 
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
 
     # mark boundary facets
@@ -759,7 +767,7 @@ def TensorRectangleMesh(
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
     plex.removeLabel("boundary_faces")
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
@@ -781,7 +789,7 @@ def SquareMesh(
     diagonal="left",
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -835,7 +843,7 @@ def UnitSquareMesh(
     quadrilateral=False,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -890,7 +898,7 @@ def PeriodicRectangleMesh(
     distribution_parameters=None,
     diagonal=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -985,7 +993,7 @@ def PeriodicRectangleMesh(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
     new_coordinates = Function(
-        coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
+        coord_fs, name=_generate_default_mesh_coordinates_name(name)
     )
     x, y, z = SpatialCoordinate(m)
     eps = 1.e-14
@@ -1030,7 +1038,7 @@ def PeriodicSquareMesh(
     distribution_parameters=None,
     diagonal=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1093,7 +1101,7 @@ def PeriodicUnitSquareMesh(
     distribution_parameters=None,
     diagonal=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1152,7 +1160,7 @@ def CircleManifoldMesh(
     distribution_parameters=None,
     reorder=False,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1192,10 +1200,10 @@ def CircleManifoldMesh(
         )
     )
 
-    plex = mesh.plex_from_cell_list(
-        1, cells, vertices, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        1, cells, vertices, comm, _generate_default_mesh_topology_name(name)
     )
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=2,
         reorder=reorder,
@@ -1206,15 +1214,13 @@ def CircleManifoldMesh(
         comm=comm,
     )
     if degree > 1:
-        new_coords = function.Function(
-            functionspace.VectorFunctionSpace(m, "CG", degree)
-        )
+        new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to circle
         new_coords.dat.data[:] *= (
             radius / np.linalg.norm(new_coords.dat.data, axis=1)
         ).reshape(-1, 1)
-        m = mesh.Mesh(
+        m = Mesh(
             new_coords,
             name=name,
             distribution_name=distribution_name,
@@ -1231,7 +1237,7 @@ def UnitDiskMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1269,8 +1275,8 @@ def UnitDiskMesh(
         np.int32,
     )
 
-    plex = mesh.plex_from_cell_list(
-        2, cells, vertices, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, vertices, comm, _generate_default_mesh_topology_name(name)
     )
 
     # mark boundary facets
@@ -1292,7 +1298,7 @@ def UnitDiskMesh(
             t = np.max(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=2,
         reorder=reorder,
@@ -1311,7 +1317,7 @@ def UnitBallMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1357,8 +1363,8 @@ def UnitBallMesh(
         np.int32,
     )
 
-    plex = mesh.plex_from_cell_list(
-        3, cells, vertices, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        3, cells, vertices, comm, _generate_default_mesh_topology_name(name)
     )
 
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -1379,7 +1385,7 @@ def UnitBallMesh(
             t = np.sum(np.abs(x)) / norm
             x[:] *= t
 
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -1395,7 +1401,7 @@ def UnitBallMesh(
 @PETSc.Log.EventDecorator()
 def UnitTetrahedronMesh(
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1412,10 +1418,10 @@ def UnitTetrahedronMesh(
     """
     coords = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     cells = [[0, 1, 2, 3]]
-    plex = mesh.plex_from_cell_list(
-        3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         reorder=False,
         name=name,
@@ -1434,7 +1440,7 @@ def TensorBoxMesh(
     distribution_parameters=None,
     diagonal="default",
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1522,8 +1528,8 @@ def TensorBoxMesh(
         )
     else:
         raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
-    plex = mesh.plex_from_cell_list(
-        3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
     nvert = 3  # num. vertices on facet
 
@@ -1561,7 +1567,7 @@ def TensorBoxMesh(
             if all([abs(face_coords[2 + cdim * i] - z1) < ztol for i in range(nvert)]):
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
     plex.removeLabel("boundary_faces")
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
@@ -1586,7 +1592,7 @@ def BoxMesh(
     distribution_parameters=None,
     diagonal="default",
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1651,7 +1657,7 @@ def BoxMesh(
                 if all([abs(face_coords[2 + cdim * i] - Lz) < ztol for i in range(nvert)]):
                     plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 6)
         plex.removeLabel("boundary_faces")
-        m = mesh.Mesh(
+        m = Mesh(
             plex,
             reorder=reorder,
             distribution_parameters=distribution_parameters,
@@ -1689,7 +1695,7 @@ def CubeMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1747,7 +1753,7 @@ def UnitCubeMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1806,7 +1812,7 @@ def PeriodicBoxMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -1883,7 +1889,7 @@ def PeriodicBoxMesh(
             sparseLocalize=False,
             comm=comm,
         )
-        m = mesh.Mesh(
+        m = Mesh(
             plex,
             reorder=reorder,
             distribution_parameters=distribution_parameters,
@@ -1912,7 +1918,7 @@ def PeriodicBoxMesh(
         else:
             fz0 = Function(V).interpolate(conditional(z < eps, 1., 0.))
             fz1 = Function(V).interpolate(conditional(z > Lz - eps, 1., 0.))
-        return mesh.RelabeledMesh(m, [fx0, fx1, fy0, fy1, fz0, fz1], [1, 2, 3, 4, 5, 6], name=name)
+        return RelabeledMesh(m, [fx0, fx1, fy0, fy1, fz0, fz1], [1, 2, 3, 4, 5, 6], name=name)
     else:
         if tuple(directions) != (True, True, True):
             raise NotImplementedError("Can only specify directions with hexahedral = True")
@@ -1945,10 +1951,10 @@ def PeriodicBoxMesh(
             [v0, v2, v6, v7],
         ]
         cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
-        plex = mesh.plex_from_cell_list(
-            3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+        plex = plex_from_cell_list(
+            3, cells, coords, comm, _generate_default_mesh_topology_name(name)
         )
-        m = mesh.Mesh(
+        m = Mesh(
             plex,
             reorder=reorder_noop,
             distribution_parameters=distribution_parameters_no_overlap,
@@ -1962,7 +1968,7 @@ def PeriodicBoxMesh(
             VectorFunctionSpace(
                 m, FiniteElement("DG", tetrahedron, 1, variant="equispaced")
             ),
-            name=mesh._generate_default_mesh_coordinates_name(name),
+            name=_generate_default_mesh_coordinates_name(name),
         )
         new_coordinates.interpolate(m.coordinates)
 
@@ -2003,7 +2009,7 @@ def PeriodicUnitCubeMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2082,7 +2088,7 @@ def IcosahedralSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2166,16 +2172,16 @@ def IcosahedralSphereMesh(
         dtype=np.int32,
     )
 
-    plex = mesh.plex_from_cell_list(2, faces, vertices, comm)
+    plex = plex_from_cell_list(2, faces, vertices, comm)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
-    plex.setName(mesh._generate_default_mesh_topology_name(name))
+    plex.setName(_generate_default_mesh_topology_name(name))
 
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -2186,15 +2192,12 @@ def IcosahedralSphereMesh(
         comm=comm,
     )
     if degree > 1:
-        new_coords = function.Function(
-            functionspace.VectorFunctionSpace(m, "CG", degree)
-        )
+        new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
-        m = mesh.Mesh(
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
+        m = Mesh(
             new_coords,
             name=name,
             distribution_name=distribution_name,
@@ -2212,7 +2215,7 @@ def UnitIcosahedralSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2259,7 +2262,7 @@ def OctahedralSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2328,14 +2331,14 @@ def OctahedralSphereMesh(
         for new, idx in enumerate(indices):
             faces[faces == idx] = new
 
-    plex = mesh.plex_from_cell_list(2, faces, vertices, comm)
+    plex = plex_from_cell_list(2, faces, vertices, comm)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
-    plex.setName(mesh._generate_default_mesh_topology_name(name))
+    plex.setName(_generate_default_mesh_topology_name(name))
 
     # build the initial mesh
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -2347,8 +2350,8 @@ def OctahedralSphereMesh(
     )
     if degree > 1:
         # use it to build a higher-order mesh
-        m = assemble(Interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
-        m = mesh.Mesh(
+        m = assemble(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+        m = Mesh(
             m,
             name=name,
             distribution_name=distribution_name,
@@ -2382,11 +2385,11 @@ def OctahedralSphereMesh(
     # Make a copy of the coordinates so that we can blend two different
     # mappings near the pole
     Vc = m.coordinates.function_space()
-    Xlatitudinal = assemble(Interpolate(
+    Xlatitudinal = assemble(interpolate(
         Constant(radius) * ufl.as_vector([x * scale, y * scale, znew]), Vc
     ))
     Vlow = VectorFunctionSpace(m, "CG", 1)
-    Xlow = assemble(Interpolate(Xlatitudinal, Vlow))
+    Xlow = assemble(interpolate(Xlatitudinal, Vlow))
     r = ufl.sqrt(Xlow[0] ** 2 + Xlow[1] ** 2 + Xlow[2] ** 2)
     Xradial = Constant(radius) * Xlow / r
 
@@ -2413,7 +2416,7 @@ def UnitOctahedralSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2595,7 +2598,7 @@ def CubedSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2625,11 +2628,11 @@ def CubedSphereMesh(
         raise ValueError("Mesh coordinate degree must be at least 1")
 
     cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-    plex = mesh.plex_from_cell_list(
-        2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
 
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -2641,15 +2644,12 @@ def CubedSphereMesh(
     )
 
     if degree > 1:
-        new_coords = function.Function(
-            functionspace.VectorFunctionSpace(m, "Q", degree)
-        )
+        new_coords = Function(VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
-        m = mesh.Mesh(
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
+        m = Mesh(
             new_coords,
             distribution_name=distribution_name,
             permutation_name=permutation_name,
@@ -2666,7 +2666,7 @@ def UnitCubedSphereMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2709,7 +2709,7 @@ def TorusMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2776,10 +2776,10 @@ def TorusMesh(
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
-    plex = mesh.plex_from_cell_list(
-        2, cells, vertices, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, vertices, comm, _generate_default_mesh_topology_name(name)
     )
-    m = mesh.Mesh(
+    m = Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -2800,7 +2800,7 @@ def AnnulusMesh(
     nt=32,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2832,12 +2832,12 @@ def AnnulusMesh(
                         name=base_name,
                         distribution_name=distribution_name,
                         permutation_name=permutation_name)
-    bar = mesh.ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
+    bar = ExtrudedMesh(base, layers=nt, layer_height=2 * np.pi / nt, extrusion_type="uniform", periodic=True)
     x, y = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(y), x * ufl.sin(y)]))
-    annulus = mesh.make_mesh_from_coordinates(coord.topological, name)
-    annulus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    annulus = make_mesh_from_coordinates(coord.topological, name)
+    annulus.topology.name = _generate_default_mesh_topology_name(name)
     annulus._base_mesh = base
     return annulus
 
@@ -2851,7 +2851,7 @@ def SolidTorusMesh(
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2885,15 +2885,15 @@ def SolidTorusMesh(
     x, y = ufl.SpatialCoordinate(unit)
     V = unit.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
-    disk = mesh.make_mesh_from_coordinates(coord.topological, base_name)
-    disk.topology.name = mesh._generate_default_mesh_topology_name(base_name)
+    disk = make_mesh_from_coordinates(coord.topological, base_name)
+    disk.topology.name = _generate_default_mesh_topology_name(base_name)
     disk.topology.topology_dm.setName(disk.topology.name)
-    bar = mesh.ExtrudedMesh(disk, layers=nR, layer_height=2 * np.pi / nR, extrusion_type="uniform", periodic=True)
+    bar = ExtrudedMesh(disk, layers=nR, layer_height=2 * np.pi / nR, extrusion_type="uniform", periodic=True)
     x, y, z = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(z), x * ufl.sin(z), -y]))
-    torus = mesh.make_mesh_from_coordinates(coord.topological, name)
-    torus.topology.name = mesh._generate_default_mesh_topology_name(name)
+    torus = make_mesh_from_coordinates(coord.topological, name)
+    torus.topology.name = _generate_default_mesh_topology_name(name)
     torus._base_mesh = disk
     return torus
 
@@ -2910,7 +2910,7 @@ def CylinderMesh(
     distribution_parameters=None,
     diagonal=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -2996,7 +2996,7 @@ def CylinderMesh(
         # 0-----1
 
         offset = np.arange(nl, dtype=np.int32) * nr
-        origquads = np.row_stack(tuple(ring_cells + i for i in offset))
+        origquads = np.vstack(tuple(ring_cells + i for i in offset))
         cells = np.zeros((origquads.shape[0] * 4, 3), dtype=np.int32)
         cellidx = 0
         newvertices = range(len(origvertices), len(origvertices) + len(extras))
@@ -3009,7 +3009,7 @@ def CylinderMesh(
 
     else:
         offset = np.arange(nl, dtype=np.int32) * nr
-        cells = np.row_stack(tuple(ring_cells + i for i in offset))
+        cells = np.vstack(tuple(ring_cells + i for i in offset))
         if not quadrilateral:
             if diagonal == "left":
                 idx = [0, 1, 3, 1, 2, 3]
@@ -3029,8 +3029,8 @@ def CylinderMesh(
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
 
-    plex = mesh.plex_from_cell_list(
-        2, cells, vertices, comm, mesh._generate_default_mesh_topology_name(name)
+    plex = plex_from_cell_list(
+        2, cells, vertices, comm, _generate_default_mesh_topology_name(name)
     )
 
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
@@ -3054,7 +3054,7 @@ def CylinderMesh(
                 plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
     plex.removeLabel("boundary_faces")
 
-    return mesh.Mesh(
+    return Mesh(
         plex,
         dim=3,
         reorder=reorder,
@@ -3078,7 +3078,7 @@ def PartiallyPeriodicRectangleMesh(
     distribution_parameters=None,
     diagonal=None,
     comm=COMM_WORLD,
-    name=mesh.DEFAULT_MESH_NAME,
+    name=DEFAULT_MESH_NAME,
     distribution_name=None,
     permutation_name=None,
 ):
@@ -3149,7 +3149,7 @@ def PartiallyPeriodicRectangleMesh(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
     new_coordinates = Function(
-        coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
+        coord_fs, name=_generate_default_mesh_coordinates_name(name)
     )
     x, y, z = SpatialCoordinate(m)
     eps = 1.e-14

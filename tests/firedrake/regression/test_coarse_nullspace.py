@@ -1,9 +1,6 @@
-import pytest
-
 from firedrake import *
 
 
-@pytest.mark.skip(reason="pyop3 TODO, multigrid")
 def test_coarse_nullspace():
     base = UnitSquareMesh(10, 10)
     mh = MeshHierarchy(base, 1)
@@ -26,7 +23,7 @@ def test_coarse_nullspace():
           "mg_coarse_pc_type": "gamg"}
 
     u = Function(V)
-    with u.dat.vec_wo as x:
+    with u.vec_wo as x:
         x.setRandom()
 
     problem = LinearVariationalProblem(a, F, u)

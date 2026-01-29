@@ -1,50 +1,41 @@
 #! /usr/bin/env python3
+
+from __future__ import annotations
+
+import abc
+import contextlib
+import dataclasses
 import hashlib
-import re
 import logging
 import sys
 import os
 import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from collections import OrderedDict
 import json
 import time
 import requests
 import base64
 import datetime
+from importlib.metadata import Distribution
 
 
 # Change this to https://sandbox.zenodo.org/api for testing
 ZENODO_URL = "https://zenodo.org/api"
-descriptions = OrderedDict([
-    ("firedrake", "an automated finite element system"),
-    ("ufl", "The Unified Form Language"),
-    ("fiat", "The Finite Element Automated Tabulator"),
-    ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
-    ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
-    ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
-    # removed components, left so old Firedrake versions are archivable
-    ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
-    ("tsfc", "The Two Stage Form Compiler"),
-    ("FInAT", "a smarter library of finite elements"),
-])
+DESCRIPTIONS = {
+    "firedrake": "Firedrake: an automated finite element system",
+    "ufl": "UFL: the Unified Form Language",
+    "fiat": "FIAT: the Finite Element Automated Tabulator",
+    "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
+}
 
-projects = dict([
-    ("firedrake", "firedrakeproject"),
-    ("ufl", "firedrakeproject"),
-    ("fiat", "firedrakeproject"),
-    ("petsc", "firedrakeproject"),
-    ("loopy", "firedrakeproject"),
-    ("slepc", "firedrakeproject"),
-    # removed components, left so old Firedrake versions are archivable
-    ("PyOP2", "OP2"),
-    ("tsfc", "firedrakeproject"),
-    ("FInAT", "FInAT"),
-])
+PYPI_PACKAGE_NAMES = {
+    "firedrake": "firedrake",
+    "ufl": "fenics-ufl",
+    "fiat": "firedrake-fiat",
+    "petsc": "petsc4py",
+}
 
-components = list(descriptions.keys())
-
-optional_components = ("slepc", "PyOP2", "tsfc", "FInAT")
+components = list(DESCRIPTIONS.keys())
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -111,9 +102,6 @@ parser.add_argument("--additional-dois", action="store", nargs='+',
                     help="""DOIs of additional components that should be recorded in the Zenodo meta-record (use this to archive and then link to additional packages you used).""")
 parser.add_argument("--new-version-of", action="store", nargs=1,
                     help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
-parser.add_argument("--honour-petsc-dir", action="store_true",
-                    help="Does your firedrake use a self-built PETSc?")
-
 parser.add_argument("--ignore-existing-records", action="store_true",
                     help="When creating Zenodo meta-record, ignore any existing records which match the tag")
 parser.add_argument("--skip-missing", action="store_true",
@@ -160,11 +148,42 @@ else:
 log = logging.getLogger()
 
 cwd = os.getcwd()
-try:
-    src = os.environ["VIRTUAL_ENV"] + "/src"
-except KeyError:
-    log.error("VIRTUAL_ENV environment variable not set. Please activate virtualenv before running firedrake-zenodo.")
-    sys.exit(1)
+
+
+class ComponentVersion(abc.ABC):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class ReleaseComponentVersion(ComponentVersion):
+    version: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VCSComponentVersion(ComponentVersion):
+    commit_id: str
+
+
+def get_component_version(component: str) -> ComponentVersion:
+    pypi_package_name = PYPI_PACKAGE_NAMES[component]
+    # This incantation returns a JSON string containing information about where the
+    # component is installed and whether it is editable or not
+    # (see https://stackoverflow.com/questions/43348746/how-to-detect-if-module-is-installed-in-editable-mode#75078002).
+    dist = Distribution.from_name(pypi_package_name)
+    direct_url_json = dist.read_text("direct_url.json")
+
+    if direct_url_json:
+        direct_url = json.loads(direct_url_json)
+        try:
+            commit_id = direct_url["vcs_info"]["commit_id"]
+        except KeyError:
+            # sniff the commit info from the repository
+            repo = direct_url["url"].removeprefix("file://")
+            commit_id = get_git_commit_info(repo)
+        return VCSComponentVersion(commit_id)
+    else:
+        # 'direct_url_json' is 'None' if the package is installed via PyPI
+        return ReleaseComponentVersion(dist.version)
 
 
 def check_call(arguments):
@@ -186,43 +205,24 @@ def check_output(args):
         raise
 
 
-class directory(object):
-    """Context manager that executes body in a given directory"""
-    def __init__(self, d):
-        self.d = os.path.abspath(d)
-
-    def __enter__(self):
-        self.olddir = os.path.abspath(os.getcwd())
-        os.chdir(self.d)
-
-    def __exit__(self, *args):
-        os.chdir(self.olddir)
+class RepositoryNotFoundException(RuntimeError):
+    pass
 
 
-def collect_repo_shas():
-    shas = {}
-
-    for component in components:
+def get_git_commit_info(repo):
+    with contextlib.chdir(repo):
         try:
-            with directory(os.path.join(src, component)):
-                try:
-                    check_call(["git", "diff-index", "--quiet", "HEAD"])
-                except subprocess.CalledProcessError:
-                    log.error("Component %s has uncommitted changes, cannot create release" % component)
-                    sys.exit(0)
-                shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
-        except (subprocess.CalledProcessError, OSError):
-            if component in optional_components:
-                log.warning("Failed to retrieve git hash for optional "
-                            "component '%s', continuing without it" % component)
-            else:
-                if component == "petsc" and args.honour_petsc_dir:
-                    log.warning("Cannot retrieve git hash for PETSc, if you want a release "
-                                "you will have to provide it manually")
-                else:
-                    log.error("Failed to retrieve git hash for %s" % component)
-                    raise
-    return shas
+            check_call(["git", "status"])
+        except subprocess.CalledProcessError:
+            raise RepositoryNotFoundException
+
+        try:
+            check_call(["git", "diff-index", "--quiet", "HEAD"])
+        except subprocess.CalledProcessError:
+            log.error(f"Repository {repo} contains uncommitted changes, cannot create release")
+            sys.exit(1)
+
+        return check_output(["git", "rev-parse", "HEAD"]).strip()
 
 
 def check_github_token_scope(token):
@@ -245,12 +245,6 @@ def check_github_token_scope(token):
         sys.exit(1)
     else:
         log.debug("FIREDRAKE_GITHUB_TOKEN has necessary scopes")
-
-
-def check_tag(tag):
-    if re.match(r"Firedrake_20[0-9]{6,6}\.[0-9]+", tag) is None:
-        log.error("Provided tag '{}' is not a legal Firedrake Zenodo release tag".format(tag))
-        sys.exit(1)
 
 
 def resolve_tag(tag, components):
@@ -280,21 +274,13 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
-        repo = gh.repository(projects[component], component)
-        tags = list(repo.tags())
+        repo = gh.repository("firedrakeproject", component)
         try:
-            found, = [t for t in tags if t.name == tag]
+            found, = [t for t in repo.tags() if t.name == tag]
         except ValueError:
-            if component in optional_components:
-                continue
-            if args.skip_missing:
-                log.warning("Tag '{tag}' does not exist in repository '{repo}'. Continuing".format(tag=tag, repo=repo))
-            else:
-                log.error("Tag '{tag}' does not exist in repository '{repo}'".format(
-                    tag=tag, repo=repo))
-                log.error("To continue despite this use --skip-missing")
-                sys.exit(1)
-        matching = [t for t in tags if t.commit == found.commit]
+            log.error(f"Tag '{tag}' does not exist in repository '{repo}'")
+            sys.exit(1)
+        matching = [t for t in repo.tags() if t.commit == found.commit]
         result.append((repo, matching))
     return result
 
@@ -307,11 +293,11 @@ def zenodo_records():
     result = None
     i = 1
     while True:
-        if i > 20:
+        if i > 8000//25:
             raise RuntimeError("More than 8000 uploads on zenodo?")
         response = requests.get(f"{ZENODO_URL}/records", params={"q": 'owners:19586 OR owners:19587',
                                                                  "all_versions": True,
-                                                                 "size": 400,
+                                                                 "size": 25,
                                                                  "sort": "mostrecent",
                                                                  "page": i})
         if response.status_code == 200:
@@ -404,7 +390,7 @@ def create_description(records, title, doi, additional_dois=None):
     :returns: A HTML string suitable for zenodo upload."""
     links = "\n".join('<li>{name} ({desc}): <a href="https://doi.org/{doi}">{doi}</a></li>'.format(
         name=repo.name,
-        desc=descriptions[repo.name],
+        desc=DESCRIPTIONS[repo.name],
         doi=record["doi"]) for repo, (_, record) in records)
     if additional_dois:
         additional_links = "\n".join('<li><a href="https://doi.org/{doi}">{doi}</a></li>'.format(
@@ -418,15 +404,7 @@ The Firedrake components and dependencies used were:
 {links}
 </ul>
 </p>
-
-<p>
-You can install Firedrake using exactly this set of component versions using:
-<pre>firedrake-install --doi {doi}</pre>
-</p>
-<p>
-See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.org/download.html</a> for more information.
-</p>
-    """.format(title=title, links=links, doi=doi)
+    """.format(title=title, links=links)
     if additional_dois:
         data = """{data}
 
@@ -434,10 +412,7 @@ See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.or
 <ul>
 {additional_links}
 </ul>
-</p>
-<p>
-You will have to download and install them separately in your Firedrake installation, since we cannot automate it for you.
-</p> """.format(data=data, additional_links=additional_links)
+</p>""".format(data=data, additional_links=additional_links)
     return data
 
 
@@ -502,16 +477,12 @@ def create_metarecord(tag, title, components, info_file=None,
     matching_records = match(all_records, possible_tags)
     if len(matching_records) != len(possible_tags):
         missing = set(repo for repo, _ in possible_tags).difference(repo for repo, _ in matching_records)
-        if args.skip_missing:
-            log.warning("Did not find a Zenodo record for repositories: '{}'. Continuing.".format(
-                ", ".join(repo.full_name for repo in missing)))
-        else:
-            log.error("Did not find a Zenodo record for the following repositories")
-            for repo in missing:
-                log.error("{}".format(repo.full_name))
-            log.error("")
-            log.error("If you want to continue anyway use --skip-missing")
-            sys.exit(1)
+        log.error("Did not find a Zenodo record for the following repositories")
+        for repo in missing:
+            log.error("{}".format(repo.full_name))
+        log.error("")
+        sys.exit(1)
+
     base_url = f"{ZENODO_URL}/deposit/depositions"
     if os.getenv("FIREDRAKE_ZENODO_TOKEN"):
         authentication_params = {"access_token": os.getenv("FIREDRAKE_ZENODO_TOKEN")}
@@ -556,10 +527,10 @@ with deposit:write scope.""")
 
     metadata = {
         "metadata": {
-            "title": "Software used in `{}'".format(title),
+            "title": f"Software used in `{title}'",
             "upload_type": "software",
             "creators": [{"name": "firedrake-zenodo"}],
-            "version": "{}".format(tag),
+            "version": tag,
             "access_right": "open",
             "license": "cc-by",
             "related_identifiers": ([{"relation": "cites", "identifier": record["doi"]}
@@ -575,11 +546,11 @@ with deposit:write scope.""")
     if depo.status_code >= 400:
         raise ValueError("Unable to add metadata to deposition {}".format(depo.json()))
 
-    components = create_json(matching_records, title, additional_dois=additional_dois)
+    components_json = create_json(matching_records, title, additional_dois=additional_dois)
     # This is where files live
     bucket_url = depo.json()["links"]["bucket"]
     upload = requests.put("{url}/{filename}".format(url=bucket_url, filename="components.json"),
-                          data=components,
+                          data=components_json,
                           params=authentication_params)
     if upload.status_code >= 400:
         raise ValueError("Unable to upload file {}".format(upload.json()))
@@ -593,7 +564,7 @@ with deposit:write scope.""")
                              f"Actual:   {actual}")
 
     checksum(upload.json()["checksum"],
-             hashlib.md5(components).hexdigest(),
+             hashlib.md5(components_json).hexdigest(),
              "components.json")
 
     if info_file is not None:
@@ -614,7 +585,7 @@ with deposit:write scope.""")
     return publish
 
 
-def format_bibtex(record):
+def format_bibtex(record, tag):
     metadata = record["metadata"]
     template = """@misc{{{key},
  key   = {{{key}}},
@@ -648,7 +619,6 @@ def format_bibtex(record):
 
 
 def create_bibtex(tag):
-    check_tag(tag)
     response = requests.get(f"{ZENODO_URL}/records",
                             params={"q": "creators.name:firedrake-zenodo AND version:%s" % tag})
     if response.status_code >= 400:
@@ -662,7 +632,7 @@ If the release has only just been created, then the information may not yet have
         sys.exit(1)
     if result["hits"]["total"] > 1:
         log.error("More than one release for this tag found, please check bibtex carefully.")
-    return "\n".join(map(format_bibtex, result["hits"]["hits"]))
+    return "\n".join((format_bibtex(record, tag=tag) for record in result["hits"]["hits"]))
 
 
 if args.release_tag:
@@ -704,25 +674,30 @@ if args.list_meta_records:
     sys.exit(0)
 
 
-if args.meta_release:
-    with open(args.meta_release, "r") as f:
+def create_zenodo_meta_release(meta_release: str) -> None:
+    with open(meta_release, "r") as f:
         data = json.loads(f.read())
     tag = data["tag"]
-    check_tag(tag)
-    title = data["title"]
-    components = data["components"]
-    info_file = decode_info_file(data["info_file"])
     additional_dois = data["additional_dois"]
     new_version_of = data["new_version_of"]
-    record = create_metarecord(tag, title, components, info_file=info_file,
-                               additional_dois=additional_dois,
-                               update_record=new_version_of)
+    record = create_metarecord(
+        tag,
+        data["title"],
+        data["components"],
+        info_file=decode_info_file(data["info_file"]),
+        additional_dois=additional_dois,
+        update_record=new_version_of,
+    )
     record = record.json()
     log.info("Created Zenodo meta-release.")
-    log.info("Tag is `{}`".format(tag))
-    log.info("DOI is {}".format(record["doi"]))
-    log.info("Zenodo URL is {}".format(record["links"]["record_html"]))
-    log.info("BibTeX\n\n```bibtex\n{}\n```".format(format_bibtex(record)))
+    log.info(f"Tag is `{tag}`")
+    log.info(f"DOI is {record['doi']}")
+    log.info(f"Zenodo URL is {record['links']['record_html']}")
+    log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record, tag)}\n```")
+
+
+if args.meta_release:
+    create_zenodo_meta_release(args.meta_release)
     sys.exit(0)
 
 
@@ -731,8 +706,7 @@ if args.release or not args.input_file:
         log.error("You must provide a title using the --title option")
         sys.exit(1)
 
-    # Collect hashes from the current repo.
-    shas = collect_repo_shas()
+    shas = {c: dataclasses.asdict(get_component_version(c)) for c in components}
     if args.info_file:
         shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
     else:
@@ -759,7 +733,7 @@ if args.additional_dois:
 for component in components:
     new_sha = getattr(args, component)
     if new_sha:
-        shas[component] = new_sha[0]
+        shas[component] = {"commit_id": new_sha[0]}
 
 if not (args.release or args.input_file):
     # Dump json and exit.
@@ -771,11 +745,12 @@ if not (args.release or args.input_file):
 
 try:
     import github3
-    # Shut up the github module
-    github3.session.__logs__.setLevel(logging.WARNING)
 except ImportError:
     log.error("Publishing releases requires the github3 module. Please pip install github3.py")
     sys.exit(1)
+
+# Shut up the github module
+github3.session.__logs__.setLevel(logging.WARNING)
 
 # Github authentication.
 token = os.getenv("FIREDRAKE_GITHUB_TOKEN")
@@ -796,85 +771,141 @@ variable FIREDRAKE_GITHUB_TOKEN to a Github personal access token
 with public_repo scope.""")
     sys.exit(1)
 
-fd = gh.repository("firedrakeproject", "firedrake")
 
-tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
-index = -1
-
-for r in fd.tags():
-    if r.name.startswith(tag):
-        newindex = int(r.name.split(".")[1])
-        index = max(index, newindex)
-tag += "." + str(index + 1)
-
-# Verify commits. This ensures that an invalid sha will cause us to fail before we release any component.
-# This step also replaces short shas with long ones. This seems to be necessary for release creation.
-
-for component in components:
-    repo = gh.repository(projects[component], component)
-
-    try:
-        commit = repo.commit(shas[component])
-        if not commit:
-            log.error("Failed to find specified commit for %s" % component)
-
-        shas[component] = commit.sha
-    except KeyError:
-        log.warning("No commit specified for %s. No release will be created for this component." % component)
-
-    # Also check that the tag name does not already exist.
-    if any(t.name == tag for t in repo.tags()):
-        log.warning(f"Repository {component} already has tag {tag}. This should not have happened.")
-        sys.exit(1)
-
-# Now create releases.
-message = """This release is specifically created to document the version of
-{component} used in a particular set of experiments using
-Firedrake. Please do not cite this as a general source for Firedrake
-or any of its dependencies. Instead, refer to
-https://www.firedrakeproject.org/citing.html"""
+def get_component_repository(component: str) -> github3.Repository:
+    return gh.repository("firedrakeproject", component)
 
 
-for component in (set(shas) & set(components)):
-    log.info("Releasing %s" % component)
-    repo = gh.repository(projects[component], component)
-    releases = repo.releases()
-    just_tag = False
-    date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
-    tagger = {"name": "firedrake-zenodo",
-              "email": "firedrake@imperial.ac.uk",
-              "date": date}
+def generate_unique_release_tag() -> str:
+    tag = time.strftime("Zenodo_%Y%m%d", time.localtime())
+    index = -1
+    firedrake_repo = get_component_repository("firedrake")
+    for release in firedrake_repo.tags():
+        if release.name.startswith(tag):
+            newindex = int(release.name.split(".")[1])
+            index = max(index, newindex)
+    tag += "." + str(index + 1)
+    return tag
 
-    for release in releases:
-        if release.target_commitish == shas[component]:
-            just_tag = True
-            break
-    if just_tag:
-        repo.create_tag(tag,
-                        message=descriptions[component],
-                        sha=shas[component],
+
+def check_ref_exists(component):
+    if "version" in shas[component]:
+        # component is versioned, a GitHub release should already exist
+        if not release_already_exists(component, shas[component]["version"]):
+            log.error(
+                f"A release of {component} is referenced but no corresponding "
+                "release on GitHub can be found. For repositories we do not own "
+                "(e.g. PETSc) it will be necessary to push the release tags to "
+                "the Firedrake fork before making a release."
+            )
+            sys.exit(1)
+    else:
+        repo = get_component_repository(component)
+        repo.commit(shas[component]["commit_id"])
+
+
+def make_github_release_or_tag_existing(component: str) -> None:
+    repo = get_component_repository(component)
+
+    if "version" in shas[component]:
+        # component is versioned, a GitHub release should already exist
+        release = get_matching_release(component, shas[component]["version"])
+        tag_existing_release = True
+
+        commit_id = None
+        for tag in repo.tags():
+            if tag.name == release.tag_name:
+                commit_id = tag.commit.sha
+                break
+        assert commit_id is not None
+    else:
+        # referencing a specific commit, may need to make a new release
+
+        # make sure that 'commit_id' is not truncated
+        commit_id = repo.commit(shas[component]["commit_id"]).sha
+
+        if commit_already_exists_in_release(component, commit_id):
+            tag_existing_release = True
+        else:
+            tag_existing_release = False
+
+    if tag_existing_release:
+        log.info(f"Commit '{commit_id}' found in a pre-existing release for "
+                 f"'{component}', adding tag '{release_tag}' to it")
+        date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+        tagger = {"name": "firedrake-zenodo",
+                  "email": "firedrake@imperial.ac.uk",
+                  "date": date}
+        repo.create_tag(release_tag,
+                        message=DESCRIPTIONS[component],
+                        sha=commit_id,
                         obj_type="tree",
                         tagger=tagger)
     else:
+        log.info(f"Pre-existing release for component '{component}' for commit '{commit_id}' not found, creating a new pre-release '{release_tag}' for it")
+        body = (
+            "This release is specifically created to document the version of "
+            f"{component} used in a particular set of experiments using "
+            "Firedrake. Please do not cite this as a general source for Firedrake "
+            "or any of its dependencies. Instead, refer to "
+            "https://www.firedrakeproject.org/citing.html"
+        )
         repo.create_release(
-            tag_name=tag,
-            target_commitish=shas[component],
-            name=descriptions[component],
-            body=message.format(component=component),
+            tag_name=release_tag,
+            target_commitish=commit_id,
+            name=DESCRIPTIONS[component],
+            body=body,
             draft=False,
-            prerelease=False)
+            prerelease=True)
 
-meta_file = "firedrake-meta-release.json"
-with open(meta_file, "w") as f:
-    data = {"tag": tag,
-            "title": shas["title"],
-            "components": sorted(set(shas) & set(components)),
-            "info_file": shas.get("metarelease_info_file", None),
-            "new_version_of": shas.get("new_version_of", None),
-            "additional_dois": shas.get("additional_dois", None)}
-    f.write(json.dumps(data))
 
-log.info("Releases complete. The release tag is %s" % tag)
-log.info("Now, you need to create the meta-release")
-log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % os.path.abspath(meta_file))
-log.info("It is best to wait a short while to ensure that Zenodo is up to date")
+def make_releases() -> None:
+    for component in components:
+        check_ref_exists(component)
+
+    for component in components:
+        make_github_release_or_tag_existing(component)
+
+    meta_file = "firedrake-meta-release.json"
+    with open(meta_file, "w") as f:
+        data = {"tag": release_tag,
+                "title": shas["title"],
+                "components": components,
+                "info_file": shas.get("metarelease_info_file", None),
+                "new_version_of": shas.get("new_version_of", None),
+                "additional_dois": shas.get("additional_dois", None)}
+        f.write(json.dumps(data))
+
+    log.info("Releases complete.")
+    log.info(f"Now you should create the meta-release with 'firedrake-zenodo --create-meta-release {os.path.abspath(meta_file)}'.")
+    log.info("It is best to wait a short while to ensure that the new releases are detected by Zenodo.")
+
+
+def release_already_exists(component: str, release_name: str) -> bool:
+    try:
+        get_matching_release(component, release_name)
+        return True
+    except KeyError:
+        return False
+
+
+def get_matching_release(component: str, release_name: str) -> github3.Release:
+    # PETSc prepend a 'v' to their releases
+    if component == "petsc":
+        release_name = "v" + release_name
+
+    for release in get_component_repository(component).releases():
+        if release.tag_name == release_name:
+            return release
+    raise KeyError
+
+
+def commit_already_exists_in_release(component: str, commit_id: str) -> bool:
+    for release in get_component_repository(component).releases():
+        if release.target_commitish == commit_id:
+            return True
+    return False
+
+
+release_tag = generate_unique_release_tag()
+make_releases()

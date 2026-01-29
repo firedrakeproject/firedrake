@@ -1,13 +1,14 @@
 import abc
 
-from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
+from firedrake.mesh import DistributedMeshOverlapType
 from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
 from mpi4py import MPI
 import numpy
+from firedrake import utils
 
 
 __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
@@ -29,7 +30,7 @@ class ASMPatchPC(PCBase):
         # Get context from pc
         _, P = pc.getOperators()
         dm = pc.getDM()
-        self.prefix = pc.getOptionsPrefix() + self._prefix
+        self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
@@ -38,7 +39,7 @@ class ASMPatchPC(PCBase):
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
-            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
+            ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=utils.IntType), comm=PETSc.COMM_SELF)]
 
         # Create new PC object as ASM type and set index sets for patches
         asmpc = PETSc.PC().create(comm=pc.comm)
@@ -152,14 +153,20 @@ class ASMStarPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
+        validate_overlap(mesh_unique, depth, "star")
+
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
@@ -207,8 +214,12 @@ class ASMVankaPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.layers:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.layers:
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -233,8 +244,11 @@ class ASMVankaPC(ASMPatchPC):
         ises = []
         if depth != -1:
             (start, end) = mesh_dm.getDepthStratum(depth)
+            patch_dim = depth
         else:
             (start, end) = mesh_dm.getHeightStratum(height)
+            patch_dim = mesh_dm.getDimension() - height
+        validate_overlap(mesh_unique, patch_dim, "vanka")
 
         for seed in range(start, end):
             # Only build patches over owned DoFs
@@ -296,8 +310,12 @@ class ASMLinesmoothPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        assert mesh.cell_set._extruded
-        dm = mesh.topology_dm
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        assert mesh_unique.extruded
+        dm = mesh_unique.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
@@ -314,7 +332,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
+                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=utils.IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -353,14 +371,14 @@ def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
     section = W.dm.getDefaultSection()
     # location of first dof on an entity
-    basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshoff = numpy.empty(pend - pstart, dtype=utils.IntType)
     # number of dofs on this entity
-    basemeshdof = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshdof = numpy.empty(pend - pstart, dtype=utils.IntType)
     # number of dofs stacked on this entity in each cell
-    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=IntType)
+    basemeshlayeroffset = numpy.empty(pend - pstart, dtype=utils.IntType)
 
     # For every base mesh entity, what's the layer offset?
-    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
+    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=utils.IntType)
     layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
     nlayers = W.mesh().layers
 
@@ -379,6 +397,13 @@ def get_basemesh_nodes(W):
         basemeshdof[p - pstart] = dof_per_layer
         basemeshlayeroffset[p - pstart] = layer_offset
 
+    if W.mesh().extruded_periodic:
+        # Account for missing dofs from the top layer
+        for dim in range(W.mesh().topological_dimension):
+            qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
+            quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
+            basemeshdof[qstart-pstart:qend-pstart] += quotient
+
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
 
@@ -395,10 +420,15 @@ class ASMExtrudedStarPC(ASMStarPC):
 
     def get_patches(self, V):
         mesh = V.mesh()
-        mesh_dm = mesh.topology_dm
-        nlayers = mesh.layers
-        if not mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        nlayers = mesh_unique.layers
+        if not mesh_unique.extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
+        periodic = mesh.extruded_periodic
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -433,13 +463,20 @@ class ASMExtrudedStarPC(ASMStarPC):
         # Face-stars: depth = 2 = 2 + 0 = 1 + 1.
         # 2 + 0 -> horizontal face-star = (2D interior) x (1D vertex-star)
         # 1 + 1 -> vertical face-star = (2D edge-star) x (1D interior)
+        pstart, _ = mesh_dm.getChart()
         for base_depth in range(depth+1):
             interval_depth = depth - base_depth
-            if interval_depth > 1:
+            if interval_depth == 0:
+                # extrude by 1D vertex-star
+                layer_entities = [(1, 1), (1, 0), (0, 0)]
+            elif interval_depth == 1:
+                # extrude by 1D interior
+                layer_entities = [(1, 0)]
+            else:
                 continue
 
+            validate_overlap(mesh_unique, base_depth, "star")
             start, end = mesh_dm.getDepthStratum(base_depth)
-            pstart, _ = mesh_dm.getChart()
             for seed in range(start, end):
                 # Only build patches over owned DoFs
                 if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
@@ -449,25 +486,24 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
                 points = order_points(mesh_dm, points, ordering, self.prefix)
                 points -= pstart  # offset by chart start
-                for k in range(nlayers-interval_depth):
-                    if interval_depth == 1:
-                        # extrude by 1D interior
-                        planes = [1]
-                    elif k == 0:
-                        # extrude by 1D vertex-star on the bottom
-                        planes = [1, 0]
-                    elif k == nlayers - 1:
-                        # extrude by 1D vertex-star on the top
-                        planes = [-1, 0]
-                    else:
-                        # extrude by 1D vertex-star
-                        planes = [-1, 1, 0]
 
+                num_seeds = nlayers
+                if periodic or interval_depth:
+                    num_seeds -= 1
+                for layer_seed in range(num_seeds):
                     indices = []
                     # Get DoF indices for patch
                     for i, W in enumerate(V):
                         iset = V_ises[i]
-                        for plane in planes:
+                        for layer_dim, layer_shift in layer_entities:
+                            layer = layer_seed - layer_shift
+                            if periodic:
+                                # Handle periodic case
+                                layer = layer % (nlayers-1)
+                            elif layer < 0 or (layer + layer_dim) >= nlayers:
+                                # We are out of bounds
+                                continue
+
                             for p in points:
                                 # How to walk up one layer
                                 blayer_offset = basemeshlayeroffsets[i][p]
@@ -483,15 +519,38 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 # entity
                                 dof = basemeshdof[i][p]
                                 # Hard-code taking the star
-                                if plane == 0:
-                                    begin = off + k * blayer_offset
-                                    end = off + k * blayer_offset + dof
+                                if layer_dim == 0:
+                                    begin = off + layer * blayer_offset
+                                    end = off + layer * blayer_offset + dof
                                 else:
-                                    begin = off + min(k, k+plane) * blayer_offset + dof
-                                    end = off + max(k, k+plane) * blayer_offset
+                                    begin = off + layer * blayer_offset + dof
+                                    end = off + (layer + 1) * blayer_offset
                                 zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
+
+
+def validate_overlap(mesh, patch_dim, patch_type):
+    if patch_type == "python":
+        return
+    patch_depth = {"pardecomp": 0, "star": 1, "vanka": 2}[patch_type]
+
+    tdim = mesh.topology_dm.getDimension()
+    overlap_entity, overlap_depth = mesh._distribution_parameters["overlap_type"]
+    overlap_dim = {
+        DistributedMeshOverlapType.VERTEX: 0,
+        DistributedMeshOverlapType.FACET: tdim-1,
+        DistributedMeshOverlapType.NONE: tdim,
+    }[overlap_entity]
+
+    if mesh.comm.size > 1:
+        if overlap_dim > patch_dim:
+            patch_entity = {0: "vertex", 1: "edge", 2: "face", tdim: "cell"}[patch_dim]
+            warning(f"{overlap_entity} does not support {patch_entity}-patches. "
+                    "Did you forget to set overlap_type in your mesh's distribution_parameters?")
+        if overlap_depth < patch_depth:
+            warning(f"Mesh overlap depth of {overlap_depth} does not support {patch_type}-patches. "
+                    "Did you forget to set overlap_type in your mesh's distribution_parameters?")

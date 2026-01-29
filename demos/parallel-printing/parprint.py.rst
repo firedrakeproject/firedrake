@@ -15,8 +15,8 @@ Run this example in parallel using :math:`P` processes by doing
 
 We start with the usual import but we also import `petsc4py <https://bitbucket.org/petsc/petsc4py/>`_
 so that classes ``PETSc.X`` are available.  Here ``X`` is one of the
-`PETSc object types <https://www.mcs.anl.gov/petsc/documentation/index.html>`_,
-including types like `Vec <http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Vec/index.html>`_::
+`PETSc object types <https://petsc.org/release/manualpages/>`_,
+including types like `Vec <https://petsc.org/release/manualpages/Vec/>`_::
 
     from firedrake import *
     from firedrake.petsc import PETSc
@@ -64,7 +64,7 @@ To print the solution vector in serial one could write ``print(u.dat.data)``
 but then in parallel each processor would show its data separately.
 So using PETSc we do a "view" of the solution vector::
 
-    with u.dat.vec_ro as vu:
+    with u.vec_ro as vu:
         vu.view()
 
 Here ``vu`` is an instance of the PETSc.Vec class and ``vu.view()`` is the
@@ -72,7 +72,7 @@ equivalent of ``VecView(vu,NULL)`` using PETSc's C API.  This Vec is "global",
 meaning that each degree of freedom is stored on a unique process.  The context manager
 in the above usage (i.e. ``with ...``) allows Firedrake to generate a global Vec
 by halo exchanges if needed.  Here we only need read-only access here so we use
-``u.dat.vec_ro``; note ``u.dat.vec`` would allow read-write access.
+``u.vec_ro``; note ``u.vec`` would allow read-write access.
 
 Finally we compute and print the numerical error, relative to the exact
 solution, in two norms.  The :math:`L^2` norm is computed with
@@ -88,7 +88,7 @@ gets the max over the process-owned entries.  So again we use the ``PETSc.Vec``
 approach::
 
     udiffabs = Function(V).interpolate(abs(udiff))
-    with udiffabs.dat.vec_ro as v:
+    with udiffabs.vec_ro as v:
         L_inf_err = v.max()[1]
     PETSc.Sys.Print('L_2 error norm = %g, L_inf error norm = %g' \
                     % (L_2_err,L_inf_err))

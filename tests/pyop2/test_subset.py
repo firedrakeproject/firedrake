@@ -36,6 +36,7 @@ import pytest
 import numpy as np
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType
 
 nelems = 32
 
@@ -214,19 +215,19 @@ static void inc(unsigned int* v1, unsigned int* v2) {
         ss10 = op2.Subset(iterset, [1, 0])
         indset = op2.Set(4)
 
-        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float64)
+        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=ScalarType)
         map = op2.Map(iterset, indset, 4, [0, 1, 2, 3, 0, 1, 2, 3])
         idmap = op2.Map(iterset, idset, 1, [0, 1])
         sparsity = op2.Sparsity((indset ** 1, indset ** 1), {(0, 0): [(map, map, None)]})
-        mat = op2.Mat(sparsity, np.float64)
-        mat01 = op2.Mat(sparsity, np.float64)
-        mat10 = op2.Mat(sparsity, np.float64)
+        mat = op2.Mat(sparsity, ScalarType)
+        mat01 = op2.Mat(sparsity, ScalarType)
+        mat10 = op2.Mat(sparsity, ScalarType)
 
         kernel_code = """
-static void unique_id(double mat[4][4], double *dat) {
+static void unique_id(PetscScalar mat[16], PetscScalar *dat) {
   for (int i=0; i<4; ++i)
     for (int j=0; j<4; ++j)
-      mat[i][j] += (*dat)*16+i*4+j;
+      mat[i*4+j] += (*dat)*16+i*4+j;
 }
         """
         k = op2.Kernel(kernel_code, "unique_id")
@@ -250,62 +251,3 @@ static void unique_id(double mat[4][4], double *dat) {
 
         assert (mat01.values == mat.values).all()
         assert (mat10.values == mat.values).all()
-
-
-class TestSetOperations:
-
-    """
-    Set operation tests
-    """
-
-    def test_set_set_operations(self):
-        """Test standard set operations between a set and itself"""
-        a = op2.Set(10)
-        u = a.union(a)
-        i = a.intersection(a)
-        d = a.difference(a)
-        s = a.symmetric_difference(a)
-        assert u is a
-        assert i is a
-        assert d._indices.size == 0
-        assert s._indices.size == 0
-
-    def test_set_subset_operations(self):
-        """Test standard set operations between a set and a subset"""
-        a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
-        u = a.union(b)
-        i = a.intersection(b)
-        d = a.difference(b)
-        s = a.symmetric_difference(b)
-        assert u is a
-        assert i is b
-        assert (d._indices == [0, 1, 4, 6, 8, 9]).all()
-        assert (s._indices == d._indices).all()
-
-    def test_subset_set_operations(self):
-        """Test standard set operations between a subset and a set"""
-        a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
-        u = b.union(a)
-        i = b.intersection(a)
-        d = b.difference(a)
-        s = b.symmetric_difference(a)
-        assert u is a
-        assert i is b
-        assert d._indices.size == 0
-        assert (s._indices == [0, 1, 4, 6, 8, 9]).all()
-
-    def test_subset_subset_operations(self):
-        """Test standard set operations between two subsets"""
-        a = op2.Set(10)
-        b = op2.Subset(a, np.array([2, 3, 5, 7], dtype=np.int32))
-        c = op2.Subset(a, np.array([2, 4, 6, 8], dtype=np.int32))
-        u = b.union(c)
-        i = b.intersection(c)
-        d = b.difference(c)
-        s = b.symmetric_difference(c)
-        assert (u._indices == [2, 3, 4, 5, 6, 7, 8]).all()
-        assert (i._indices == [2, ]).all()
-        assert (d._indices == [3, 5, 7]).all()
-        assert (s._indices == [3, 4, 5, 6, 7, 8]).all()

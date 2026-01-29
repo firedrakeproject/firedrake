@@ -70,8 +70,6 @@ def run_test(mesh):
     assert L2_T < L2_0
 
     # Mass conserved
-    print("before: ", Dbar_0)
-    print("after: ", Dbar_T)
     assert np.allclose(Dbar_T, Dbar_0)
 
 

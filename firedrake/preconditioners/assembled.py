@@ -37,10 +37,11 @@ class AssembledPC(PCBase):
             if not context.on_diag:
                 raise ValueError("Only makes sense to invert diagonal block")
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
 
         mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")
+        sub_mat_type = PETSc.Options().getString(options_prefix + "sub_mat_type", "") or None
 
         (a, bcs) = self.form(pc, test, trial)
 
@@ -62,7 +63,9 @@ class AssembledPC(PCBase):
         # can do e.g. multigrid or patch solves.
         dm = opc.getDM()
         self._ctx_ref = self.new_snes_ctx(opc, a, bcs, mat_type,
-                                          fcp=fcp, options_prefix=options_prefix)
+                                          fcp=fcp,
+                                          sub_mat_type=sub_mat_type,
+                                          options_prefix=options_prefix)
 
         pc.setDM(dm)
         pc.setOptionsPrefix(options_prefix)

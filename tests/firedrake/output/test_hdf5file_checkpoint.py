@@ -4,7 +4,6 @@ from firedrake import *
 import numpy as np
 from mpi4py import MPI
 import math
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module",
@@ -39,7 +38,8 @@ def f():
     return f
 
 
-def run_write_read(mesh, fs, degree, dumpfile):
+@pytest.mark.parallel([1, 2])
+def test_write_read(mesh, fs, degree, dumpfile):
 
     V = FunctionSpace(mesh, fs, degree)
 
@@ -67,7 +67,7 @@ def run_write_read(mesh, fs, degree, dumpfile):
         h5.read(f2, "/solution", timestamp=math.pi)
         h5.read(g2, "/solution", timestamp=0.1)
 
-        with g2.dat.vec as x, f2.dat.vec as y:
+        with g2.vec_ro as x, f2.vec_ro as y:
             assert x.max() > y.max()
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
@@ -78,16 +78,6 @@ def test_checkpoint_fails_for_non_function(dumpfile):
     with HDF5File(dumpfile, "w", comm=MPI.COMM_WORLD) as h5:
         with pytest.raises(ValueError):
             h5.write(np.arange(10), "/solution")
-
-
-def test_write_read(mesh, fs, degree, dumpfile):
-    run_write_read(mesh, fs, degree, dumpfile)
-
-
-@pytest.mark.skip(reason="pyop3 TODO")
-@pytest.mark.parallel(nprocs=2)
-def test_write_read_parallel(mesh, fs, degree, dumpfile):
-    run_write_read(mesh, fs, degree, dumpfile)
 
 
 def test_checkpoint_read_not_exist_ioerror(dumpfile):
@@ -109,9 +99,9 @@ def test_attributes(f, dumpfile):
 
         h5.write(mesh.coordinates, "/coords")
         attrs = h5.attributes("/coords")
-        attrs["dimension"] = mesh.coordinates.dat.cdim
+        attrs["dimension"] = mesh.coordinates.function_space().block_size
 
-        assert attrs["dimension"] == mesh.coordinates.dat.cdim
+        assert attrs["dimension"] == mesh.coordinates.function_space().block_size
 
 
 def test_write_read_only_ioerror(f, dumpfile):

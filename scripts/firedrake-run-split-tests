@@ -1,49 +1,57 @@
 #!/usr/bin/env bash
 
-# Script for running a pytest test suite in parallel across multiple jobs.
-#
-# Only the tests that use the given number of processors are selected from the suite. This list of tests is distributed between multiple jobs and each job outputs its own log file.
-#
-# Usage:
-#
-#     firedrake-run-split-tests <nprocs> <njobs> <pytest_args...>
-#
-#   where:
-#     * <nprocs> is the number of ranks used in each test
-#     * <njobs> is the number of different jobs
-#     * <pytest_args...> are additional arguments that are passed to pytest
-#
-# Example:
-#
-#     firedrake-run-split-tests 3 4 tests/unit --verbose
-#
-#   will run all of the parallel[3] tests inside tests/unit verbosely
-#   and split between 4 different jobs.
-#
-# Requires:
-#
-#   * pytest
-#   * pytest-split
-#   * pytest-mpi (https://github.com/firedrakeproject/pytest-mpi)
-#   * GNU parallel
+HELP_MSG="\
+Script for running a pytest test suite in parallel across multiple jobs.
+
+Only the tests that use the given number of processors are selected from the suite. This list of tests is distributed between multiple jobs and each job outputs its own log file.
+
+Usage:
+
+    firedrake-run-split-tests <nprocs> <njobs> <pytest_args...>
+
+  where:
+    * <nprocs> is the number of ranks used in each test
+    * <njobs> is the number of different jobs
+    * <pytest_args...> are additional arguments that are passed to pytest
+
+Example:
+
+    firedrake-run-split-tests 3 4 tests/unit --verbose
+
+  will run all of the parallel[3] tests inside tests/unit verbosely
+  and split between 4 different jobs.
+
+Run with [no arguments | -h | --help] to print this help message.
+
+Requires:
+
+  * pytest
+  * pytest-split
+  * mpi-pytest
+  * GNU parallel"
+
+# Print out help message with no arguments or "-h" or "--help"
+if [[ "$#" -eq "0" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+   echo -e "${HELP_MSG}"
+   exit
+fi
 
 num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-log_file_prefix="pytest_nprocs${num_procs}_job"
-
 if [ $num_procs = 1 ]; then
-    pytest_exec="python -m pytest"
-    marker_spec="\"parallel[1] or not parallel\""
+    # Cannot use mpiexec -n 1 because this can sometimes hang with
+    # OpenMPI at MPI_Finalize
+    pytest_exec="python3 -m pytest"
 else
-    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
-    marker_spec="parallel[${num_procs}]"
+    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
 fi
-
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
-            -m ${marker_spec} ${extra_args}"
+            -m parallel[match] ${extra_args}"
+
+log_file_prefix="pytest_nprocs${num_procs}_job"
 
 # Print the command
 set -x

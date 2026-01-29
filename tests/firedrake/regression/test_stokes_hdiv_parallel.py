@@ -1,7 +1,7 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import pytest
 import numpy
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=["aij", "nest", "matfree"])
@@ -16,15 +16,15 @@ def element_pair(request):
     return request.param
 
 
-# @pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
     err_p = []
     err_div = []
     hdiv, l2 = element_pair
     hdiv_family, degree = hdiv
-    # for n in [8, 16, 32, 64]:
-    for n in [2]:
+    for n in [8, 16, 32, 64]:
+        # mesh = UnitSquareMesh(2, 2)
         mesh = UnitSquareMesh(n, n)
 
         V = FunctionSpace(mesh, hdiv_family, degree)
@@ -102,9 +102,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.AssembledPC",
-                # Avoid MUMPS segfaults
-                "assembled_pc_type": "redundant",
-                "assembled_redundant_pc_type": "cholesky",
+                "assembled_pc_type": "lu",
+                "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",
@@ -120,6 +119,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         appctx = {"mu": mu}
 
         UP.assign(0)
+        # mat = assemble(a).petscmat
+        # breakpoint()
         solve(a == L, UP, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
               appctx=appctx)
 
@@ -137,3 +138,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     assert numpy.allclose(err_div, 0, atol=1e-7, rtol=1e-5)
     assert (numpy.log2(err_u[:-1] / err_u[1:]) > 2.8).all()
     assert (numpy.log2(err_p[:-1] / err_p[1:]) > 1.8).all()
+
+
+if __name__ == "__main__":
+    test_stokes_hdiv_parallel("aij", (("RT", 3), ("DG", 2)))

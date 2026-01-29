@@ -69,6 +69,19 @@ multiplicatively within an MPI rank and additively between ranks.
    entities into lines or planes (useful for advection-dominated
    problems).
 
+.. note::
+   The additive Schwarz preconditioners listed here construct patches around
+   mesh entities.  Crucially, the mesh must have an overlapping parallel domain
+   decomposition that supports the patches. This is set via the
+   `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
+   instance, vertex-star patches require ::
+
+      distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
+
+   while Vanka patches require ::
+
+      distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
+
 Multigrid methods
 =================
 
@@ -138,7 +151,7 @@ operator instead.
    implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
-   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022`.
+   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
 :class:`~.PCDPC`

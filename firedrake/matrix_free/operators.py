@@ -4,14 +4,13 @@ import itertools
 from mpi4py import MPI
 import numpy
 
-from pyop2.mpi import internal_comm, temp_internal_comm
+from pyop3.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
 from ufl.form import ZeroBaseForm
 
 
@@ -95,7 +94,6 @@ class ImplicitMatrixContext(object):
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self._comm = internal_comm(self.comm, self)
         self.fc_params = fc_params
         self.appctx = appctx
 
@@ -114,18 +112,18 @@ class ImplicitMatrixContext(object):
             arg.function_space() for arg in a.arguments()
         )
         # Need a cofunction since y receives the assembled result of Ax
-        self._ystar = Cofunction(test_space.dual())
+        self._ystar = Function(test_space.dual())
         self._y = Function(test_space)
         self._x = Function(trial_space)
-        self._xstar = Cofunction(trial_space.dual())
+        self._xstar = Function(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = Cofunction(trial_space.dual())
+            self._xbc = Function(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = Cofunction(test_space.dual())
+            self._ybc = Function(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.template_vec
@@ -178,7 +176,7 @@ class ImplicitMatrixContext(object):
     @cached_property
     def _diagonal(self):
         assert self.on_diag
-        return Cofunction(self._x.function_space().dual())
+        return Function(self._x.function_space().dual())
 
     @cached_property
     def _assemble_diagonal(self):
@@ -192,7 +190,7 @@ class ImplicitMatrixContext(object):
         for bc in self.bcs:
             # Operator is identity on boundary nodes
             bc.set(self._diagonal, 1)
-        with self._diagonal.dat.vec_ro as v:
+        with self._diagonal.vec_ro as v:
             v.copy(vec)
 
     def missingDiagonal(self, mat):
@@ -200,7 +198,7 @@ class ImplicitMatrixContext(object):
 
     @PETSc.Log.EventDecorator()
     def mult(self, mat, X, Y):
-        with self._x.dat.vec_wo as v:
+        with self._x.vec_wo as v:
             X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
@@ -221,7 +219,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._xbc.dat.vec_wo as v:
+                with self._xbc.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._ystar, self._xbc)
@@ -229,7 +227,7 @@ class ImplicitMatrixContext(object):
             for bc in self.row_bcs:
                 bc.zero(self._ystar)
 
-        with self._ystar.dat.vec_ro as v:
+        with self._ystar.vec_ro as v:
             v.copy(Y)
 
     @PETSc.Log.EventDecorator()
@@ -299,7 +297,7 @@ class ImplicitMatrixContext(object):
                        ( 0  )
 
         """
-        with self._y.dat.vec_wo as v:
+        with self._y.vec_wo as v:
             Y.copy(v)
 
         if len(self.bcs) > 0:
@@ -322,7 +320,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._ybc.dat.vec_wo as v:
+                with self._ybc.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
                     bc.set(self._xstar, self._ybc)
@@ -330,7 +328,7 @@ class ImplicitMatrixContext(object):
             for bc in self.col_bcs:
                 bc.zero(self._xstar)
 
-        with self._xstar.dat.vec_ro as v:
+        with self._xstar.vec_ro as v:
             v.copy(X)
 
     def view(self, mat, viewer=None):
@@ -353,10 +351,12 @@ class ImplicitMatrixContext(object):
         if info == PETSc.Mat.InfoType.LOCAL:
             return {"memory": memory}
         elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
-            gmem = self._comm.allreduce(memory, op=MPI.SUM)
+            with temp_internal_comm(self.comm) as icomm:
+                gmem = icomm.allreduce(memory, op=MPI.SUM)
             return {"memory": gmem}
         elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
-            gmem = self._comm.allreduce(memory, op=MPI.MAX)
+            with temp_internal_comm(self.comm) as icomm:
+                gmem = icomm.allreduce(memory, op=MPI.MAX)
             return {"memory": gmem}
         else:
             raise ValueError("Unknown info type %s" % info)
@@ -378,11 +378,20 @@ class ImplicitMatrixContext(object):
         row_ises = self._y.function_space()._ises
         col_ises = self._x.function_space()._ises
 
-        row_inds = find_sub_block(row_is, row_ises, comm=self.comm)
-        if row_is == col_is and row_ises == col_ises:
-            col_inds = row_inds
-        else:
-            col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
+        try:
+            row_inds = find_sub_block(row_is, row_ises, comm=self.comm)
+            if row_is == col_is and row_ises == col_ises:
+                col_inds = row_inds
+            else:
+                col_inds = find_sub_block(col_is, col_ises, comm=self.comm)
+        except LookupError:
+            # Attemping to extract a submatrix that does not match with a subfield.
+            # Use default PETSc implementation (MatCreateSubMatrixVirtual) via MATSHELL instead.
+            popmethod = self.createSubMatrix
+            self.createSubMatrix = None
+            submat = mat.createSubMatrix(row_is, col_is)
+            self.createSubMatrix = popmethod
+            return submat
 
         splitter = ExtractSubBlock()
         asub = splitter.split(self.a,
@@ -418,7 +427,7 @@ class ImplicitMatrixContext(object):
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
-        submat = PETSc.Mat().create(comm=self._comm)
+        submat = PETSc.Mat().create(comm=self.comm)
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes),
                         bsize=submat_ctx.block_size)
@@ -437,7 +446,7 @@ class ImplicitMatrixContext(object):
                                            col_bcs=self.bcs_col,
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
-        newmat = PETSc.Mat().create(comm=self._comm)
+        newmat = PETSc.Mat().create(comm=self.comm)
         newmat.setType("python")
         newmat.setSizes((newmat_ctx.row_sizes, newmat_ctx.col_sizes),
                         bsize=newmat_ctx.block_size)

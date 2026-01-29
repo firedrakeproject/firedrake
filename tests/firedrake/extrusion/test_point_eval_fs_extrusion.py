@@ -1,7 +1,6 @@
 from os.path import abspath, dirname
 import numpy as np
 import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 from firedrake import *
 

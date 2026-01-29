@@ -1,9 +1,5 @@
 import numpy
 from firedrake import *
-import pytest
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 class NonePC(PCBase):
@@ -49,9 +45,8 @@ def test_appctx_cleanup():
             "pc_type": "python",
             "pc_python_type": "test_appctx_cleanup.NonePC",
         },
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "mg_coarse_assembled_pc_type": "lu",
+        "mg_coarse_mat_type": "aij",
+        "mg_coarse_pc_type": "lu",
     })
 
     while hasattr(V, "_coarse"):
