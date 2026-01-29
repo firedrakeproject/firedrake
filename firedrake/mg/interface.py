@@ -60,7 +60,7 @@ def prolong(coarse, fine):
     next_level = coarse_level * refinements_per_level
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
-        # Introduce an intermidiate quadrature target space
+        # Introduce an intermediate quadrature target space
         Vf = Vf.quadrature_space()
 
     finest = fine
@@ -130,7 +130,7 @@ def restrict(fine_dual, coarse_dual):
     next_level = fine_level * refinements_per_level
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
-        # Introduce an intermidiate quadrature source space
+        # Introduce an intermediate quadrature source space
         Vq = Vf.quadrature_space()
 
     coarsest = coarse_dual.zero()

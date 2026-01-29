@@ -105,7 +105,7 @@ def compile_element(operand, dual_arg, parameters=None,
 
     Returns
     -------
-    loopy.TranslationUnit
+    str
         The generated code
     """
     domain = extract_unique_domain(operand)
