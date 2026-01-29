@@ -48,7 +48,9 @@ from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, Fu
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.exceptions import DofNotDefinedError, VertexOnlyMeshMissingPointsError
+from firedrake.exceptions import (
+    DofNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+)
 
 from mpi4py import MPI
 
@@ -183,7 +185,7 @@ class Interpolate(UFLInterpolate):
         try:
             target_mesh = target_mesh.unique()
             source_mesh = source_mesh.unique()
-        except RuntimeError:
+        except NonUniqueMeshSequenceError:
             return MixedInterpolator(self)
 
         submesh_interp_implemented = (
