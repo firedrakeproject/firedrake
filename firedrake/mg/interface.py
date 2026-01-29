@@ -1,8 +1,5 @@
 from pyop2 import op2
 
-import numpy
-from finat.ufl import FiniteElement, TensorElement
-from finat.quadrature import QuadratureRule
 from firedrake import ufl_expr, dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -36,24 +33,6 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Mismatching function space shapes")
 
 
-def get_quadrature_element(V):
-    """Returns a ufl element with the quadrature points required by the dual of V."""
-    ufl_element = V.ufl_element()
-    finat_element = V.finat_element
-    if finat_element.has_pointwise_dual_basis:
-        return ufl_element
-
-    # Construct a Quadrature element
-    Q, ps = finat_element.dual_basis
-    degree = finat_element.degree
-    wts = numpy.full(len(ps.points), numpy.nan)
-    quad_scheme = QuadratureRule(ps, wts, finat_element.cell)
-    element = FiniteElement("Quadrature", cell=ufl_element.cell, degree=degree, quad_scheme=quad_scheme)
-    if V.value_shape:
-        element = TensorElement(element, shape=V.value_shape)
-    return element
-
-
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
@@ -82,7 +61,7 @@ def prolong(coarse, fine):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermidiate quadrature target space
-        Vf = Vf.collapse().reconstruct(element=get_quadrature_element(Vf))
+        Vf = Vf.quadrature_space()
 
     finest = fine
     Vfinest = finest.function_space()
@@ -153,7 +132,7 @@ def restrict(fine_dual, coarse_dual):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermidiate quadrature source space
-        Vq = Vf.collapse().reconstruct(element=get_quadrature_element(Vf))
+        Vq = Vf.quadrature_space()
 
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
@@ -232,8 +211,8 @@ def inject(fine, coarse):
     next_level = fine_level * refinements_per_level
 
     if needs_quadrature := not Vc.finat_element.has_pointwise_dual_basis:
-        # Introduce an intermidiate quadrature target space
-        Vc = Vc.collapse().reconstruct(element=get_quadrature_element(Vc))
+        # Introduce an intermediate quadrature target space
+        Vc = Vc.quadrature_space()
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
     if dg and not hierarchy.nested:
