@@ -99,7 +99,6 @@ def prolong(coarse, fine):
             # Transfer to the actual target space
             new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
             fine = new_fine.interpolate(fine)
-
         coarse = fine
     return fine
 
@@ -168,7 +167,6 @@ def restrict(fine_dual, coarse_dual):
                      fine_dual.dat(op2.READ),
                      node_locations.dat(op2.READ),
                      coarse_coords.dat(op2.READ, fine_to_coarse_coords))
-
         fine_dual = coarse_dual
     return coarse_dual
 
@@ -265,7 +263,6 @@ def inject(fine, coarse):
             # Transfer to the actual target space
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
-
         fine = coarse
     return coarse
 

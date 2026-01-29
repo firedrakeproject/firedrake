@@ -6,7 +6,7 @@ import libsupermesh
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
-from firedrake.mg.kernels import to_reference_coordinates, compile_element
+from firedrake.mg.kernels import to_reference_coordinates, compile_element, _make_kernel_args
 from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
 from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
@@ -363,7 +363,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -376,7 +376,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -410,7 +410,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop2_kernel_evaluate_kernel_A(%(kernel_args_A)s);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -421,7 +421,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop2_kernel_evaluate_kernel_B(%(kernel_args_B)s);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
@@ -445,6 +445,9 @@ each supermesh cell.
         "evaluate_S": str(evaluate_kernel_S),
         "evaluate_A": str(evaluate_kernel_A),
         "evaluate_B": str(evaluate_kernel_B),
+        "kernel_args_S": _make_kernel_args(V_S.finat_element, "physical_node_location", "BARF", "simplex_S", "reference_node_location"),
+        "kernel_args_A": _make_kernel_args(V_A.finat_element, "&R_AS[i][j]", "BARF", "coeffs_A", "reference_nodes_A[j]"),
+        "kernel_args_B": _make_kernel_args(V_B.finat_element, "&R_BS[i][j]", "BARF", "coeffs_B", "reference_nodes_B[j]"),
         "to_reference": str(to_reference_kernel),
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
