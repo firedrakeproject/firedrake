@@ -47,13 +47,17 @@ class gc_disabled(contextlib.ContextDecorator):
     It may also be used as a function decorator.
 
     """
+    def __init__(self):
+        # Track GC status using a stack because recursive uses as a function
+        # decorator will reuse the same object
+        self._was_enabled = []
 
     def __enter__(self):
-        self._was_enabled = gc.isenabled()
+        self._was_enabled.append(gc.isenabled())
         gc.disable()
 
     def __exit__(self, *args, **kwargs):
-        if self._was_enabled:
+        if self._was_enabled.pop(-1):
             gc.enable()
 
 
@@ -195,20 +199,15 @@ class _CacheRecord:
         self.func_module = func.__module__
         self.func_name = func.__qualname__
         self.cache = weakref.ref(cache)
-        fin = weakref.finalize(cache, self.finalize, cache)
-        fin.atexit = False
         self.cache_name = cache.__class__.__qualname__
         try:
             self.cache_loc = cache.cachedir
         except AttributeError:
             self.cache_loc = "Memory"
 
-    def get_stats(self, cache=None):
-        if cache is None:
-            cache = self.cache()
+    def get_stats(self):
+        cache = self.cache()
         hit = miss = size = maxsize = -1
-        if cache is None:
-            hit, miss, size, maxsize = self.hit, self.miss, self.size, self.maxsize
         if isinstance(cache, cachetools.Cache):
             size = cache.currsize
             maxsize = cache.maxsize
@@ -227,13 +226,9 @@ class _CacheRecord:
                     pass
         return hit, miss, size, maxsize
 
-    def finalize(self, cache):
-        self.hit, self.miss, self.size, self.maxsize = self.get_stats(cache)
-
 
 def print_cache_stats(*args, **kwargs):
-    """ Print out the cache hit/miss/size/maxsize stats for PyOP2 caches.
-    """
+    """Print cache statistics."""
     data = defaultdict(lambda: defaultdict(list))
     for entry in cache_filter(*args, **kwargs):
         active = (entry.comm != MPI.COMM_NULL)
@@ -420,12 +415,14 @@ def instrument(cls):
             self.miss = 0
 
         def get(self, key, default=None):
-            value = super().get(key, default)
-            if value is default:
+            try:
+                value = self[key]
+            except KeyError:
                 self.miss += 1
+                return default
             else:
                 self.hit += 1
-            return value
+                return value
 
         def __getitem__(self, key):
             try:
@@ -449,6 +446,10 @@ def instrument(cls):
 # @instrument
 class DEFAULT_CACHE(dict):
     pass
+
+    # def __del__(self):
+    #     print("Destroying a DEFAULT_CACHE")
+    #     dict.__del__(self)
 
 
 # InstrumentedDict = instrument(dict)
@@ -519,32 +520,32 @@ def parallel_cache(
                     value = CACHE_MISS
                 else:
                     comm_caches = get_comm_caches(comm)
-                    try:
-                        caches, cache_type = comm_caches[cache_id]
-                    except KeyError:
-                        if heavy:
-                            # The lifetime of the cache must be tied to the
-                            # heavy cache object, so the comm should only hold
-                            # a weakref.
-                            caches = []
-                            cache_type = None
-                            for heavy_cache in _heavy_caches.values():
-                                cache = make_cache()
-                                if cache_type is None:
-                                    cache_type = type(cache)
-                                heavy_cache[cache_id] = cache
-                                caches.append(weakref.proxy(cache))
-                                _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
-                            caches = tuple(caches)
-                            assert cache_type is not None
-                            assert not issubclass(cache_type, DictLikeDiskAccess), "Disk caches cannot be heavy"
-                        else:
+                    if heavy:
+                        # The lifetime of the cache must be tied to the
+                        # heavy cache object, so the comm should only hold
+                        # a weakref.
+                        caches = []
+                        cache_type = None
+                        for heavy_caches in _heavy_caches.values():
                             cache = make_cache()
-                            cache_type = type(cache)
+                            if cache_type is None:
+                                cache_type = type(cache)
+                            heavy_caches.append(cache)
+                            caches.append(weakref.ref(cache))
+                            _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
+                        caches = tuple(caches)
+                        assert cache_type is not None
+                        assert not issubclass(cache_type, DictLikeDiskAccess), "Disk caches cannot be heavy"
+                    else:
+                        try:
+                            caches, cache_type = comm_caches[cache_id]
+                        except KeyError:
+                            cache = make_cache()
                             caches = (cache,)
+                            cache_type = type(cache)
                             _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
-                        comm_caches[cache_id] = caches, cache_type
+                    comm_caches[cache_id] = caches, cache_type
 
                     if config.debug and heavy:
                         key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches.keys()))
@@ -552,6 +553,10 @@ def parallel_cache(
                         key = hashkey(*args, **kwargs)
 
                     for cache in caches:
+                        if heavy:
+                            cache = cache()
+                            if cache is None:  # TODO: need to make sure that at least one is valid!
+                                continue
                         try:
                             value = cache[key]
                             break
@@ -609,6 +614,11 @@ def parallel_cache(
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))
 
                 for cache in caches:
+                    if heavy:
+                        cache = cache()
+                        # TODO: need to make sure that at least one is valid!
+                        if cache is None:
+                            continue
                     cache[key] = value
                 return value
         return wrapper
@@ -646,4 +656,4 @@ _heavy_caches = weakref.WeakKeyDictionary()
 
 def register_heavy_cache(obj: Any) -> None:
     assert obj not in _heavy_caches
-    _heavy_caches[obj] = {}
+    _heavy_caches[obj] = []

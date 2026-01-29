@@ -1713,15 +1713,8 @@ def facet_closure_nodes(V, sub_domain):
     else:
         pointss = tuple(dm.getStratumIS(FACE_SETS_LABEL, i) for i in sub_domain)
 
-    print(f"AAA: {sub_domain}")
-
-    for myIS in pointss:
-        print(myIS.indices)
-
     if all(pts.size == 0 for pts in pointss):
         return np.empty(0, dtype=IntType)
-
-    print("BBB")
 
     nnodes = 0
     for points_is in pointss:
@@ -1730,8 +1723,6 @@ def facet_closure_nodes(V, sub_domain):
             p = points[i]
             CHKERR(PetscSectionGetDof(sec.sec, p, &dof))
             nnodes += dof // V.block_size
-
-    print("nnodes: ", nnodes)
 
     nodes = np.empty(nnodes, dtype=IntType)
     j = 0
@@ -1744,7 +1735,6 @@ def facet_closure_nodes(V, sub_domain):
             for d in range(dof//V.block_size):
                 nodes[j] = offset//V.block_size + d
                 j += 1
-    print("nodes: ", nodes)
     assert j == nnodes
     return np.unique(nodes)
 
