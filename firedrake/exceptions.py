@@ -35,3 +35,9 @@ class VertexOnlyMeshMissingPointsError(FiredrakeException):
             f"{self.n_missing_points} vertices are outside the mesh and have "
             "been removed from the VertexOnlyMesh."
         )
+
+
+class NonUniqueMeshSequenceError(FiredrakeException):
+    """Raised when calling `.unique()` on a MeshSequence which contains
+    non-unique meshes.
+    """
