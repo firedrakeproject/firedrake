@@ -530,7 +530,7 @@ class CrossMeshInterpolator(Interpolator):
             If the target space does not have point-evaluation dofs.
         """
         from firedrake.assemble import assemble
-        if target_space.finat_element.mapping != "affine":
+        if not target_space.finat_element.has_pointwise_dual_basis:
             raise ValueError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
@@ -571,7 +571,7 @@ class CrossMeshInterpolator(Interpolator):
         mat_type = mat_type or "aij"
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
-        if into_quadrature_space := self.target_space.finat_element.mapping != "affine":
+        if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
             target_space = self._get_quadrature_space(self.target_space)
             f = Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
         else:
