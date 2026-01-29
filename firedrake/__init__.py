@@ -68,8 +68,8 @@ from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
 from firedrake.constant import Constant  # noqa: F401
 from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
-    ConvergenceError, MismatchingDomainError, VertexOnlyMeshMissingPointsError,
-    DofNotDefinedError
+    FiredrakeException, ConvergenceError, MismatchingDomainError,
+    VertexOnlyMeshMissingPointsError, DofNotDefinedError
 )
 from firedrake.function import (  # noqa: F401
     Function, PointNotInDomainError,
