@@ -1,10 +1,10 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
+from firedrake.mesh import plex_from_cell_list, Mesh
 import numpy as np
 import pytest
 from ufl import product
-import subprocess
 
 
 def allgather(comm, coords):
@@ -15,9 +15,9 @@ def allgather(comm, coords):
     return coords
 
 
-def unitsquaresetup():
+def unitsquaresetup(dest_quad=True):
     m_src = UnitSquareMesh(2, 3)
-    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
+    m_dest = UnitSquareMesh(3, 5, quadrilateral=dest_quad)
     coords = np.array(
         [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
     )  # fairly arbitrary
@@ -47,14 +47,7 @@ def make_high_order(m_low_order, degree):
         "unitsquare_vfs",
         "unitsquare_tfs",
         "unitsquare_N1curl_source",
-        pytest.param(
-            "unitsquare_SminusDiv_destination",
-            marks=pytest.mark.xfail(
-                # CalledProcessError is so the parallel tests correctly xfail
-                raises=(subprocess.CalledProcessError, NotImplementedError),
-                reason="Can only interpolate into spaces with point evaluation nodes",
-            ),
-        ),
+        "unitsquare_RT_N1curl_destination",
         "unitsquare_Regge_source",
         # This test fails in complex mode
         pytest.param("spheresphere", marks=pytest.mark.skipcomplex),
@@ -186,14 +179,14 @@ def parameters(request):
         V_src = FunctionSpace(m_src, "N1curl", 2)  # Not point evaluation nodes
         V_dest = VectorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = VectorFunctionSpace(m_dest, "DQ", 2)
-    elif request.param == "unitsquare_SminusDiv_destination":
-        m_src, m_dest, coords = unitsquaresetup()
+    elif request.param == "unitsquare_RT_N1curl_destination":
+        m_src, m_dest, coords = unitsquaresetup(dest_quad=False)
         expr_src = 2 * SpatialCoordinate(m_src)
         expr_dest = 2 * SpatialCoordinate(m_dest)
         expected = 2 * coords
         V_src = VectorFunctionSpace(m_src, "CG", 2)
-        V_dest = FunctionSpace(m_dest, "SminusDiv", 2)  # Not point evaluation nodes
-        V_dest_2 = FunctionSpace(m_dest, "SminusCurl", 2)  # Not point evaluation nodes
+        V_dest = FunctionSpace(m_dest, "RT", 2)  # Not point evaluation nodes
+        V_dest_2 = FunctionSpace(m_dest, "N1curl", 2)  # Not point evaluation nodes
     elif request.param == "unitsquare_Regge_source":
         m_src, m_dest, coords = unitsquaresetup()
         expr_src = outer(SpatialCoordinate(m_src), SpatialCoordinate(m_src))
@@ -416,32 +409,6 @@ def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     assemble(interpolate(f_src, V_dest))
 
 
-def test_interpolate_cross_mesh_not_point_eval():
-    m_src = UnitSquareMesh(2, 3)
-    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
-    coords = np.array(
-        [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
-    )  # fairly arbitrary
-    # add the coordinates of the mesh vertices to test boundaries
-    vertices_src = allgather(m_src.comm, m_src.coordinates.dat.data_ro)
-    coords = np.concatenate((coords, vertices_src))
-    vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
-    coords = np.concatenate((coords, vertices_dest))
-    dest_eval = PointEvaluator(m_dest, coords)
-    expr_src = 2 * SpatialCoordinate(m_src)
-    expr_dest = 2 * SpatialCoordinate(m_dest)
-    expected = 2 * coords
-    V_src = FunctionSpace(m_src, "RT", 2)
-    V_dest = FunctionSpace(m_dest, "RTCE", 2)
-    atol = 1e-8  # default
-    # This might not make much mathematical sense, but it should test if we get
-    # the not implemented error for non-point evaluation nodes!
-    with pytest.raises(NotImplementedError):
-        interpolate_function(
-            m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
-        )
-
-
 def interpolate_function(
     m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
 ):
@@ -614,8 +581,8 @@ def test_line_integral():
     # Create a 1D line mesh in 2D from (0, 0) to (1, 1) with 1 cell
     cells = np.asarray([[0, 1]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line)
     V_line = FunctionSpace(line, "CG", 2)
     f_line = Function(V_line).interpolate(x * y)
@@ -624,8 +591,8 @@ def test_line_integral():
     # Create a 1D line around the unit square (2D) with 4 cells
     cells = np.asarray([[0, 1], [1, 2], [2, 3], [3, 0]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line_square = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line_square = Mesh(plex, dim=2)
     x, y = SpatialCoordinate(line_square)
     V_line_square = FunctionSpace(line_square, "CG", 2)
     f_line_square = Function(V_line_square).interpolate(x * y)
