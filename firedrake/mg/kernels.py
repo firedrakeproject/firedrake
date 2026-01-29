@@ -1,17 +1,13 @@
 import numpy
 import string
-from itertools import chain
 from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
-from ufl.algorithms.analysis import extract_coefficients
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.domain import extract_unique_domain
-from ufl.algorithms.analysis import has_type
-from ufl.classes import GeometricQuantity
 
 import loopy as lp
 import pymbolic as pym
@@ -27,10 +23,9 @@ import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
 from tsfc.loopy import generate as generate_loopy
 from tsfc import fem, ufl_utils, spectral
-from tsfc.driver import TSFCIntegralDataInfo, DualEvaluationCallable
+from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
-from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
 
 from finat.element_factory import create_element, as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -112,21 +107,12 @@ def compile_element(operand, dual_arg, parameters=None,
     loopy.TranslationUnit
         The generated code
     """
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
-
-    scalar_type = parameters.get("scalar_type", ScalarType)
     domain = extract_unique_domain(operand)
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
 
     # Reconstruct the target space as a runtime Quadrature space
-    point_arg = lp.GlobalArg("X", dtype=scalar_type, shape=(1, dim))
-    point_expr = gem.Variable("X", (1, dim))
+    point_expr = gem.Variable("rt_X", (1, dim))
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
 
@@ -142,95 +128,15 @@ def compile_element(operand, dual_arg, parameters=None,
     else:
         dual_arg = ufl.Coargument(point_space.dual(), number=dual_arg.number())
 
-    # Map into reference values
-    operand = apply_mapping(operand, dual_arg.ufl_element(), domain)
-    operand = tsfc.ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
-    operand = simplify_abs(operand, complex_mode)
-    ufl_interpolate = ufl.Interpolate(operand, dual_arg)
-
-    builder = firedrake_interface.ExpressionKernelBuilder(scalar_type=scalar_type)
-    builder._domain_integral_type_map = {domain: "cell"}
-    builder._entity_ids = {domain: (0,)}
-
     # Create a runtime Quadrature element
-    to_element = builder.create_element(point_element)
+    to_element = create_element(point_element)
 
-    # Collect required arguments
-    arguments = ufl_interpolate.arguments()
-    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
-                             for arg in arguments}
-
-    # Collect required coefficients
-    coefficients = extract_coefficients(ufl_interpolate)
-
-    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
-
-    if has_type(operand, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
-        # Create a fake coordinate coefficient for a domain.
-        coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-        builder.domain_coordinate[domain] = coords_coefficient
-        builder.set_cell_orientations((domain, ))
-        builder.set_cell_sizes((domain, ))
-        coefficients.append(coords_coefficient)
-    builder.set_coefficients(coefficients)
-
-    constants = extract_firedrake_constants(ufl_interpolate)
-    builder.set_constants(constants)
-
-    # Translate to GEM
-    config = dict(interface=builder,
-                  ufl_cell=domain.ufl_cell(),
-                  integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
-                  argument_multiindices=argument_multiindices,
-                  index_cache={},
-                  scalar_type=scalar_type)
-
-    # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(operand, config)
-
-    # Get the gem expression for dual evaluation and corresponding basis
-    # indices needed for compilation of the expression
-    evaluation, basis_indices = to_element.dual_evaluation(fn)
-
-    # Compute the action against the dual argument
-    if isinstance(dual_arg, ufl.Cofunction):
-        shape = tuple(i.extent for i in basis_indices)
-        gem_dual, = gem.extract_type((builder.coefficient_map[dual_arg],), gem.Variable)
-        gem_dual = gem.reshape(gem_dual, shape)
-        if complex_mode:
-            evaluation = gem.MathFunction('conj', evaluation)
-        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
-        basis_indices = ()
-    else:
-        argument_multiindices[dual_arg.number()] = basis_indices
-
-    argument_multiindices = dict(sorted(argument_multiindices.items()))
-
-    # Build kernel body
-    return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
-    return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable("R", return_shape or (1,))
-    return_expr = gem.Indexed(return_var, return_indices or (0,))
-    result_arg = lp.GlobalArg("R", dtype=scalar_type, shape=return_shape)
-
-    # Unroll
-    max_extent = parameters["unroll_indexsum"]
-    if max_extent:
-        def predicate(index):
-            return index.extent <= max_extent
-        evaluation, = gem.optimise.unroll_indexsum([evaluation], predicate=predicate)
-
-    # Translate GEM -> loopy
-    evaluation, = gem.impero_utils.preprocess_gem([evaluation])
-    impero_c = gem.impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
-
-    f_arg = [builder.generate_arg_from_expression(builder.coefficient_map[c]) for c in builder.coefficient_map]
-    loopy_args = [result_arg] + f_arg + [point_arg]
-    kernel_code, _ = generate_loopy(
-        impero_c, loopy_args, scalar_type,
-        kernel_name="pyop2_kernel_"+name, index_names={})
-
-    return lp.generate_code_v2(kernel_code).device_code()
+    expression = ufl.Interpolate(operand, dual_arg)
+    kernel = compile_expression_dual_evaluation(expression,
+                                                to_element, point_element,
+                                                parameters=parameters,
+                                                name="pyop2_kernel_"+name)
+    return lp.generate_code_v2(kernel.ast).device_code()
 
 
 def prolong_kernel(expression, Vf):
@@ -238,9 +144,7 @@ def prolong_kernel(expression, Vf):
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
-        idx = levelf * hierarchy.refinements_per_level
-        assert idx == int(idx)
-        assert hierarchy._meshes[int(idx)].extruded
+        assert Vf.mesh().extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
     else:
         level_ratio = 1
@@ -321,7 +225,7 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": "R, fi, Xci, Xref" if needs_coordinates else "R, fi, Xref",
+               "kernel_args": "R, Xci, fi, Xref" if needs_coordinates else "R, fi, Xref",
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
@@ -336,8 +240,8 @@ def prolong_kernel(expression, Vf):
 
 def restrict_kernel(Vf, Vc):
     hierarchy, _ = utils.get_level(Vf.mesh())
-    if Vf.extruded:
-        assert Vc.extruded
+    if Vf.mesh().extruded:
+        assert Vc.mesh().extruded
     cmap = hierarchy.fine_to_coarse_cells
     ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
     coordinates = Vc.mesh().coordinates
@@ -410,7 +314,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": "Ri, b, Xc, Xref" if needs_coordinates else "Ri, b, Xref",
+               "kernel_args": "Ri, Xc, b, Xref" if needs_coordinates else "Ri, b, Xref",
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),

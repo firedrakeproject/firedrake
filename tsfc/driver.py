@@ -21,7 +21,7 @@ from tsfc import fem, ufl_utils
 from tsfc.logging import logger
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
-from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
+from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
 from tsfc.exceptions import MismatchingDomainError
 
@@ -222,7 +222,7 @@ def preprocess_parameters(parameters):
 
 def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
                                        domain=None, interface=None,
-                                       parameters=None):
+                                       parameters=None, name=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -257,6 +257,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+    operand = simplify_abs(operand, complex_mode)
 
     # Reconstructed Interpolate with mapped operand
     expression = ufl.Interpolate(operand, v)
@@ -344,9 +345,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Compute the action against the dual argument
     if isinstance(dual_arg, ufl.Cofunction):
-        shape = tuple(i.extent for i in basis_indices)
-        gem_dual, = gem.extract_type((builder.coefficient_map[dual_arg],), gem.Variable)
-        gem_dual = gem.reshape(gem_dual, shape)
+        gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
@@ -355,6 +354,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         argument_multiindices[dual_arg.number()] = basis_indices
 
     argument_multiindices = dict(sorted(argument_multiindices.items()))
+
+    # Unroll
+    max_extent = parameters["unroll_indexsum"]
+    if max_extent:
+        def predicate(index):
+            return index.extent <= max_extent
+        evaluation, = gem.optimise.unroll_indexsum([evaluation], predicate=predicate)
 
     # Build kernel body
     return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
@@ -371,7 +377,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"])
+    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"], name=name)
 
 
 class DualEvaluationCallable(object):
