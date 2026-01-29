@@ -237,7 +237,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
         self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
 
-    def construct_kernel(self, impero_c, index_names, needs_external_coords, log=False):
+    def construct_kernel(self, impero_c, index_names, needs_external_coords, log=False, name=None):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg impero_c: gem.ImperoC object that represents the kernel
@@ -273,7 +273,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         loopy_args = [arg.loopy_arg for arg in args]
 
-        name = "expression_kernel"
+        name = name or "expression_kernel"
         loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                              name, index_names, log=log)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
