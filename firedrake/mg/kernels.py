@@ -17,7 +17,6 @@ import gem
 import gem.impero_utils as impero_utils
 
 import ufl
-import finat.ufl
 import tsfc
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -28,6 +27,7 @@ from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 
+from finat.ufl import FiniteElement, MixedElement, TensorElement
 from finat.element_factory import create_element, as_fiat_cell
 from finat.point_set import UnknownPointSet
 from finat.quadrature import make_quadrature, QuadratureRule
@@ -44,7 +44,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = finat.element_factory.create_element(ufl_coordinate_element)
+    element = create_element(ufl_coordinate_element)
     gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 
@@ -117,38 +117,49 @@ def compile_element(operand, dual_arg, parameters=None,
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
 
-    point_element = finat.ufl.FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    ufl_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
     if operand.ufl_shape:
         symmetry = None if len(operand.ufl_shape) == 1 else dual_arg.ufl_element().symmetry()
-        point_element = finat.ufl.TensorElement(point_element, shape=operand.ufl_shape, symmetry=symmetry)
-    point_space = ufl.FunctionSpace(domain, point_element)
+        ufl_element = TensorElement(ufl_element, shape=operand.ufl_shape, symmetry=symmetry)
+    target_space = ufl.FunctionSpace(domain, ufl_element)
 
-    # Reconstruct the dual argument
+    # Reconstruct the dual argument in the runtime Quadrature space
     if isinstance(dual_arg, ufl.Cofunction):
-        dual_arg = ufl.Cofunction(point_space.dual())
+        dual_arg = ufl.Cofunction(target_space.dual())
     else:
-        dual_arg = ufl.Coargument(point_space.dual(), number=dual_arg.number())
+        dual_arg = ufl.Coargument(target_space.dual(), number=dual_arg.number())
+    expression = ufl.Interpolate(operand, dual_arg)
 
     # Create a runtime Quadrature element
-    to_element = create_element(point_element)
+    to_element = create_element(ufl_element)
 
-    expression = ufl.Interpolate(operand, dual_arg)
     kernel = compile_expression_dual_evaluation(expression,
-                                                to_element, point_element,
+                                                to_element, ufl_element,
                                                 parameters=parameters,
                                                 name="pyop2_kernel_"+name)
     return lp.generate_code_v2(kernel.ast).device_code()
 
 
-def make_kernel_args(element, *args):
-    needs_coordinates = element.mapping != "affine"
-    is_constant = sum(as_tuple(element.degree)) == 0 and element.space_dimension() == numpy.prod(element.value_shape)
-
+def _make_kernel_args(element, *args):
+    """Returns a string of argument names to call the kernel.
+       Discards coordinate arguments if they do not appear in the kernel."""
+    # NOTE: TSFC will sometimes drop run-time arguments in generated
+    # kernels if they are deemed not-necessary.
+    # For further information, see the same note in interpolation.py.
     mask = [True] * len(args)
+    # Drop the source coordinates if the element is affinely-mapped.
+    needs_coordinates = element.mapping != "affine"
     mask[1] = needs_coordinates
+    # Drop the target location if the element is constant.
+    is_constant = sum(as_tuple(element.degree)) == 0 and element.space_dimension() == numpy.prod(element.value_shape)
     mask[-1] = not is_constant
     kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
     return kernel_args
+
+
+def _make_element_key(element):
+    """Returns a cache key for a finat element."""
+    return entity_dofs_key(element.complex.get_topology()) + entity_dofs_key(element.entity_dofs())
 
 
 def prolong_kernel(expression, Vf):
@@ -170,11 +181,9 @@ def prolong_kernel(expression, Vf):
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
            + (Vf.block_size,)
-           + entity_dofs_key(Vf.finat_element.complex.get_topology())
-           + entity_dofs_key(Vc.finat_element.complex.get_topology())
-           + entity_dofs_key(Vf.finat_element.entity_dofs())
-           + entity_dofs_key(Vc.finat_element.entity_dofs())
-           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
+           + _make_element_key(Vf.finat_element)
+           + _make_element_key(Vc.finat_element)
+           + _make_element_key(coordinates.function_space().finat_element))
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     try:
         return cache[key]
@@ -234,7 +243,7 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": make_kernel_args(element, "R", "Xci", "fi", "Xref"),
+               "kernel_args": _make_kernel_args(element, "R", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -254,11 +263,9 @@ def restrict_kernel(Vf, Vc):
     coordinates = Vc.mesh().coordinates
     key = (("restrict", ncandidate)
            + (Vf.block_size,)
-           + entity_dofs_key(Vf.finat_element.complex.get_topology())
-           + entity_dofs_key(Vc.finat_element.complex.get_topology())
-           + entity_dofs_key(Vf.finat_element.entity_dofs())
-           + entity_dofs_key(Vc.finat_element.entity_dofs())
-           + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
+           + _make_element_key(Vf.finat_element)
+           + _make_element_key(Vc.finat_element)
+           + _make_element_key(coordinates.function_space().finat_element))
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     try:
         return cache[key]
@@ -320,7 +327,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": make_kernel_args(element, "Ri", "Xc", "b", "Xref"),
+               "kernel_args": _make_kernel_args(element, "Ri", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -374,7 +381,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         self.coefficients = []
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
+            if type(coefficient.ufl_element()) is MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))
