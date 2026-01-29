@@ -1,6 +1,7 @@
 import numpy
 import string
 from pyop2 import op2
+from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
@@ -139,23 +140,32 @@ def compile_element(operand, dual_arg, parameters=None,
     return lp.generate_code_v2(kernel.ast).device_code()
 
 
+def make_kernel_args(element, *args):
+    needs_coordinates = element.mapping != "affine"
+    is_constant = sum(as_tuple(element.degree)) == 0 and element.space_dimension() == numpy.prod(element.value_shape)
+
+    mask = [True] * len(args)
+    mask[1] = needs_coordinates
+    mask[-1] = not is_constant
+    kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
+    return kernel_args
+
+
 def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
         assert Vf.mesh().extruded
-        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
     else:
         level_ratio = 1
     if levelf > levelc:
         # prolong
-        cmap = hierarchy.fine_to_coarse_cells
-        ncandidate = cmap[levelf].shape[1]
+        ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     else:
         # inject
-        cmap = hierarchy.coarse_to_fine_cells
-        ncandidate = cmap[levelf].shape[1]
+        ncandidate = hierarchy.coarse_to_fine_cells[levelf].shape[1]
         ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
@@ -173,7 +183,6 @@ def prolong_kernel(expression, Vf):
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
-        needs_coordinates = element.mapping != "affine"
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -208,7 +217,7 @@ def prolong_kernel(expression, Vf):
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(spacedim)s; coord++) {
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
                     fprintf(stderr, "\\n");
@@ -225,25 +234,23 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": "R, Xci, fi, Xref" if needs_coordinates else "R, fi, Xref",
-               "spacedim": element.cell.get_spatial_dimension(),
+               "kernel_args": make_kernel_args(element, "R", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": Vc.mesh().topological_dimension}
+               "tdim": element.cell.get_spatial_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, _ = utils.get_level(Vf.mesh())
+    hierarchy, levelf = utils.get_level(Vf.mesh())
     if Vf.mesh().extruded:
         assert Vc.mesh().extruded
-    cmap = hierarchy.fine_to_coarse_cells
-    ncandidate = max(cmap[l].shape[1] for l in cmap if cmap[l] is not None)
+    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     coordinates = Vc.mesh().coordinates
     key = (("restrict", ncandidate)
            + (Vf.block_size,)
@@ -261,7 +268,6 @@ def restrict_kernel(Vf, Vc):
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
-        needs_coordinates = element.mapping != "affine"
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -298,7 +304,7 @@ def restrict_kernel(Vf, Vc):
                     cell = bestcell;
                 } else {
                     fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(spacedim)s; coord++) {
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
                       fprintf(stderr, "%%.14e ", X[coord]);
                     }
                     fprintf(stderr, "\\n");
@@ -314,14 +320,13 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": "Ri, Xc, b, Xref" if needs_coordinates else "Ri, b, Xref",
+               "kernel_args": make_kernel_args(element, "Ri", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "spacedim": element.cell.get_spatial_dimension(),
-               "tdim": Vc.mesh().topological_dimension}
+               "tdim": element.cell.get_spatial_dimension()}
 
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
