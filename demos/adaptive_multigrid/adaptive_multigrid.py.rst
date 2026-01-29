@@ -2,7 +2,7 @@ Adaptive Multigrid Methods using AdaptiveMeshHierarchy
 ======================================================
 
 
-Contributed by Anurag Rao
+Contributed by Anurag Rao.
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
 We will first have a look at how to use the :class:`.AdaptiveMeshHierarchy` to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain.
@@ -101,10 +101,10 @@ For this problem, we will be using the Babuška-Rheinbolt a posteriori estimate 
 .. math::
    \eta_K^2 = h_K^2 \int_K \| f + \nabla^2 u_h \|^2 \mathrm{d}x + \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \mathrm{d}s,
 
-where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the normal, and :math:`⟦ \cdot ⟧` is the jump operator. The a posteriori estimator is computed using the solution at the current level :math:`h`. Integrating over the domain and using the fact that the components of the estimator are piecewise constant on each cell, we can transform the above estimator into the variational problem 
+where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the outward-facing normal, and :math:`⟦ \cdot ⟧` is the jump operator. The a posteriori estimator is computed using the solution at the current level :math:`h`. Integrating over the domain and using the fact that the components of the estimator are piecewise constant on each cell, we can transform the above estimator into the variational problem 
 
 .. math::
-   \int_\Omega \eta_K^2 w \,\mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \,\mathrm{d}x w \,\mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \,\mathrm{d}s w \,\mathrm{d}x
+   \int_\Omega \eta_K^2 q \,\mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \,\mathrm{d}x q \,\mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} ⟦ \nabla u_h \cdot n ⟧^2 \,\mathrm{d}s q \,\mathrm{d}x \quad \forall\, q \in \mathrm{DG}_0
 
 Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.  ::
 
@@ -173,18 +173,6 @@ With these helper functions complete, we can solve the system iteratively. In th
       if i != refinements - 1:
          amh.adapt(eta, theta)
 
-   from matplotlib import pyplot as plt
-
-   dofs = numpy.array(sqrt_dofs) ** 2
-   opt_errors = est_errors[0] * (sqrt_dofs[0] / numpy.array(sqrt_dofs))
-   plt.loglog(dofs, est_errors, '-o', markersize = 3, label="Estimated error")
-   plt.loglog(dofs, opt_errors, '--', markersize = 3, label="Optimal convergence")
-   plt.ylabel("Error estimate of the energy norm")
-   plt.xlabel("Number of degrees of freedom")
-   plt.legend()
-   plt.savefig("output/adaptive_convergence.png")
-
-
 To perform Dörfler marking, refine the current mesh, and add the mesh to the :class:`.AdaptiveMeshHierarchy`, we use the ``amh.adapt(eta, theta)`` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy. There is another method for adding a mesh to the hierarchy: ``amh.add_mesh(mesh)``. In this method, refinement on the mesh is performed externally by some custom procedure and the resulting mesh directly gets added to the hierarchy.
 The meshes now refine according to the error estimator. The error estimators at levels 3,5, and 15 are shown below. Zooming into the vertex of the L-shape at level 15 shows the error indicator remains strongest there. Further refinements will focus on that area.
 
@@ -208,8 +196,18 @@ The solutions at level 4 and 15 are shown below.
 |    *MG solution at level 4*        |    *MG solution at level 15*       |
 +------------------------------------+------------------------------------+
 
+The convergence follows the expected optimal behavior: ::
 
-The convergence follows the expected optimal behavior:
+   from matplotlib import pyplot as plt
+
+   dofs = numpy.array(sqrt_dofs) ** 2
+   opt_errors = est_errors[0] * (sqrt_dofs[0] / numpy.array(sqrt_dofs))
+   plt.loglog(dofs, est_errors, '-o', markersize = 3, label="Estimated error")
+   plt.loglog(dofs, opt_errors, '--', markersize = 3, label="Optimal convergence")
+   plt.ylabel("Error estimate of the energy norm")
+   plt.xlabel("Number of degrees of freedom")
+   plt.legend()
+   plt.savefig("output/adaptive_convergence.png")
 
 .. figure:: adaptive_convergence.png
    :align: center
