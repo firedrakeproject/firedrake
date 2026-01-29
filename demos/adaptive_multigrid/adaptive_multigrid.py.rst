@@ -230,21 +230,21 @@ Moreover, the multigrid iteration count is robust to the level of refinement ::
 ======== ================
  Level     Iterations
 ======== ================
-  0	      2
-  1	      12
-  2	      13
-  3	      13
-  4	      13
-  5	      13
-  6	      13
-  7	      14
-  8	      15
-  9	      15
-  10	      15
-  11	      15
-  12	      16
-  13	      16
-  14	      16
+   0	     2
+   1	     8
+   2	     8
+   3	     8
+   4	     8
+   5	     8
+   6	     8
+   7	     8
+   8	     8
+   9	     9
+   10	     9
+   11	     9
+   12	     9
+   13	     9
+   14	     9
 ======== ================
 
 A runnable python version of this demo can be found :demo:`here<adaptive_multigrid.py>`.
