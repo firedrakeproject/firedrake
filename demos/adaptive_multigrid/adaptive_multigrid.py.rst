@@ -61,7 +61,8 @@ Our approach strongly follows the similar problem in this `lecture course <https
       solver = NonlinearVariationalSolver(problem, solver_parameters=params)
       solver.set_transfer_manager(atm)
       solver.solve()
-      return uh
+      its = solver.snes.getLinearSolveIterations()
+      return uh, its
 
 Note the code after the construction of the :class:`.NonlinearVariationalProblem`. To use the :class:`.AdaptiveMeshHierarchy` with the existing Firedrake solver, we have to set the :class:`.AdaptiveTransferManager` as the transfer manager of the multigrid solver.
 Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
@@ -108,28 +109,32 @@ where :math:`K` is the element, :math:`h_K` is the diameter of the element, :mat
 Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.  ::
 
    def estimate_error(mesh, uh):
-       W = FunctionSpace(mesh, "DG", 0)
-       eta_sq = Function(W)
-       w = TestFunction(W)
+       Q = FunctionSpace(mesh, "DG", 0)
+       eta_sq = Function(Q)
+       p = TrialFunction(Q)
+       q = TestFunction(Q)
        f = Constant(1)
+       residual = f + div(grad(uh))
 
        # symbols for mesh quantities
        h = CellDiameter(mesh)
        n = FacetNormal(mesh)
-       v = CellVolume(mesh)
+       vol = CellVolume(mesh)
    
        # compute cellwise error estimator
-       G = (inner(eta_sq / v, w)*dx
-            - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-            - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
-            - inner(h('-')/2 * jump(grad(uh), n)**2, w('-')) * dS
+       a = inner(p, q / vol) * dx
+       L = (inner(residual**2, q * h**2) * dx
+            + inner(jump(grad(uh), n)**2, avg(q * h)) * dS
        )
-   
-       sp = {"mat_type": "matfree", "ksp_type": "richardson", "pc_type": "jacobi"}
-       solve(G == 0, eta_sq, solver_parameters=sp)
-       eta = Function(W).interpolate(sqrt(eta_sq))  # compute eta from eta^2
-   
-       with eta.dat.vec_ro as eta_:  # compute estimate for error in energy norm
+
+       sp = {"mat_type": "matfree", "ksp_type": "preonly", "pc_type": "jacobi"}
+       solve(a == L, eta_sq, solver_parameters=sp)
+
+       # compute eta from eta^2
+       eta = Function(Q).interpolate(sqrt(eta_sq))
+
+       # compute estimate for error in energy norm
+       with eta.dat.vec_ro as eta_:  
            error_est = eta_.norm()
        return eta, error_est
 
@@ -142,33 +147,36 @@ The logic is to select an element :math:`K` to refine if the estimator is greate
 With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat. ::
 
    theta = 0.5
-   max_iterations = 15
+   refinements = 15
    est_errors = []
-   dofs = []
-   for i in range(max_iterations):
-      print(f"level {i}")
+   sqrt_dofs = []
+   mg_iterations = []
+   for level in range(refinements):
+      print(f"level {level}")
 
       mesh = amh[-1]
-      uh = solve_poisson(mesh, solver_params)
-      VTKFile(f"output/adaptive_loop_{i}.pvd").write(uh)
+      uh, its = solve_poisson(mesh, solver_params)
+      VTKFile(f"output/adaptive_loop_{level}.pvd").write(uh)
 
       (eta, error_est) = estimate_error(mesh, uh)
-      VTKFile(f"output/eta_{i}.pvd").write(eta)
+      VTKFile(f"output/eta_{level}.pvd").write(eta)
 
       est_errors.append(error_est)
-      dofs.append(uh.function_space().dim())
+      sqrt_dofs.append(uh.function_space().dim() ** 0.5)
+      mg_iterations.append(its)
 
       print(f"  ||u - u_h|| <= C * {error_est}")
-      if len(dofs) > 1:
-         rate = -numpy.diff(numpy.log(est_errors)) / numpy.diff(numpy.log(dofs))
-         print(f"  rate = {rate[-1]}")
+      if len(est_errors) > 1:
+         rates = -numpy.diff(numpy.log(est_errors)) / numpy.diff(numpy.log(sqrt_dofs))
+         print(f"  rate = {rates[-1]}")
 
-      if i != max_iterations - 1:
+      if i != refinements - 1:
          amh.adapt(eta, theta)
 
    from matplotlib import pyplot as plt
 
-   opt_errors = est_errors[0] * (numpy.array(dofs)/dofs[0]) ** -0.5
+   dofs = numpy.array(sqrt_dofs) ** 2
+   opt_errors = est_errors[0] * (sqrt_dofs[0] / numpy.array(sqrt_dofs))
    plt.loglog(dofs, est_errors, '-o', markersize = 3, label="Estimated error")
    plt.loglog(dofs, opt_errors, '--', markersize = 3, label="Optimal convergence")
    plt.ylabel("Error estimate of the energy norm")
@@ -207,6 +215,34 @@ The convergence follows the expected optimal behavior:
    :align: center
    :alt: Convergence of the error estimator.
 
+Moreover, the multigrid iteration count is robust to the level of refinement ::
+
+   print(" Level\t | Iterations")
+   print("---------------------")
+   for level, its in enumerate(mg_iterations):
+       print(f"   {level}\t | {its}")
+
+..
+
+======== ================
+ Level     Iterations
+======== ================
+  0	      2
+  1	      12
+  2	      13
+  3	      13
+  4	      13
+  5	      13
+  6	      13
+  7	      14
+  8	      15
+  9	      15
+  10	      15
+  11	      15
+  12	      16
+  13	      16
+  14	      16
+======== ================
 
 A runnable python version of this demo can be found :demo:`here<adaptive_multigrid.py>`.
 
