@@ -3091,9 +3091,9 @@ def _refine_quads_to_triangles(
 ) -> PETSc.DMPlex:
     match diagonal:
         case "crossed":
-            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
+            transform_type = PETSc.DMPlexTransformType.REFINEALFELD
         case "left":
-            raise NotImplementedError
+            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
         case "right":
             raise NotImplementedError
         case _:
