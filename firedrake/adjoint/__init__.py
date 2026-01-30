@@ -10,13 +10,6 @@ To start taping, run::
 import pyadjoint
 __version__ = pyadjoint.__version__
 
-import sys
-if 'backend' not in sys.modules:
-    import firedrake
-    sys.modules['backend'] = firedrake
-else:
-    raise ImportError("'backend' module already exists?")
-
 from pyadjoint.tape import Tape, set_working_tape, get_working_tape, \
                             pause_annotation, continue_annotation, \
                             stop_annotating, annotate_tape  # noqa F401
@@ -38,6 +31,7 @@ from pyadjoint import IPOPTSolver, ROLSolver, MinimizationProblem, \
 from firedrake.adjoint.ufl_constraints import UFLInequalityConstraint, \
     UFLEqualityConstraint  # noqa F401
 from firedrake.adjoint.ensemble_reduced_functional import EnsembleReducedFunctional  # noqa F401
+from firedrake.adjoint.transformed_functional import L2RieszMap, L2TransformedFunctional  # noqa: F401
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
 import types

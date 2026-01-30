@@ -16,6 +16,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import finat
+from finat.element_factory import as_fiat_cell
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
@@ -134,15 +135,22 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
             if coeff in form_data.coefficient_split:
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
+
     mesh = integral_data.domain
     all_meshes = extract_domains(form_data.original_form)
     domain_number = all_meshes.index(mesh)
+    coefficient_meshes = chain.from_iterable(map(extract_domains, coefficients))
+
+    domain_integral_type_map = dict.fromkeys(all_meshes, None)
+    domain_integral_type_map.update(dict.fromkeys(coefficient_meshes, "cell"))
+    domain_integral_type_map.update(integral_data.domain_integral_type_map)
+
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
-        domain_integral_type_map={mesh: integral_data.domain_integral_type_map[mesh] if mesh in integral_data.domain_integral_type_map else None for mesh in all_meshes},
+        domain_integral_type_map=domain_integral_type_map,
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
@@ -247,6 +255,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         domain = extract_unique_domain(expression)
     assert domain is not None
     builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
@@ -280,6 +289,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
+                      integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
                       argument_multiindices=argument_multiindices,

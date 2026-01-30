@@ -4,7 +4,7 @@ Using patch relaxation for multigrid
 Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
-Simple relaxation like point Jacobi are not optimal or even suitable
+Simple multigrid relaxation methods like point Jacobi are not optimal or even suitable
 smoothers for all applications.  Firedrake supports additive Schwarz methods
 based on local patch-based decompositions through two different paths.
 
@@ -20,12 +20,15 @@ degree-independent iteration counts.  Here, all the degrees of freedom in the ce
 For many problems, point Jacobi is even worse, and patches are required even to
 get a convergent method.  We refer the reader to other demos.
 
-We start by importing firedrake and setting up a mesh hierarchy and the
-exact solution and forcing data. ::
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the meshes must have an overlapping
+parallel domain decomposition that supports the vertex star patches. This is set
+via the `distribution_parameters` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 
-  base = UnitSquareMesh(4, 4)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  base = UnitSquareMesh(4, 4, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 1)
   mesh = mh[-1]
 

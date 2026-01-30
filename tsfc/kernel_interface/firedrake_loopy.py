@@ -12,8 +12,8 @@ from gem.flop_count import count_flops
 import loopy as lp
 
 from tsfc import kernel_args
-from finat.element_factory import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
+from finat.element_factory import as_fiat_cell, create_element
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant, lower_integral_type
 from tsfc.loopy import generate as generate_loopy
 
 
@@ -30,6 +30,7 @@ ActiveDomainNumbers = namedtuple('ActiveDomainNumbers', ['coordinates',
                                                          'cell_sizes',
                                                          'exterior_facets',
                                                          'interior_facets',
+                                                         'orientations_cell',
                                                          'orientations_exterior_facet',
                                                          'orientations_interior_facet'])
 ActiveDomainNumbers.__doc__ = """
@@ -323,9 +324,16 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         """
         self._entity_numbers = {}
+        self._entity_ids = {}
         for i, domain in enumerate(domains):
-            # Facet number
+            fiat_cell = as_fiat_cell(domain.ufl_cell())
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
+            if integral_type is None:
+                # Set placeholder for unused domain.
+                entity_ids = None
+            else:
+                _, entity_ids = lower_integral_type(fiat_cell, integral_type)
+            self._entity_ids[domain] = entity_ids
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
                 self._entity_numbers[domain] = {None: gem.VariableIndex(gem.Indexed(facet, (0,))), }
@@ -369,7 +377,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                     '-': gem.OrientationVariableIndex(gem.Indexed(o, (0,)))
                 }
             else:
-                self._entity_orientations[domain] = {None: None}
+                o = gem.Variable(variable_name, (1,), dtype=gem.uint_type)
+                self._entity_orientations[domain] = {None: gem.OrientationVariableIndex(gem.Indexed(o, (0,))), }
 
     def set_coefficients(self):
         """Prepare the coefficients of the form."""
@@ -475,6 +484,17 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             dtype=numpy.uint32,
         )
         args.extend(args_)
+        cell_dict = {}
+        for domain, expr in self._entity_orientations.items():
+            integral_type = info.domain_integral_type_map[domain]
+            cell_dict[domain] = expr[None].expression if integral_type == "cell" else None
+        active_domain_numbers_orientations_cell, args_ = self.make_active_domain_numbers(
+            cell_dict,
+            active_variables,
+            kernel_args.OrientationsCellKernelArg,
+            dtype=gem.uint_type,
+        )
+        args.extend(args_)
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
@@ -515,6 +535,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                           cell_sizes=tuple(active_domain_numbers_cell_sizes),
                           exterior_facets=tuple(active_domain_numbers_exterior_facets),
                           interior_facets=tuple(active_domain_numbers_interior_facets),
+                          orientations_cell=tuple(active_domain_numbers_orientations_cell),
                           orientations_exterior_facet=tuple(active_domain_numbers_orientations_exterior_facet),
                           orientations_interior_facet=tuple(active_domain_numbers_orientations_interior_facet),
                       ),

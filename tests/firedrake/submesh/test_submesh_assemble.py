@@ -1,5 +1,12 @@
+import os
+import pytest
 import numpy as np
 from firedrake import *
+from firedrake.cython import dmcommon
+from petsc4py import PETSc
+
+
+cwd = os.path.abspath(os.path.dirname(__file__))
 
 
 def test_submesh_assemble_cell_cell_integral_cell():
@@ -326,3 +333,233 @@ def test_submesh_assemble_cell_cell_equation_bc():
                     [- 1. / 3., - 1. / 6., 0., 0.]])
     assert np.allclose(A.M[0][0].values, M00)
     assert np.allclose(A.M[0][1].values, M01)
+
+
+def test_submesh_assemble_cell_facet_integral_various():
+    #  CG1 DoF numbers (nprocs = 1):
+    #
+    #  5-------1-------2
+    #  |       |       |
+    #  |       |       |  mesh
+    #  |       |       |
+    #  4-------0-------3
+    #
+    #          0
+    #          |
+    #          |          subm
+    #          |
+    #          1
+    #
+    distribution_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    subdomain_id = 777
+    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True, distribution_parameters=distribution_parameters)
+    x, y = SpatialCoordinate(mesh)
+    V1 = FunctionSpace(mesh, "HDiv Trace", 0)
+    f1 = Function(V1).interpolate(conditional(And(x > 0.9, x < 1.1), 1., 0.))
+    mesh = RelabeledMesh(mesh, [f1], [subdomain_id])
+    x, y = SpatialCoordinate(mesh)
+    subm = Submesh(mesh, mesh.topological_dimension - 1, subdomain_id)
+    subx, suby = SpatialCoordinate(subm)
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(subm, "CG", 1)
+    V = V0 * V1
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u0, u1 = split(u)
+    v0, v1 = split(v)
+    coordV0 = VectorFunctionSpace(mesh, "CG", 1)
+    coordV1 = VectorFunctionSpace(subm, "CG", 1)
+    coordV = coordV0 * coordV1
+    coords = Function(coordV)
+    coords.sub(0).assign(mesh.coordinates)
+    coords.sub(1).assign(subm.coordinates)
+    coords0, coords1 = split(coords)
+    M10 = np.array(
+        [
+            [1. / 6., 1. / 3., 0., 0., 0., 0.],
+            [1. / 3., 1. / 6., 0., 0., 0., 0.],
+        ]
+    )
+    M10w = np.array(
+        [
+            [1. / 12., 1. / 4., 0., 0., 0., 0.],
+            [1. / 12., 1. / 12., 0., 0., 0., 0.],
+        ]
+    )
+    M10ww = np.array(
+        [
+            [1. / 20., 1. / 5., 0., 0., 0., 0.],
+            [1. / 30., 1. / 20., 0., 0., 0., 0.],
+        ]
+    )
+    # Use subm as primal integration domain.
+    measure = Measure(
+        "dx", subm,
+        intersect_measures=(
+            Measure("dS", mesh),
+        ),
+    )
+    a = inner(u0('-'), v1) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10)
+    a = inner(u1, v0('+')) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[0][1].values, np.transpose(M10))
+    a = y * inner(u0('-'), v1) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10w)
+    a = y * suby * inner(u0('-'), v1) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10ww)
+    a = coords0[1] * inner(u0('-'), v1) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10w)
+    a = coords0[1] * coords1[1] * inner(u0('-'), v1) * measure
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10ww)
+    # Use mesh as primal integration domain.
+    measure = Measure(
+        "dS", mesh,
+        intersect_measures=(
+            Measure("dx", subm),
+        ),
+    )
+    a = inner(u0('+'), v1) * measure(subdomain_id)
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[1][0].values, M10)
+    a = inner(u1, v0('-')) * measure(subdomain_id)
+    A = assemble(a, mat_type="nest")
+    assert np.allclose(A.M[0][1].values, np.transpose(M10))
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_assemble_quad_triangle_base():
+    dim = 2
+    label_ext = 1
+    label_interf = 2
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
+    mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
+    x_t, y_t = SpatialCoordinate(mesh_t)
+    n_t = FacetNormal(mesh_t)
+    mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
+    x_q, y_q = SpatialCoordinate(mesh_q)
+    n_q = FacetNormal(mesh_q)
+    # pgfplot(f, "mesh_tri.dat", degree=2)
+    dx_t = Measure("dx", mesh_t)
+    dx_q = Measure("dx", mesh_q)
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
+    A_t = assemble(Constant(1) * dx_t)
+    A_q = assemble(Constant(1) * dx_q)
+    assert abs(A_t + A_q - 1.0) < 1.e-13
+    HDiv_t = FunctionSpace(mesh_t, "BDM", 3)
+    HDiv_q = FunctionSpace(mesh_q, "RTCF", 3)
+    hdiv_t = Function(HDiv_t).interpolate(as_vector([x_t**2, y_t**2]))
+    hdiv_q = Function(HDiv_q).project(as_vector([x_q**2, y_q**2]), solver_parameters={"ksp_rtol": 1.e-13})
+    v_t = assemble(dot(hdiv_q, as_vector([x_q, y_q])) * ds_t(label_interf))
+    v_q = assemble(dot(hdiv_t, as_vector([x_t, y_t])) * ds_q(label_interf))
+    assert abs(v_q - v_t) < 1.e-13
+    v_t = assemble(dot(hdiv_q, as_vector([x_t, y_t])) * ds_t(label_interf))
+    v_q = assemble(dot(hdiv_t, as_vector([x_q, y_q])) * ds_q(label_interf))
+    assert abs(v_q - v_t) < 1.e-13
+    v_t = assemble(dot(hdiv_q, as_vector([x_q, y_t])) * ds_t(label_interf))
+    v_q = assemble(dot(hdiv_t, as_vector([x_t, y_q])) * ds_q(label_interf))
+    assert abs(v_q - v_t) < 1.e-13
+    v = assemble(inner(n_t, as_vector([888., 999.])) * ds_t(label_interf))
+    assert abs(v) < 1.e-13
+    v = assemble(inner(n_q, as_vector([888., 999.])) * ds_q(label_interf))
+    assert abs(v) < 1.e-13
+    v = assemble(inner(n_q, as_vector([888., 999.])) * ds_t(label_interf))
+    assert abs(v) < 1.e-13
+    v = assemble(inner(n_t, as_vector([888., 999.])) * ds_q(label_interf))
+    assert abs(v) < 1.e-13
+    v = assemble(dot(n_q + n_t, n_q + n_t) * ds_t(label_interf))
+    assert abs(v) < 1.e-30
+    v = assemble(dot(n_q + n_t, n_q + n_t) * ds_q(label_interf))
+    assert abs(v) < 1.e-30
+
+
+def test_submesh_assemble_quad_triangle():
+    dim = 2
+    label_ext = 1
+    label_interf = 2
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
+    mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
+    x_t, y_t = SpatialCoordinate(mesh_t)
+    n_t = FacetNormal(mesh_t)
+    mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
+    x_q, y_q = SpatialCoordinate(mesh_q)
+    n_q = FacetNormal(mesh_q)
+    V_t = FunctionSpace(mesh_t, "P", 4)
+    V_q = FunctionSpace(mesh_q, "Q", 3)
+    V = V_t * V_q
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_t, u_q = split(u)
+    v_t, v_q = split(v)
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
+    # Test against the base cases.
+    c = x_t**2 * y_t**2
+    a = c * inner(u_t, v_q) * ds_t(label_interf)
+    A = assemble(a)
+    c_ref = x_q**2 * y_q**2
+    a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_t(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    c = x_t**2 * y_q**2
+    a = c * inner(u_q, v_t) * ds_t(label_interf)
+    A = assemble(a)
+    c_ref = x_q**2 * y_t**2
+    a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_t(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[0][1].values, A_ref.M.values)
+    c = dot(n_t, n_t)
+    a = c * inner(u_t, v_q) * ds_q(label_interf)
+    A = assemble(a)
+    c_ref = dot(n_q, n_q)
+    a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_q(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    c = dot(n_t, n_q)
+    a = c * inner(u_q, v_t) * ds_q(label_interf)
+    A = assemble(a)
+    c_ref = dot(n_q, n_t)
+    a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_q(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[0][1].values, A_ref.M.values)
+
+
+@pytest.mark.parallel(3)
+def test_assemble_parent_coefficient():
+    subdomain_id = 999
+    nx = 4
+    mesh = UnitSquareMesh(2*nx, nx, quadrilateral=True, reorder=False)
+    x, y = SpatialCoordinate(mesh)
+    M = FunctionSpace(mesh, "DG", 0)
+    marker = Function(M).interpolate(conditional(Or(x > 0.5, y > 0.5), 1, 0))
+    mesh = RelabeledMesh(mesh, [marker], [subdomain_id])
+    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id, ignore_halo=True, reorder=False)
+
+    def expr(m):
+        x = SpatialCoordinate(m)
+        return 1 + dot(x, x)
+
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    vsub = TestFunction(Vsub)
+    usub = TrialFunction(Vsub)
+
+    Q = FunctionSpace(mesh, "DG", 0)
+    q = Function(Q).interpolate(expr(mesh))
+    A = assemble(inner(grad(usub) * q, grad(vsub))*dx(domain=submesh))
+
+    Qsub = FunctionSpace(submesh, "DG", 0)
+    qsub = Function(Qsub).interpolate(expr(submesh))
+    A_ref = assemble(inner(grad(usub) * qsub, grad(vsub))*dx)
+
+    A_ref.petscmat.axpy(-1, A.petscmat)
+    assert np.isclose(A_ref.petscmat.norm(PETSc.NormType.NORM_FROBENIUS), 0)
