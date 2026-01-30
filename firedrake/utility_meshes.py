@@ -553,7 +553,7 @@ def RectangleMesh(
     originY=0.,
     quadrilateral=False,
     reorder=None,
-    diagonal="left",
+    diagonal=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
     name=DEFAULT_MESH_NAME,
@@ -593,6 +593,10 @@ def RectangleMesh(
     """
     if any(n <= 0 or not isinstance(n, numbers.Integral) for n in {nx, ny}):
         raise ValueError("Number of cells must be a positive integer")
+    if quadrilateral and diagonal is not None:
+        raise ValueError("Cannot specify slope of diagonal on quad meshes")
+    if not quadrilateral and diagonal is None:
+        diagonal = "left"
 
     plex = PETSc.DMPlex().createBoxMesh(
         (nx, ny),
@@ -650,6 +654,11 @@ def TensorRectangleMesh(
     * 3: plane y == ycoords[0]
     * 4: plane y == ycoords[-1]
     """
+    if quadrilateral and diagonal is not None:
+        raise ValueError("Cannot specify slope of diagonal on quad meshes")
+    if not quadrilateral and diagonal is None:
+        diagonal = "left"
+
     xcoords = np.unique(xcoords)
     ycoords = np.unique(ycoords)
     nx = np.size(xcoords) - 1
@@ -887,6 +896,11 @@ def PeriodicRectangleMesh(
     if periodic in 'y' then 3 and 4 are empty.
 
     """
+    if quadrilateral and diagonal is not None:
+        raise ValueError("Cannot specify slope of diagonal on quad meshes")
+    if not quadrilateral and diagonal is None:
+        diagonal = "left"
+
     match direction:
         case "both":
             periodic = (True, True)
@@ -3093,9 +3107,9 @@ def _refine_quads_to_triangles(
         case "crossed":
             transform_type = PETSc.DMPlexTransformType.REFINEALFELD
         case "left":
-            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
-        case "right":
             raise NotImplementedError
+        case "right":
+            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
         case _:
             raise AssertionError(f"'diagonal' type '{diagonal}' is not recognised")
 
