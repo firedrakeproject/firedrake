@@ -5,7 +5,6 @@ from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
-from firedrake.interpolation import create_runtime_quadrature_element
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -111,15 +110,29 @@ def compile_element(operand, dual_arg, parameters=None,
     """
     domain = extract_unique_domain(operand)
     cell = domain.ufl_cell()
+    dim = cell.topological_dimension
 
-    V = dual_arg.arguments()[0].ufl_function_space()
-    ufl_element = V.ufl_element()
+    # Reconstruct the target space as a runtime Quadrature space
+    point_expr = gem.Variable("rt_X", (1, dim))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
 
-    rt_var_name = "rt_X"
-    to_element = create_element(ufl_element)
-    to_element = create_runtime_quadrature_element(to_element, cell, rt_var_name)
+    ufl_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if operand.ufl_shape:
+        symmetry = None if len(operand.ufl_shape) == 1 else dual_arg.ufl_element().symmetry()
+        ufl_element = TensorElement(ufl_element, shape=operand.ufl_shape, symmetry=symmetry)
+    target_space = ufl.FunctionSpace(domain, ufl_element)
 
+    # Reconstruct the dual argument in the runtime Quadrature space
+    if isinstance(dual_arg, ufl.Cofunction):
+        dual_arg = ufl.Cofunction(target_space.dual())
+    else:
+        dual_arg = ufl.Coargument(target_space.dual(), number=dual_arg.number())
     expression = ufl.Interpolate(operand, dual_arg)
+
+    # Create a runtime Quadrature element
+    to_element = create_element(ufl_element)
+
     kernel = compile_expression_dual_evaluation(expression,
                                                 to_element, ufl_element,
                                                 parameters=parameters,

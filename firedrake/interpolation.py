@@ -885,7 +885,7 @@ def _build_interpolation_callables(
             # expression must be pure function of spatial coordinates so
             # domain has correct ufl cell
             cell = source_mesh.ufl_cell()
-        to_element = create_runtime_quadrature_element(to_element, cell, rt_var_name)
+        to_element = rebuild(to_element, cell, rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -1084,7 +1084,7 @@ def compile_expression(comm, *args, **kwargs):
 
 
 @singledispatch
-def create_runtime_quadrature_element(element, expr_cell, rt_var_name):
+def rebuild(element, expr_cell, rt_var_name):
     """Construct a FInAT QuadratureElement for interpolation onto a
     VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
     (1, tdim) where tdim is the topological dimension of expr_cell. The
@@ -1110,17 +1110,13 @@ def create_runtime_quadrature_element(element, expr_cell, rt_var_name):
     raise NotImplementedError(f"Point evaluation not implemented for a {element} element.")
 
 
-@create_runtime_quadrature_element.register(ScalarFiatElement)
-@create_runtime_quadrature_element.register(QuadratureElement)
-def scalar_runtime_quadrature_element(element, expr_cell, rt_var_name):
+@rebuild.register(ScalarFiatElement)
+def rebuild_dg(element, expr_cell, rt_var_name):
     # QuadratureElements have a dual basis which is point evaluation at the
     # quadrature points. By using an UnknownPointSet with one point, TSFC
     # will generate a kernel with an argument to which we can pass the reference
     # coordinates of a point and evaluate the expression at that point at runtime.
-    if isinstance(element, QuadratureElement):
-        # Interpolation into VOM-like FunctionSpace
-        pass
-    elif element.degree != 0 or not isinstance(element.cell, Point):
+    if element.degree != 0 or not isinstance(element.cell, Point):
         raise NotImplementedError("Interpolation onto a VOM only implemented for P0DG on vertex cells.")
 
     # gem.Variable name starting with rt_ forces TSFC runtime tabulation
@@ -1132,8 +1128,8 @@ def scalar_runtime_quadrature_element(element, expr_cell, rt_var_name):
     return QuadratureElement(as_fiat_cell(expr_cell), rule)
 
 
-@create_runtime_quadrature_element.register(TensorFiniteElement)
-def tensor_runtime_quadrature_element(element, expr_cell, rt_var_name):
+@rebuild.register(TensorFiniteElement)
+def rebuild_te(element, expr_cell, rt_var_name):
     return TensorFiniteElement(rebuild(element.base_element, expr_cell, rt_var_name),
                                element._shape,
                                transpose=element._transpose)
