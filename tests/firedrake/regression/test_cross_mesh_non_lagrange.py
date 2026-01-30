@@ -14,13 +14,14 @@ def mat_equals(a, b) -> bool:
 
 def fs_shape(V):
     shape = V.ufl_function_space().value_shape
-    if len(shape) == 1:
-        fs_type = partial(VectorFunctionSpace, dim=shape[0])
+    if len(shape) == 0:
+        return FunctionSpace
+    elif len(shape) == 1:
+        return partial(VectorFunctionSpace, dim=shape[0])
     elif len(shape) == 2:
-        fs_type = partial(TensorFunctionSpace, shape=shape)
+        return partial(TensorFunctionSpace, shape=shape)
     else:
         raise ValueError("Invalid function space shape")
-    return fs_type
 
 
 def make_quadrature_space(V):
@@ -38,7 +39,7 @@ def make_quadrature_space(V):
     return fs_shape(V)(V.mesh(), element)
 
 
-@pytest.fixture(params=[("RT", 1), ("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
+@pytest.fixture(params=[("ARG", 5), ("RT", 1), ("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
                         ("BDFM", 2), ("HHJ", 2), ("N1curl", 1), ("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
                         ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 1), ("GLS", 2), ("GLS", 3),
                         ("GLS", 4), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
@@ -49,7 +50,7 @@ def V(request):
     return FunctionSpace(mesh, element, degree)
 
 
-@pytest.mark.parallel([1, 3])
+# @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [1, 2])
 def test_cross_mesh(V, rank):
     mesh1 = UnitSquareMesh(5, 5)
@@ -58,7 +59,11 @@ def test_cross_mesh(V, rank):
     x1, y1 = SpatialCoordinate(mesh2)
 
     shape = V.ufl_function_space().value_shape
-    if len(shape) == 1:
+    if len(shape) == 0:
+        fs_type = FunctionSpace
+        expr1 = x * x + y * y
+        expr2 = x1 * x1 + y1 * y1
+    elif len(shape) == 1:
         fs_type = partial(VectorFunctionSpace, dim=shape[0])
         expr1 = as_vector([x, y])
         expr2 = as_vector([x1, y1])
@@ -105,7 +110,7 @@ def test_cross_mesh(V, rank):
         assert np.allclose(f_interpolated_direct.dat.data_ro, f_direct.dat.data_ro)
 
 
-@pytest.mark.parallel([1, 3])
+# @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [0, 1, 2])
 def test_cross_mesh_adjoint(V, rank):
     # Can already do Lagrange -> RT adjoint

@@ -9,11 +9,17 @@ class ConvergenceError(FiredrakeException):
     """Error raised when a solver fails to converge."""
 
 
-class DofNotDefinedError(FiredrakeException):
+class DoFNotDefinedError(FiredrakeException):
     r"""Raised when attempting to interpolate across function spaces where the
-    target function space contains degrees of freedom (i.e. nodes) which cannot
+    target function space contains degrees of freedom (i.e. DoFs) which cannot
     be defined in the source function space. This typically occurs when the
     target mesh covers a larger domain than the source mesh.
+    """
+
+
+class DoFTypeError(FiredrakeException):
+    """Raised when an operation is attempted on a degree of freedom (DoF)
+    type which is not supported.
     """
 
 

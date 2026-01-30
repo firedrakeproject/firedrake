@@ -325,7 +325,7 @@ Interpolating onto other meshes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If the target mesh extends outside the source mesh domain, then cross-mesh
-interpolation will raise a :py:class:`~.DofNotDefinedError`.
+interpolation will raise a :py:class:`~.DoFNotDefinedError`.
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
