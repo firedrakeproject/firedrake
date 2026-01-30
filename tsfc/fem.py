@@ -252,6 +252,11 @@ class CoordinateMapping(PhysicalGeometry):
         num_edges = len(cell.get_topology()[1])
         return gem.Literal(numpy.asarray([cell.compute_edge_tangent(i) for i in range(num_edges)]))
 
+    def normalized_reference_edge_tangents(self):
+        cell = self.interface.fiat_cell
+        num_edges = len(cell.get_topology()[1])
+        return gem.Literal(numpy.asarray([cell.compute_normalized_edge_tangent(i) for i in range(num_edges)]))
+
     def physical_tangents(self):
         cell = self.interface.fiat_cell
         sd = cell.get_spatial_dimension()
@@ -377,10 +382,11 @@ class PointSetContext(ContextBase):
         try:
             return self._basis_evaluation_cache[key]
         except KeyError:
+            entity = None if entity_id is None else (self.integration_dim, entity_id)
             val = finat_element.basis_evaluation(
                 mt.local_derivatives,
                 self.point_set,
-                (self.integration_dim, entity_id),
+                entity,
                 coordinate_mapping=CoordinateMapping(mt, self),
             )
             return self._basis_evaluation_cache.setdefault(key, val)
@@ -396,9 +402,10 @@ class GemPointContext(ContextBase):
     )
 
     def basis_evaluation(self, finat_element, mt, entity_id):
+        entity = None if entity_id is None else (self.integration_dim, entity_id)
         return finat_element.point_evaluation(mt.local_derivatives,
                                               self.point_expr,
-                                              (self.integration_dim, entity_id),
+                                              entity,
                                               CoordinateMapping(mt, self))
 
 

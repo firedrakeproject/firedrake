@@ -226,7 +226,7 @@ install Firedrake. To do this perform the following steps:
 
    .. code-block:: text
 
-      CC=mpicc CXX=mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
+      PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
    .. note::
       This command will only work if you have the right starting directory.

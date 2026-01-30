@@ -391,7 +391,8 @@ def test_adjoint_dg():
 
 
 @pytest.mark.parametrize("degree", range(1, 4))
-def test_function_cofunction(degree):
+@pytest.mark.parametrize("cofunc", [True, False])
+def test_zeroform(degree, cofunc):
     mesh = UnitSquareMesh(10, 10)
     Pkp1 = FunctionSpace(mesh, "CG", degree+1)
     Pk = FunctionSpace(mesh, "CG", degree)
@@ -400,7 +401,9 @@ def test_function_cofunction(degree):
     x = SpatialCoordinate(mesh)
     f = assemble(interpolate(sin(2*pi*x[0])*sin(2*pi*x[1]), Pk))
 
-    fhat = assemble(f*v1*dx)
+    fhat = f * v1 * dx
+    if cofunc:
+        fhat = assemble(fhat)
     norm_i = assemble(interpolate(f, fhat))
     norm = assemble(f*f*dx)
 
@@ -592,9 +595,12 @@ def test_interpolator_reuse(family, degree, mode):
         u = Function(V.dual())
         expr = interpolate(TestFunction(V), u)
 
-    I = get_interpolator(expr)
+    Iorig = get_interpolator(expr)
 
     for k in range(3):
+        I = get_interpolator(expr)
+        assert I is Iorig
+
         u.assign(rg.uniform(u.function_space()))
         expected = u.dat.data.copy()
 

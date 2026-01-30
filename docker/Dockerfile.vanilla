@@ -132,8 +132,7 @@ ENV SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 ENV HDF5_MPI=ON
-ENV CC=mpicc CXX=mpicxx
-ENV MPICC=$CC
+ENV MPICC=mpicc
 ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 # Install Firedrake
