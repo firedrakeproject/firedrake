@@ -34,10 +34,10 @@ from gem.gem import Variable
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
-from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
+from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
@@ -48,6 +48,7 @@ from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, Fu
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.exceptions import DofNotDefinedError, VertexOnlyMeshMissingPointsError
 
 from mpi4py import MPI
 
@@ -57,7 +58,6 @@ __all__ = (
     "interpolate",
     "Interpolate",
     "get_interpolator",
-    "DofNotDefinedError",
     "InterpolateOptions",
     "Interpolator"
 )
@@ -154,6 +154,57 @@ class Interpolate(UFLInterpolate):
             An :class:`InterpolateOptions` instance containing the interpolation options.
         """
         return self._options
+
+    @cached_property
+    def _interpolator(self):
+        """Access the numerical interpolator.
+
+        Returns
+        -------
+        Interpolator
+            An appropriate :class:`Interpolator` subclass for this
+            interpolation expression.
+        """
+        arguments = self.arguments()
+        has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
+        if len(arguments) == 2 and has_mixed_arguments:
+            return MixedInterpolator(self)
+
+        operand, = self.ufl_operands
+        target_mesh = self.target_space.mesh()
+
+        try:
+            source_mesh = extract_unique_domain(operand) or target_mesh
+        except ValueError:
+            raise NotImplementedError(
+                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+            )
+
+        try:
+            target_mesh = target_mesh.unique()
+            source_mesh = source_mesh.unique()
+        except RuntimeError:
+            return MixedInterpolator(self)
+
+        submesh_interp_implemented = (
+            all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
+            and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+            and target_mesh.topological_dimension == source_mesh.topological_dimension
+        )
+        if target_mesh is source_mesh or submesh_interp_implemented:
+            return SameMeshInterpolator(self)
+
+        if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+            if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
+                return VomOntoVomInterpolator(self)
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
+                raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
+            return SameMeshInterpolator(self)
+
+        if has_mixed_arguments or len(self.target_space) > 1:
+            return MixedInterpolator(self)
+
+        return CrossMeshInterpolator(self)
 
 
 @PETSc.Log.EventDecorator()
@@ -353,75 +404,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
         An appropriate :class:`Interpolator` subclass for the given
         interpolation expression.
     """
-    arguments = expr.arguments()
-    has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
-    if len(arguments) == 2 and has_mixed_arguments:
-        return MixedInterpolator(expr)
-
-    operand, = expr.ufl_operands
-    target_mesh = expr.target_space.mesh()
-
-    try:
-        source_mesh = extract_unique_domain(operand) or target_mesh
-    except ValueError:
-        raise NotImplementedError(
-            "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-        )
-
-    try:
-        target_mesh = target_mesh.unique()
-        source_mesh = source_mesh.unique()
-    except RuntimeError:
-        return MixedInterpolator(expr)
-
-    submesh_interp_implemented = (
-        all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
-        and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
-        and target_mesh.topological_dimension == source_mesh.topological_dimension
-    )
-    if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr)
-
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-            return VomOntoVomInterpolator(expr)
-        if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
-            raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
-        return SameMeshInterpolator(expr)
-
-    if has_mixed_arguments or len(expr.target_space) > 1:
-        return MixedInterpolator(expr)
-
-    return CrossMeshInterpolator(expr)
-
-
-class DofNotDefinedError(Exception):
-    r"""Raised when attempting to interpolate across function spaces where the
-    target function space contains degrees of freedom (i.e. nodes) which cannot
-    be defined in the source function space. This typically occurs when the
-    target mesh covers a larger domain than the source mesh.
-
-    Attributes
-    ----------
-    src_mesh : :func:`.Mesh`
-        The source mesh.
-    dest_mesh : :func:`.Mesh`
-        The destination mesh.
-
-    """
-
-    def __init__(self, src_mesh, dest_mesh):
-        self.src_mesh = src_mesh
-        self.dest_mesh = dest_mesh
-
-    def __str__(self):
-        return (
-            f"The given target function space on domain {repr(self.dest_mesh)} "
-            "contains degrees of freedom which cannot cannot be defined in the "
-            f"source function space on domain {repr(self.src_mesh)}. "
-            "This may be because the target mesh covers a larger domain than the "
-            "source mesh. To disable this error, set allow_missing_dofs=True."
-        )
+    return expr._interpolator
 
 
 class CrossMeshInterpolator(Interpolator):
@@ -441,7 +424,11 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.access = op2.WRITE
 
-        if self.target_space.ufl_element().mapping() != "identity":
+        # TODO check V.finat_element.is_lagrange() once https://github.com/firedrakeproject/fiat/pull/200 is released
+        target_element = self.target_space.ufl_element()
+        if not ((isinstance(target_element, MixedElement)
+                 and all(sub.mapping() == "identity" for sub in target_element.sub_elements))
+                or target_element.mapping() == "identity"):
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes.
             raise NotImplementedError(
@@ -501,7 +488,11 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(self.source_mesh, self.target_mesh)
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+                                     "contains degrees of freedom which cannot cannot be defined in the "
+                                     f"source function space on domain {self.source_mesh}. "
+                                     "This may be because the target mesh covers a larger domain than the "
+                                     "source mesh. To disable this error, set allow_missing_dofs=True.")
 
         # Get the correct type of function space
         shape = self.target_space.ufl_function_space().value_shape
@@ -510,7 +501,8 @@ class CrossMeshInterpolator(Interpolator):
         elif len(shape) == 1:
             fs_type = partial(VectorFunctionSpace, dim=shape[0])
         else:
-            fs_type = partial(TensorFunctionSpace, shape=shape)
+            symmetry = self.target_space.ufl_element().symmetry()
+            fs_type = partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
         # Get expression for point evaluation at the dest_node_coords
         P0DG_vom = fs_type(vom, "DG", 0)

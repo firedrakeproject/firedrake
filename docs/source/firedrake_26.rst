@@ -21,6 +21,10 @@ Organising committee
 
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`__, Imperial College London
 * `Connor Ward <https://www.imperial.ac.uk/people/c.ward20>`__, Imperial College London
+* Matthew Knepley, University at Buffalo
+* Jemma Shipton, University of Exeter
+* Hussam Al Daas, STFC
+* Pablo Brubeck, University of Oxford
 
 Further details
 ---------------

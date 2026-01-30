@@ -1,4 +1,6 @@
 import pytest
+import numpy as np
+import petsctools
 from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
 from firedrake.ensemble.ensemble_mat import EnsembleBlockDiagonalMat
