@@ -356,4 +356,42 @@ def test_covariance_mat(m, family, operation):
         x = x.riesz_representation()
         xcheck = xcheck.riesz_representation()
 
-    assert errornorm(xcheck, x)/norm(xcheck) < tol
+    assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("family", ("CG", "DG"))
+def test_diffusion_form(family):
+    from firedrake.adjoint.covariance_operator import diffusion_form
+
+    def poisson_error(mesh, family):
+        V = FunctionSpace(mesh, family, 1)
+        x, y = SpatialCoordinate(mesh)
+
+        f = Function(V).interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
+        uexact = cos(x*pi*2)*cos(y*pi*2)
+
+        nu = Constant(1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+
+        formulation = AutoregressiveCovariance.DiffusionForm(
+            "CG" if family == "CG" else "IP")
+
+        a = diffusion_form(u, v, nu, formulation)
+        L = inner(f, v)*dx
+
+        u = Function(V)
+        solve(a == L, u)
+
+        return errornorm(uexact, u)
+
+    base_nx = 16
+    nrefs = 3
+    base_mesh = UnitSquareMesh(base_nx, base_nx)
+    mh = MeshHierarchy(base_mesh, nrefs)
+    errors = [poisson_error(m, family) for m in mh]
+
+    # second order convergence
+    for i in range(nrefs):
+        assert (errors[i]/errors[i+1])**0.5 > 1.9

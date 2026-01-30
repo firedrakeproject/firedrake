@@ -14,7 +14,7 @@ from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
     assemble, CellSize, FacetNormal,
-    dx, ds, dS, sqrt, Constant,
+    dx, dS, sqrt, Constant,
     Function, Cofunction, RieszMap,
     TrialFunction, TestFunction,
     RandomGenerator, PCG64,
@@ -210,8 +210,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         )
 
         # Get the BLAS and LAPACK compiler parameters to compile the kernel
-        # TODO: Ask CW if this is the right comm to use.
-        comm = V.mesh()._comm
+        comm = V.mesh().comm
         if comm.rank == 0:
             petsc_variables = petsctools.get_petscvariables()
             BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
@@ -898,16 +897,12 @@ def diffusion_form(u, v, kappa: Constant | Function,
         h = CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         alpha_h = Constant(4.0)/h_avg
-        gamma_h = Constant(8.0)/h
         return (
             inner(u, v)*dx + kappa*(
                 inner(grad(u), grad(v))*dx
                 - inner(avg(2*outer(u, n)), avg(grad(v)))*dS
                 - inner(avg(grad(u)), avg(2*outer(v, n)))*dS
                 + alpha_h*inner(avg(2*outer(u, n)), avg(2*outer(v, n)))*dS
-                - inner(outer(u, n), grad(v))*ds
-                - inner(grad(u), outer(v, n))*ds
-                + gamma_h*inner(u, v)*ds
             )
         )
 
