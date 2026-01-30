@@ -1364,6 +1364,9 @@ class AbstractMeshTopology(abc.ABC):
     def _reorder_closure_fiat_simplex(self, closure_data):
         return dmcommon.closure_ordering(self, closure_data)
 
+    def _reorder_closure_fuse_tet(self, closure_data):
+        return dmcommon.create_cell_closure_fuse_tet(closure_data)
+
     def _reorder_closure_fiat_quad(self, closure_data):
         petsctools.cite("Homolya2016")
         petsctools.cite("McRae2016")
@@ -1704,6 +1707,7 @@ class AbstractMeshTopology(abc.ABC):
             print("FUSE")
             import warnings 
             warnings.warn("Closures are currently incorrect for fuse elements on this branch")
+            
 
         if (
             self.submesh_parent is not None
@@ -1731,11 +1735,13 @@ class AbstractMeshTopology(abc.ABC):
                 self.submesh_parent._fiat_cell_closures,
                 entity_per_cell,
             )
-
+        elif hasattr(self.ufl_cell(), "to_fiat") and self.ufl_cell().cellname == "tetrahedron":
+            # TODO better way to identify fuse use - use env var 
+            return self._reorder_closure_fuse_tet(plex_closures)
         elif self.ufl_cell().is_simplex:
             return self._reorder_closure_fiat_simplex(plex_closures)
 
-        elif self.ufl_cell() == ufl.quadrilateral:
+        elif self.ufl_cell().cellname == "quadrilateral":
             return self._reorder_closure_fiat_quad(plex_closures)
 
         else:
