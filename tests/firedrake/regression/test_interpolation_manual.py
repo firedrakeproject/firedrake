@@ -158,13 +158,13 @@ def test_cross_mesh():
 
     src_mesh, dest_mesh, f_src, V_dest = correct_indent()
 
-    with pytest.raises(DofNotDefinedError):
+    with pytest.raises(DoFNotDefinedError):
         # [test_cross_mesh 3]
-        # ... but get a DofNotDefinedError if we try
-        f_dest = assemble(interpolate(f_src, V_dest))  # raises DofNotDefinedError
+        # ... but get a DoFNotDefinedError if we try
+        f_dest = assemble(interpolate(f_src, V_dest))  # raises DoFNotDefinedError
         # [test_cross_mesh 4]
 
-    with pytest.raises(DofNotDefinedError):
+    with pytest.raises(DoFNotDefinedError):
         # as will the interpolate method of a Function
         f_dest = Function(V_dest).interpolate(f_src)
 

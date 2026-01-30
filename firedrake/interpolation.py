@@ -41,7 +41,8 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.exceptions import (
-    DofNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+    DoFNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError,
+    DoFTypeError,
 )
 
 from mpi4py import MPI
@@ -448,13 +449,7 @@ class CrossMeshInterpolator(Interpolator):
         if isinstance(dest_element, MixedElement):
             if isinstance(dest_element, VectorElement | TensorElement):
                 # In this case all sub elements are equal
-                base_element = dest_element.sub_elements[0]
-                if base_element.reference_value_shape != ():
-                    raise NotImplementedError(
-                        "Can't yet cross-mesh interpolate onto function spaces made from VectorElements "
-                        "or TensorElements made from sub elements with value shape other than ()."
-                    )
-                return base_element
+                return dest_element.sub_elements[0]
             else:
                 raise NotImplementedError("Interpolation with MixedFunctionSpace requires MixedInterpolator.")
         else:
@@ -484,29 +479,6 @@ class CrossMeshInterpolator(Interpolator):
             symmetry = V.ufl_element().symmetry()
             return partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
-    def _get_quadrature_space(self, V: WithGeometry) -> WithGeometry:
-        """Return a FunctionSpace whose element is a quadrature element with
-        points at the quadrature points of V's element.
-
-        Used as an intermediate space for interpolating into a space which doesn't
-        have point evaluation dofs.
-
-        Parameters
-        ----------
-        V : WithGeometry
-            A :class:`.WithGeometry` function space to build the quadrature space for.
-
-        Returns
-        -------
-        WithGeometry
-            A :class:`.WithGeometry` function space with quadrature element.
-        """
-        V_element = V.finat_element
-        _, points = V_element.dual_basis
-        weights = numpy.full(len(points.points), numpy.nan)  # These can be any number since we never integrate
-        quad_scheme = QuadratureRule(points, weights, ref_el=V_element.cell)
-        return self._fs_type(V)(V.mesh(), "Quadrature", degree=V_element.degree, quad_scheme=quad_scheme)
-
     def _get_symbolic_expressions(self, target_space: WithGeometry) -> tuple[Interpolate, Interpolate]:
         """Return symbolic ``Interpolate`` expressions for point evaluation of the `target_space`s
         dofs in the source mesh, and the corresponding input-ordering interpolation.
@@ -524,14 +496,14 @@ class CrossMeshInterpolator(Interpolator):
 
         Raises
         ------
-        DofNotDefinedError
+        DoFNotDefinedError
             If any of the target spaces dofs cannot be defined in the source mesh.
-        ValueError
+        DoFTypeError
             If the target space does not have point-evaluation dofs.
         """
         from firedrake.assemble import assemble
         if not target_space.finat_element.has_pointwise_dual_basis:
-            raise ValueError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
+            raise DoFTypeError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_mesh = target_space.mesh().unique()
@@ -546,7 +518,7 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+            raise DoFNotDefinedError(f"The given target function space on domain {self.target_mesh} "
                                      "contains degrees of freedom which cannot cannot be defined in the "
                                      f"source function space on domain {self.source_mesh}. "
                                      "This may be because the target mesh covers a larger domain than the "
@@ -572,7 +544,7 @@ class CrossMeshInterpolator(Interpolator):
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
         if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
-            target_space = self._get_quadrature_space(self.target_space)
+            target_space = self.target_space.quadrature_space()
             f = Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
         else:
             target_space = self.target_space

@@ -32,6 +32,4 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         cellnames = cells(cellnames)
         shape = shape_names[value_rank]
 
-        interpolatable = hasattr(element, "dual_basis")
-
-        csvwriter.writerow((family, short_name, shape, cellnames, interpolatable))
+        csvwriter.writerow((family, short_name, shape, cellnames))

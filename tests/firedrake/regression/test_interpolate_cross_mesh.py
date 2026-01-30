@@ -528,7 +528,7 @@ def test_missing_dofs():
     expr = x * y
     V_src = FunctionSpace(m_src, "CG", 2)
     V_dest = FunctionSpace(m_dest, "CG", 3)
-    with pytest.raises(DofNotDefinedError):
+    with pytest.raises(DoFNotDefinedError):
         assemble(interpolate(TrialFunction(V_src), V_dest))
     f_src = Function(V_src).interpolate(expr)
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
