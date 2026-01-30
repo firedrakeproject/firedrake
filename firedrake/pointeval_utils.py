@@ -1,13 +1,17 @@
 import loopy as lp
 from firedrake.utils import IntType, as_cstr
 
-from ufl import TensorProductCell
-from finat.ufl import MixedElement
+from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import MixedElement, FiniteElement, TensorElement
+
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import gem
+import ufl
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -16,6 +20,38 @@ from tsfc.parameters import default_parameters
 
 from firedrake import utils
 from firedrake.petsc import PETSc
+
+
+def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
+    """Construct a Quadrature FunctionSpace for interpolation onto a
+    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
+    (1, tdim) where tdim is the topological dimension of domain.ufl_cell(). The
+    weight is [1.0], since the single local dof in the VertexOnlyMesh function
+    space corresponds to a point evaluation at the vertex.
+
+    Parameters
+    ----------
+    domain : ufl.Domain
+        The source domain.
+    ufl_element : finat.ufl.FiniteElement
+        The FInAT element to construct a QuadratureElement for.
+    rt_var_name : str
+        String beginning with 'rt_' which is used as the name of the
+        gem.Variable used to represent the UnknownPointSet. The `rt_` prefix
+        forces TSFC to do runtime tabulation.
+    """
+    assert rt_var_name.startswith("rt_")
+
+    cell = domain.ufl_cell()
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+
+    shape = ufl_element.reference_value_shape
+    ufl_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if shape:
+        ufl_element = TensorElement(ufl_element, shape=shape)
+    return ufl.FunctionSpace(domain, ufl_element)
 
 
 @PETSc.Log.EventDecorator()
@@ -114,7 +150,7 @@ def compile_element(expression, coordinates, parameters=None):
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
-    extruded = isinstance(cell, TensorProductCell)
+    extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {
         "geometric_dimension": domain.geometric_dimension,
