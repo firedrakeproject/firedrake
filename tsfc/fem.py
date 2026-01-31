@@ -382,11 +382,10 @@ class PointSetContext(ContextBase):
         try:
             return self._basis_evaluation_cache[key]
         except KeyError:
-            entity = None if entity_id is None else (self.integration_dim, entity_id)
             val = finat_element.basis_evaluation(
                 mt.local_derivatives,
                 self.point_set,
-                entity,
+                (self.integration_dim, entity_id),
                 coordinate_mapping=CoordinateMapping(mt, self),
             )
             return self._basis_evaluation_cache.setdefault(key, val)
@@ -402,10 +401,9 @@ class GemPointContext(ContextBase):
     )
 
     def basis_evaluation(self, finat_element, mt, entity_id):
-        entity = None if entity_id is None else (self.integration_dim, entity_id)
         return finat_element.point_evaluation(mt.local_derivatives,
                                               self.point_expr,
-                                              entity,
+                                              (self.integration_dim, entity_id),
                                               CoordinateMapping(mt, self))
 
 
