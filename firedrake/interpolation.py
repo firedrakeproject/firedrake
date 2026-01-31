@@ -8,6 +8,7 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
+import ufl
 from ufl.algorithms import extract_arguments, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
@@ -853,7 +854,6 @@ def _build_interpolation_callables(
     dual_arg, operand = expr.argument_slots()
     assert isinstance(dual_arg, Cofunction | Coargument)
     V = dual_arg.function_space().dual()
-    ufl_element = V.ufl_element()
 
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
@@ -867,12 +867,11 @@ def _build_interpolation_callables(
         # quadrature rule point set.
         rt_var_name = "rt_X"
         V = runtime_quadrature_space(source_mesh, V.ufl_element(), rt_var_name=rt_var_name)
-
-    try:
-        to_element = create_element(V.ufl_element())
-    except KeyError:
-        # FInAT only elements
-        raise NotImplementedError(f"Don't know how to create FIAT element for {V.ufl_element()}")
+        if isinstance(dual_arg, ufl.Cofunction):
+            dual_arg = ufl.Cofunction(V.dual())
+        else:
+            dual_arg = ufl.Coargument(V.dual(), number=dual_arg.number())
+        expr = ufl.Interpolate(operand, dual_arg)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -888,7 +887,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, Cofunction) and not to_element.is_dg():
+    if isinstance(dual_arg, ufl.Cofunction) and not create_element(dual_arg.ufl_element()).is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -912,8 +911,9 @@ def _build_interpolation_callables(
         with wdat.vec_ro as w, v.dat.vec as y:
             copyin += (partial(y.pointwiseMult, y, w),)
 
-    kernel = compile_expression(cell_set.comm, expr, ufl_element,
+    kernel = compile_expression(cell_set.comm, expr, dual_arg.ufl_element(),
                                 domain=source_mesh, parameters=parameters)
+
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes

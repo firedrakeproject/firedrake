@@ -31,10 +31,10 @@ def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
 
     Parameters
     ----------
-    domain : ufl.Domain
+    domain : ufl.AbstractDomain
         The source domain.
     ufl_element : finat.ufl.FiniteElement
-        The FInAT element to construct a QuadratureElement for.
+        The UFL element of the target FunctionSpace.
     rt_var_name : str
         String beginning with 'rt_' which is used as the name of the
         gem.Variable used to represent the UnknownPointSet. The `rt_` prefix
@@ -43,15 +43,16 @@ def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
     assert rt_var_name.startswith("rt_")
 
     cell = domain.ufl_cell()
-    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_expr = gem.Variable(rt_var_name, (1, domain.topological_dimension))
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
 
-    shape = ufl_element.reference_value_shape
-    ufl_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
+    rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
     if shape:
-        ufl_element = TensorElement(ufl_element, shape=shape)
-    return ufl.FunctionSpace(domain, ufl_element)
+        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
+        rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
+    return ufl.FunctionSpace(domain, rt_element)
 
 
 @PETSc.Log.EventDecorator()

@@ -319,7 +319,11 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
                       scalar_type=parameters["scalar_type"])
 
     # Create the finat element for the target space
-    to_element = builder.create_element(ufl_element)
+    try:
+        to_element = builder.create_element(ufl_element)
+    except KeyError:
+        # FInAT only elements
+        raise NotImplementedError(f"Don't know how to create FIAT element for {ufl_element}")
 
     # Allow interpolation onto QuadratureElements to refer to the quadrature
     # rule they represent

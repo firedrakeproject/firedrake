@@ -140,7 +140,7 @@ def _make_kernel_args(element, *args):
     needs_coordinates = element.mapping != "affine"
     mask[1] = needs_coordinates
     # Drop the target location if the element is constant.
-    is_constant = sum(as_tuple(element.degree)) == 0 and element.space_dimension() == numpy.prod(element.value_shape)
+    is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
     mask[-1] = not is_constant
     kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
     return kernel_args
