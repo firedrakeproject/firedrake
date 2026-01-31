@@ -5,7 +5,6 @@ from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
-from firedrake.pointeval_utils import runtime_quadrature_space
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -33,6 +32,7 @@ from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
+from firedrake.pointeval_utils import runtime_quadrature_element
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -112,8 +112,8 @@ def compile_element(operand, dual_arg, parameters=None,
     target_space = dual_arg.arguments()[0].ufl_function_space()
 
     # Reconstruct the target space as a runtime Quadrature space
-    target_space = runtime_quadrature_space(source_mesh, target_space.ufl_element())
-    ufl_element = target_space.ufl_element()
+    ufl_element = runtime_quadrature_element(source_mesh, target_space.ufl_element())
+    target_space = ufl.FunctionSpace(source_mesh, ufl_element)
 
     # Reconstruct the dual argument in the runtime Quadrature space
     if isinstance(dual_arg, ufl.Cofunction):

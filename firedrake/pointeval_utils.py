@@ -22,8 +22,8 @@ from firedrake import utils
 from firedrake.petsc import PETSc
 
 
-def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
-    """Construct a Quadrature FunctionSpace for interpolation onto a
+def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
+    """Construct a Quadrature FiniteElement for interpolation onto a
     VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
     (1, tdim) where tdim is the topological dimension of domain.ufl_cell(). The
     weight is [1.0], since the single local dof in the VertexOnlyMesh function
@@ -43,7 +43,7 @@ def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
     assert rt_var_name.startswith("rt_")
 
     cell = domain.ufl_cell()
-    point_expr = gem.Variable(rt_var_name, (1, domain.topological_dimension))
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
 
@@ -52,7 +52,7 @@ def runtime_quadrature_space(domain, ufl_element, rt_var_name="rt_X"):
     if shape:
         symmetry = None if len(shape) < 2 else ufl_element.symmetry()
         rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
-    return ufl.FunctionSpace(domain, rt_element)
+    return rt_element
 
 
 @PETSc.Log.EventDecorator()

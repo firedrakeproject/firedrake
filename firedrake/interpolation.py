@@ -8,7 +8,6 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
 
-import ufl
 from ufl.algorithms import extract_arguments, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
@@ -27,7 +26,7 @@ from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
-from firedrake.pointeval_utils import runtime_quadrature_space
+from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
@@ -861,17 +860,14 @@ def _build_interpolation_callables(
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+    target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
         # target element with runtime point set expressions as their
         # quadrature rule point set.
         rt_var_name = "rt_X"
-        V = runtime_quadrature_space(source_mesh, V.ufl_element(), rt_var_name=rt_var_name)
-        if isinstance(dual_arg, ufl.Cofunction):
-            dual_arg = ufl.Cofunction(V.dual())
-        else:
-            dual_arg = ufl.Coargument(V.dual(), number=dual_arg.number())
-        expr = ufl.Interpolate(operand, dual_arg)
+        target_element = runtime_quadrature_element(source_mesh, target_element,
+                                                    rt_var_name=rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -887,7 +883,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, ufl.Cofunction) and not create_element(dual_arg.ufl_element()).is_dg():
+    if isinstance(dual_arg, Cofunction) and not create_element(target_element).is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -911,9 +907,8 @@ def _build_interpolation_callables(
         with wdat.vec_ro as w, v.dat.vec as y:
             copyin += (partial(y.pointwiseMult, y, w),)
 
-    kernel = compile_expression(cell_set.comm, expr, dual_arg.ufl_element(),
+    kernel = compile_expression(cell_set.comm, expr, target_element,
                                 domain=source_mesh, parameters=parameters)
-
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
