@@ -912,13 +912,7 @@ def _build_interpolation_callables(
         with wdat.vec_ro as w, v.dat.vec as y:
             copyin += (partial(y.pointwiseMult, y, w),)
 
-    # We need to pass both the ufl element and the finat element
-    # because the finat elements might not have the right mapping
-    # (e.g. L2 Piola, or tensor element with symmetries)
-    # FIXME: for the runtime unknown point set (for cross-mesh
-    # interpolation) we have to pass the finat element we construct
-    # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(cell_set.comm, expr, to_element, ufl_element,
+    kernel = compile_expression(cell_set.comm, expr, ufl_element,
                                 domain=source_mesh, parameters=parameters)
     ast = kernel.ast
     oriented = kernel.oriented
@@ -1055,7 +1049,7 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
+def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
     dual_arg, operand = expr.argument_slots()
     return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters))

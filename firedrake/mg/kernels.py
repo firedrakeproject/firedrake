@@ -122,11 +122,8 @@ def compile_element(operand, dual_arg, parameters=None,
         dual_arg = ufl.Coargument(target_space.dual(), number=dual_arg.number())
     expression = ufl.Interpolate(operand, dual_arg)
 
-    # Create a runtime Quadrature element
-    to_element = create_element(ufl_element)
-
     kernel = compile_expression_dual_evaluation(expression,
-                                                to_element, ufl_element,
+                                                ufl_element,
                                                 parameters=parameters,
                                                 name="pyop2_kernel_"+name)
     return lp.generate_code_v2(kernel.ast).device_code()

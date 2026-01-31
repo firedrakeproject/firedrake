@@ -220,7 +220,7 @@ def preprocess_parameters(parameters):
     return parameters
 
 
-def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
+def compile_expression_dual_evaluation(expression, ufl_element, *,
                                        domain=None, interface=None,
                                        parameters=None, name=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
@@ -228,7 +228,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg to_element: A FInAT element for the target space
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg interface: backend module for the kernel interface
@@ -322,6 +321,9 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
+
+    # Create the finat element for the target space
+    to_element = builder.create_element(ufl_element)
 
     # Allow interpolation onto QuadratureElements to refer to the quadrature
     # rule they represent
