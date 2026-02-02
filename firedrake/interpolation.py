@@ -41,8 +41,8 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.exceptions import (
-    DoFNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError,
-    DoFTypeError,
+    DofNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError,
+    DofTypeError,
 )
 
 from mpi4py import MPI
@@ -503,7 +503,7 @@ class CrossMeshInterpolator(Interpolator):
         """
         from firedrake.assemble import assemble
         if not target_space.finat_element.has_pointwise_dual_basis:
-            raise DoFTypeError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
+            raise DofTypeError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_mesh = target_space.mesh().unique()
@@ -518,7 +518,7 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DoFNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
                                      "contains degrees of freedom which cannot cannot be defined in the "
                                      f"source function space on domain {self.source_mesh}. "
                                      "This may be because the target mesh covers a larger domain than the "
