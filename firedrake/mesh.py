@@ -3341,7 +3341,6 @@ def Mesh(meshfile, **kwargs):
 
     """
     import firedrake.function as function
-    from pathlib import Path
 
     user_comm = kwargs.get("comm", COMM_WORLD)
     name = kwargs.get("name", DEFAULT_MESH_NAME)
