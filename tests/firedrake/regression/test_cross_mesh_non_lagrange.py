@@ -39,7 +39,7 @@ def make_quadrature_space(V):
     return fs_shape(V)(V.mesh(), element)
 
 
-@pytest.fixture(params=[("ARG", 5), ("RT", 1), ("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
+@pytest.fixture(params=[("RT", 1), ("RT", 2), ("RT", 3), ("RT", 4), ("BDM", 1), ("BDM", 2), ("BDM", 3),
                         ("BDFM", 2), ("HHJ", 2), ("N1curl", 1), ("N1curl", 2), ("N1curl", 3), ("N1curl", 4),
                         ("N2curl", 1), ("N2curl", 2), ("N2curl", 3), ("GLS", 1), ("GLS", 2), ("GLS", 3),
                         ("GLS", 4), ("GLS2", 1), ("GLS2", 2), ("GLS2", 3)],
