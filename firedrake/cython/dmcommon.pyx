@@ -1185,15 +1185,15 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
 
     CHKERR(PetscMalloc1(coneSize, &cone1))
     CHKERR(PetscMalloc1(coneSize, &inds))
-    print("plex")
+    #print("plex")
     for k in range(coneSize1):
         cone1[k] = plex_cone[k]
-        print(plex_cone[k])
+        #print(plex_cone[k])
     n = 0
-    print("fiat")
+    #print("fiat")
     for e in range(coneSize):
         q = fiat_cone[e]
-        print(q)
+        #print(q)
         for k in range(coneSize1):
             if q == cone1[k]:
                 inds[n] = k
