@@ -661,7 +661,14 @@ _heavy_caches = weakref.WeakSet()
 
 
 class heavy_cache:
-    """Context manager that pushes and pops lifetime objects."""
+    """Context manager that pushes and pops lifetime objects.
+
+    For this to be parallel safe, the contract here is that, by using this
+    decorator, you are guaranteeing that all operations within the context
+    manager are at most collective to the level of the the communicator of
+    the lifetime objects.
+
+    """
 
     def __init__(self, objs: Any) -> None:
         objs = utils.as_tuple(objs)
