@@ -1,5 +1,5 @@
-Linear Shallow Water Equations on an Extruded Mesh
-==================================================
+Linear Shallow Water Equations on an Extruded Mesh using a Strang timestepping scheme
+=====================================================================================
 
 This demo solves the linear shallow water equations on an extruded mesh
 using a Strang timestepping scheme.
@@ -122,3 +122,6 @@ and compare it to the initial energy to assess conservation properties. ::
   E_1 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
   print('Initial energy', E_0)
   print('Final energy', E_1)
+
+This demo can be found as a script in
+:demo:`extruded_shallow_water.py <extruded_shallow_water.py>`.
