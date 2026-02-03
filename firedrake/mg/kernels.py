@@ -8,6 +8,7 @@ from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.algorithms.analysis import extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
@@ -163,7 +164,8 @@ def _make_element_key(element):
 
 
 def prolong_kernel(expression, Vf):
-    Vc = expression.ufl_function_space()
+    coarse, = extract_coefficients(expression)
+    Vc = coarse.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
@@ -191,7 +193,7 @@ def prolong_kernel(expression, Vf):
         evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
+        element = create_element(coarse.ufl_element())
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
@@ -338,8 +340,10 @@ def restrict_kernel(Vf, Vc):
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
 
-def inject_kernel(Vf, Vc):
+def inject_kernel(expression, Vc):
     if Vc.finat_element.is_dg():
+        fine, = extract_coefficients(expression)
+        Vf = fine.ufl_function_space()
         hierarchy, level = utils.get_level(Vc.mesh())
         if Vf.extruded:
             assert Vc.extruded
@@ -359,9 +363,8 @@ def inject_kernel(Vf, Vc):
             return cache[key]
         except KeyError:
             ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+            return cache.setdefault(key, (dg_injection_kernel(expression, Vc, ncandidate), True))
     else:
-        expression = ufl.Coefficient(Vf)
         return (prolong_kernel(expression, Vc), False)
 
 

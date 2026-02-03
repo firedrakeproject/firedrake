@@ -5,6 +5,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
+from ufl.algorithms.analysis import extract_coefficients
 from . import utils
 from . import kernels
 
@@ -13,6 +14,10 @@ __all__ = ["prolong", "restrict", "inject"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):
+    if coarse.ufl_shape != fine.ufl_shape:
+        raise ValueError("Mismatching function space shapes")
+    coarse, = extract_coefficients(coarse)
+    fine, = extract_coefficients(fine)
     if is_dual(coarse) != needs_dual:
         expected_type = Cofunction if needs_dual else Function
         raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
@@ -29,13 +34,13 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
-    if coarse.ufl_shape != fine.ufl_shape:
-        raise ValueError("Mismatching function space shapes")
 
 
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
+    coarse_expr = coarse
+    coarse, = extract_coefficients(coarse_expr)
     Vc = coarse.function_space()
     Vf = fine.function_space()
     if len(Vc) > 1:
@@ -78,7 +83,7 @@ def prolong(coarse, fine):
         coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-        kernel = kernels.prolong_kernel(coarse, Vf)
+        kernel = kernels.prolong_kernel(coarse_expr, Vf)
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
@@ -100,6 +105,7 @@ def prolong(coarse, fine):
             new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
             fine = new_fine.interpolate(fine)
         coarse = fine
+        coarse_expr = coarse
     return fine
 
 
@@ -174,6 +180,8 @@ def restrict(fine_dual, coarse_dual):
 @PETSc.Log.EventDecorator()
 def inject(fine, coarse):
     check_arguments(coarse, fine)
+    fine_expr = fine
+    fine, = extract_coefficients(fine)
     Vf = fine.function_space()
     Vc = coarse.function_space()
     if len(Vc) > 1:
@@ -212,14 +220,14 @@ def inject(fine, coarse):
         # Introduce an intermediate quadrature target space
         Vc = Vc.quadrature_space()
 
-    kernel, dg = kernels.inject_kernel(Vf, Vc)
-    if dg and not hierarchy.nested:
-        raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
+        kernel, dg = kernels.inject_kernel(fine_expr, Vc)
+        if dg and not hierarchy.nested:
+            raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
+
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
@@ -264,6 +272,7 @@ def inject(fine, coarse):
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
+        fine_expr = fine
     return coarse
 
 
