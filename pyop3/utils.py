@@ -518,7 +518,7 @@ def readonly(array):
 
 
 def debug_assert(predicate, msg=None):
-    if config.debug:
+    if config.debug_checks:
         if msg:
             assert predicate(), msg
         else:

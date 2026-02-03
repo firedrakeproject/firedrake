@@ -7,14 +7,8 @@
 from contextlib import contextmanager
 import logging
 
-from pyop3.config import config
-
 
 LOGGER = logging.getLogger('pyop3')
-
-if config.debug:
-    LOGGER.setLevel(logging.DEBUG)
-
 
 debug = LOGGER.debug
 info = LOGGER.info

@@ -335,7 +335,7 @@ def print_cache_stats(*args, **kwargs):
         print(hline)
 
 
-if config.debug:
+if config.print_cache_stats:
     atexit.register(print_cache_stats)
 
 
@@ -562,7 +562,7 @@ def parallel_cache(
                         caches = (cache,)
                         cache_type = type(cache)
 
-                    if config.debug and heavy:
+                    if config.debug_checks and heavy:
                         key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
                     else:
                         key = hashkey(*args, **kwargs)
@@ -619,7 +619,7 @@ def parallel_cache(
                         value = func(*args, **kwargs) if comm.rank == 0 else None
                         value = comm.bcast(value, root=0)
                     else:
-                        if config.debug and heavy:
+                        if config.debug_checks and heavy:
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs), lifetime_objs=list(_heavy_caches))
                         else:
                             value = _checked_compute_value(cache_type, lambda: func(*args, **kwargs))

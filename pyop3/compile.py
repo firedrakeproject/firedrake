@@ -289,8 +289,7 @@ class Compiler(ABC):
             cflags += self._debugflags
         else:
             cflags += self._optflags
-        if config.cflags:
-            cflags += config.cflags
+        cflags += config.extra_cflags
         return cflags
 
     @property
@@ -300,15 +299,13 @@ class Compiler(ABC):
             cxxflags += self._debugflags
         else:
             cxxflags += self._optflags
-        if config.cxxflags:
-            cxxflags += config.cxxflags
+        cxxflags += config.extra_cxxflags
         return cxxflags
 
     @property
     def ldflags(self):
         ldflags = self._ldflags + self._extra_linker_flags
-        if config.ldflags:
-            ldflags += config.ldflags
+        ldflags += config.extra_ldflags
         return ldflags
 
     @property
@@ -464,9 +461,8 @@ def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
             exe = petsc_variables["CC"]
         compiler = sniff_compiler(exe, comm)
 
-    debug = config.debug
-    compiler_instance = compiler(cppargs, ldargs, debug=debug)
-    if config.check_src_hashes or config.debug:
+    compiler_instance = compiler(cppargs, ldargs, debug=config.compiler_use_debug_flags)
+    if config.check_src_hashes:
         check_source_hashes(compiler_instance, code, extension, comm)
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)

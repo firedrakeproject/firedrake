@@ -309,7 +309,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        if config.debug:
+        if config.debug_checks:
             data = np.full(shape, 666, dtype=dtype)
         else:
             data = np.empty(shape, dtype=dtype)

@@ -59,13 +59,7 @@ class Parameters(dict):
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
-# Default to the values of PyOP2 configuration dictionary
-pyop2_opts = Parameters("pyop2_options",
-                        **dataclasses.asdict(PYOP3_CONFIG))
-
 target = LOOPY_TARGET
-
-parameters.add(pyop2_opts)
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
 parameters["form_compiler"]['scalar_type'] = ScalarType
