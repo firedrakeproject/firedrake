@@ -102,7 +102,7 @@ def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
     return value
 
 
-def cached_on(get_obj, get_key=cachetools.keys.hashkey):
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey):
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
@@ -562,19 +562,19 @@ def parallel_cache(
                         caches = (cache,)
                         cache_type = type(cache)
 
-                    if config.debug_checks and heavy:
-                        key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
-                    else:
-                        key = hashkey(*args, **kwargs)
+                if config.debug_checks and heavy:
+                    key = _checked_get_key(cache_type, lambda: hashkey(*args, **kwargs), list(_heavy_caches))
+                else:
+                    key = hashkey(*args, **kwargs)
 
-                    for cache in caches:
-                        try:
-                            value = cache[key]
-                            break
-                        except KeyError:
-                            pass
-                    else:
-                        value = CACHE_MISS
+                for cache in caches:
+                    try:
+                        value = cache[key]
+                        break
+                    except KeyError:
+                        pass
+                else:
+                    value = CACHE_MISS
 
                 if issubclass(cache_type, DictLikeDiskAccess):
                     if bcast:
@@ -660,6 +660,34 @@ def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
 _heavy_caches = weakref.WeakSet()
 
 
-def register_heavy_cache(obj: Any) -> None:
-    assert obj not in _heavy_caches
-    _heavy_caches.add(obj)
+class heavy_cache:
+    """Context manager that pushes and pops lifetime objects."""
+
+    def __init__(self, objs: Any) -> None:
+        objs = utils.as_tuple(objs)
+        self._objs = objs
+        # keep track of the objects we inserted ourselves, if they were already
+        # there then we don't want to remove them!
+        self._added_objs = set()
+
+    def __enter__(self) -> None:
+        for obj in self._objs:
+            if obj not in _heavy_caches:
+                _heavy_caches.add(obj)
+                self._added_objs.add(obj)
+
+    def __exit__(self, *args) -> None:
+        for obj in self._added_objs:
+            _heavy_caches.remove(obj)
+        self._added_objs.clear()
+
+
+def heavy_cached(get_obj: Callable[[], Any]) -> None:
+    """Function decorator that pushes and pops lifetime objects."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            obj = get_obj(*args, **kwargs)
+            with heavy_cache(obj):
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator

@@ -15,6 +15,7 @@ import loopy as lp
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
+from pyop3.cache import heavy_cached
 from tsfc import kernel_args
 from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -46,6 +47,7 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 
 @PETSc.Log.EventDecorator()
 @annotate_assemble
+@heavy_cached(lambda expr, *a, **kw: {d.topology for d in extract_domains(expr)})
 def assemble(expr, *args, **kwargs):
     """Assemble.
 

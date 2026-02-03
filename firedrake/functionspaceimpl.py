@@ -25,6 +25,7 @@ import pyop3 as op3
 import ufl
 from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
+from pyop3.cache import cached_on
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
@@ -736,9 +737,8 @@ class FunctionSpace:
         facet_points = numpy.asarray(facet_points, dtype=IntType)
         return (closure_section, closure_indices, facet_points)
 
-    # TODO:
-    # @cached_on(mesh)?
-    @cached_property
+    @property
+    @cached_on(lambda self: self.mesh().topology)
     def layout_axes(self) -> AxisTree:
         # idea is to define this for this and mixed function space etc - this is the
         # *data layout* which is different to .axes (which is always the same for a
@@ -957,7 +957,7 @@ class FunctionSpace:
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((self.mesh(), self.axes, self.ufl_element()))
+        return hash((self.mesh(), self.ufl_element()))
 
     @utils.cached_property
     def _ad_parent_space(self):

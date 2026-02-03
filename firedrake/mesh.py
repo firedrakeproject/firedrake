@@ -314,11 +314,6 @@ class ClosureOrdering(enum.Enum):
     FIAT = "fiat"
 
 
-# debug
-import weakref
-MYMESHES = weakref.WeakSet()
-
-
 class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
@@ -354,9 +349,6 @@ class AbstractMeshTopology(abc.ABC):
             Submesh parent.
 
         """
-        op3.cache.register_heavy_cache(self)
-        MYMESHES.add(self)
-
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
