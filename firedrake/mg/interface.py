@@ -1,3 +1,4 @@
+import ufl
 from pyop2 import op2
 
 from firedrake import ufl_expr, dmhooks
@@ -83,8 +84,6 @@ def prolong(coarse, fine):
         coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-        kernel = kernels.prolong_kernel(coarse_expr, Vf)
-
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
@@ -94,6 +93,10 @@ def prolong(coarse, fine):
         for d in [coarse, coarse_coords]:
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
+
+        fine_dual = ufl.TestFunction(Vf.dual())
+        ufl_interpolate = ufl.Interpolate(coarse_expr, fine_dual)
+        kernel = kernels.prolong_kernel(ufl_interpolate)
         op2.par_loop(kernel, fine.node_set,
                      fine.dat(op2.WRITE),
                      coarse.dat(op2.READ, fine_to_coarse),
@@ -167,7 +170,10 @@ def restrict(fine_dual, coarse_dual):
         for d in [coarse_coords]:
             d.dat.global_to_local_begin(op2.READ)
             d.dat.global_to_local_end(op2.READ)
-        kernel = kernels.restrict_kernel(Vf, Vc)
+
+        coarse_expr = ufl.TestFunction(Vc.dual())
+        ufl_interpolate = ufl.Interpolate(coarse_expr, fine_dual)
+        kernel = kernels.restrict_kernel(ufl_interpolate)
         op2.par_loop(kernel, fine_dual.node_set,
                      coarse_dual.dat(op2.INC, fine_to_coarse),
                      fine_dual.dat(op2.READ),
@@ -224,7 +230,9 @@ def inject(fine, coarse):
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
-        kernel, dg = kernels.inject_kernel(fine_expr, Vc)
+
+        ufl_interpolate = ufl.Interpolate(fine_expr, ufl.TestFunction(Vc.dual()))
+        kernel, dg = kernels.inject_kernel(ufl_interpolate)
         if dg and not hierarchy.nested:
             raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
 
