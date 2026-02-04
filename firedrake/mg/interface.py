@@ -57,24 +57,22 @@ def multigrid_transfer(ufl_interpolate, tensor=None):
     Vtarget = dual_arg.ufl_function_space().dual()
     source_mesh = extract_unique_domain(operand)
     target_mesh = Vtarget.mesh()
+    if utils.get_level(target_mesh)[1] > utils.get_level(source_mesh)[1]:
+        node_map = utils.fine_node_to_coarse_node_map
+    else:
+        node_map = utils.coarse_node_to_fine_node_map
 
     # XXX: Should be able to figure out locations by pushing forward
     # reference cell node locations to physical space.
     # x = \sum_i c_i \phi_i(x_hat)
     target_coords = utils.physical_node_locations(Vtarget)
     source_coords = get_coordinates(source.ufl_function_space())
-    if utils.get_level(target_mesh)[1] > utils.get_level(source_mesh)[1]:
-        node_map = utils.fine_node_to_coarse_node_map
-    else:
-        node_map = utils.coarse_node_to_fine_node_map
-
     # Have to do this, because the node set core size is not right for
     # this expanded stencil
-    for d in [target_coords, *coefficients]:
-        if d.function_space().mesh() is target_mesh:
-            continue
-        d.dat.global_to_local_begin(op2.READ)
-        d.dat.global_to_local_end(op2.READ)
+    for d in [source_coords, *coefficients]:
+        if d.function_space().mesh() is not target_mesh:
+            d.dat.global_to_local_begin(op2.READ)
+            d.dat.global_to_local_end(op2.READ)
 
     def parloop_arg(c, access):
         m_ = None if c.function_space().mesh() is target_mesh else node_map(Vtarget, c.function_space())
@@ -111,7 +109,7 @@ def prolong(coarse, fine):
     hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
     _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
-    repeat = (fine_level - coarse_level)*refinements_per_level
+    refine = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
@@ -121,23 +119,22 @@ def prolong(coarse, fine):
     finest = fine
     Vfinest = finest.function_space()
     meshes = hierarchy._meshes
-    for j in range(repeat):
+    for j in range(refine):
         next_level += 1
-        if j == repeat - 1 and not needs_quadrature:
-            fine = finest
+        if j == refine - 1 and not needs_quadrature:
+            tensor = finest
         else:
-            fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
-        Vf = fine.function_space()
-        Vc = coarse.function_space()
+            tensor = None
 
-        fine_dual = ufl.TestFunction(Vf.dual())
+        fine_dual = ufl.TestFunction(Vf.reconstruct(mesh=meshes[next_level]).dual())
         ufl_interpolate = ufl.Interpolate(coarse_expr, fine_dual)
-        multigrid_transfer(ufl_interpolate, tensor=fine)
+        fine = multigrid_transfer(ufl_interpolate, tensor=tensor)
 
         if needs_quadrature:
             # Transfer to the actual target space
-            new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
+            new_fine = finest if j == refine-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
             fine = new_fine.interpolate(fine)
+
         coarse = fine
         coarse_expr = coarse
     return fine
@@ -166,7 +163,7 @@ def restrict(fine_dual, coarse_dual):
     hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse_dual))
     _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine_dual))
     refinements_per_level = hierarchy.refinements_per_level
-    repeat = (fine_level - coarse_level)*refinements_per_level
+    refine = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
@@ -175,13 +172,13 @@ def restrict(fine_dual, coarse_dual):
 
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
-    for j in range(repeat):
+    for j in range(refine):
         if needs_quadrature:
             # Transfer to the quadrature source space
             fine_dual = Function(Vq.reconstruct(mesh=meshes[next_level])).interpolate(fine_dual)
 
         next_level -= 1
-        if j == repeat - 1:
+        if j == refine - 1:
             coarse_dual = coarsest
         else:
             coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
@@ -231,7 +228,7 @@ def inject(fine, coarse):
     hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
     _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
-    repeat = (fine_level - coarse_level)*refinements_per_level
+    refine = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
     if needs_quadrature := not Vc.finat_element.has_pointwise_dual_basis:
@@ -241,9 +238,9 @@ def inject(fine, coarse):
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
-    for j in range(repeat):
+    for j in range(refine):
         next_level -= 1
-        if j == repeat - 1 and not needs_quadrature:
+        if j == refine - 1 and not needs_quadrature:
             coarse = coarsest
         else:
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
@@ -274,7 +271,7 @@ def inject(fine, coarse):
 
         if needs_quadrature:
             # Transfer to the actual target space
-            new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
+            new_coarse = coarsest if j == refine - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
         fine_expr = fine

@@ -168,7 +168,7 @@ def _make_element_key(element):
 
 
 def prolong_kernel(ufl_interpolate):
-    dual_arg, operand = ufl_interpolate.argument_slots()
+    dual_arg, _ = ufl_interpolate.argument_slots()
     coarse, = extract_coefficients(ufl_interpolate)
     Vc = coarse.ufl_function_space()
     Vf = dual_arg.ufl_function_space().dual()
@@ -353,7 +353,7 @@ def restrict_kernel(ufl_interpolate):
 
 
 def inject_kernel(ufl_interpolate):
-    dual_arg, operand = ufl_interpolate.argument_slots()
+    dual_arg, _ = ufl_interpolate.argument_slots()
     Vc = dual_arg.ufl_function_space().dual()
     if Vc.finat_element.is_dg():
         fine, = extract_coefficients(ufl_interpolate)
