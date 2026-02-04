@@ -462,6 +462,29 @@ class CrossMeshInterpolator(Interpolator):
             # scalar fiat/finat element
             self.dest_element = dest_element
 
+    @cached_property
+    def vom(self):
+        from firedrake.assemble import assemble
+        # Immerse coordinates of target space point evaluation dofs in src_mesh
+        target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
+        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
+        try:
+            source_vom = VertexOnlyMesh(
+                self.source_mesh,
+                dest_node_coords,
+                redundant=False,
+                missing_points_behaviour=self.missing_points_behaviour,
+            )
+        except VertexOnlyMeshMissingPointsError:
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+                                     "contains degrees of freedom which cannot cannot be defined in the "
+                                     f"source function space on domain {self.source_mesh}. "
+                                     "This may be because the target mesh covers a larger domain than the "
+                                     "source mesh. To disable this error, set allow_missing_dofs=True.")
+        return source_vom
+
+
     def _get_symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
         """Return the symbolic ``Interpolate`` expressions for point evaluation and
         re-ordering into the input-ordering VertexOnlyMesh.
@@ -477,25 +500,6 @@ class CrossMeshInterpolator(Interpolator):
         DofNotDefinedError
             If any DoFs in the target mesh cannot be defined in the source mesh.
         """
-        from firedrake.assemble import assemble
-        # Immerse coordinates of target space point evaluation dofs in src_mesh
-        target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
-        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
-        try:
-            vom = VertexOnlyMesh(
-                self.source_mesh,
-                dest_node_coords,
-                redundant=False,
-                missing_points_behaviour=self.missing_points_behaviour,
-            )
-        except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
-                                     "contains degrees of freedom which cannot cannot be defined in the "
-                                     f"source function space on domain {self.source_mesh}. "
-                                     "This may be because the target mesh covers a larger domain than the "
-                                     "source mesh. To disable this error, set allow_missing_dofs=True.")
-
         # Get the correct type of function space
         shape = self.target_space.ufl_function_space().value_shape
         if len(shape) == 0:
@@ -507,11 +511,11 @@ class CrossMeshInterpolator(Interpolator):
             fs_type = partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
         # Get expression for point evaluation at the dest_node_coords
-        P0DG_vom = fs_type(vom, "DG", 0)
+        P0DG_vom = fs_type(self.vom, "DG", 0)
         point_eval = interpolate(self.operand, P0DG_vom)
 
         # Interpolate into the input-ordering VOM
-        P0DG_vom_input_ordering = fs_type(vom.input_ordering, "DG", 0)
+        P0DG_vom_input_ordering = fs_type(self.vom.input_ordering, "DG", 0)
 
         arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
