@@ -7,6 +7,7 @@ from functools import partial, singledispatch
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
+from weakref import WeakValueDictionary
 
 from ufl.algorithms import extract_arguments, replace
 from ufl.domain import extract_unique_domain
@@ -63,6 +64,8 @@ __all__ = (
     "InterpolateOptions",
     "Interpolator"
 )
+
+_vom_cache = WeakValueDictionary()
 
 
 @dataclass(kw_only=True)
@@ -462,9 +465,39 @@ class CrossMeshInterpolator(Interpolator):
             # scalar fiat/finat element
             self.dest_element = dest_element
 
+    @staticmethod
+    def _vom_cache_key(target_space, source_mesh, allow_missing_dofs):
+        # The VOM used for cross-mesh interpolation depends on only these
+        return (
+            target_space,
+            source_mesh,
+            allow_missing_dofs,
+        )
+
     @cached_property
     def vom(self) -> MeshGeometry:
-        """The VertexOnlyMesh consisting of the target space's dofs immersed in the
+        """Access the VertexOnlyMesh consisting of the target space's dofs immersed in the
+        source space's mesh.
+
+        Returns
+        -------
+        MeshGeometry
+            The VertexOnlyMesh.
+        """
+        key = self._vom_cache_key(
+            self.target_space,
+            self.source_mesh,
+            self.allow_missing_dofs,
+        )
+        try:
+            return _vom_cache[key]
+        except KeyError:
+            vom = self._create_vom()
+            _vom_cache[key] = vom
+            return vom
+
+    def _create_vom(self) -> MeshGeometry:
+        """Create the VertexOnlyMesh consisting of the target space's dofs immersed in the
         source space's mesh.
 
         Returns
