@@ -158,7 +158,8 @@ jobs:
           else
             : # UNDO ME
             : # git clone --depth 1 https://gitlab.com/petsc/petsc.git
-            git clone --depth 1 https://gitlab.com/connorjward/petsc.git --branch connorjward/quad-to-simplex
+            : # git clone --depth 1 https://gitlab.com/connorjward/petsc.git --branch connorjward/quad-to-simplex
+            git clone --depth 1 https://gitlab.com/connorjward/petsc.git --branch connorjward/periodic-firedrake
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
