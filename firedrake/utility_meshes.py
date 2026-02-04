@@ -728,7 +728,7 @@ def SquareMesh(
     L: numbers.Real,
     reorder: bool | None = None,
     quadrilateral: bool = False,
-    diagonal: Literal["crossed", "left", "right"] | None = None,
+    diagonal: Literal['crossed', 'left', 'right'] | None = None,
     distribution_parameters: dict | None = None,
     comm: MPI.Comm = COMM_WORLD,
     name: str = DEFAULT_MESH_NAME,
@@ -739,35 +739,35 @@ def SquareMesh(
 
     Parameters
     ----------
-    nx :
+    nx
         The number of cells in the x direction.
-    ny :
+    ny
         The number of cells in the y direction.
-    L :
+    L
         The extent in the x and y directions.
-    reorder :
+    reorder
         Flag indicating whether to reorder the mesh.
-    quadrilateral :
+    quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
-    diagonal :
+    diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
-    distribution_parameters :
+    distribution_parameters
         Options controlling mesh distribution, see :func:`.Mesh` for details.
-    comm :
+    comm
         Optional communicator to build the mesh on.
-    name :
+    name
         Optional name of the mesh.
-    distribution_name :
+    distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
-    permutation_name :
+    permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
 
     Returns
     -------
-    MeshGeometry :
+    MeshGeometry
         The new mesh.
 
     Notes
@@ -814,33 +814,33 @@ def UnitSquareMesh(
 
     Parameters
     ----------
-    nx :
+    nx
         The number of cells in the x direction.
-    ny :
+    ny
         The number of cells in the y direction.
-    reorder :
+    reorder
         Flag indicating whether to reorder the mesh.
-    diagonal :
+    diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
-    quadrilateral :
+    quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
-    distribution_parameters :
+    distribution_parameters
         Options controlling mesh distribution, see :func:`.Mesh` for details.
-    comm :
+    comm
         Optional communicator to build the mesh on.
-    name :
+    name
         Optional name of the mesh.
-    distribution_name :
+    distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
-    permutation_name :
+    permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
 
     Returns
     -------
-    MeshGeometry :
+    MeshGeometry
         The new mesh.
 
     Notes
@@ -889,39 +889,39 @@ def PeriodicRectangleMesh(
 
     Parameters
     ----------
-    nx :
+    nx
         The number of cells in the x direction.
-    ny :
+    ny
         The number of cells in the y direction.
-    Lx :
+    Lx
         The extent in the x direction.
-    Ly :
+    Ly
         The extent in the y direction.
-    direction :
+    direction
         The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
-    quadrilateral :
+    quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
-    reorder :
+    reorder
         Flag indicating whether to reorder the mesh.
-    distribution_parameters :
+    distribution_parameters
         Options controlling mesh distribution, see :func:`.Mesh` for details.
-    diagonal :
+    diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
-    comm :
+    comm
         Optional communicator to build the mesh on.
-    name :
+    name
         Optional name of the mesh.
-    distribution_name :
+    distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
-    permutation_name :
+    permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
 
     Returns
     -------
-    MeshGeometry :
+    MeshGeometry
         The new mesh.
 
     Notes
@@ -999,37 +999,37 @@ def PeriodicSquareMesh(
 
     Parameters
     ----------
-    nx :
+    nx
         The number of cells in the x direction.
-    ny :
+    ny
         The number of cells in the y direction.
-    L :
+    L
         The extent in the x and y directions.
-    direction :
+    direction
         The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
-    quadrilateral :
+    quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
-    reorder :
+    reorder
         Flag indicating whether to reorder the mesh.
-    distribution_parameters :
+    distribution_parameters
         Options controlling mesh distribution, see :func:`.Mesh` for details.
-    diagonal :
+    diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
-    comm :
+    comm
         Optional communicator to build the mesh on.
-    name :
+    name
         Optional name of the mesh.
-    distribution_name :
+    distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
-    permutation_name :
+    permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
 
     Returns
     -------
-    MeshGeometry :
+    MeshGeometry
         The new mesh.
 
     Notes
@@ -1080,35 +1080,35 @@ def PeriodicUnitSquareMesh(
 
     Parameters
     ----------
-    nx :
+    nx
         The number of cells in the x direction.
-    ny :
+    ny
         The number of cells in the y direction.
-    direction :
+    direction
         The direction of the periodicity, one of ``"both"``, ``"x"`` or ``"y"``.
-    quadrilateral :
+    quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
-    reorder :
+    reorder
         Flag indicating whether to reorder the mesh.
-    distribution_parameters :
+    distribution_parameters
         Options controlling mesh distribution, see :func:`.Mesh` for details.
-    diagonal :
+    diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
-    comm :
+    comm
         Optional communicator to build the mesh on.
-    name :
+    name
         Optional name of the mesh.
-    distribution_name :
+    distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
-    permutation_name :
+    permutation_name
         The name of entity permutation (reordering) used when checkpointing;
         if `None`, the name is automatically generated.
 
     Returns
     -------
-    MeshGeometry :
+    MeshGeometry
         The new mesh.
 
     Notes
