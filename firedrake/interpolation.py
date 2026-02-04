@@ -463,7 +463,20 @@ class CrossMeshInterpolator(Interpolator):
             self.dest_element = dest_element
 
     @cached_property
-    def vom(self):
+    def vom(self) -> MeshGeometry:
+        """The VertexOnlyMesh consisting of the target space's dofs immersed in the
+        source space's mesh.
+
+        Returns
+        -------
+        MeshGeometry
+            The VertexOnlyMesh.
+
+        Raises
+        ------
+        DofNotDefinedError
+            If any DoFs in the target mesh cannot be defined in the source mesh.
+        """
         from firedrake.assemble import assemble
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
@@ -484,7 +497,6 @@ class CrossMeshInterpolator(Interpolator):
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
         return source_vom
 
-
     def _get_symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
         """Return the symbolic ``Interpolate`` expressions for point evaluation and
         re-ordering into the input-ordering VertexOnlyMesh.
@@ -494,11 +506,6 @@ class CrossMeshInterpolator(Interpolator):
         tuple[Interpolate, Interpolate]
             A tuple containing the point evaluation interpolation and the
             input-ordering interpolation.
-
-        Raises
-        ------
-        DofNotDefinedError
-            If any DoFs in the target mesh cannot be defined in the source mesh.
         """
         # Get the correct type of function space
         shape = self.target_space.ufl_function_space().value_shape
