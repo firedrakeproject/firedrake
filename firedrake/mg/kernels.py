@@ -196,6 +196,7 @@ def prolong_kernel(ufl_interpolate):
     try:
         return cache[key]
     except KeyError:
+        name = "pyop2_kernel_prolong"
         evaluate_code = compile_element(ufl_interpolate)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
@@ -205,7 +206,7 @@ def prolong_kernel(ufl_interpolate):
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
+        static void %(name)s(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -249,7 +250,8 @@ def prolong_kernel(ufl_interpolate):
             }
             pyop2_kernel_evaluate(%(kernel_args)s);
         }
-        """ % {"to_reference": str(to_reference_kernel),
+        """ % {"name": name,
+               "to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
                "kernel_args": _make_kernel_args(element, "R", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
@@ -260,7 +262,7 @@ def prolong_kernel(ufl_interpolate):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+        return cache.setdefault(key, op2.Kernel(my_kernel, name=name))
 
 
 def restrict_kernel(ufl_interpolate):

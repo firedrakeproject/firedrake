@@ -1,4 +1,5 @@
 import ufl
+from itertools import repeat
 from pyop2 import op2
 
 from firedrake import ufl_expr, dmhooks
@@ -7,6 +8,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
 from ufl.algorithms.analysis import extract_coefficients
+from ufl.domain import extract_unique_domain
 from . import utils
 from . import kernels
 
@@ -35,6 +37,53 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
+
+
+def multigrid_transfer(ufl_interpolate, tensor=None):
+    if tensor is None:
+        tensor = Function(ufl_interpolate.ufl_function_space())
+
+    coefficients = extract_coefficients(ufl_interpolate)
+    if is_dual(ufl_interpolate.ufl_function_space()):
+        kernel = kernels.restrict_kernel(ufl_interpolate)
+        access = op2.INC
+        source, = ufl_interpolate.arguments()
+    else:
+        kernel = kernels.prolong_kernel(ufl_interpolate)
+        access = op2.WRITE
+        source, = coefficients
+
+    dual_arg, operand = ufl_interpolate.argument_slots()
+    Vtarget = dual_arg.ufl_function_space().dual()
+    source_mesh = extract_unique_domain(operand)
+    target_mesh = Vtarget.mesh()
+
+    # XXX: Should be able to figure out locations by pushing forward
+    # reference cell node locations to physical space.
+    # x = \sum_i c_i \phi_i(x_hat)
+    target_coords = utils.physical_node_locations(Vtarget)
+    source_coords = get_coordinates(source.ufl_function_space())
+    if utils.get_level(target_mesh)[1] > utils.get_level(source_mesh)[1]:
+        node_map = utils.fine_node_to_coarse_node_map
+    else:
+        node_map = utils.coarse_node_to_fine_node_map
+
+    # Have to do this, because the node set core size is not right for
+    # this expanded stencil
+    for d in [target_coords, *coefficients]:
+        if d.function_space().mesh() is target_mesh:
+            continue
+        d.dat.global_to_local_begin(op2.READ)
+        d.dat.global_to_local_end(op2.READ)
+
+    def parloop_arg(c, access):
+        m_ = None if c.function_space().mesh() is target_mesh else node_map(Vtarget, c.function_space())
+        return c.dat(access, m_)
+
+    op2.par_loop(kernel, Vtarget.node_set,
+                 parloop_arg(tensor, access),
+                 *map(parloop_arg, (*coefficients, target_coords, source_coords), repeat(op2.READ)))
+    return tensor
 
 
 @PETSc.Log.EventDecorator()
@@ -81,27 +130,9 @@ def prolong(coarse, fine):
         Vf = fine.function_space()
         Vc = coarse.function_space()
 
-        coarse_coords = get_coordinates(Vc)
-        fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
-        fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-        # XXX: Should be able to figure out locations by pushing forward
-        # reference cell node locations to physical space.
-        # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf)
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [coarse, coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-
         fine_dual = ufl.TestFunction(Vf.dual())
         ufl_interpolate = ufl.Interpolate(coarse_expr, fine_dual)
-        kernel = kernels.prolong_kernel(ufl_interpolate)
-        op2.par_loop(kernel, fine.node_set,
-                     fine.dat(op2.WRITE),
-                     coarse.dat(op2.READ, fine_to_coarse),
-                     node_locations.dat(op2.READ),
-                     coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+        multigrid_transfer(ufl_interpolate, tensor=fine)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -157,28 +188,9 @@ def restrict(fine_dual, coarse_dual):
         Vf = fine_dual.function_space()
         Vc = coarse_dual.function_space()
 
-        # XXX: Should be able to figure out locations by pushing forward
-        # reference cell node locations to physical space.
-        # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf.dual())
-
-        coarse_coords = get_coordinates(Vc.dual())
-        fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
-        fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-
         coarse_expr = ufl.TestFunction(Vc.dual())
         ufl_interpolate = ufl.Interpolate(coarse_expr, fine_dual)
-        kernel = kernels.restrict_kernel(ufl_interpolate)
-        op2.par_loop(kernel, fine_dual.node_set,
-                     coarse_dual.dat(op2.INC, fine_to_coarse),
-                     fine_dual.dat(op2.READ),
-                     node_locations.dat(op2.READ),
-                     coarse_coords.dat(op2.READ, fine_to_coarse_coords))
+        multigrid_transfer(ufl_interpolate, tensor=coarse_dual)
         fine_dual = coarse_dual
     return coarse_dual
 
@@ -230,12 +242,6 @@ def inject(fine, coarse):
     Vcoarsest = coarsest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
-
-        ufl_interpolate = ufl.Interpolate(fine_expr, ufl.TestFunction(Vc.dual()))
-        kernel, dg = kernels.inject_kernel(ufl_interpolate)
-        if dg and not hierarchy.nested:
-            raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-
         next_level -= 1
         if j == repeat - 1 and not needs_quadrature:
             coarse = coarsest
@@ -243,23 +249,14 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-        if not dg:
-            fine_coords = get_coordinates(Vf)
-            coarse_to_fine = utils.coarse_node_to_fine_node_map(Vc, Vf)
-            coarse_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
-            node_locations = utils.physical_node_locations(Vc)
-            # Have to do this, because the node set core size is not right for
-            # this expanded stencil
-            for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, coarse.node_set,
-                         coarse.dat(op2.WRITE),
-                         fine.dat(op2.READ, coarse_to_fine),
-                         node_locations.dat(op2.READ),
-                         fine_coords.dat(op2.READ, coarse_to_fine_coords))
+        ufl_interpolate = ufl.Interpolate(fine_expr, ufl.TestFunction(Vc.dual()))
+        if not Vf.finat_element.is_dg():
+            multigrid_transfer(ufl_interpolate, tensor=coarse)
         else:
+            kernel, dg = kernels.inject_kernel(ufl_interpolate)
+            if dg and not hierarchy.nested:
+                raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
             coarse_coords = get_coordinates(Vc)
             fine_coords = get_coordinates(Vf)
             coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
