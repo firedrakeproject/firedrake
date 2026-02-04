@@ -3,6 +3,7 @@ import numpy as np
 import warnings
 from typing import Literal
 
+import petsctools
 import ufl
 from mpi4py import MPI
 
@@ -722,35 +723,55 @@ def TensorRectangleMesh(
 
 @PETSc.Log.EventDecorator()
 def SquareMesh(
-    nx,
-    ny,
-    L,
-    reorder=None,
-    quadrilateral=False,
-    diagonal="left",
-    distribution_parameters=None,
-    comm=COMM_WORLD,
-    name=DEFAULT_MESH_NAME,
-    distribution_name=None,
-    permutation_name=None,
+    nx: numbers.Integral,
+    ny: numbers.Integral,
+    L: numbers.Real,
+    reorder: bool | None = None,
+    quadrilateral: bool = False,
+    diagonal: Literal["crossed", "left", "right"] | None = None,
+    distribution_parameters: dict | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
 ):
-    """Generate a square mesh
+    """Generate a square mesh.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg L: The extent in the x and y directions
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx :
+        The number of cells in the x direction.
+    ny :
+        The number of cells in the y direction.
+    L :
+        The extent in the x and y directions.
+    reorder :
+        Flag indicating whether to reorder the mesh.
+    quadrilateral :
+        Flag indicating whether to create a quadrilateral mesh.
+    diagonal :
+        The refinement strategy used for non-quadrilateral meshes. Must be
+        one of ``"crossed"``, ``"left"``, ``"right"``.
+    distribution_parameters :
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    comm :
+        Optional communicator to build the mesh on.
+    name :
+        Optional name of the mesh.
+    distribution_name :
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name :
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
+
+    Returns
+    -------
+    MeshGeometry :
+        The new mesh.
+
+    Notes
+    -----
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -758,6 +779,7 @@ def SquareMesh(
     * 2: plane x == L
     * 3: plane y == 0
     * 4: plane y == L
+
     """
     return RectangleMesh(
         nx,
@@ -777,33 +799,52 @@ def SquareMesh(
 
 @PETSc.Log.EventDecorator()
 def UnitSquareMesh(
-    nx,
-    ny,
-    reorder=None,
-    diagonal="left",
-    quadrilateral=False,
-    distribution_parameters=None,
-    comm=COMM_WORLD,
-    name=DEFAULT_MESH_NAME,
-    distribution_name=None,
-    permutation_name=None,
+    nx: numbers.Integral,
+    ny: numbers.Integral,
+    reorder: bool | None = None,
+    diagonal: Literal["crossed", "left", "right"] | None = None,
+    quadrilateral: bool = False,
+    distribution_parameters: dict | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
 ):
-    """Generate a unit square mesh
+    """Generate a unit square mesh.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :kwarg quadrilateral: (optional), creates quadrilateral mesh.
-    :kwarg reorder: (optional), should the mesh be reordered
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx :
+        The number of cells in the x direction.
+    ny :
+        The number of cells in the y direction.
+    reorder :
+        Flag indicating whether to reorder the mesh.
+    diagonal :
+        The refinement strategy used for non-quadrilateral meshes. Must be
+        one of ``"crossed"``, ``"left"``, ``"right"``.
+    quadrilateral :
+        Flag indicating whether to create a quadrilateral mesh.
+    distribution_parameters :
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    comm :
+        Optional communicator to build the mesh on.
+    name :
+        Optional name of the mesh.
+    distribution_name :
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name :
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
+
+    Returns
+    -------
+    MeshGeometry :
+        The new mesh.
+
+    Notes
+    -----
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -811,6 +852,7 @@ def UnitSquareMesh(
     * 2: plane x == 1
     * 3: plane y == 0
     * 4: plane y == 1
+
     """
     return SquareMesh(
         nx,
@@ -3105,18 +3147,23 @@ def _refine_quads_to_triangles(
 ) -> PETSc.DMPlex:
     match diagonal:
         case "crossed":
-            transform_type = PETSc.DMPlexTransformType.REFINEALFELD
+            options = {"dm_refine": 1, "dm_plex_transform_type": "refine_alfeld"}
         case "left":
-            raise NotImplementedError
+            options = {
+                "dm_refine": 1,
+                "dm_plex_transform_type": "refine_tosimplex",
+                "dm_plex_transform_tosimplex_reflect": True,
+            }
         case "right":
-            transform_type = PETSc.DMPlexTransformType.REFINETOSIMPLEX
+            options = {"dm_refine": 1, "dm_plex_transform_type": "refine_tosimplex"}
         case _:
             raise AssertionError(f"'diagonal' type '{diagonal}' is not recognised")
 
     tr = PETSc.DMPlexTransform().create(comm=plex.comm)
-    tr.setType(transform_type)
+    petsctools.set_from_options(tr, options)
     tr.setDM(plex)
     tr.setUp()
-    refined_plex = tr.apply(plex)
+    with petsctools.inserted_options(tr):
+        refined_plex = tr.apply(plex)
     tr.destroy()
     return refined_plex
