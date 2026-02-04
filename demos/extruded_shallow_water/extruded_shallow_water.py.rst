@@ -4,7 +4,7 @@ Linear Shallow Water Equations on an Extruded Mesh using a Strang timestepping s
 This demo solves the linear shallow water equations on an extruded mesh
 using a Strang timestepping scheme.
 
-The equations are solved in a domain $\Omega$ utilizing a 2D base mesh
+The equations are solved in a domain :math:`\Omega` utilizing a 2D base mesh
 that is extruded vertically to form a 3D volume.
 
 As usual, we start by importing Firedrake: ::
@@ -14,19 +14,19 @@ As usual, we start by importing Firedrake: ::
 Mesh Generation
 ----------------
 
-We use an *extruded* mesh, where the base mesh is a $2^5 \times 2^5$ unit square
+We use an *extruded* mesh, where the base mesh is a :math:`2^5 \times 2^5` unit square
 with 5 evenly-spaced vertical layers. This results in a 3D volume composed of 
 prisms. ::
 
-    power = 5
-    m = UnitSquareMesh(2 ** power, 2 ** power)
-    layers = 5
+  power = 5
+  m = UnitSquareMesh(2 ** power, 2 ** power)
+  layers = 5
 
-    mesh = ExtrudedMesh(m, layers, layer_height=0.25)
+  mesh = ExtrudedMesh(m, layers, layer_height=0.25)
 
 Function Spaces
 ----------------
-For the velocity field, we use an $H(\mathrm{div})$-conforming function space
+For the velocity field, we use an :math:`H(\mathrm{div})`-conforming function space
 constructed as the outer product of a 2D BDM space and a 1D DG space. This ensures
 that the normal component of the velocity is continuous across element boundaries
 in the horizontal directions, which is important for accurately capturing fluxes. ::
@@ -36,8 +36,8 @@ in the horizontal directions, which is important for accurately capturing fluxes
   prod = HDiv(OuterProductElement(horiz, vert))
   W = FunctionSpace(mesh, prod)
 
-We also define a pressure space  $X$ using piecewise constant discontinuous
-Galerkin elements, and a plotting space $X_{\text{plot}}$ using continuous
+We also define a pressure space  :math:`X` using piecewise constant discontinuous
+Galerkin elements, and a plotting space :math:`X_{\text{plot}}` using continuous
 Galerkin elements for better visualization. ::
 
   X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
