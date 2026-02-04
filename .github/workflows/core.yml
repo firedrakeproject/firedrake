@@ -177,10 +177,8 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-          : # install of PETSc.
-          pip cache remove petsc4py
-          pip cache remove slepc4py
+          : # Empty the pip cache to ensure that everything is compiled from scratch
+          pip cache purge
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_BUILD_ARGS=''
@@ -428,14 +426,8 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-          : # install of PETSc. A similar trick may be needed for compiled dependencies
-          : # like h5py or mpi4py if changing HDF5/MPI libraries.
-          pip cache remove petsc4py
-
-          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
-          echo 'Cython<3.1' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
+          : # Empty the pip cache to ensure that everything is compiled from scratch
+          pip cache purge
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
