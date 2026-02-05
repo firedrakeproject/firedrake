@@ -36,7 +36,7 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
     ufl_element : finat.ufl.finiteelement.FiniteElement
         The UFL element of the target FunctionSpace.
     rt_var_name : str
-        String beginning with 'rt_' which is used as the name of the
+        String beginning with ``'rt_'`` which is used as the name of the
         gem.Variable used to represent the UnknownPointSet. The ``rt_`` prefix
         forces TSFC to do runtime tabulation.
     """
