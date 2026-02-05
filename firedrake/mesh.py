@@ -2544,6 +2544,7 @@ values from f.)"""
         self._spatial_index = None
 
     @utils.cached_property
+    @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
 
@@ -2629,6 +2630,7 @@ values from f.)"""
         return coords_min, coords_max
 
     @property
+    @PETSc.Log.EventDecorator()
     def spatial_index(self):
         """Builds spatial index from bounding box coordinates, expanding
         the bounding box by the mesh tolerance.
@@ -2669,13 +2671,16 @@ values from f.)"""
         else:
             coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
-        coords_mid = (coords_max + coords_min)/2
-        d = np.max(coords_max - coords_min, axis=1)[:, None]
-        coords_min = coords_mid - (tolerance + 0.5)*d
-        coords_max = coords_mid + (tolerance + 0.5)*d
+
+        with PETSc.Log.Event("spatial_index coords_min_max"):
+            coords_mid = (coords_max + coords_min)/2
+            d = np.max(coords_max - coords_min, axis=1)[:, None]
+            coords_min = coords_mid - (tolerance + 0.5)*d
+            coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        with PETSc.Log.Event("spatial_index build"):
+            self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
@@ -2732,6 +2737,7 @@ values from f.)"""
             return None, None
         return cells[0], ref_coords[0]
 
+    @PETSc.Log.EventDecorator()
     def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
@@ -2776,16 +2782,26 @@ values from f.)"""
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
-        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                             xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints,
-                                             cells_ignore.shape[1],
-                                             cells_ignore)
+        with PETSc.Log.Event("cells_data_as"):
+            cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
+        with PETSc.Log.Event("ref_cell_dists_l1_as"):
+            ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        with PETSc.Log.Event("xs_data_as"):
+            xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        with PETSc.Log.Event("Xs_data_as"):
+            Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        with PETSc.Log.Event("c_locator_call"):
+            self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                                xs_data,
+                                                Xs_data,
+                                                ref_cells_dists,
+                                                cells_data,
+                                                npoints,
+                                                cells_ignore.shape[1],
+                                                cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
+    @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
@@ -3215,7 +3231,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     mesh._tolerance = tolerance
     return mesh
 
-
+@PETSc.Log.EventDecorator()
 def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     """Make `VertexOnlyMesh` from a mesh topology.
 
@@ -3744,7 +3760,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
             raise ValueError("Other fields have already been set")
         self._other_fields = fields
 
-
+@PETSc.Log.EventDecorator()
 def _pic_swarm_in_mesh(
     parent_mesh,
     coords,
@@ -4002,7 +4018,7 @@ def _pic_swarm_in_mesh(
 
     return swarm, original_ordering_swarm, n_missing_points
 
-
+@PETSc.Log.EventDecorator()
 def _dmswarm_create(
     fields,
     comm,
@@ -4284,7 +4300,7 @@ def _mpi_array_lexicographic_min(x, y, datatype):
 
 array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
 
-
+@PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
     parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
 ):
@@ -4429,16 +4445,17 @@ def _parent_mesh_embedding(
     # each rank, parent_mesh.comm.rank creates a Constant with the local rank
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
-    P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
-    with stop_annotating():
-        visible_ranks = interpolation.interpolate(
-            constant.Constant(parent_mesh.comm.rank), P0DG
-        )
-        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
+    with PETSc.Log.Event("get_parent_mesh_rank_ownership_information"):
+        P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
+        with stop_annotating():
+            visible_ranks = interpolation.interpolate(
+                constant.Constant(parent_mesh.comm.rank), P0DG
+            )
+            visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
 
-    locally_visible = np.full(ncoords_global, False)
-    # See below for why np.inf is used here.
-    ranks = np.full(ncoords_global, np.inf)
+        locally_visible = np.full(ncoords_global, False)
+        # See below for why np.inf is used here.
+        ranks = np.full(ncoords_global, np.inf)
 
     (
         parent_cell_nums,
@@ -4588,7 +4605,7 @@ def _parent_mesh_embedding(
         missing_global_idxs,
     )
 
-
+@PETSc.Log.EventDecorator()
 def _swarm_original_ordering_preserve(
     comm,
     swarm,
