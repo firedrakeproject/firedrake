@@ -29,6 +29,7 @@ sparams = {
 }
 
 
+@pytest.mark.skipcomplexnoslate
 def test_inject_real_space():
     base = UnitIntervalMesh(1)
     mh = MeshHierarchy(base, 3)
