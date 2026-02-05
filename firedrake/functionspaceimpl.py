@@ -12,10 +12,11 @@ import numpy
 
 import ufl
 import finat.ufl
+from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop2 import op2, mpi
+from pyop2 import op2
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
@@ -108,7 +109,6 @@ class WithGeometryBase(object):
         self.component = component
         self.cargo = cargo
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(mesh.comm, self)
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):
@@ -404,6 +404,44 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
+    def broken_space(self):
+        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
+        constructed from this function space's FiniteElement.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        """
+        return type(self).make_function_space(
+            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            name=f"{self.name}_broken" if self.name else None)
+
+    def quadrature_space(self):
+        """Return a :class:`.WithGeometryBase` with a ``Quadrature`` element
+        defined on the point set required for interpolating external data into this space.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a ``Quadrature`` FiniteElement.
+        """
+        ufl_element = self.ufl_element()
+        if not self.finat_element.has_pointwise_dual_basis:
+            # Grab the point set for interpolation
+            _, ps = self.finat_element.dual_basis
+            # Invalidate the weights. This quadrature scheme is not for integration.
+            weights = numpy.full(len(ps.points), numpy.nan)
+            quad_scheme = QuadratureRule(ps, weights, self.finat_element.cell)
+
+            ufl_element = finat.ufl.FiniteElement("Quadrature",
+                                                  cell=ufl_element.cell,
+                                                  degree=self.finat_element.degree,
+                                                  quad_scheme=quad_scheme)
+            if self.value_shape:
+                ufl_element = finat.ufl.TensorElement(ufl_element, shape=self.value_shape)
+        return self.collapse().reconstruct(element=ufl_element)
+
     def reconstruct(
         self,
         mesh: MeshGeometry | None = None,
@@ -569,10 +607,7 @@ class FunctionSpace(object):
         space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
-        # User comm
         self.comm = mesh.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(self.comm, self)
 
         self.set_shared_data()
         self.dof_dset = self.make_dof_dset()
@@ -1065,7 +1100,6 @@ class MixedFunctionSpace(object):
         self._subspaces = {}
         self._mesh = mesh
         self.comm = mesh.comm
-        self._comm = mpi.internal_comm(self.node_set.comm, self)
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -1454,7 +1488,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.block_size, val, valuetype, name, self._comm)
+        return op2.Global(self.block_size, val, valuetype, name, self.comm)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None

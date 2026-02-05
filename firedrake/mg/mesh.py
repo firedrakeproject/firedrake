@@ -7,6 +7,7 @@ from pyop2.datatypes import IntType
 import petsctools
 import firedrake
 import firedrake.cython.dmcommon as dmcommon
+from firedrake import utils
 from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
@@ -54,13 +55,6 @@ class HierarchyBase(object):
         if not all(m.comm == comm for m in self):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
-
-    @cached_property
-    def _comm(self):
-        _comm = self[0]._comm
-        if not all(m._comm == _comm for m in self):
-            raise NotImplementedError("All meshes in hierarchy must be on same communicator")
-        return _comm
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -120,12 +114,9 @@ def MeshHierarchy(mesh, refinement_levels,
     """
 
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
-        try:
-            from ngsPETSc import NetgenHierarchy
-        except ImportError:
-            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
-                              "are installed and available to Firedrake (see "
-                              "https://www.firedrakeproject.org/install.html#netgen).")
+        utils.check_netgen_installed()
+        from firedrake.mg.netgen import NetgenHierarchy
+
         if hasattr(mesh, "netgen_mesh"):
             return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
         else:

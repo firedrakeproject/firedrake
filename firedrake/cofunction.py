@@ -3,7 +3,7 @@ import numpy as np
 import ufl
 
 from ufl.form import BaseForm
-from pyop2 import op2, mpi
+from pyop2 import op2
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from finat.ufl import MixedElement
 import firedrake.assemble
@@ -14,6 +14,9 @@ from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
+
+
+__all__ = ["Cofunction", "RieszMap"]
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):
@@ -65,10 +68,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         # User comm
         self.comm = V.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
@@ -76,13 +77,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             val = val.dat
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
-
-        if isinstance(function_space, Cofunction):
-            self.dat.copy(function_space.dat)
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
@@ -346,7 +344,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             block on the Pyadjoint tape.
         **kwargs
             Any extra kwargs are passed on to the interpolate function.
-            For details see `firedrake.interpolation.interpolate`.
+            For details see :func:`firedrake.interpolation.interpolate`.
 
         Returns
         -------

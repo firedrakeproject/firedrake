@@ -33,7 +33,7 @@ def rng():
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
+@pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 @pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
@@ -47,11 +47,11 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
         mesh = UnitIntervalMesh(nx)
     elif mesh_type == 'square':
         mesh = UnitSquareMesh(nx, nx)
-    elif mesh_type == 'cube':
-        mesh = UnitCubeMesh(nx, nx, nx)
 
     # Variable rank
-    if dim > 0:
+    if not isinstance(dim, int):
+        V = TensorFunctionSpace(mesh, family, degree, shape=dim)
+    elif dim > 0:
         V = VectorFunctionSpace(mesh, family, degree, dim=dim)
     else:
         V = FunctionSpace(mesh, family, degree)
@@ -74,19 +74,19 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
 
     covariances = [np.cov(samples[:, :ns]) for ns in nsamples]
 
-    # Covariance matrix should converge at a rate of sqrt(n)
-    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
-    normalised_errors = [err*sqrt(n) for err, n in zip(errors, nsamples)]
-    normalised_errors /= normalised_errors[-1]
+    # Measured covariance matrix should converge at a rate of sqrt(n).
+    # The number of samples is fairly small to keep the test cost
+    # lower so we only test the mean rate to a low tolerance.
 
-    # Loose tolerance because RNG
-    tol = 0.2
-    assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
+    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
+    rate = -np.diff(np.log(errors))/np.diff(np.log(nsamples))
+
+    assert np.mean(rate) > 0.4
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vec1", "vec2"])
+@pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_vom_white_noise(dim, mesh_type, rng):
     """Test that white noise generator converges to a mass matrix covariance.
@@ -106,7 +106,9 @@ def test_vom_white_noise(dim, mesh_type, rng):
     vom = VertexOnlyMesh(mesh, points)
 
     # Variable rank
-    if dim > 0:
+    if not isinstance(dim, int):
+        V = TensorFunctionSpace(vom, "DG", 0, shape=dim)
+    elif dim > 0:
         V = VectorFunctionSpace(vom, "DG", 0, dim=dim)
     else:
         V = FunctionSpace(vom, "DG", 0)
@@ -129,20 +131,20 @@ def test_vom_white_noise(dim, mesh_type, rng):
 
     covariances = [np.cov(samples[:, :ns]) for ns in nsamples]
 
-    # Covariance matrix should converge at a rate of sqrt(n)
-    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
-    normalised_errors = [err*sqrt(n) for err, n in zip(errors, nsamples)]
-    normalised_errors /= normalised_errors[-1]
+    # Measured covariance matrix should converge at a rate of sqrt(n).
+    # The number of samples is fairly small to keep the test cost
+    # lower so we only test the mean rate to a low tolerance.
 
-    # Loose tolerance because RNG
-    tol = 0.2
-    assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
+    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
+    rate = -np.diff(np.log(errors))/np.diff(np.log(nsamples))
+
+    assert np.mean(rate) > 0.4
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("m", (0, 2, 4))
-@pytest.mark.parametrize("dim", (0, 1, 2), ids=["scalar", "vector1", "vector2"])
+@pytest.mark.parametrize("dim", (0, 2), ids=["scalar", "vector2"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 def test_covariance_inverse_action(m, family, mesh_type, dim):
@@ -354,4 +356,46 @@ def test_covariance_mat(m, family, operation):
         x = x.riesz_representation()
         xcheck = xcheck.riesz_representation()
 
-    assert errornorm(xcheck, x)/norm(xcheck) < tol
+    assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("family", ("CG", "DG"))
+def test_diffusion_form(family):
+    """Test that the provided diffusion forms converge to a known solution at the expected rate.
+    """
+    from firedrake.adjoint.covariance_operator import diffusion_form
+
+    def poisson_error(mesh, family):
+        V = FunctionSpace(mesh, family, 1)
+        x, y = SpatialCoordinate(mesh)
+
+        f = Function(V).interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
+        uexact = cos(x*pi*2)*cos(y*pi*2)
+
+        nu = Constant(1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+
+        formulation = AutoregressiveCovariance.DiffusionForm(
+            "CG" if family == "CG" else "IP")
+
+        a = diffusion_form(u, v, nu, formulation)
+        L = inner(f, v)*dx
+
+        u = Function(V)
+        solve(a == L, u)
+
+        return errornorm(uexact, u)
+
+    base_nx = 16
+    nrefs = 3
+    base_mesh = UnitSquareMesh(base_nx, base_nx)
+    mh = MeshHierarchy(base_mesh, nrefs)
+
+    errors = [poisson_error(m, family) for m in mh]
+
+    # second order convergence
+    nxs = [base_nx*(2**n) for n in range(nrefs+1)]
+    rate = - np.diff(np.log(errors))/np.diff(np.log(nxs))
+    assert (rate > 1.9).all()

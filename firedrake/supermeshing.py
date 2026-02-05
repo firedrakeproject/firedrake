@@ -6,7 +6,7 @@ import libsupermesh
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
-from firedrake.mg.kernels import to_reference_coordinates, compile_element
+from firedrake.mg.kernels import to_reference_coordinates, compile_element, _make_kernel_args
 from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
 from firedrake.functionspace import FunctionSpace
 from firedrake.assemble import assemble
@@ -20,15 +20,18 @@ from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
+from collections import defaultdict
 
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
+# TODO replace with KAIJ (we require petsc4py wrappers)
 class BlockMatrix(object):
-    def __init__(self, mat, dimension):
+    def __init__(self, mat, dimension, block_scale=None):
         self.mat = mat
         self.dimension = dimension
+        self.block_scale = block_scale
 
     def mult(self, mat, x, y):
         sizes = self.mat.getSizes()
@@ -41,6 +44,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[1], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[0], comm=y.comm)
             self.mat.mult(xi, yi)
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
     def multTranspose(self, mat, x, y):
@@ -54,6 +59,8 @@ class BlockMatrix(object):
             xi = PETSc.Vec().createWithArray(xa, size=sizes[0], comm=x.comm)
             yi = PETSc.Vec().createWithArray(ya, size=sizes[1], comm=y.comm)
             self.mat.multTranspose(xi, yi)
+            if self.block_scale is not None:
+                yi.scale(self.block_scale[i])
             y.array[start::stride] = yi.array_r
 
 
@@ -67,14 +74,6 @@ def assemble_mixed_mass_matrix(V_A, V_B):
 
     if len(V_A) > 1 or len(V_B) > 1:
         raise NotImplementedError("Sorry, only implemented for non-mixed spaces")
-
-    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
-        msg = """
-Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
-import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
-each supermesh cell.
-"""
-        raise NotImplementedError(msg)
 
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
@@ -116,17 +115,41 @@ each supermesh cell.
                 def likely(cell_A):
                     return cell_map[cell_A]
 
-    assert V_A.value_size == V_B.value_size
-    orig_value_size = V_A.value_size
-    if V_A.value_size > 1:
+    assert V_A.block_size == V_B.block_size
+    orig_block_size = V_A.block_size
+
+    # To deal with symmetry, each block of the mass matrix must be rescaled by the multiplicity
+    if V_A.ufl_element().mapping() == "symmetries":
+        symmetry = V_A.ufl_element().symmetry()
+        assert V_B.ufl_element().mapping() == "symmetries"
+        assert V_B.ufl_element().symmetry() == symmetry
+
+        multiplicity = defaultdict(int)
+        for idx in numpy.ndindex(V_A.value_shape):
+            idx = symmetry.get(idx, idx)
+            multiplicity[idx] += 1
+
+        block_scale = tuple(scale for idx, scale in multiplicity.items())
+    else:
+        block_scale = None
+
+    if V_A.block_size > 1:
         V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
-    if V_B.value_size > 1:
+    if V_B.block_size > 1:
         V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements[0])
 
-    assert V_A.value_size == 1
-    assert V_B.value_size == 1
+    if V_A.ufl_element().mapping() != "identity" or V_B.ufl_element().mapping() != "identity":
+        msg = """
+Sorry, only implemented for affine maps for now. To do non-affine, we'd need to
+import much more of the assembly engine of UFL/TSFC/etc to do the assembly on
+each supermesh cell.
+"""
+        raise NotImplementedError(msg)
 
-    preallocator = PETSc.Mat().create(comm=mesh_A._comm)
+    assert V_A.block_size == 1
+    assert V_B.block_size == 1
+
+    preallocator = PETSc.Mat().create(comm=mesh_A.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
     rset = V_B.dof_dset
@@ -155,14 +178,14 @@ each supermesh cell.
     onnz = numpy.repeat(onnz, cset.cdim)
     preallocator.destroy()
 
-    assert V_A.value_size == V_B.value_size
+    assert V_A.block_size == V_B.block_size
     rdim = V_B.dof_dset.cdim
     cdim = V_A.dof_dset.cdim
 
     #
     # Preallocate M_AB.
     #
-    mat = PETSc.Mat().create(comm=mesh_A._comm)
+    mat = PETSc.Mat().create(comm=mesh_A.comm)
     mat.setType(PETSc.Mat.Type.AIJ)
     rsizes = tuple(n * rdim for n in nrows)
     csizes = tuple(c * cdim for c in ncols)
@@ -178,9 +201,6 @@ each supermesh cell.
     mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
     mat.setUp()
 
-    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), name="evaluate_kernel_A")
-    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), name="evaluate_kernel_B")
-
     # We only need one of these since we assume that the two meshes both have CG1 coordinates
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
@@ -188,10 +208,15 @@ each supermesh cell.
         reference_mesh = UnitTriangleMesh(comm=COMM_SELF)
     else:
         reference_mesh = UnitTetrahedronMesh(comm=COMM_SELF)
-    evaluate_kernel_S = compile_element(ufl.Coefficient(reference_mesh.coordinates.function_space()), name="evaluate_kernel_S")
 
+    V_S = reference_mesh.coordinates.function_space()
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
+
+    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()), name="evaluate_kernel_A")
+    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()), name="evaluate_kernel_B")
+    evaluate_kernel_S = compile_element(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()), name="evaluate_kernel_S")
+
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
@@ -338,7 +363,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -351,7 +376,7 @@ each supermesh cell.
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(physical_node_location, simplex_S, reference_node_location);
+                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
@@ -385,7 +410,7 @@ each supermesh cell.
                 coeffs_A[i] = 1.;
                 for(int j=0; j<num_nodes_A; j++) {
                     R_AS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_A(&R_AS[i][j], coeffs_A, reference_nodes_A[j]);
+                    pyop2_kernel_evaluate_kernel_A(%(kernel_args_A)s);
                 }
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
@@ -396,7 +421,7 @@ each supermesh cell.
                 coeffs_B[i] = 1.;
                 for(int j=0; j<num_nodes_B; j++) {
                     R_BS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_B(&R_BS[i][j], coeffs_B, reference_nodes_B[j]);
+                    pyop2_kernel_evaluate_kernel_B(%(kernel_args_B)s);
                 }
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
@@ -420,6 +445,9 @@ each supermesh cell.
         "evaluate_S": str(evaluate_kernel_S),
         "evaluate_A": str(evaluate_kernel_A),
         "evaluate_B": str(evaluate_kernel_B),
+        "kernel_args_S": _make_kernel_args(V_S.finat_element, "physical_node_location", "BARF", "simplex_S", "reference_node_location"),
+        "kernel_args_A": _make_kernel_args(V_A.finat_element, "&R_AS[i][j]", "BARF", "coeffs_A", "reference_nodes_A[j]"),
+        "kernel_args_B": _make_kernel_args(V_B.finat_element, "&R_BS[i][j]", "BARF", "coeffs_B", "reference_nodes_B[j]"),
         "to_reference": str(to_reference_kernel),
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
@@ -438,23 +466,23 @@ each supermesh cell.
         supermesh_kernel_str, "c",
         cppargs=includes,
         ldargs=libs,
-        comm=mesh_A._comm
+        comm=mesh_A.comm
     )
     lib = getattr(dll, "supermesh_kernel")
     lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
     lib.restype = ctypes.c_int
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
-    if orig_value_size == 1:
+    if orig_block_size == 1:
         return mat
     else:
         (lrows, grows), (lcols, gcols) = mat.getSizes()
-        lrows *= orig_value_size
-        grows *= orig_value_size
-        lcols *= orig_value_size
-        gcols *= orig_value_size
+        lrows *= orig_block_size
+        grows *= orig_block_size
+        lcols *= orig_block_size
+        gcols *= orig_block_size
         size = ((lrows, grows), (lcols, gcols))
-        context = BlockMatrix(mat, orig_value_size)
+        context = BlockMatrix(mat, orig_block_size, block_scale=block_scale)
         blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
         blockmat.setUp()
         return blockmat

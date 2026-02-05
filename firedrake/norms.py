@@ -30,8 +30,8 @@ def errornorm(u, uh, norm_type="L2", degree_rise=None, mesh=None):
         raise ValueError("uh should be a Function, is a %r", type(uh))
 
     if isinstance(u, function.Function):
-        degree_u = u.function_space().ufl_element().degree()
-        degree_uh = uh.function_space().ufl_element().degree()
+        degree_u = u.function_space().ufl_element().embedded_superdegree
+        degree_uh = uh.function_space().ufl_element().embedded_superdegree
         if degree_uh > degree_u:
             warning("Degree of exact solution less than approximation degree")
 

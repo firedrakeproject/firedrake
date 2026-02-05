@@ -14,11 +14,9 @@ from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
     assemble, CellSize, FacetNormal,
-    dx, ds, dS, sqrt, Constant,
+    dx, dS, sqrt, Constant,
     Function, Cofunction, RieszMap,
     TrialFunction, TestFunction,
-    FunctionSpace, VectorFunctionSpace,
-    BrokenElement, VectorElement,
     RandomGenerator, PCG64,
     LinearVariationalProblem,
     LinearVariationalSolver,
@@ -55,21 +53,25 @@ class NoiseBackendBase:
     V :
         The :func:`~.firedrake.functionspace.FunctionSpace` to generate the samples in.
     rng :
-        The ``RandomGenerator`` to generate the samples on the discontinuous superspace.
+        The :mod:`RandomGenerator <firedrake.randomfunctiongen>` to generate the samples
+        on the discontinuous superspace.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
 
     See Also
     --------
     PyOP2NoiseBackend
     PetscNoiseBackend
+    VOMNoiseBackend
     WhiteNoiseGenerator
     """
 
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
         self._V = V
-        self._rng = rng or RandomGenerator(PCG64(seed=seed))
+        self._Vb = V.broken_space()
+        self._rng = rng or RandomGenerator(PCG64(seed=seed, comm=V.comm))
 
     @abc.abstractmethod
     def sample(self, *, rng=None,
@@ -81,8 +83,8 @@ class NoiseBackendBase:
         Parameters
         ----------
         rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
+            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
+            sampling IID vectors.  If ``None`` then ``self.rng`` is used.
 
         tensor :
             Optional location to place the result into.
@@ -97,23 +99,12 @@ class NoiseBackendBase:
         """
         raise NotImplementedError
 
-    @cached_property
+    @property
     def broken_space(self):
         """
         The discontinuous superspace containing :math:`V`, ``self.function_space``.
         """
-        element = self.function_space.ufl_element()
-        mesh = self.function_space.mesh().unique()
-        if isinstance(element, VectorElement):
-            dim = element.num_sub_elements
-            scalar_element = element.sub_elements[0]
-            broken_element = BrokenElement(scalar_element)
-            Vbroken = VectorFunctionSpace(
-                mesh, broken_element, dim=dim)
-        else:
-            Vbroken = FunctionSpace(
-                mesh, BrokenElement(element))
-        return Vbroken
+        return self._Vb
 
     @property
     def function_space(self):
@@ -123,7 +114,8 @@ class NoiseBackendBase:
 
     @property
     def rng(self):
-        """The ``RandomGenerator`` to generate the IID sample on the broken function space.
+        """The :mod:`RandomGenerator <firedrake.randomfunctiongen>` to generate the
+        IID sample on the broken function space.
         """
         return self._rng
 
@@ -132,29 +124,18 @@ class NoiseBackendBase:
         """A :class:`~firedrake.cofunction.RieszMap` to cache the solver
         for :meth:`~firedrake.cofunction.Cofunction.riesz_representation`.
         """
-        return RieszMap(self.function_space, constant_jacobian=True)
-        """
-        Generate a white noise sample.
-
-        Parameters
-        ----------
-        rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
-
-        tensor :
-            Optional location to place the result into.
-
-        apply_riesz :
-            Whether to apply an L2 Riesz map to the result to return
-            a sample in the primal space.
-        """
+        return RieszMap(self.function_space, "L2", constant_jacobian=True)
 
 
 class PyOP2NoiseBackend(NoiseBackendBase):
     """
     A PyOP2 based implementation of a mass matrix square root
     for generating white noise.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
     """
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
@@ -229,8 +210,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         )
 
         # Get the BLAS and LAPACK compiler parameters to compile the kernel
-        # TODO: Ask CW if this is the right comm to use.
-        comm = V.mesh()._comm
+        comm = V.mesh().comm
         if comm.rank == 0:
             petsc_variables = petsctools.get_petscvariables()
             BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
@@ -282,6 +262,11 @@ class PetscNoiseBackend(NoiseBackendBase):
     """
     A PETSc based implementation of a mass matrix square root action
     for generating white noise.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
     """
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
@@ -317,32 +302,26 @@ class PetscNoiseBackend(NoiseBackendBase):
 
 class VOMNoiseBackend(NoiseBackendBase):
     """
-    A PETSc based implementation of a mass matrix square root action
-    for generating white noise on a vertex only mesh.
-    """
-    def __init__(self, V: WithGeometry, rng=None,
-                 seed: int | None = None):
-        super().__init__(V, rng=rng, seed=seed)
-        self.cholesky = L2Cholesky(V)
-        self._zb = Function(V)
-        self.M = inner(self._zb, TestFunction(V))*dx
+    A mass matrix square root for generating white noise
+    on a vertex only mesh.
 
+    Notes
+    -----
+    Computationally this is a no-op because the mass matrix
+    on a vertex only mesh is the identity, but we need a
+    consistent interface with other white noise backends.
+
+    See Also
+    --------
+    NoiseBackendBase
+    WhiteNoiseGenerator
+    """
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
         rng = rng or self.rng
 
-        # z
-        z = rng.standard_normal(self.broken_space)
-        # C z
-        self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
-
-        # Usually we would interpolate to the unbroken space,
-        # but here we're on a VOM so everything is broken.
-        # L C z
-        # b = Cofunction(V.dual()).interpolate(Cz)
-        b = Cz
+        b = rng.standard_normal(self.function_space)
 
         if apply_riesz:
             b = b.riesz_representation(self.riesz_map)
@@ -372,7 +351,8 @@ class WhiteNoiseGenerator:
     rng :
         Initialised random number generator to use for sampling IID vectors.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
 
     References
     ----------
@@ -420,8 +400,8 @@ class WhiteNoiseGenerator:
         Parameters
         ----------
         rng :
-            A ``RandomGenerator`` to use for sampling IID vectors.
-            If ``None`` then ``self.rng`` is used.
+            A :mod:`RandomGenerator <firedrake.randomfunctiongen>` to use for
+            sampling IID vectors.  If ``None`` then ``self.rng`` is used.
 
         tensor :
             Optional location to place the result into.
@@ -515,17 +495,20 @@ class CovarianceOperatorBase:
 
     Inheriting classes must implement the following methods:
 
+    - ``rng``
+
+    - ``function_space``
+
+    Inheriting classes may implement the following methods (at least one
+    of this list must be implemented for this class to be useful):
+
     - ``sample``
 
     - ``apply_inverse``
 
     - ``apply_action``
 
-    - ``rng``
-
-    - ``function_space``
-
-    They may optionally implement ``norm`` to provide a more
+    They may optionally override ``norm`` to provide a more
     efficient implementation.
 
     See Also
@@ -549,7 +532,6 @@ class CovarianceOperatorBase:
         """
         raise NotImplementedError
 
-    @abc.abstractmethod
     def sample(self, *, rng: WhiteNoiseGenerator | None = None,
                tensor: Function | None = None):
         r"""
@@ -569,7 +551,9 @@ class CovarianceOperatorBase:
         firedrake.function.Function :
             The sample.
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Need to implementation for sampling w~N(0, B), for"
+            " example by calculating w=B^{1/2}z with z~N(0, I)")
 
     def norm(self, x: Function):
         r"""Return the weighted norm :math:`\|x\|_{B^{-1}} = x^{T}B^{-1}x`.
@@ -592,7 +576,6 @@ class CovarianceOperatorBase:
         """
         return self.apply_inverse(x)(x)
 
-    @abc.abstractmethod
     def apply_inverse(self, x: Function, *,
                       tensor: Cofunction | None = None):
         r"""Return :math:`y = B^{-1}x` where B is the covariance operator.
@@ -610,9 +593,10 @@ class CovarianceOperatorBase:
         firedrake.cofunction.Cofunction :
             The result of :math:`B^{-1}x`
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Inverse of B not implemented. You probably"
+            " also want to implement apply_action.")
 
-    @abc.abstractmethod
     def apply_action(self, x: Cofunction, *,
                      tensor: Function | None = None):
         r"""Return :math:`y = Bx` where B is the covariance operator.
@@ -631,7 +615,9 @@ class CovarianceOperatorBase:
         firedrake.function.Function :
             The result of :math:`B^{-1}x`
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Action of B not implemented. You probably"
+            " also want to implement apply_inverse.")
 
 
 class AutoregressiveCovariance(CovarianceOperatorBase):
@@ -680,7 +666,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     rng :
         White noise generator to seed generating correlated samples.
     seed :
-        Seed for the ``RandomGenerator``. Ignored if ``rng`` is given.
+        Seed for the :mod:`RandomGenerator <firedrake.randomfunctiongen>`.
+        Ignored if ``rng`` is given.
     form : AutoregressiveCovariance.DiffusionForm | ufl.Form | None
         The diffusion formulation or form. If a ``DiffusionForm`` then
         :func:`.diffusion_form` will be used to generate the diffusion
@@ -900,6 +887,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
     See Also
     --------
     AutoregressiveCovariance
+    AutoregressiveCovariance.DiffusionForm
     """
     if formulation == AutoregressiveCovariance.DiffusionForm.CG:
         return inner(u, v)*dx + inner(kappa*grad(u), grad(v))*dx
@@ -910,16 +898,12 @@ def diffusion_form(u, v, kappa: Constant | Function,
         h = CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         alpha_h = Constant(4.0)/h_avg
-        gamma_h = Constant(8.0)/h
         return (
             inner(u, v)*dx + kappa*(
                 inner(grad(u), grad(v))*dx
                 - inner(avg(2*outer(u, n)), avg(grad(v)))*dS
                 - inner(avg(grad(u)), avg(2*outer(v, n)))*dS
                 + alpha_h*inner(avg(2*outer(u, n)), avg(2*outer(v, n)))*dS
-                - inner(outer(u, n), grad(v))*ds
-                - inner(grad(u), outer(v, n))*ds
-                + gamma_h*inner(u, v)*ds
             )
         )
 
@@ -954,6 +938,16 @@ class CovarianceMatCtx:
     CovariancePC
     """
     class Operation(Enum):
+        """
+        The covariance operation to apply with this Mat.
+
+        See Also
+        --------
+        CovarianceOperatorBase
+        AutoregressiveCovariance
+        CovarianceMat
+        CovariancePC
+        """
         ACTION = 'action'
         INVERSE = 'inverse'
 
@@ -1063,6 +1057,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     CovarianceOperatorBase
     AutoregressiveCovariance
     CovarianceMatCtx
+    CovarianceMatCtx.Operation
     CovariancePC
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
@@ -1074,6 +1069,9 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     mat.setUp()
     mat.assemble()
     return mat
+
+
+CovarianceMat.Operation = CovarianceMatCtx.Operation
 
 
 class CovariancePC(petsctools.PCBase):

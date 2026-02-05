@@ -23,14 +23,12 @@ def _ensemble_mpi_dispatch(func):
                for arg in [*args, *kwargs.values()]):
             return func(self, *args, **kwargs)
         else:
-            mpicall = getattr(
-                self._ensemble_comm,
-                func.__name__)
+            mpicall = getattr(self._ensemble_comm, func.__name__)
             return mpicall(*args, **kwargs)
     return _mpi_dispatch
 
 
-class Ensemble(object):
+class Ensemble:
     def __init__(self, comm, M, **kwargs):
         """
         Create a set of space and ensemble subcommunicators.
@@ -49,8 +47,6 @@ class Ensemble(object):
 
         # Global comm
         self.global_comm = comm
-        # Internal global comm
-        self._comm = internal_comm(comm, self)
 
         ensemble_name = kwargs.get("ensemble_name", "Ensemble")
         # User and internal communicator for spatial parallelism, contains a
@@ -58,13 +54,16 @@ class Ensemble(object):
         self.comm = self.global_comm.Split(color=(rank // M), key=rank)
         self.comm.name = f"{ensemble_name} spatial comm"
         weakref.finalize(self, self.comm.Free)
-        self._spatial_comm = internal_comm(self.comm, self)
 
         # User and internal communicator for ensemble parallelism, contains all
         # processes in `global_comm` which have the same rank in `comm`.
         self.ensemble_comm = self.global_comm.Split(color=(rank % M), key=rank)
         self.ensemble_comm.name = f"{ensemble_name} ensemble comm"
         weakref.finalize(self, self.ensemble_comm.Free)
+        # Keep a reference to the internal communicator because some methods return
+        # non-blocking requests and we need to avoid cleaning up the communicator before
+        # they complete. Note that this communicator should *never* be passed to PETSc, as
+        # objects created with the communicator will never get cleaned up.
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
         assert self.comm.size == M
@@ -92,11 +91,11 @@ class Ensemble(object):
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
-        if MPI.Comm.Compare(f._comm, self._spatial_comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+        if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
             raise ValueError("Function communicator does not match space communicator")
 
         if g is not None:
-            if MPI.Comm.Compare(f._comm, g._comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            if MPI.Comm.Compare(f.comm, g.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
                 raise ValueError("Mismatching communicators for functions")
             if f.function_space() != g.function_space():
                 raise ValueError("Mismatching function spaces for functions")
@@ -208,7 +207,6 @@ class Ensemble(object):
         :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
         """
         self._check_function(f)
-
         return [self._ensemble_comm.Ibcast(dat.data, root=root)
                 for dat in f.dat]
 

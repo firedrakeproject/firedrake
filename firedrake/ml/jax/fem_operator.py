@@ -173,7 +173,8 @@ def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched
             x_P = jnp.array(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = jnp.array(np.ravel(x.dat.data_ro), **kwargs)
+            with x.dat.vec_ro as vec:
+                x_P = jnp.array(np.ravel(vec.buffer_r), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to JAX
             return x_P[None, :]
@@ -222,5 +223,7 @@ def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function
             val = val[0]
         return Constant(val)
     else:
-        x_F = Function(V, val=np.asarray(x))
+        x_F = Function(V)
+        with x_F.dat.vec_wo as vec:
+            vec.array_w = np.asarray(x)
         return x_F

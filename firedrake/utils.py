@@ -168,3 +168,20 @@ def deprecated(prefer=None, internal=False):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def check_netgen_installed() -> None:
+    """Check that netgen and ngsPETSc are available.
+
+    If they are not an import error is raised.
+
+    """
+    try:
+        import netgen  # noqa: F401
+        import ngsPETSc  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "Unable to import netgen and ngsPETSc. Please ensure that they "
+            "are installed and available to Firedrake (see "
+            "https://www.firedrakeproject.org/install.html#netgen)."
+        )

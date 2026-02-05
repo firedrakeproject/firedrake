@@ -3,6 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
+# TODO RELEASE set to ">=3.25"
 PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
@@ -45,8 +46,8 @@ if _is_logging:
     del atexit
 del petsc
 
-from ufl import *
-from finat.ufl import *
+from ufl import *  # noqa: F401
+from finat.ufl import *  # noqa: F401
 
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
@@ -56,54 +57,127 @@ import firedrake.citations  # noqa: F401
 petsctools.cite("FiredrakeUserManual")
 del petsctools
 
-from firedrake.assemble import *
-from firedrake.bcs import *
-from firedrake.checkpointing import *
-from firedrake.cofunction import *
-from firedrake.constant import *
-from firedrake.deflation import *
-from firedrake.exceptions import *
-from firedrake.function import *
-from firedrake.functionspace import *
-from firedrake.interpolation import *
-from firedrake.linear_solver import *
-from firedrake.preconditioners import *
-from firedrake.mesh import *
-from firedrake.mg.mesh import *
-from firedrake.mg.interface import *
-from firedrake.mg.embedded import *
-from firedrake.mg.opencascade_mh import *
-from firedrake.norms import *
-from firedrake.nullspace import *
-from firedrake.parameters import *
-from firedrake.parloops import *
-from firedrake.projection import *
-from firedrake.slate import *
-from firedrake.slope_limiter import *
-from firedrake.solving import *
-from firedrake.ufl_expr import *
-from firedrake.utility_meshes import *
-from firedrake.variational_solver import *
-from firedrake.eigensolver import *
-from firedrake.ensemble import *
-from firedrake.randomfunctiongen import *
-from firedrake.external_operators import *
+from firedrake.petsc import PETSc  # noqa: F401
+from firedrake.assemble import assemble  # noqa: F401
+from firedrake.bcs import DirichletBC, homogenize, EquationBC  # noqa: F401
+from firedrake.checkpointing import (  # noqa: F401
+    DumbCheckpoint, HDF5File, FILE_READ, FILE_CREATE,
+    FILE_UPDATE, CheckpointFile
+)
+from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
+from firedrake.constant import Constant  # noqa: F401
+from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
+from firedrake.exceptions import (  # noqa: F401
+    FiredrakeException, ConvergenceError, MismatchingDomainError,
+    VertexOnlyMeshMissingPointsError, DofNotDefinedError
+)
+from firedrake.function import (  # noqa: F401
+    Function, PointNotInDomainError,
+    CoordinatelessFunction, PointEvaluator
+)
+from firedrake.functionspace import (  # noqa: F401
+    MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
+    TensorFunctionSpace, RestrictedFunctionSpace
+)
+from firedrake.interpolation import (  # noqa: F401
+    interpolate, Interpolate, get_interpolator
+)
+from firedrake.linear_solver import LinearSolver  # noqa: F401
+from firedrake.preconditioners import (  # noqa: F401
+    PCBase, SNESBase, PCSNESBase, ASMPatchPC, ASMStarPC, ASMVankaPC,
+    ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
+    MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
+    LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
+    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC
+)
+from firedrake.mesh import (  # noqa: F401
+    Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
+    SubDomainData, unmarked, DistributedMeshOverlapType,
+    DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
+    AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
+    VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
+)
+from firedrake.mg import (  # noqa: F401
+    HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
+    NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
+    prolong, restrict, inject, TransferManager,
+    OpenCascadeMeshHierarchy
+)
+from firedrake.norms import errornorm, norm  # noqa: F401
+from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
+from firedrake.output import VTKFile  # noqa: F401
+from firedrake.parameters import (  # noqa: F401
+    Parameters, parameters, disable_performance_optimisations
+)
+from firedrake.parloops import (  # noqa: F401
+    par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
+)
+from firedrake.projection import (  # noqa: F401
+    project, Projector
+)
+from firedrake.slate import (  # noqa: F401
+    AssembledVector, Block, Factorization, Tensor, Inverse,
+    Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
+    DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
+    SCPC, TensorOp
+)
+from firedrake.slope_limiter import (  # noqa: F401
+    Limiter, VertexBasedLimiter
+)
+from firedrake.solving import solve  # noqa: F401
+from firedrake.ufl_expr import (  # noqa: F401
+    Argument, Coargument, TestFunction, TrialFunction,
+    TestFunctions, TrialFunctions, derivative, adjoint,
+    action, CellSize, FacetNormal
+)
+from firedrake.utility_meshes import (  # noqa: F401
+    IntervalMesh, UnitIntervalMesh, PeriodicIntervalMesh,
+    PeriodicUnitIntervalMesh, UnitTriangleMesh, RectangleMesh,
+    TensorRectangleMesh, SquareMesh, UnitSquareMesh, PeriodicRectangleMesh,
+    PeriodicSquareMesh, PeriodicUnitSquareMesh, CircleManifoldMesh,
+    UnitDiskMesh, UnitBallMesh, UnitTetrahedronMesh, TensorBoxMesh,
+    BoxMesh, CubeMesh, UnitCubeMesh, PeriodicBoxMesh, PeriodicUnitCubeMesh,
+    IcosahedralSphereMesh, UnitIcosahedralSphereMesh, OctahedralSphereMesh,
+    UnitOctahedralSphereMesh, CubedSphereMesh, UnitCubedSphereMesh,
+    TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh
+)
+from firedrake.variational_solver import (  # noqa: F401
+    LinearVariationalProblem, LinearVariationalSolver,
+    NonlinearVariationalProblem, NonlinearVariationalSolver
+)
+from firedrake.eigensolver import (  # noqa: F401
+    LinearEigenproblem, LinearEigensolver
+)
+from firedrake.ensemble import (  # noqa: F401
+    Ensemble, EnsembleFunction, EnsembleCofunction,
+    EnsembleFunctionSpace, EnsembleDualSpace, EnsembleBJacobiPC,
+    EnsembleBlockDiagonalMat
+)
+from firedrake.randomfunctiongen import *  # noqa: F401
+from firedrake.external_operators import (  # noqa: F401
+    AbstractExternalOperator, assemble_method,
+    PointexprOperator, point_expr, MLOperator
+)
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 
-from firedrake.logging import *
+from firedrake.logging import (  # noqa: F401
+    set_level, set_log_handlers, set_log_level, DEBUG, INFO,
+    WARNING, ERROR, CRITICAL, log, debug, info, warning, error,
+    critical, info_red, info_green, info_blue, RED, GREEN, BLUE
+)
+from firedrake.matrix import (  # noqa: F401
+    MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
+)
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot, File  # noqa: F401
-# Once `File` is deprecated update the above line removing `File` and add
-#   from firedrake._deprecation import output
-#   sys.modules["firedrake.output"] = output
-from firedrake.output import *
+from firedrake._deprecation import plot  # noqa: F401
 import sys
 sys.modules["firedrake.plot"] = plot
-from firedrake.plot import *
+from firedrake.plot import *  # noqa: F401
 
 del sys
 
