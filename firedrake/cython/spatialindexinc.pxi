@@ -40,6 +40,9 @@ cdef extern from "spatialindex/capi/sidx_api.h":
     void IndexProperty_Destroy(IndexPropertyH hProp)
 
     IndexH Index_Create(IndexPropertyH hProp)
+    IndexH Index_CreateWithArray(IndexPropertyH properties, uint64_t n, uint32_t dimension,
+                        uint64_t i_stri, uint64_t d_i_stri, uint64_t d_j_stri,
+                        int64_t *ids, double *mins, double *maxs)
     RTError Index_InsertData(IndexH index, int64_t id,
                              double* pdMin, double* pdMax, uint32_t nDimension,
                              const uint8_t* pData, uint32_t nDataLength)

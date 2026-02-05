@@ -14,7 +14,7 @@ cdef class SpatialIndex(object):
 
     cdef IndexH index
 
-    def __cinit__(self, uint32_t dim):
+    def __cinit__(self, uint32_t dim, uintptr_t handle=0):
         """Initialize a native spatial index.
 
         :arg dim: spatial (geometric) dimension
@@ -23,6 +23,10 @@ cdef class SpatialIndex(object):
         cdef RTError err = RT_None
 
         self.index = NULL
+        if handle != 0:
+            # Wrap an existing index handle.
+            self.index = <IndexH>handle
+            return
         try:
             ps = IndexProperty_Create()
             if ps == NULL:
@@ -67,19 +71,58 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     """
     cdef:
         SpatialIndex spatial_index
-        int64_t i
+        np.ndarray[np.int64_t, ndim=1, mode="c"] ids
+        IndexPropertyH ps
+        IndexH index
+        uint64_t n
         uint32_t dim
         RTError err
+        uint64_t i_stri
+        uint64_t d_i_stri
+        uint64_t d_j_stri
 
     assert regions_lo.shape[0] == regions_hi.shape[0]
     assert regions_lo.shape[1] == regions_hi.shape[1]
-    dim = regions_lo.shape[1]
+    n = <uint64_t>regions_lo.shape[0]
+    dim = <uint32_t>regions_lo.shape[1]
+    ids = np.arange(n, dtype=np.int64)
 
-    spatial_index = SpatialIndex(dim)
-    for i in xrange(len(regions_lo)):
-        err = Index_InsertData(spatial_index.index, i, &regions_lo[i, 0], &regions_hi[i, 0], dim, NULL, 0)
+    # Calculate the strides
+    i_stri = <uint64_t>(ids.strides[0] // ids.itemsize)
+    d_i_stri = <uint64_t>(regions_lo.strides[0] // regions_lo.itemsize)
+    d_j_stri = <uint64_t>(regions_lo.strides[1] // regions_lo.itemsize)
+
+    ps = NULL
+    index = NULL
+    try:
+        ps = IndexProperty_Create()
+        if ps == NULL:
+            raise RuntimeError("failed to create index properties")
+
+        err = IndexProperty_SetIndexType(ps, RT_RTree)
         if err != RT_None:
-            raise RuntimeError("failed to insert data into spatial index")
+            raise RuntimeError("failed to set index type")
+
+        err = IndexProperty_SetDimension(ps, dim)
+        if err != RT_None:
+            raise RuntimeError("failed to set dimension")
+
+        err = IndexProperty_SetIndexStorage(ps, RT_Memory)
+        if err != RT_None:
+            raise RuntimeError("failed to set index storage")
+
+        index = Index_CreateWithArray(ps, n, dim,
+                                      i_stri, d_i_stri, d_j_stri,
+                                      <int64_t*>ids.data,
+                                      <double*>regions_lo.data,
+                                      <double*>regions_hi.data)
+        if index == NULL:
+            raise RuntimeError("failed to create index")
+
+        spatial_index = SpatialIndex(dim, <uintptr_t>index)
+    finally:
+        IndexProperty_Destroy(ps)
+
     return spatial_index
 
 
