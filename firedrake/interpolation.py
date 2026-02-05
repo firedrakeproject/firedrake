@@ -259,7 +259,12 @@ class Interpolator(abc.ABC):
         # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
         self.target_mesh = self.target_space.mesh()
         """The domain we are interpolating into."""
-        self.source_mesh = extract_unique_domain(operand) or self.target_mesh
+
+        try:
+            source_mesh = extract_unique_domain(operand)
+        except ValueError:
+            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+        self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
         # Interpolation options
@@ -418,7 +423,6 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
-        self.target_mesh = self.target_mesh.unique()
         if self.access and self.access != op2.WRITE:
             raise NotImplementedError(
                 "Access other than op2.WRITE not implemented for cross-mesh interpolation."
@@ -442,7 +446,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        if self.source_mesh.geometric_dimension != self.target_mesh.geometric_dimension:
+        if self.source_mesh.unique().geometric_dimension != self.target_mesh.unique().geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
         dest_element = self.target_space.ufl_element()
@@ -479,12 +483,12 @@ class CrossMeshInterpolator(Interpolator):
         """
         from firedrake.assemble import assemble
         # Immerse coordinates of target space point evaluation dofs in src_mesh
-        target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
-        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
+        target_space_vec = VectorFunctionSpace(self.target_mesh.unique(), self.dest_element)
+        f_dest_node_coords = assemble(interpolate(self.target_mesh.unique().coordinates, target_space_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.unique().geometric_dimension)
         try:
             vom = VertexOnlyMesh(
-                self.source_mesh,
+                self.source_mesh.unique(),
                 dest_node_coords,
                 redundant=False,
                 missing_points_behaviour=self.missing_points_behaviour,
@@ -609,11 +613,10 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr):
         super().__init__(expr)
-        self.target_mesh = self.target_mesh.unique()
         subset = self.subset
         if subset is None:
-            target = self.target_mesh.topology
-            source = self.source_mesh.topology
+            target = self.target_mesh.unique().topology
+            source = self.source_mesh.unique().topology
             if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
@@ -654,7 +657,7 @@ class SameMeshInterpolator(Interpolator):
             The tensor to interpolate into.
         """
         if self.rank == 0:
-            R = FunctionSpace(self.target_mesh, "Real", 0)
+            R = FunctionSpace(self.target_mesh.unique(), "Real", 0)
             f = Function(R, dtype=ScalarType)
         elif self.rank == 1:
             f = Function(self.ufl_interpolate.function_space())
@@ -691,8 +694,8 @@ class SameMeshInterpolator(Interpolator):
         Vcol = self.interpolate_args[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
             raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-        Vrow_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vrow)
-        Vcol_map = get_interp_node_map(self.source_mesh, self.target_mesh, Vcol)
+        Vrow_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vrow)
+        Vcol_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vcol)
         sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
                                 [(Vrow_map, Vcol_map, None)],  # non-mixed
                                 name=f"{Vrow.name}_{Vcol.name}_sparsity",
@@ -1691,7 +1694,7 @@ class MixedInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
+        sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
