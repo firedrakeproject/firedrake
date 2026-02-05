@@ -92,7 +92,7 @@ from firedrake.preconditioners import (  # noqa: F401
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
-    SubDomainData, unmarked, DistributedMeshOverlapType,
+    SubDomainData, UNMARKED, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
     VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology

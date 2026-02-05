@@ -54,7 +54,7 @@ from finat.element_factory import as_fiat_cell
 
 __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
-    'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
+    'SubDomainData', 'UNMARKED', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
@@ -76,7 +76,7 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
-unmarked = -1
+UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
@@ -247,7 +247,7 @@ class _Facets(object):
         :param markers: integer marker id or an iterable of marker ids
             (or ``None``, for an empty subset).
         """
-        valid_markers = set([unmarked]).union(self.unique_markers)
+        valid_markers = set([UNMARKED]).union(self.unique_markers)
         markers = as_tuple(markers, numbers.Integral)
         try:
             return self._subsets[markers]
@@ -261,7 +261,7 @@ class _Facets(object):
             # markers
             marked_points_list = []
             for i in markers:
-                if i == unmarked:
+                if i == UNMARKED:
                     _markers = self.mesh.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
                     # Can exclude points labeled with i\in markers here,
                     # as they will be included in the below anyway.
