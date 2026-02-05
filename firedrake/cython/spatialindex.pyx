@@ -9,6 +9,32 @@ from libc.stdlib cimport free
 
 include "spatialindexinc.pxi"
 
+
+cdef IndexPropertyH _make_index_properties(uint32_t dim) except *:
+    cdef IndexPropertyH ps = NULL
+    cdef RTError err = RT_None
+
+    ps = IndexProperty_Create()
+    if ps == NULL:
+        raise RuntimeError("failed to create index properties")
+
+    err = IndexProperty_SetIndexType(ps, RT_RTree)
+    if err != RT_None:
+        IndexProperty_Destroy(ps)
+        raise RuntimeError("failed to set index type")
+
+    err = IndexProperty_SetDimension(ps, dim)
+    if err != RT_None:
+        IndexProperty_Destroy(ps)
+        raise RuntimeError("failed to set dimension")
+
+    err = IndexProperty_SetIndexStorage(ps, RT_Memory)
+    if err != RT_None:
+        IndexProperty_Destroy(ps)
+        raise RuntimeError("failed to set index storage")
+
+    return ps
+
 cdef class SpatialIndex(object):
     """Python class for holding a native spatial index object."""
 
@@ -20,7 +46,6 @@ cdef class SpatialIndex(object):
         :arg dim: spatial (geometric) dimension
         """
         cdef IndexPropertyH ps = NULL
-        cdef RTError err = RT_None
 
         self.index = NULL
         if handle != 0:
@@ -28,22 +53,7 @@ cdef class SpatialIndex(object):
             self.index = <IndexH>handle
             return
         try:
-            ps = IndexProperty_Create()
-            if ps == NULL:
-                raise RuntimeError("failed to create index properties")
-
-            err = IndexProperty_SetIndexType(ps, RT_RTree)
-            if err != RT_None:
-                raise RuntimeError("failed to set index type")
-
-            err = IndexProperty_SetDimension(ps, dim)
-            if err != RT_None:
-                raise RuntimeError("failed to set dimension")
-
-            err = IndexProperty_SetIndexStorage(ps, RT_Memory)
-            if err != RT_None:
-                raise RuntimeError("failed to set index storage")
-
+            ps = _make_index_properties(dim)
             self.index = Index_Create(ps)
             if self.index == NULL:
                 raise RuntimeError("failed to create index")
@@ -95,22 +105,7 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     ps = NULL
     index = NULL
     try:
-        ps = IndexProperty_Create()
-        if ps == NULL:
-            raise RuntimeError("failed to create index properties")
-
-        err = IndexProperty_SetIndexType(ps, RT_RTree)
-        if err != RT_None:
-            raise RuntimeError("failed to set index type")
-
-        err = IndexProperty_SetDimension(ps, dim)
-        if err != RT_None:
-            raise RuntimeError("failed to set dimension")
-
-        err = IndexProperty_SetIndexStorage(ps, RT_Memory)
-        if err != RT_None:
-            raise RuntimeError("failed to set index storage")
-
+        ps = _make_index_properties(dim)
         index = Index_CreateWithArray(ps, n, dim,
                                       i_stri, d_i_stri, d_j_stri,
                                       <int64_t*>ids.data,
