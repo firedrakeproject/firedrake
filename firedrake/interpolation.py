@@ -445,18 +445,13 @@ class CrossMeshInterpolator(Interpolator):
 
     @cached_property
     def _target_space_element(self) -> FiniteElementBase:
-        """Return the element of `self.target_space`. If V is tensor/vector valued,
-        return the base scalar element.
-
-        Parameters
-        ----------
-        V
-            A :class:`.WithGeometry` function space.
+        """The element of `self.target_space`. If `self.target_space` is tensor/vector valued,
+        the base scalar element.
 
         Returns
         -------
         FiniteElementBase
-            The base element of V.
+            The base element of `self.target_space`.
         """
         dest_element = self.target_space.ufl_element()
         if isinstance(dest_element, MixedElement):
@@ -490,7 +485,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @cached_property
     def _symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
-        """Return symbolic ``Interpolate`` expressions for point evaluation of `self.target_space`s
+        """The symbolic ``Interpolate`` expressions for point evaluation of `self.target_space`s
         dofs in the source mesh, and the corresponding input-ordering interpolation.
 
         Returns
