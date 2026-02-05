@@ -1,7 +1,6 @@
 from firedrake import *
 import pytest
 import numpy as np
-from finat.quadrature import QuadratureRule
 from functools import partial
 
 
@@ -24,9 +23,9 @@ def fs_shape(V):
         raise ValueError("Invalid function space shape")
 
 
-@pytest.fixture(params=[("RT", 1), ("RT", 2), ("BDM", 1), ("BDM", 2), ("BDFM", 2), 
+@pytest.fixture(params=[("RT", 1), ("RT", 2), ("BDM", 1), ("BDM", 2), ("BDFM", 2),
                         ("HHJ", 0), ("HHJ", 2), ("N1curl", 1), ("N1curl", 2),
-                        ("N2curl", 1), ("N2curl", 2), ("GLS", 1), ("GLS", 2), 
+                        ("N2curl", 1), ("N2curl", 2), ("GLS", 1), ("GLS", 2),
                         ("GLS2", 2), ("Regge", 0), ("Regge", 2)],
                 ids=lambda x: f"{x[0]}_{x[1]}")
 def V(request):

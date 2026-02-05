@@ -430,15 +430,15 @@ class CrossMeshInterpolator(Interpolator):
 
         if self.source_mesh.unique().geometric_dimension != self.target_mesh.unique().geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
-        
+
         # Interpolate into intermediate quadrature space for non-identity mapped elements
         if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
             self.original_target_space = self.target_space
-            r"""The original target space for interpolation, as specified by the user. 
+            r"""The original target space for interpolation, as specified by the user.
             This is only used if ``self.into_quadrature_space`` is ``True``."""
             self.target_space = self.target_space.quadrature_space()
-            r"""The target space for the cross-mesh interpolation. Must have point-evaluation dofs. 
-            If ``self.original_target_space`` does not have point-evaluation dofs, then this is 
+            r"""The target space for the cross-mesh interpolation. Must have point-evaluation dofs.
+            If ``self.original_target_space`` does not have point-evaluation dofs, then this is
             an intermediate quadrature space."""
 
         self.into_quadrature_space = into_quadrature_space
