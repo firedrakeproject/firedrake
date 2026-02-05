@@ -1,5 +1,6 @@
 from firedrake import *
 import numpy
+import pytest
 
 sparams = {
     "mat_type": "nest",
