@@ -873,7 +873,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         # If F: V3 x V2 -> R, then
         # Interpolate(TestFunction(V1), F) <=> Action(Interpolate(TestFunction(V1), TrialFunction(V2.dual())), F).
         # The result is a two-form V3 x V1 -> R.
-        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form):
+        if isinstance(expr, ufl.Interpolate) and isinstance(expr.argument_slots()[0], ufl.form.Form) and len(expr.argument_slots()[0].arguments()) == 2:
             form, operand = expr.argument_slots()
             vstar = firedrake.Argument(form.arguments()[0].function_space().dual(), 1)
             expr = expr._ufl_expr_reconstruct_(operand, v=vstar)
