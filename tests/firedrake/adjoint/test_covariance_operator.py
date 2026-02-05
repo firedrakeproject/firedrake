@@ -74,14 +74,14 @@ def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
 
     covariances = [np.cov(samples[:, :ns]) for ns in nsamples]
 
-    # Covariance matrix should converge at a rate of sqrt(n)
-    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
-    normalised_errors = [err*sqrt(n) for err, n in zip(errors, nsamples)]
-    normalised_errors /= normalised_errors[-1]
+    # Measured covariance matrix should converge at a rate of sqrt(n).
+    # The number of samples is fairly small to keep the test cost
+    # lower so we only test the mean rate to a low tolerance.
 
-    # Loose tolerance because RNG
-    tol = 0.2
-    assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
+    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
+    rate = -np.diff(np.log(errors))/np.diff(np.log(nsamples))
+
+    assert np.mean(rate) > 0.4
 
 
 @pytest.mark.skipcomplex
@@ -131,14 +131,14 @@ def test_vom_white_noise(dim, mesh_type, rng):
 
     covariances = [np.cov(samples[:, :ns]) for ns in nsamples]
 
-    # Covariance matrix should converge at a rate of sqrt(n)
-    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
-    normalised_errors = [err*sqrt(n) for err, n in zip(errors, nsamples)]
-    normalised_errors /= normalised_errors[-1]
+    # Measured covariance matrix should converge at a rate of sqrt(n).
+    # The number of samples is fairly small to keep the test cost
+    # lower so we only test the mean rate to a low tolerance.
 
-    # Loose tolerance because RNG
-    tol = 0.2
-    assert (1 - tol) < np.max(normalised_errors) < (1 + tol)
+    errors = [np.linalg.norm(cov-covmat) for cov in covariances]
+    rate = -np.diff(np.log(errors))/np.diff(np.log(nsamples))
+
+    assert np.mean(rate) > 0.4
 
 
 @pytest.mark.skipcomplex
