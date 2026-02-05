@@ -2791,14 +2791,7 @@ values from f.)"""
         with PETSc.Log.Event("Xs_data_as"):
             Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         with PETSc.Log.Event("c_locator_call"):
-            self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                                xs_data,
-                                                Xs_data,
-                                                ref_cells_dists,
-                                                cells_data,
-                                                npoints,
-                                                cells_ignore.shape[1],
-                                                cells_ignore)
+            self._c_locator(tolerance=tolerance)(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
     @PETSc.Log.EventDecorator()
@@ -3230,6 +3223,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     mesh.name = name
     mesh._tolerance = tolerance
     return mesh
+
 
 @PETSc.Log.EventDecorator()
 def make_vom_from_vom_topology(topology, name, tolerance=0.5):
@@ -3760,6 +3754,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
             raise ValueError("Other fields have already been set")
         self._other_fields = fields
 
+
 @PETSc.Log.EventDecorator()
 def _pic_swarm_in_mesh(
     parent_mesh,
@@ -4017,6 +4012,7 @@ def _pic_swarm_in_mesh(
     original_ordering_swarm.setPointSF(sf)
 
     return swarm, original_ordering_swarm, n_missing_points
+
 
 @PETSc.Log.EventDecorator()
 def _dmswarm_create(
@@ -4299,6 +4295,7 @@ def _mpi_array_lexicographic_min(x, y, datatype):
 
 
 array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
+
 
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
@@ -4604,6 +4601,7 @@ def _parent_mesh_embedding(
         input_coords_idxs,
         missing_global_idxs,
     )
+
 
 @PETSc.Log.EventDecorator()
 def _swarm_original_ordering_preserve(
