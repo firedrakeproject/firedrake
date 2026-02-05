@@ -430,9 +430,22 @@ class CrossMeshInterpolator(Interpolator):
 
         if self.source_mesh.unique().geometric_dimension != self.target_mesh.unique().geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
+        
+        # Interpolate into intermediate quadrature space for non-identity mapped elements
+        if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
+            self.original_target_space = self.target_space
+            r"""The original target space for interpolation, as specified by the user. 
+            This is only used if ``self.into_quadrature_space`` is ``True``."""
+            self.target_space = self.target_space.quadrature_space()
+            r"""The target space for the cross-mesh interpolation. Must have point-evaluation dofs. 
+            If ``self.original_target_space`` does not have point-evaluation dofs, then this is 
+            an intermediate quadrature space."""
 
-    def _get_element(self, V: WithGeometry) -> FiniteElementBase:
-        """Return the element of the function space V. If V is tensor/vector valued,
+        self.into_quadrature_space = into_quadrature_space
+
+    @cached_property
+    def _target_space_element(self) -> FiniteElementBase:
+        """Return the element of `self.target_space`. If V is tensor/vector valued,
         return the base scalar element.
 
         Parameters
@@ -445,7 +458,7 @@ class CrossMeshInterpolator(Interpolator):
         FiniteElementBase
             The base element of V.
         """
-        dest_element = V.ufl_element()
+        dest_element = self.target_space.ufl_element()
         if isinstance(dest_element, MixedElement):
             if isinstance(dest_element, VectorElement | TensorElement):
                 # In this case all sub elements are equal
@@ -456,37 +469,29 @@ class CrossMeshInterpolator(Interpolator):
             # scalar fiat/finat element
             return dest_element
 
-    def _fs_type(self, V: WithGeometry) -> Callable[..., WithGeometry]:
-        """Returns a callable which returns a function space matching the type of V.
-
-        Parameters
-        ----------
-        V
-            A :class:`.WithGeometry` function space.
+    @cached_property
+    def _target_space_type(self) -> Callable[..., WithGeometry]:
+        """Returns a callable which returns a function space matching the type of `self.target_space`.
 
         Returns
         -------
         Callable
-            A callable which returns a :class:`.WithGeometry` matching the type of V.
+            A callable which returns a :class:`.WithGeometry` matching the type of `self.target_space`.
         """
         # Get the correct type of function space
-        shape = V.value_shape
+        shape = self.target_space.value_shape
         if len(shape) == 0:
             return FunctionSpace
         elif len(shape) == 1:
             return partial(VectorFunctionSpace, dim=shape[0])
         else:
-            symmetry = V.ufl_element().symmetry()
+            symmetry = self.target_space.ufl_element().symmetry()
             return partial(TensorFunctionSpace, shape=shape, symmetry=symmetry)
 
-    def _get_symbolic_expressions(self, target_space: WithGeometry) -> tuple[Interpolate, Interpolate]:
-        """Return symbolic ``Interpolate`` expressions for point evaluation of the `target_space`s
+    @cached_property
+    def _symbolic_expressions(self) -> tuple[Interpolate, Interpolate]:
+        """Return symbolic ``Interpolate`` expressions for point evaluation of `self.target_space`s
         dofs in the source mesh, and the corresponding input-ordering interpolation.
-
-        Parameters
-        ----------
-        target_space
-            The :class:`.WithGeometry` function space which we are interpolating into.
 
         Returns
         -------
@@ -502,12 +507,12 @@ class CrossMeshInterpolator(Interpolator):
             If the target space does not have point-evaluation dofs.
         """
         from firedrake.assemble import assemble
-        if not target_space.finat_element.has_pointwise_dual_basis:
-            raise DofTypeError(f"FunctionSpace {target_space} must have point-evaluation dofs.")
+        if not self.target_space.finat_element.has_pointwise_dual_basis:
+            raise DofTypeError(f"FunctionSpace {self.target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
-        target_mesh = target_space.mesh().unique()
-        target_space_vec = VectorFunctionSpace(target_mesh, self._get_element(target_space))
+        target_mesh = self.target_space.mesh().unique()
+        target_space_vec = VectorFunctionSpace(target_mesh, self._target_space_element)
         f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
         dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, target_mesh.geometric_dimension)
         try:
@@ -525,12 +530,11 @@ class CrossMeshInterpolator(Interpolator):
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
 
         # Get expression for point evaluation at the dest_node_coords
-        fs_type = self._fs_type(target_space)
-        P0DG_vom = fs_type(vom, "DG", 0)
+        P0DG_vom = self._target_space_type(vom, "DG", 0)
         point_eval = interpolate(self.operand, P0DG_vom)
 
         # Interpolate into the input-ordering VOM
-        P0DG_vom_input_ordering = fs_type(vom.input_ordering, "DG", 0)
+        P0DG_vom_input_ordering = self._target_space_type(vom.input_ordering, "DG", 0)
 
         arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
@@ -543,14 +547,12 @@ class CrossMeshInterpolator(Interpolator):
         mat_type = mat_type or "aij"
 
         # Interpolate into intermediate quadrature space for non-identity mapped elements
-        if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
-            target_space = self.target_space.quadrature_space()
-            f = Function(target_space.dual() if self.ufl_interpolate.is_adjoint else target_space)
+        if self.into_quadrature_space:
+            f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:
-            target_space = self.target_space
-            f = tensor or Function(self.ufl_interpolate.function_space() or target_space)
+            f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
 
-        point_eval, point_eval_input_ordering = self._get_symbolic_expressions(target_space)
+        point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
 
         if self.rank == 2:
@@ -565,14 +567,14 @@ class CrossMeshInterpolator(Interpolator):
 
             def callable() -> PETSc.Mat:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
-                if into_quadrature_space:
+                if self.into_quadrature_space:
                     source_space = self.ufl_interpolate.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(source_space, 0), Argument(target_space.dual(), 1)), None, res)
-                        return assemble(action(I, interpolate(TestFunction(target_space), self.target_space))).petscmat
+                        I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
+                        return assemble(action(I, interpolate(TestFunction(self.target_space), self.original_target_space))).petscmat
                     else:
-                        I = AssembledMatrix((Argument(target_space.dual(), 0), Argument(source_space, 1)), None, res)
-                        return assemble(action(interpolate(TrialFunction(target_space), self.target_space), I)).petscmat
+                        I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        return assemble(action(interpolate(TrialFunction(self.target_space), self.original_target_space), I)).petscmat
                 else:
                     return res
 
@@ -580,8 +582,8 @@ class CrossMeshInterpolator(Interpolator):
             assert self.rank == 1
 
             def callable() -> Cofunction:
-                if into_quadrature_space:
-                    cofunc = assemble(interpolate(TestFunction(target_space), self.dual_arg))
+                if self.into_quadrature_space:
+                    cofunc = assemble(interpolate(TestFunction(self.target_space), self.dual_arg))
                     f_target = Cofunction(point_eval.function_space())
                 else:
                     cofunc = self.dual_arg
@@ -626,9 +628,9 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
 
-                if into_quadrature_space:
-                    f_target = Function(self.target_space)
-                    assemble(interpolate(f, self.target_space), tensor=f_target)
+                if self.into_quadrature_space:
+                    f_target = Function(self.original_target_space)
+                    assemble(interpolate(f, self.original_target_space), tensor=f_target)
                 else:
                     f_target = f
 
