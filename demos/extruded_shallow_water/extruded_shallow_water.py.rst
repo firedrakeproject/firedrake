@@ -81,7 +81,58 @@ Time-Stepping Loop
 We evolve the system in time using a Strang splitting method. In each time step,
 we perform a half-step update of the velocity field, a full-step update of the pressure field,
 and then another half-step update of the velocity field. This approach helps to
-maintain stability and accuracy. ::
+maintain stability and accuracy.
+
+**Step 1: Velocity Half-Step**
+First, we solve for an intermediate velocity :math:`u_h` using the pressure 
+from the start of the step :math:`p_0`. Mathematically, we find :math:`u_h \in W` such that:
+
+.. math::
+
+  \int_{\Omega} w \cdot u_h \, dx = \int_{\Omega} w \cdot u_0 \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_0 \, dx \quad \forall w \in W
+
+.. code-block:: python
+
+  a_1 = dot(w, u) * dx
+  L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
+  solve(a_1 == L_1, u_h)
+
+**Step 2: Pressure Full-Step**
+Next, we update the pressure to :math:`p_1` using the divergence of the 
+intermediate velocity :math:`u_h`. We find :math:`p_1 \in X` such that:
+
+.. math::
+
+  \int_{\Omega} \phi \, p_1 \, dx = \int_{\Omega} \phi \, p_0 \, dx - \Delta t \int_{\Omega} \phi (\nabla \cdot u_h) \, dx \quad \forall \phi \in X
+
+.. code-block:: python
+
+  a_2 = phi * p * dx
+  L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
+  solve(a_2 == L_2, p_1)
+
+**Step 3: Velocity Final Half-Step**
+Finally, we compute the velocity at the end of the time step :math:`u_1` using 
+the updated pressure :math:`p_1`. We find :math:`u_1 \in W` such that:
+
+.. math::
+
+  \int_{\Omega} w \cdot u_1 \, dx = \int_{\Omega} w \cdot u_h \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_1 \, dx \quad \forall w \in W
+
+.. code-block:: python
+
+  a_3 = dot(w, u) * dx
+  L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
+  solve(a_3 == L_3, u_1)
+
+Implementation in the Simulation Loop
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here follows the complete implementation of the time-stepping loop, including the updates of the velocity and pressure fields, 
+as well as the projection of the pressure field for visualization at each time step. 
+We also print the current simulation time at each step for tracking progress.
+
+.. code-block:: python
 
   while t < T:
     u = TrialFunction(W)
