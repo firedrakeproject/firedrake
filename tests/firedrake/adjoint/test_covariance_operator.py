@@ -362,6 +362,8 @@ def test_covariance_mat(m, family, operation):
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("family", ("CG", "DG"))
 def test_diffusion_form(family):
+    """Test that the provided diffusion forms converge to a known solution at the expected rate.
+    """
     from firedrake.adjoint.covariance_operator import diffusion_form
 
     def poisson_error(mesh, family):
