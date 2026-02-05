@@ -390,8 +390,10 @@ def test_diffusion_form(family):
     nrefs = 3
     base_mesh = UnitSquareMesh(base_nx, base_nx)
     mh = MeshHierarchy(base_mesh, nrefs)
+
     errors = [poisson_error(m, family) for m in mh]
 
     # second order convergence
-    for i in range(nrefs):
-        assert (errors[i]/errors[i+1])**0.5 > 1.9
+    nxs = [base_nx*(2**n) for n in range(nrefs+1)]
+    rate = - np.diff(np.log(errors))/np.diff(np.log(nxs))
+    assert (rate > 1.9).all()
