@@ -20,33 +20,15 @@ from math import pi
 from firedrake import *
 
 
-@pytest.fixture(params=["x", "y", "both"])
-def direction(request):
-    return request.param
-
-
-@pytest.fixture(params=[False, True],
-                ids=["tri", "quad"])
-def quadrilateral(request):
-    return request.param
-
-
-@pytest.fixture(params=["left", "right", "crossed"])
-def diagonal(request):
-    return request.param
-
-
-def run_periodic_helmholtz(direction, quadrilateral, diagonal):
-    if quadrilateral:
-        if diagonal == "left":
-            # run the test
-            diagonal = None
-        else:
-            # don't run the test
-            return
-
-    mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=quadrilateral,
-                                 diagonal=diagonal, direction=direction)
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("direction", ["x", "y", "both"])
+@pytest.mark.parametrize("cell_options",
+                         [{"quadrilateral": True},
+                          {"quadrilateral": False, "diagonal": "left"},
+                          {"quadrilateral": False, "diagonal": "right"},
+                          {"quadrilateral": False, "diagonal": "crossed"}])
+def test_periodic_helmholtz(direction, cell_options):
+    mesh = PeriodicRectangleMesh(100, 60, 5, 3, **cell_options, direction=direction)
     x = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -56,7 +38,10 @@ def run_periodic_helmholtz(direction, quadrilateral, diagonal):
 
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
-    if direction in ("x", "y"):
+    # FIXME: This suggests some really weird behaviour!
+    if direction == "x":
+        bcs = DirichletBC(V, Constant(0), (3, 4))
+    if direction == "y":
         bcs = DirichletBC(V, Constant(0), (1, 2))
     elif direction == "both":
         bcs = []
@@ -72,12 +57,3 @@ def run_periodic_helmholtz(direction, quadrilateral, diagonal):
     l2err = sqrt(assemble(inner((out-u_exact), (out-u_exact))*dx))
     l2norm = sqrt(assemble(inner(u_exact, u_exact)*dx))
     assert l2err/l2norm < 0.004
-
-
-def test_periodic_helmholtz(direction, quadrilateral, diagonal):
-    run_periodic_helmholtz(direction, quadrilateral, diagonal)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_periodic_helmholtz_parallel(direction, quadrilateral, diagonal):
-    run_periodic_helmholtz(direction, quadrilateral, diagonal)
