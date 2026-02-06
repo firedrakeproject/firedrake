@@ -44,39 +44,23 @@ def _set_local_subs(dst, src):
 class FunctionOrFloatMPIMixin:
     # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
     def _bcast(self, val, root=None):
+        if not isinstance(val, (float, Function, Cofunction)):
+            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
         if root is None:
             return val
-        if isinstance(val, float):
-            val = self.ensemble.ensemble_comm.bcast(val, root=root)
-        elif isinstance(val, Function):
-            val = self.ensemble.bcast(val, root=self.root)
-        else:
-            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
-        return val
+        return self.ensemble.bcast(val, root=root)
 
-    def _reduce(self, vals, root=None):
+    def _reduce(self, vals):
         vals = Enlist(vals)
         for v in vals:
             if not isinstance(v, (Function, Cofunction, float)):
                 raise NotImplementedError(
                     f"Functionals of type {type(v).__name__} are not supported.")
 
-        if isinstance(vals[0], float):
-            comm = self.ensemble.ensemble_comm
-            local_sum = sum(vals)
-            if root is None:
-                return comm.allreduce(local_sum)
-            else:
-                return comm.reduce(local_sum, root=root)
-        else:
-            comm = self.ensemble
-            global_sum = vals[0]._ad_init_zero()
-            local_sum = vals[0]._ad_init_zero()
-            local_sum.assign(sum(vals))
-            if root is None:
-                return comm.allreduce(local_sum, global_sum)
-            else:
-                return comm.reduce(local_sum, global_sum, root=root)
+        local_sum = vals[0]._ad_init_zero()
+        for v in vals:
+            local_sum = local_sum._ad_add(v)
+        return self.ensemble.allreduce(local_sum)
 
     def _allgather(self, vals):
         pass
@@ -139,7 +123,8 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         for c, v in zip(self.controls, Enlist(values)):
             c.update(v)
         if self.reduction_rf:
-            return self.reduction_rf(self._allgather(_local_subs(values)))
+            return self.reduction_rf(
+                self._allgather(_local_subs(values)))
         else:
             return self._reduce(
                 self._sum_rf(_local_subs(values)))
@@ -149,7 +134,10 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         if self.reduction_rf:
             dJ_global = self.reduction_rf.derivative(
                 adj_input=adj_input, apply_riesz=False)
-            dJ_local = [dJ_global[i] for i in range(self._local_indices)]
+            fs = self.functional.function_space()
+            local_indices = tuple(fs.global_spaces_offset + i
+                                  for i in range(fs.nlocal_spaces))
+            dJ_local = [dJ_global[i] for i in local_indices]
         else:
             dJ_local = (
                 self.functional._ad_init_zero(dual=True)._ad_init_object(adj_input))
@@ -203,12 +191,6 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         if not annotating:
             pause_annotation()
         return rf
-
-    @cached_property
-    def _local_indices(self):
-        fs = self.functional.function_space()
-        offset = self.ensemble.ensemble_comm.exscan(fs.nlocal_spaces())
-        return tuple(offset + i for i in range(fs.nlocal_spaces))
 
 
 class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
@@ -267,7 +249,7 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
-        dJ = self._reduce(_local_subs(adj_input), root=self.root)
+        dJ = self._reduce(_local_subs(adj_input))
 
         if apply_riesz:
             return self._control._ad_convert_riesz(
