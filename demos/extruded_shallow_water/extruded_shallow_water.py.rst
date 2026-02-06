@@ -33,7 +33,7 @@ in the horizontal directions, which is important for accurately capturing fluxes
 
   horiz = FiniteElement("BDM", "triangle", 1)
   vert = FiniteElement("DG", "interval", 0)
-  prod = HDiv(OuterProductElement(horiz, vert))
+  prod = HDiv(TensorProductElement(horiz, vert))
   W = FunctionSpace(mesh, prod)
 
 We also define a pressure space  :math:`X` using piecewise constant discontinuous
