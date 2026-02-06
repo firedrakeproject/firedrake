@@ -762,6 +762,7 @@ def parloop(knl, *args, **kwargs):
         raise KernelTypeError
 
 
+@PETSc.Log.EventDecorator()
 def generate_single_cell_wrapper(iterset, args, forward_args=(),
                                  kernel_name=None, wrapper_name=None):
     """Generates wrapper for a single cell. No iteration loop, but cellwise data is extracted.
