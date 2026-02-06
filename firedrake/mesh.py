@@ -595,7 +595,7 @@ class AbstractMeshTopology(abc.ABC):
         return self._local_facet_orientation_dat("interior")
 
     # TODO: make a standalone function
-    def _local_facet_orientation_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
+    def _local_facet_orientation_dat(self, facet_type: Literal["exterior", "interior"]) -> op3.Dat:
         if facet_type == "exterior":
             local_facet_numbers_dat = self._exterior_facet_local_numbers_dat
             arity = 1
@@ -619,11 +619,6 @@ class AbstractMeshTopology(abc.ABC):
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.entity_orientations[:, local_facet_start:local_facet_end]
-
-        # but shuffle to use the cell renumbering
-        # NOTE: I am guessing that it is this way around
-        # map_from_cell_to_facet_orientations = map_from_cell_to_facet_orientations[self._new_to_old_cell_numbering]
-        map_from_cell_to_facet_orientations = map_from_cell_to_facet_orientations[self._old_to_new_cell_numbering_is.indices]
 
         # Make output data;
         # this is a map from an exterior/interior facet to the corresponding

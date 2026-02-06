@@ -1131,7 +1131,8 @@ class DiskCacheKeyGetter(ExpressionVisitor):
         if renamer is None:  # TODO: unsure about this
             renamer = Renamer()
         self._renamer = renamer
-        self._lazy_tree_getter = tree_getter
+        # self._lazy_tree_getter = tree_getter
+        self._lazy_tree_getter = None
         super().__init__()
 
     @functools.singledispatchmethod
@@ -1269,6 +1270,10 @@ class BufferCollector(NodeCollector):
 
         if self._lazy_tree_collector is None:
             self._lazy_tree_collector = TreeBufferCollector(self)
+
+        # part way through an outer traversal, do not recurse
+        if self._lazy_tree_collector._tree is not None:
+            return OrderedFrozenSet()
 
         return self._lazy_tree_collector._safe_call(axis_tree, OrderedFrozenSet())
 

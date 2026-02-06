@@ -15,9 +15,6 @@ import numpy
 from firedrake import *
 import pytest
 
-from firedrake.mesh import MYMESHES
-from pyop3.cache import _heavy_caches
-
 cwd = abspath(dirname(__file__))
 
 
@@ -64,10 +61,6 @@ def test_betti0(space, mesh):
     u, s, v = linalg.svd(L0.M.values)
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 0
-    import gc
-    gc.collect()
-    print("MYMESHES: ", len(MYMESHES))
-    print("MYCACHES: ", len(_heavy_caches))
 
 
 @pytest.mark.parametrize(('space'),
@@ -133,10 +126,6 @@ def test_betti1(space, mesh):
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
-    import gc
-    gc.collect()
-    print("MYMESHES: ", len(MYMESHES))
-    print("MYCACHES: ", len(_heavy_caches))
 
 
 @pytest.mark.parametrize(('space'),
@@ -194,7 +183,3 @@ def test_betti2(space, mesh):
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
-    import gc
-    gc.collect()
-    print("MYMESHES: ", len(MYMESHES))
-    print("MYCACHES: ", len(_heavy_caches))

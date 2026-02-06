@@ -342,15 +342,17 @@ def test_invalid_marker_raises_error(a, V):
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
-    #    +----+----+
+    #    +----+----b
     #    |\ 1 | 2 /
     #  1 | \  |  / 2
     #    |  \ | /
     #    | 0 \|/
-    #    +----+
+    #    +----a
     #      3
     # Rank 0 gets cell 0
     # Rank 1 gets cells 1 & 2
+    # We are imposing a BC over subdomain 2 (RHS) so expect to see vertices
+    # 'a' (owned by rank 0) and 'b' (owned by rank 1 and invisible to rank 0).
     dm = plex_from_cell_list(
         2,
         [[0, 1, 2],
@@ -385,20 +387,12 @@ def test_bc_nodes_cover_ghost_dofs():
     V = FunctionSpace(mesh, "CG", 1)
     bc = DirichletBC(V, 0, 2)
 
-    # I suspect that this may be failing because constrained_points might not
-    # know about the owned/ghost differences.
-    offsets = []
-    for pt in V.axes[bc.constrained_points].iter():
-        offsets.append(V.axes.offset(pt.target_exprs, path=pt.target_path))
-
     if mesh.comm.rank == 0:
-        expected = [1]
+        assert np.allclose(bc.nodes, [1])
     else:
-        expected = [1, 2]
-    assert np.array_equal(offsets, expected)
+        assert np.allclose(bc.nodes, [0, 3])
 
 
-@pytest.mark.skip(reason="pyop3 TODO")  # extruded
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)

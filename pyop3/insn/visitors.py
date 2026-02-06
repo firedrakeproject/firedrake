@@ -576,7 +576,7 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         best_candidate = collect_candidate_indirections(insn, compress="anything", selector=idict(materialize_idxss))
 
     # Materialise any symbolic (composite) dats
-    composite_dats = OrderedFrozenSet.union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
+    composite_dats = OrderedFrozenSet().union(*map(expr_visitors.collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: expr_visitors.materialize_composite_dat(comp_dat, insn.comm)
         for comp_dat in composite_dats
@@ -665,6 +665,7 @@ class MaterializedIndirectionsConcretizer(NodeVisitor):
 
 
     @process.register(insn_types.StandaloneCalledFunction)
+    @process.register(insn_types.Exscan)
     def _(self, func: insn_types.StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> insn_types.StandaloneCalledFunction:
         return func
 

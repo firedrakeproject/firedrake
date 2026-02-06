@@ -665,16 +665,22 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     if not attrs_changed:
         return self
     # TODO: make .comm an attr for all frozen records?
-    elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
-        try:
-            return _make_record_maybe_singleton(self, new_attrs)
-        except UnhashableObjectException:
-            return _make_record(self, new_attrs)
+    # elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
+    elif self.__dataclass_params__.frozen:
+        return _make_record_maybe_singleton(self, new_attrs)
+        # try:
+        #     return _make_record_maybe_singleton(self, new_attrs)
+        # except UnhashableObjectException:
+        #     return _make_record(self, new_attrs)
     else:
         return _make_record(self, new_attrs)
 
 
-@memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
+# NOTE: We use COMM_SELF because __record_init__ isn't always called collectively.
+# I need to think harder about the legality of this. Should I disallow the comm attr
+# for objects where this happens?
+# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
+@memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
 def _make_record_maybe_singleton(*args, **kwargs):
     return _make_record(*args, **kwargs)
 

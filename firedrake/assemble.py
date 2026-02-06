@@ -1058,8 +1058,7 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         mesh = self._form.ufl_domains()[0]
-        # pyop3_compiler_parameters = {"optimize": True}
-        pyop3_compiler_parameters = {"optimize": False}  # debug
+        pyop3_compiler_parameters = {"optimize": True}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:

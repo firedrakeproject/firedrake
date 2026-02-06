@@ -102,7 +102,16 @@ def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
     return value
 
 
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey):
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, unsafe_refcounts: bool = False):
+    """
+    Parameters
+    ----------
+    unsafe_refcounts
+        Flag to disable refcount checking for cache accesses when debug checks are
+        enabled. This is important to bypass cases where the wrapped function may
+        inadvertently create additional references to ``obj``, for instance by
+        populating extra cached properties.
+    """
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
@@ -111,11 +120,17 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey):
                 object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
             cache = obj._pyop3_cache[func.__qualname__]
 
-            key = _checked_get_key(type(cache), lambda: get_key(*args, **kwargs), [obj])
+            if config.debug_checks and not unsafe_refcounts:
+                key = _checked_get_key(type(cache), lambda: get_key(*args, **kwargs), [obj])
+            else:
+                key = get_key(*args, **kwargs)
             try:
                 return cache[key]
             except KeyError:
-                value = _checked_compute_value(type(cache), lambda: func(*args, **kwargs), [obj])
+                if config.debug_checks and not unsafe_refcounts:
+                    value = _checked_compute_value(type(cache), lambda: func(*args, **kwargs), [obj])
+                else:
+                    value = func(*args, **kwargs)
                 return cache.setdefault(key, value)
         return wrapper
     return decorator

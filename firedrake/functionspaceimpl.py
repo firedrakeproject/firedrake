@@ -408,19 +408,17 @@ class WithGeometryBase:
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        V = self  # fixme
-        if sub_domain in ["bottom", "top"] and not V.extruded:
-            raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
-                             sub_domain)
+        if sub_domain in ["bottom", "top"] and not self.extruded:
+            raise ValueError(f"Invalid subdomain '{sub_domain}' for non-extruded mesh")
 
         if sub_domain in {"on_boundary", "top", "bottom"}:
             sdkey = sub_domain
         else:
             sdkey = as_tuple(sub_domain)
-        key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, V.boundary_set)
-        return self.get_facet_closure_nodes(V.mesh(), key)
+        key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
+        return self.get_facet_closure_nodes(self.mesh(), key)
 
-    # TODO: cache on the mesh
+    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, unsafe_refcounts=True)
     def get_facet_closure_nodes(self, mesh, key):
         """Function space nodes in the closure of facets with a given
         marker.
