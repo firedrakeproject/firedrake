@@ -3,7 +3,7 @@ import os
 import tempfile
 import abc
 
-from functools import partial, singledispatch
+from functools import partial
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -19,22 +19,14 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
-from FIAT.reference_element import Point
-
-from finat.element_factory import create_element, as_fiat_cell
 from finat.ufl import TensorElement, VectorElement, MixedElement
-from finat.fiat_elements import ScalarFiatElement
-from finat.quadrature import QuadratureRule
-from finat.quadrature_element import QuadratureElement
-from finat.point_set import UnknownPointSet
-from finat.tensorfiniteelement import TensorFiniteElement
-
-from gem.gem import Variable
+from finat.element_factory import create_element
 
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
+from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
@@ -865,30 +857,20 @@ def _build_interpolation_callables(
     assert isinstance(dual_arg, Cofunction | Coargument)
     V = dual_arg.function_space().dual()
 
-    try:
-        to_element = create_element(V.ufl_element())
-    except KeyError:
-        # FInAT only elements
-        raise NotImplementedError(f"Don't know how to create FIAT element for {V.ufl_element()}")
-
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+    target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
         # target element with runtime point set expressions as their
         # quadrature rule point set.
-        rt_var_name = 'rt_X'
-        try:
-            cell = operand.ufl_element().ufl_cell()
-        except AttributeError:
-            # expression must be pure function of spatial coordinates so
-            # domain has correct ufl cell
-            cell = source_mesh.ufl_cell()
-        to_element = rebuild(to_element, cell, rt_var_name)
+        rt_var_name = "rt_X"
+        target_element = runtime_quadrature_element(source_mesh, target_element,
+                                                    rt_var_name=rt_var_name)
 
     cell_set = target_mesh.cell_set
     if subset is not None:
@@ -904,7 +886,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, Cofunction) and not to_element.is_dg():
+    if isinstance(dual_arg, Cofunction) and not create_element(target_element).is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -928,13 +910,7 @@ def _build_interpolation_callables(
         with wdat.vec_ro as w, v.dat.vec as y:
             copyin += (partial(y.pointwiseMult, y, w),)
 
-    # We need to pass both the ufl element and the finat element
-    # because the finat elements might not have the right mapping
-    # (e.g. L2 Piola, or tensor element with symmetries)
-    # FIXME: for the runtime unknown point set (for cross-mesh
-    # interpolation) we have to pass the finat element we construct
-    # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
+    kernel = compile_expression(cell_set.comm, expr, target_element,
                                 domain=source_mesh, parameters=parameters)
     ast = kernel.ast
     oriented = kernel.oriented
@@ -1071,7 +1047,7 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
+def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
     dual_arg, operand = expr.argument_slots()
     return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters))
@@ -1084,58 +1060,6 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
 @PETSc.Log.EventDecorator()
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
-
-
-@singledispatch
-def rebuild(element, expr_cell, rt_var_name):
-    """Construct a FInAT QuadratureElement for interpolation onto a
-    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
-    (1, tdim) where tdim is the topological dimension of expr_cell. The
-    weight is [1.0], since the single local dof in the VertexOnlyMesh function
-    space corresponds to a point evaluation at the vertex.
-
-    Parameters
-    ----------
-    element : finat.FiniteElementBase
-        The FInAT element to construct a QuadratureElement for.
-    expr_cell : ufl.Cell
-        The UFL cell of the expression being interpolated.
-    rt_var_name : str
-        String beginning with 'rt_' which is used as the name of the
-        gem.Variable used to represent the UnknownPointSet. The `rt_` prefix
-        forces TSFC to do runtime tabulation.
-
-    Raises
-    ------
-    NotImplementedError
-        If the element type is not implemented yet.
-    """
-    raise NotImplementedError(f"Point evaluation not implemented for a {element} element.")
-
-
-@rebuild.register(ScalarFiatElement)
-def rebuild_dg(element, expr_cell, rt_var_name):
-    # QuadratureElements have a dual basis which is point evaluation at the
-    # quadrature points. By using an UnknownPointSet with one point, TSFC
-    # will generate a kernel with an argument to which we can pass the reference
-    # coordinates of a point and evaluate the expression at that point at runtime.
-    if element.degree != 0 or not isinstance(element.cell, Point):
-        raise NotImplementedError("Interpolation onto a VOM only implemented for P0DG on vertex cells.")
-
-    # gem.Variable name starting with rt_ forces TSFC runtime tabulation
-    assert rt_var_name.startswith("rt_")
-    runtime_points_expr = Variable(rt_var_name, (1, expr_cell.topological_dimension))
-    rule_pointset = UnknownPointSet(runtime_points_expr)
-    # What we use for the weight doesn't matter since we are not integrating
-    rule = QuadratureRule(rule_pointset, weights=[0.0])
-    return QuadratureElement(as_fiat_cell(expr_cell), rule)
-
-
-@rebuild.register(TensorFiniteElement)
-def rebuild_te(element, expr_cell, rt_var_name):
-    return TensorFiniteElement(rebuild(element.base_element, expr_cell, rt_var_name),
-                               element._shape,
-                               transpose=element._transpose)
 
 
 def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
