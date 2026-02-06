@@ -205,3 +205,17 @@ def test_multi_domain_assemble():
     a = inner(u[0], v[0])*dx(domain=mesh1) + inner(u[1], v[1])*dx(domain=mesh2)
     A = assemble(a)
     assert A.M.values.shape == (V.dim(), V.dim())
+
+
+def test_multidomain_assign_function(mesh1, mesh3):
+    V1 = FunctionSpace(mesh1, "DG", 0)
+    V2 = FunctionSpace(mesh3, "CG", 1)
+    Z = V1 * V2
+    z = Function(Z)
+    z.subfunctions[0].assign(42)
+    z.subfunctions[1].assign(67)
+
+    w = Function(Z)
+    w.assign(z)
+    for zsub, wsub in zip(z.subfunctions, w.subfunctions):
+        assert np.allclose(zsub.dat.data, wsub.dat.data)
