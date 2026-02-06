@@ -2673,14 +2673,13 @@ values from f.)"""
             coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
 
-        with PETSc.Log.Event("spatial_index coords_min_max"):
-            coords_mid = (coords_max + coords_min)/2
-            d = np.max(coords_max - coords_min, axis=1)[:, None]
-            coords_min = coords_mid - (tolerance + 0.5)*d
-            coords_max = coords_mid + (tolerance + 0.5)*d
+        coords_mid = (coords_max + coords_min)/2
+        d = np.max(coords_max - coords_min, axis=1)[:, None]
+        coords_min = coords_mid - (tolerance + 0.5)*d
+        coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        with PETSc.Log.Event("spatial_index build"):
+        with PETSc.Log.Event("spatial_index_build"):
             self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
@@ -2783,27 +2782,11 @@ values from f.)"""
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
-        with PETSc.Log.Event("cells_data_as"):
-            t0 = time.perf_counter_ns()
-            cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
-            t1 = time.perf_counter_ns()
-            print(f"cells_data_as took {(t1 - t0) / 1e6:.2f} ms")
-        with PETSc.Log.Event("ref_cell_dists_l1_as"):
-            t0 = time.perf_counter_ns()
-            ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-            t1 = time.perf_counter_ns()
-            print(f"ref_cell_dists_l1_as took {(t1 - t0) / 1e6:.2f} ms")
-        with PETSc.Log.Event("xs_data_as"):
-            t0 = time.perf_counter_ns()
-            xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-            t1 = time.perf_counter_ns()
-            print(f"xs_data_as took {(t1 - t0) / 1e6:.2f} ms")
-        with PETSc.Log.Event("Xs_data_as"):
-            t0 = time.perf_counter_ns()
-            Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-            t1 = time.perf_counter_ns()
-            print(f"Xs_data_as took {(t1 - t0) / 1e6:.2f} ms")
         run_c = self._c_locator(tolerance=tolerance)
+        cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
+        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         with PETSc.Log.Event("c_locator_run"):
             run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
