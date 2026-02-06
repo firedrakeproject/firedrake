@@ -28,12 +28,12 @@ from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
 
-from finat.ufl import FiniteElement, MixedElement, TensorElement
-from finat.element_factory import create_element, as_fiat_cell
-from finat.point_set import UnknownPointSet
-from finat.quadrature import make_quadrature, QuadratureRule
+from finat.ufl import MixedElement
+from finat.element_factory import create_element
+from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
+from firedrake.pointeval_utils import runtime_quadrature_element
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -113,20 +113,12 @@ def compile_element(ufl_interpolate, parameters=None, name="evaluate"):
         The generated code
     """
     dual_arg, operand = ufl_interpolate.argument_slots()
-    domain = extract_unique_domain(operand)
-    cell = domain.ufl_cell()
-    dim = cell.topological_dimension
+    source_mesh = extract_unique_domain(operand)
+    target_space = dual_arg.arguments()[0].ufl_function_space()
 
     # Reconstruct the target space as a runtime Quadrature space
-    point_expr = gem.Variable("rt_X", (1, dim))
-    point_set = UnknownPointSet(point_expr)
-    rule = QuadratureRule(point_set, weights=[0.0], ref_el=as_fiat_cell(cell))
-
-    ufl_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
-    if operand.ufl_shape:
-        symmetry = None if len(operand.ufl_shape) == 1 else dual_arg.ufl_element().symmetry()
-        ufl_element = TensorElement(ufl_element, shape=operand.ufl_shape, symmetry=symmetry)
-    target_space = ufl.FunctionSpace(domain, ufl_element)
+    ufl_element = runtime_quadrature_element(source_mesh, target_space.ufl_element())
+    target_space = ufl.FunctionSpace(source_mesh, ufl_element)
 
     # Reconstruct the dual argument in the runtime Quadrature space
     if isinstance(dual_arg, ufl.Cofunction):
@@ -135,11 +127,8 @@ def compile_element(ufl_interpolate, parameters=None, name="evaluate"):
         dual_arg = ufl.Coargument(target_space.dual(), number=dual_arg.number())
     expression = ufl_interpolate._ufl_expr_reconstruct_(operand, dual_arg)
 
-    # Create a runtime Quadrature element
-    to_element = create_element(ufl_element)
-
     kernel = compile_expression_dual_evaluation(expression,
-                                                to_element, ufl_element,
+                                                ufl_element,
                                                 parameters=parameters,
                                                 name="pyop2_kernel_"+name)
     return lp.generate_code_v2(kernel.ast).device_code()
@@ -156,7 +145,7 @@ def _make_kernel_args(element, *args):
     needs_coordinates = element.mapping != "affine"
     mask[1] = needs_coordinates
     # Drop the target location if the element is constant.
-    is_constant = sum(as_tuple(element.degree)) == 0 and element.space_dimension() == numpy.prod(element.value_shape)
+    is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
     mask[-1] = not is_constant
     kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
     return kernel_args
