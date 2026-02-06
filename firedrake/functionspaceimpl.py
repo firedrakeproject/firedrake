@@ -673,6 +673,9 @@ class FunctionSpace:
         self.layout = layout
         self.extruded = isinstance(mesh, ExtrudedMeshTopology)
 
+        # initialise collective cached properties
+        self.local_section = self._make_local_section()
+
     @cached_property
     def offset(self):
         if isinstance(self.mesh(), ExtrudedMeshTopology):
@@ -1027,9 +1030,7 @@ class FunctionSpace:
         is_.setBlockSize(self.block_size)
         return (is_,)
 
-    # TODO: cythonize
-    @utils.cached_property
-    def local_section(self):
+    def _make_local_section(self):
         dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, self._mesh.num_points)

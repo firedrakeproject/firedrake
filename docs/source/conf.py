@@ -104,7 +104,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -136,8 +136,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    # Ignore undocumented PyOP2
-    ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -412,7 +410,6 @@ texinfo_documents = [(
 # -- Options for intersphinx ---------------------------------------------
 
 intersphinx_mapping = {
-    'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),

@@ -236,7 +236,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         :param count: The :class:`ufl.Coefficient` count which creates the
             symbolic identity of this :class:`Function`.
         """
-
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()

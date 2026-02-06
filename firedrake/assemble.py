@@ -1796,10 +1796,7 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             packed_arg = self._as_parloop_arg(tsfc_arg, p)
             packed_args.append(packed_arg)
-        try:
-            return op3.loop(p, self._kinfo.kernel(*packed_args))
-        except:
-            breakpoint()
+        return op3.loop(p, self._kinfo.kernel(*packed_args))
 
     @property
     def test_function_space(self):
