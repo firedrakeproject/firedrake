@@ -40,28 +40,16 @@ cdef class SpatialIndex(object):
 
     cdef IndexH index
 
-    def __cinit__(self, uint32_t dim, uintptr_t handle=0):
-        """Initialize a native spatial index.
-
-        :arg dim: spatial (geometric) dimension
-        """
-        cdef IndexPropertyH ps = NULL
-
+    def __cinit__(self, uintptr_t handle):
         self.index = NULL
-        if handle != 0:
-            # Wrap an existing index handle.
-            self.index = <IndexH>handle
-            return
-        try:
-            ps = _make_index_properties(dim)
-            self.index = Index_Create(ps)
-            if self.index == NULL:
-                raise RuntimeError("failed to create index")
-        finally:
-            IndexProperty_Destroy(ps)
+        if handle == 0:
+            raise ValueError("SpatialIndex handle must be nonzero")
+        self.index = <IndexH>handle
 
     def __dealloc__(self):
-        Index_Destroy(self.index)
+        if self.index != NULL:
+            Index_Destroy(self.index)
+            self.index = NULL
 
     @property
     def ctypes(self):
@@ -86,7 +74,6 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
         IndexH index
         uint64_t n
         uint32_t dim
-        RTError err
         uint64_t i_stri
         uint64_t d_i_stri
         uint64_t d_j_stri
@@ -114,7 +101,7 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
         if index == NULL:
             raise RuntimeError("failed to create index")
 
-        spatial_index = SpatialIndex(dim, <uintptr_t>index)
+        spatial_index = SpatialIndex(<uintptr_t>index)
     finally:
         IndexProperty_Destroy(ps)
 
