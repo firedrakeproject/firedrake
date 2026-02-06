@@ -43,12 +43,6 @@ def _set_local_subs(dst, src):
 
 class FunctionOrFloatMPIMixin:
     # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
-    def _bcast(self, val, root=None):
-        if not isinstance(val, (float, Function, Cofunction)):
-            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
-        if root is None:
-            return val
-        return self.ensemble.bcast(val, root=root)
 
     def _reduce(self, vals):
         vals = Enlist(vals)
@@ -112,8 +106,6 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
                 f"Do not know how to handle a {type(functional).__name__}"
                 f" control for {type(self).__name__}.")
 
-        _ = self._sum_rf
-
     @property
     def controls(self):
         return self._controls
@@ -126,8 +118,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
             return self.reduction_rf(
                 self._allgather(_local_subs(values)))
         else:
-            return self._reduce(
-                self._sum_rf(_local_subs(values)))
+            return self._reduce(_local_subs(values))
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
@@ -162,8 +153,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
             return self.reduction_rf.tlm(
                 self._allgather(_local_subs(m_dot)))
         else:
-            return self._reduce(
-                self._sum_rf.tlm(_local_subs(m_dot)))
+            return self._reduce(_local_subs(m_dot))
 
     @no_annotations
     def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
@@ -171,26 +161,6 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
             self.tlm(m_dot)
         hessian_input = 0.0 if hessian_input is None else hessian_input
         return self.derivative(adj_input=hessian_input, apply_riesz=apply_riesz)
-
-    @cached_property
-    def _sum_rf(self):
-        controls = [c._ad_init_zero()
-                    for c in _local_subs(self.controls[0].control)]
-        J = self.functional._ad_init_zero()
-        annotating = annotate_tape()
-        if not annotating:
-            continue_annotation()
-        with set_working_tape() as tape:
-            if isinstance(J, float):
-                J = sum(controls)
-            else:
-                for c in controls:
-                    J = J._ad_add(c)
-            rf = ReducedFunctional(
-                J, [Control(c) for c in controls], tape=tape)
-        if not annotating:
-            pause_annotation()
-        return rf
 
 
 class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
@@ -242,7 +212,10 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
     def __call__(self, values):
         for c, v in zip(self.controls, Enlist(values)):
             c.update(v)
-        val = self._bcast(values, root=self.root)
+        if self.root is None:
+            val = values
+        else:
+            val = self.ensemble.bcast(values, root=self.root)
         J = self.functional._ad_init_zero()
         _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
         return J
