@@ -4,7 +4,7 @@ all: modules
 .PHONY: modules
 modules:
 	@echo "    Building extension modules"
-	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
+	@python3 setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
 .PHONY: lint
 lint: srclint actionlint dockerlint
@@ -20,18 +20,18 @@ endif
 .PHONY: srclint
 srclint:
 	@echo "    Linting firedrake"
-	@python -m flake8 $(FLAKE8_FORMAT) firedrake
+	@python3 -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
-	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 	@echo "    Linting firedrake tests"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
+	@python3 -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting PyOP2"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2
+	@python3 -m flake8 $(FLAKE8_FORMAT) pyop2
 	@echo "    Linting PyOP2 scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@python3 -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
-	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+	@python3 -m flake8 $(FLAKE8_FORMAT) tsfc
 
 .PHONY: actionlint
 actionlint:
@@ -58,7 +58,7 @@ dockerlint:
 .PHONY: clean
 clean:
 	@echo "    Cleaning extension modules"
-	@python setup.py clean > /dev/null 2>&1
+	@python3 setup.py clean > /dev/null 2>&1
 	@echo "    RM firedrake/cython/dmplex.*.so"
 	-@rm -f firedrake/cython/dmplex.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/dmplex.c"
@@ -87,6 +87,7 @@ clean:
 	-@rm -f pyop2/*.so > /dev/null 2>&1
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
+
 
 # NOTE: It is recommended to run this command from inside the 'firedrake'
 # Docker image to reduce the likelihood of test failures.
