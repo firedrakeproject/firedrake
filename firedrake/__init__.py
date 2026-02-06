@@ -88,7 +88,8 @@ from firedrake.preconditioners import (  # noqa: F401
     ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
-    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC
+    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
+    AuxiliaryOperatorSNES
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,

@@ -24,3 +24,4 @@ from firedrake.preconditioners.fdm import FDMPC, PoissonFDMPC  # noqa: F401
 from firedrake.preconditioners.hiptmair import TwoLevelPC, HiptmairPC  # noqa: F401
 from firedrake.preconditioners.facet_split import FacetSplitPC  # noqa: F401
 from firedrake.preconditioners.bddc import BDDCPC  # noqa: F401
+from firedrake.preconditioners.auxiliary_snes import AuxiliaryOperatorSNES   # noqa: F401
