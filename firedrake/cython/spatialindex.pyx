@@ -47,9 +47,7 @@ cdef class SpatialIndex(object):
         self.index = <IndexH>handle
 
     def __dealloc__(self):
-        if self.index != NULL:
-            Index_Destroy(self.index)
-            self.index = NULL
+        Index_Destroy(self.index)
 
     @property
     def ctypes(self):
@@ -82,22 +80,27 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     assert regions_lo.shape[1] == regions_hi.shape[1]
     n = <uint64_t>regions_lo.shape[0]
     dim = <uint32_t>regions_lo.shape[1]
-    ids = np.arange(n, dtype=np.int64)
-
-    # Calculate the strides
-    i_stri = <uint64_t>(ids.strides[0] // ids.itemsize)
-    d_i_stri = <uint64_t>(regions_lo.strides[0] // regions_lo.itemsize)
-    d_j_stri = <uint64_t>(regions_lo.strides[1] // regions_lo.itemsize)
 
     ps = NULL
     index = NULL
     try:
         ps = _make_index_properties(dim)
-        index = Index_CreateWithArray(ps, n, dim,
-                                      i_stri, d_i_stri, d_j_stri,
-                                      <int64_t*>ids.data,
-                                      <double*>regions_lo.data,
-                                      <double*>regions_hi.data)
+        if n == 0:
+            # Index_CreateWithArray will fail for n=0, so create an empty index instead.
+            index = Index_Create(ps)
+        else:
+            ids = np.arange(n, dtype=np.int64)
+
+            # Calculate the strides
+            i_stri = <uint64_t>(ids.strides[0] // ids.itemsize)
+            d_i_stri = <uint64_t>(regions_lo.strides[0] // regions_lo.itemsize)
+            d_j_stri = <uint64_t>(regions_lo.strides[1] // regions_lo.itemsize)
+
+            index = Index_CreateWithArray(ps, n, dim,
+                                          i_stri, d_i_stri, d_j_stri,
+                                          <int64_t*>ids.data,
+                                          <double*>regions_lo.data,
+                                          <double*>regions_hi.data)
         if index == NULL:
             raise RuntimeError("failed to create index")
 
