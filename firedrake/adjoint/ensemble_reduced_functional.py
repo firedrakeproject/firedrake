@@ -1,9 +1,7 @@
-from functools import partial, cached_property
+from functools import partial
 from contextlib import contextmanager
 from pyadjoint.reduced_functional import AbstractReducedFunctional
-from pyadjoint import (
-    ReducedFunctional, Control, AdjFloat, set_working_tape, annotate_tape,
-    no_annotations, continue_annotation, pause_annotation)
+from pyadjoint import Control, AdjFloat, no_annotations
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
