@@ -5,9 +5,28 @@ import numpy as np
 import ctypes
 import cython
 from libc.stdint cimport uintptr_t
-from libc.stdlib cimport free
 
 include "spatialindexinc.pxi"
+
+
+cdef class SpatialIndex(object):
+    """Python class for holding a native spatial index object."""
+
+    cdef IndexH index
+
+    def __cinit__(self, uintptr_t handle):
+        self.index = NULL
+        if handle == 0:
+            raise ValueError("SpatialIndex handle must be nonzero")
+        self.index = <IndexH>handle
+
+    def __dealloc__(self):
+        Index_Destroy(self.index)
+
+    @property
+    def ctypes(self):
+        """Returns a ctypes pointer to the native spatial index."""
+        return ctypes.c_void_p(<uintptr_t> self.index)
 
 
 cdef IndexPropertyH _make_index_properties(uint32_t dim) except *:
@@ -34,25 +53,6 @@ cdef IndexPropertyH _make_index_properties(uint32_t dim) except *:
         raise RuntimeError("failed to set index storage")
 
     return ps
-
-cdef class SpatialIndex(object):
-    """Python class for holding a native spatial index object."""
-
-    cdef IndexH index
-
-    def __cinit__(self, uintptr_t handle):
-        self.index = NULL
-        if handle == 0:
-            raise ValueError("SpatialIndex handle must be nonzero")
-        self.index = <IndexH>handle
-
-    def __dealloc__(self):
-        Index_Destroy(self.index)
-
-    @property
-    def ctypes(self):
-        """Returns a ctypes pointer to the native spatial index."""
-        return ctypes.c_void_p(<uintptr_t> self.index)
 
 
 @cython.boundscheck(False)
@@ -109,26 +109,3 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
         IndexProperty_Destroy(ps)
 
     return spatial_index
-
-
-def bounding_boxes(SpatialIndex sidx not None, np.ndarray[np.float64_t, ndim=1] x):
-    """Given a spatial index and a point, return the bounding boxes the point is in.
-
-    :arg sidx: the SpatialIndex
-    :arg x: the point
-    :returns: a numpy array of candidate bounding boxes."""
-    cdef int dim = x.shape[0]
-    cdef int64_t *ids = NULL
-    cdef uint64_t i
-    cdef np.ndarray[np.int64_t, ndim=1, mode="c"] pyids
-    cdef uint64_t nids
-
-    err = Index_Intersects_id(sidx.index, &x[0], &x[0], dim, &ids, &nids)
-    if err != RT_None:
-        raise RuntimeError("intersection failed")
-
-    pyids = np.empty(nids, dtype=np.int64)
-    for i in range(nids):
-        pyids[i] = ids[i]
-    free(ids)
-    return pyids

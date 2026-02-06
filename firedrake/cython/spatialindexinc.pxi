@@ -1,4 +1,4 @@
-from libc.stdint cimport int64_t, uint8_t, uint32_t, uint64_t
+from libc.stdint cimport int64_t, uint32_t, uint64_t
 
 cdef extern from "spatialindex/capi/sidx_api.h":
     ctypedef enum RTError:
