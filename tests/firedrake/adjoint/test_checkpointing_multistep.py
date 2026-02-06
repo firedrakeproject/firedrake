@@ -10,29 +10,25 @@ from collections import deque
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def test_taping(set_test_tape):
+    pass
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def module_annotation(set_module_annotation):
+    pass
 
 
 total_steps = 20
 dt = 0.01
-mesh = UnitIntervalMesh(1)
-V = FunctionSpace(mesh, "DG", 0)
 
 
-def J(displacement_0):
+@pytest.fixture
+def V():
+    return FunctionSpace(UnitIntervalMesh(1), "DG", 0)
+
+
+def J(displacement_0, V):
     stiff = Constant(2.5)
     damping = Constant(0.3)
     rho = Constant(1.0)
@@ -59,12 +55,12 @@ def J(displacement_0):
 
 
 @pytest.mark.skipcomplex
-def test_multisteps():
+def test_multisteps(V):
     tape = get_working_tape()
     tape.progress_bar = ProgressBar
     tape.enable_checkpointing(MixedCheckpointSchedule(total_steps, 2, storage=StorageType.RAM))
     displacement_0 = Function(V).assign(1.0)
-    val = J(displacement_0)
+    val = J(displacement_0, V)
     _check_forward(tape)
     c = Control(displacement_0)
     J_hat = ReducedFunctional(val, c)
@@ -82,20 +78,20 @@ def test_multisteps():
 
 
 @pytest.mark.skipcomplex
-def test_validity():
+def test_validity(V):
     tape = get_working_tape()
     tape.progress_bar = ProgressBar
     displacement_0 = Function(V).assign(1.0)
     # Without checkpointing.
-    val0 = J(displacement_0)
+    val0 = J(displacement_0, V)
     J_hat0 = ReducedFunctional(val0, Control(displacement_0))
     dJ0 = J_hat0.derivative()
-    val_recomputed0 = J(displacement_0)
+    val_recomputed0 = J(displacement_0, V)
     tape.clear_tape()
 
     # With checkpointing.
     tape.enable_checkpointing(MixedCheckpointSchedule(total_steps, 2, storage=StorageType.RAM))
-    val = J(displacement_0)
+    val = J(displacement_0, V)
     J_hat = ReducedFunctional(val, Control(displacement_0))
     dJ = J_hat.derivative()
     val_recomputed = J_hat(displacement_0)

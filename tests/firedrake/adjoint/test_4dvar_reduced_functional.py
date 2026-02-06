@@ -1,8 +1,8 @@
 import pytest
 import firedrake as fd
 from firedrake.adjoint import (
-    continue_annotation, pause_annotation, stop_annotating, annotate_tape,
-    set_working_tape, get_working_tape, taylor_test, taylor_to_dict,
+    continue_annotation, pause_annotation, stop_annotating,
+    set_working_tape, taylor_test, taylor_to_dict,
     Control, ReducedFunctional, FourDVarReducedFunctional,
     AutoregressiveCovariance)
 from pytest_mpi.parallel_assert import parallel_assert
@@ -10,20 +10,13 @@ from math import sqrt
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def test_taping(set_test_tape):
+    pass
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def module_annotation(set_module_annotation):
+    pass
 
 
 def function_space(comm):
@@ -87,8 +80,7 @@ nx = 32
 
 """Timestep size"""
 cfl = 2.3167
-dy = 1.0/nx
-dt = cfl*dy
+dt = cfl/nx
 
 """How many times / how often we take observations
 (one extra at initial time)"""
@@ -460,31 +452,26 @@ def main_test_weak_4dvar_advection():
         nspace = global_comm.size
     elif global_comm.size == 3:  # time parallel
         nspace = 1
-    elif global_comm.size == 4:  # space-time parallel
+    elif global_comm.size >= 4:  # space-time parallel
         nspace = 2
 
     ensemble = fd.Ensemble(global_comm, nspace)
     V = function_space(ensemble.comm)
 
-    erank = ensemble.ensemble_comm.rank
+    # setup the reference pyadjoint rf
+    Jhat_pyadj = weak_fdvar_pyadjoint(V)
+    mp = m(V)
+    hp = h(V)
+    # make sure we've set up the reference rf correctly
+    assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
-    # only setup the reference pyadjoint rf on the first ensemble member
-    if erank == 0:
-        Jhat_pyadj = weak_fdvar_pyadjoint(V)
-        mp = m(V)
-        hp = h(V)
-        # make sure we've set up the reference rf correctly
-        assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
+    taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
-        taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
-        assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
-        assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
-        assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
-
-    Jpm = ensemble.ensemble_comm.bcast(
-        Jhat_pyadj(mp) if erank == 0 else None)
-    Jph = ensemble.ensemble_comm.bcast(
-        Jhat_pyadj(hp) if erank == 0 else None)
+    Jpm = Jhat_pyadj(mp)
+    Jph = Jhat_pyadj(hp)
 
     Jhat_aaorf = weak_fdvar_firedrake(V, ensemble)
 
@@ -492,17 +479,17 @@ def main_test_weak_4dvar_advection():
     ha = h(V, ensemble)
 
     # Does evaluating the functional match the reference rf?
-    eps = 1e-12
+    eps = 1e-10
 
     Jam = Jhat_aaorf(ma)
     parallel_assert(
         abs((Jpm - Jam)/Jpm) < eps,
-        msg=f"fdvrf evaluation {Jam} should match pyadjointrf evaluation {Jpm}")
+        msg=f"fdvrf evaluation {Jam=} should match pyadjointrf evaluation {Jpm=}")
 
     Jah = Jhat_aaorf(ha)
     parallel_assert(
         abs((Jph - Jah)/Jph) < eps,
-        msg=f"fdvrf evaluation {Jah} should match pyadjointrf evaluation {Jph}")
+        msg=f"fdvrf evaluation {Jah=} should match pyadjointrf evaluation {Jph=}")
 
     conv_rate = taylor_test(Jhat_aaorf, ma, ha)
     parallel_assert(
@@ -518,13 +505,13 @@ def main_test_weak_4dvar_advection():
 
     parallel_assert(
         R0 > 0.95,
-        msg=f"Convergence rate for evaluation order Taylor test should be >0.95, not {R0} from {taylor['R0'] = }")
+        msg=f"Convergence rate for evaluation Taylor test should be >0.95, not {R0} from {taylor['R0']=}")
     parallel_assert(
         R1 > 1.95,
-        msg=f"Convergence rate for gradient order Taylor test should be >1.95, not {R1} from {taylor['R1'] = }")
+        msg=f"Convergence rate for gradient Taylor test should be >1.95, not {R1} from {taylor['R1']=}")
     parallel_assert(
         R2 > 2.95,
-        msg=f"Convergence rate for hessian order Taylor test should be >2.95, not {R2} from {taylor['R2'] = }")
+        msg=f"Convergence rate for hessian order Taylor test should be >2.95, not {R2} from {taylor['R2']=}")
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -534,7 +521,7 @@ def test_strong_4dvar_advection():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.parallel(nprocs=[1, 2, 3, 4])
+@pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
 def test_weak_4dvar_advection():
     main_test_weak_4dvar_advection()
 

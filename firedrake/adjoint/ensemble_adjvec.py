@@ -14,10 +14,10 @@ class EnsembleAdjVec(OverloadedType):
         if not isinstance(ensemble, Ensemble):
             raise TypeError(
                 f"EnsembleAdjVec needs an Ensemble, not a {type(ensemble).__name__}")
-        if not all(isinstance(v, AdjFloat) for v in subvec):
+        if not all(isinstance(v, (AdjFloat, float)) for v in subvec):
             raise TypeError(
                 f"EnsembleAdjVec must be instantiated with a list of AdjFloats, not {subvec}")
-        self.subvec = subvec
+        self.subvec = [AdjFloat(x) for x in subvec]
         self.ensemble = ensemble
         OverloadedType.__init__(self)
 
