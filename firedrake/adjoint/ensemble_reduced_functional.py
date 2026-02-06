@@ -39,26 +39,7 @@ def _set_local_subs(dst, src):
     return dst
 
 
-class FunctionOrFloatMPIMixin:
-    # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
-
-    def _reduce(self, vals):
-        vals = Enlist(vals)
-        for v in vals:
-            if not isinstance(v, (Function, Cofunction, float)):
-                raise NotImplementedError(
-                    f"Functionals of type {type(v).__name__} are not supported.")
-
-        local_sum = vals[0]._ad_init_zero()
-        for v in vals:
-            local_sum = local_sum._ad_add(v)
-        return self.ensemble.allreduce(local_sum)
-
-    def _allgather(self, vals):
-        pass
-
-
-class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+class EnsembleReduceReducedFunctional(AbstractReducedFunctional):
     def __init__(self, functional, control, ensemble=None):
         if isinstance(functional, AbstractReducedFunctional):
             self.reduction_rf = functional
@@ -160,8 +141,18 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
         hessian_input = 0.0 if hessian_input is None else hessian_input
         return self.derivative(adj_input=hessian_input, apply_riesz=apply_riesz)
 
+    def _reduce(self, vals):
+        vals = Enlist(vals)
+        local_sum = vals[0]._ad_init_zero()
+        for v in vals:
+            local_sum = local_sum._ad_add(v)
+        return self.ensemble.allreduce(local_sum)
 
-class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+    def _allgather(self, vals):
+        pass
+
+
+class EnsembleBcastReducedFunctional(AbstractReducedFunctional):
     def __init__(self, functional, control, root=None, ensemble=None):
         self.functional = functional
         self._controls = Enlist(control)
@@ -202,6 +193,12 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
                 f"Do not know how to handle a {type(control).__name__}"
                 f" control for {type(self).__name__}.")
 
+        self._reduce = EnsembleReduceReducedFunctional(
+            functional=control.control._ad_copy(),
+            control=Control(functional._ad_copy()),
+            ensemble=self.ensemble
+        )
+
     @property
     def controls(self):
         return self._controls
@@ -210,13 +207,7 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
     def __call__(self, values):
         for c, v in zip(self.controls, Enlist(values)):
             c.update(v)
-        if self.root is None:
-            val = values
-        else:
-            val = self.ensemble.bcast(values, root=self.root)
-        J = self.functional._ad_init_zero()
-        _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
-        return J
+        return self.tlm(values)
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
@@ -230,7 +221,13 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
 
     @no_annotations
     def tlm(self, m_dot):
-        return self(m_dot)
+        if self.root is None:
+            m_dot = m_dot
+        else:
+            m_dot = self.ensemble.bcast(m_dot, root=self.root)
+        tlv = self.functional._ad_init_zero()
+        _set_local_subs(tlv, [m_dot for _ in range(self.nlocal_outputs)])
+        return tlv
 
     @no_annotations
     def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
