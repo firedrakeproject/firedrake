@@ -16,7 +16,6 @@ import enum
 import numbers
 import abc
 import rtree
-import time
 from textwrap import dedent
 from pathlib import Path
 
