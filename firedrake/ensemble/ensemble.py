@@ -102,7 +102,7 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def allreduce(self, f, f_reduced, op=MPI.SUM):
+    def allreduce(self, f, f_reduced=None, op=MPI.SUM):
         """
         Allreduce a function f into f_reduced over ``ensemble_comm`` .
 
@@ -112,6 +112,7 @@ class Ensemble:
         :raises ValueError: if function communicators mismatch each other or the ensemble
             spatial communicator, or if the functions are in different spaces
         """
+        f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:

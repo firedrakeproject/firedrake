@@ -192,6 +192,7 @@ def check_empty_tape(request):
 def set_test_tape():
     """Set a new working tape specifically for this test.
     """
+    continue_annotation()
     with set_working_tape():
         yield
     pause_annotation()

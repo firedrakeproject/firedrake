@@ -56,7 +56,6 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
-        self.adj_state_buf = self.func.copy(deepcopy=True, annotate=False)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
@@ -200,8 +199,6 @@ class GenericSolveBlock(Block):
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
             self.adj_bdy_cb(adj_sol_bdy)
-
-        self.adj_state_buf.assign(adj_sol)
 
         r = {}
         r["form"] = F_form
