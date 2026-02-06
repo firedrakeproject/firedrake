@@ -4173,14 +4173,15 @@ values from f.)"""
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
-        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                             xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints,
-                                             cells_ignore.shape[1],
-                                             cells_ignore)
+        locator = self._c_locator(tolerance=tolerance)
+        locator(self.coordinates._ctypes,
+                xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                npoints,
+                cells_ignore.shape[1],
+                cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):

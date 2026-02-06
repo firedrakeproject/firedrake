@@ -1117,18 +1117,16 @@ class FunctionSpace:
             scalar_space = self.sub(0)
 
         map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], scalar_space, cell_index)
+        expr_shape = get_shape(map_expr)[0]
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
-        map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
+        map_axes = map_axes.add_subtree(map_axes.leaf_path, expr_shape)
         map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
 
         op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
 
         # now reshape things because we want to have 2 axes: cells and nodes
-        ncells = mesh.cells.owned.local_size
-        arity = map_axes.local_size // ncells
-        cells_axis = map_axes.root
-        node_axis = op3.Axis(arity)
-        map_axes = op3.AxisTree.from_iterable([cells_axis, node_axis])
+        node_axis = op3.Axis(expr_shape.size)
+        map_axes = op3.AxisTree.from_iterable([self._mesh.cells.owned.root, node_axis])
         map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
 
         return map_dat
