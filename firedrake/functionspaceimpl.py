@@ -26,6 +26,7 @@ import ufl
 from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
 from pyop3.cache import cached_on
+from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
@@ -480,6 +481,31 @@ class WithGeometryBase:
         return type(self).make_function_space(
             self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
             name=f"{self.name}_broken" if self.name else None)
+
+    def quadrature_space(self):
+        """Return a :class:`.WithGeometryBase` with a ``Quadrature`` element
+        defined on the point set required for interpolating external data into this space.
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space with a ``Quadrature`` FiniteElement.
+        """
+        ufl_element = self.ufl_element()
+        if not self.finat_element.has_pointwise_dual_basis:
+            # Grab the point set for interpolation
+            _, ps = self.finat_element.dual_basis
+            # Invalidate the weights. This quadrature scheme is not for integration.
+            weights = numpy.full(len(ps.points), numpy.nan)
+            quad_scheme = QuadratureRule(ps, weights, self.finat_element.cell)
+
+            ufl_element = finat.ufl.FiniteElement("Quadrature",
+                                                  cell=ufl_element.cell,
+                                                  degree=self.finat_element.degree,
+                                                  quad_scheme=quad_scheme)
+            if self.value_shape:
+                ufl_element = finat.ufl.TensorElement(ufl_element, shape=self.value_shape)
+        return self.collapse().reconstruct(element=ufl_element)
 
     def reconstruct(
         self,

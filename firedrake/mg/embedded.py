@@ -5,28 +5,9 @@ import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
-
+from finat.element_factory import create_element
 
 __all__ = ("TransferManager", )
-
-
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement", "Crouzeix-Raviart", "Kong-Mulder-Veldhuizen"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
-                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
-non_native_variants = frozenset(["integral", "fdm", "alfeld"])
-
-
-def get_embedding_element(element, value_shape):
-    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
-    dg_element = get_embedding_dg_element(element, value_shape, broken_cg=broken_cg)
-    variant = element.variant() or "default"
-    family = element.family()
-    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
-    # This yields supermesh projection
-    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
-        dg_element = dg_element.reconstruct(variant="powell-sabin")
-    return dg_element
 
 
 class Op(IntEnum):
@@ -68,14 +49,21 @@ class TransferManager(object):
         self.caches = {}
 
     def is_native(self, element, op):
-        if element in self.native_transfers.keys():
+        if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
         if isinstance(element.cell, ufl.TensorProductCell):
             if isinstance(element, finat.ufl.TensorProductElement):
                 return all(self.is_native(e, op) for e in element.factor_elements)
             elif isinstance(element, finat.ufl.MixedElement):
                 return all(self.is_native(e, op) for e in element.sub_elements)
-        return (element.family() in native_families) and not (element.variant() in non_native_variants)
+
+        # Can we interpolate into this element?
+        finat_element = create_element(element)
+        try:
+            finat_element.dual_basis
+            return True
+        except NotImplementedError:
+            return False
 
     def _native_transfer(self, element, op):
         try:
@@ -253,8 +241,8 @@ class TransferManager(object):
         if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
-        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
-            self._native_transfer(source_element, transfer_op)(source, target)
+        if self.is_native(target_element, transfer_op):
+            self._native_transfer(target_element, transfer_op)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
@@ -318,7 +306,7 @@ class TransferManager(object):
         if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
-        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
+        if self.is_native(source_element, Op.RESTRICT):
             self._native_transfer(source_element, Op.RESTRICT)(source, target)
         elif type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement

@@ -57,6 +57,7 @@ class KernelBuilderBase(KernelInterface):
         expressions."""
         kernel_arg = self.coefficient_map[ufl_coefficient]
         domain = extract_unique_domain(ufl_coefficient)
+        assert self._domain_integral_type_map[domain] is not None
         if ufl_coefficient.ufl_element().family() == 'Real':
             return kernel_arg
         elif not self._domain_integral_type_map[domain].startswith("interior_facet"):

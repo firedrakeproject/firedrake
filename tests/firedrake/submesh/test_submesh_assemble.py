@@ -577,7 +577,9 @@ def test_assemble_parent_coefficient():
 
     Q = FunctionSpace(mesh, "DG", 0)
     q = Function(Q).interpolate(expr(mesh))
-    A = assemble(inner(grad(usub) * q, grad(vsub))*dx(domain=submesh))
+
+    subdx = Measure("dx", submesh, intersect_measures=(Measure("dx", mesh),))
+    A = assemble(inner(grad(usub) * q, grad(vsub))*subdx)
 
     Qsub = FunctionSpace(submesh, "DG", 0)
     qsub = Function(Qsub).interpolate(expr(submesh))

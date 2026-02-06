@@ -81,7 +81,8 @@ def run_convergence_test(mh, el, degree, convrate):
                           ('Hermite', 3, 3.8),
                           ('Bell', 5, 4.7),
                           ('Argyris', 5, 5.8),
-                          ('Argyris', 6, 6.7)])
+                          ('Argyris', 6, 6.7),
+                          ('Nonconforming Robust Wu-Xu', 7, 3.8)])
 def test_projection_zany_convergence_2d(hierarchy_2d, el, deg, convrate):
     run_convergence_test(hierarchy_2d[2:], el, deg, convrate)
 
@@ -98,7 +99,9 @@ def test_projection_zany_convergence_3d(hierarchy_3d, el, deg, convrate):
                           ('HCT', 3),
                           ('HCT', 4),
                           ('Argyris', 5),
-                          ('Argyris', 6)])
+                          ('Argyris', 6),
+                          ('Nonconforming Wu-Xu', 4),
+                          ('Alfeld C2', 5)])
 def test_mass_conditioning(element, degree, hierarchy_2d):
     mass_cond = []
     for msh in hierarchy_2d[1:4]:

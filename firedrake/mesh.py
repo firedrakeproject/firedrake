@@ -51,6 +51,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
 from pyadjoint import stop_annotating
 import gem
 
@@ -66,10 +67,9 @@ from finat.element_factory import as_fiat_cell
 
 __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
-    'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
+    'SubDomainData', 'UNMARKED', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
-    'VertexOnlyMeshMissingPointsError',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
@@ -94,8 +94,7 @@ _FLAT_MESH_AXIS_LABEL_SUFFIX = "points"
 _STRATIFIED_MESH_AXIS_LABEL_SUFFIX = "strata"
 
 
-# TODO: This should be a constant, this is not a good idea!
-unmarked = -1
+UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
@@ -4521,12 +4520,11 @@ values from f.)"""
             pyop2_index.extend(cell_node_map.values[ngidx])
 
         # Find the correct coordinate permutation for each cell
-        # NB: Coordinates must be cast to real when running Firedrake in complex mode
         permutation = find_permutation(
             physical_space_points,
-            new_coordinates.dat.data[pyop2_index].reshape(
+            new_coordinates.dat.data[pyop2_index].real.reshape(
                 physical_space_points.shape
-            ).astype(np.float64, copy=False),
+            ),
             tol=permutation_tol
         )
 
@@ -4748,6 +4746,8 @@ def Mesh(meshfile, **kwargs):
     distribution_parameters = kwargs.get("distribution_parameters", None)
     if distribution_parameters is None:
         distribution_parameters = {}
+    if isinstance(meshfile, Path):
+        meshfile = str(meshfile)
     if isinstance(meshfile, str) and \
        any(meshfile.lower().endswith(ext) for ext in ['.h5', '.hdf5']):
         from firedrake.output import CheckpointFile
@@ -4961,26 +4961,6 @@ class MissingPointsBehaviour(enum.Enum):
     IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
-
-
-class VertexOnlyMeshMissingPointsError(Exception):
-    """Exception raised when 1 or more points are not found by a
-    :func:`~.VertexOnlyMesh` in its parent mesh.
-
-    Attributes
-    ----------
-    n_missing_points : int
-        The number of points which were not found in the parent mesh.
-    """
-
-    def __init__(self, n_missing_points):
-        self.n_missing_points = n_missing_points
-
-    def __str__(self):
-        return (
-            f"{self.n_missing_points} vertices are outside the mesh and have "
-            "been removed from the VertexOnlyMesh."
-        )
 
 
 @PETSc.Log.EventDecorator()
@@ -6525,7 +6505,7 @@ def get_iteration_spec(
         # Get all points labelled with the subdomain ID
         plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
         for subdomain_id in subdomain_ids:
-            if subdomain_id == unmarked:  # NOTE: This is a constant, but it's very unclear
+            if subdomain_id == UNMARKED:  # NOTE: This is a constant, but it's very unclear
                 plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
                 # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
                 all_plex_subdomain_ids = mesh.topology_dm.getLabelIdIS(dmlabel_name).indices
@@ -6725,7 +6705,7 @@ class MeshSequenceGeometry(ufl.MeshSequence):
     def unique(self):
         """Return a single component or raise exception."""
         if len(set(self._meshes)) > 1:
-            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+            raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m
 
@@ -6831,6 +6811,6 @@ class MeshSequenceTopology(object):
     def unique(self):
         """Return a single component or raise exception."""
         if len(set(self._meshes)) > 1:
-            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+            raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m

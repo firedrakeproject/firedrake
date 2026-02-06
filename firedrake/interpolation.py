@@ -7,7 +7,7 @@ import os
 import tempfile
 import abc
 
-from functools import partial, singledispatch
+from functools import partial
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -24,17 +24,8 @@ import pyop3 as op3
 from pyop3.cache import memory_and_disk_cache
 from pyop3.dtypes import get_mpi_dtype
 
-from FIAT.reference_element import Point
-
-from finat.element_factory import create_element, as_fiat_cell
 from finat.ufl import TensorElement, VectorElement, MixedElement
-from finat.fiat_elements import ScalarFiatElement
-from finat.quadrature import QuadratureRule
-from finat.quadrature_element import QuadratureElement
-from finat.point_set import UnknownPointSet
-from finat.tensorfiniteelement import TensorFiniteElement
-
-from gem.gem import Variable
+from finat.element_factory import create_element
 
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
@@ -42,16 +33,12 @@ from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 import gem
 import finat
 
-from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.pack import pack, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
-from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, get_iteration_spec
-from firedrake.petsc import PETSc
-from firedrake.cofunction import Cofunction
-from firedrake.utils import IntType, ScalarType, tuplify
+from firedrake.utils import IntType, ScalarType, tuplify, cached_property
+from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import MatrixBase, AssembledMatrix
@@ -61,6 +48,9 @@ from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, Fu
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.exceptions import (
+    DofNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+)
 
 from mpi4py import MPI
 
@@ -70,7 +60,6 @@ __all__ = (
     "interpolate",
     "Interpolate",
     "get_interpolator",
-    "DofNotDefinedError",
     "InterpolateOptions",
     "Interpolator"
 )
@@ -168,6 +157,57 @@ class Interpolate(UFLInterpolate):
         """
         return self._options
 
+    @cached_property
+    def _interpolator(self):
+        """Access the numerical interpolator.
+
+        Returns
+        -------
+        Interpolator
+            An appropriate :class:`Interpolator` subclass for this
+            interpolation expression.
+        """
+        arguments = self.arguments()
+        has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
+        if len(arguments) == 2 and has_mixed_arguments:
+            return MixedInterpolator(self)
+
+        operand, = self.ufl_operands
+        target_mesh = self.target_space.mesh()
+
+        try:
+            source_mesh = extract_unique_domain(operand) or target_mesh
+        except ValueError:
+            raise NotImplementedError(
+                "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
+            )
+
+        try:
+            target_mesh = target_mesh.unique()
+            source_mesh = source_mesh.unique()
+        except NonUniqueMeshSequenceError:
+            return MixedInterpolator(self)
+
+        submesh_interp_implemented = (
+            all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
+            and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+            and target_mesh.topological_dimension == source_mesh.topological_dimension
+        )
+        if target_mesh is source_mesh or submesh_interp_implemented:
+            return SameMeshInterpolator(self)
+
+        if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+            if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
+                return VomOntoVomInterpolator(self)
+            if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
+                raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
+            return SameMeshInterpolator(self)
+
+        if has_mixed_arguments or len(self.target_space) > 1:
+            return MixedInterpolator(self)
+
+        return CrossMeshInterpolator(self)
+
 
 @PETSc.Log.EventDecorator()
 def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
@@ -219,7 +259,12 @@ class Interpolator(abc.ABC):
         # Delay calling .unique() because MixedInterpolator is fine with MeshSequence
         self.target_mesh = self.target_space.mesh()
         """The domain we are interpolating into."""
-        self.source_mesh = extract_unique_domain(operand) or self.target_mesh
+
+        try:
+            source_mesh = extract_unique_domain(operand)
+        except ValueError:
+            source_mesh = extract_unique_domain(operand, expand_mesh_sequence=False)
+        self.source_mesh = source_mesh or self.target_mesh
         """The domain we are interpolating from."""
 
         # Interpolation options
@@ -366,75 +411,7 @@ def get_interpolator(expr: Interpolate) -> Interpolator:
         An appropriate :class:`Interpolator` subclass for the given
         interpolation expression.
     """
-    arguments = expr.arguments()
-    has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
-    if len(arguments) == 2 and has_mixed_arguments:
-        return MixedInterpolator(expr)
-
-    operand, = expr.ufl_operands
-    target_mesh = expr.target_space.mesh()
-
-    try:
-        source_mesh = extract_unique_domain(operand) or target_mesh
-    except ValueError:
-        raise NotImplementedError(
-            "Interpolating an expression with no arguments defined on multiple meshes is not implemented yet."
-        )
-
-    try:
-        target_mesh = target_mesh.unique()
-        source_mesh = source_mesh.unique()
-    except RuntimeError:
-        return MixedInterpolator(expr)
-
-    submesh_interp_implemented = (
-        all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
-        and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
-        and target_mesh.topological_dimension == source_mesh.topological_dimension
-    )
-    if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr)
-
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
-            return VomOntoVomInterpolator(expr)
-        if target_mesh.geometric_dimension != source_mesh.geometric_dimension:
-            raise ValueError("Cannot interpolate onto a VertexOnlyMesh of a different geometric dimension.")
-        return SameMeshInterpolator(expr)
-
-    if has_mixed_arguments or len(expr.target_space) > 1:
-        return MixedInterpolator(expr)
-
-    return CrossMeshInterpolator(expr)
-
-
-class DofNotDefinedError(Exception):
-    r"""Raised when attempting to interpolate across function spaces where the
-    target function space contains degrees of freedom (i.e. nodes) which cannot
-    be defined in the source function space. This typically occurs when the
-    target mesh covers a larger domain than the source mesh.
-
-    Attributes
-    ----------
-    src_mesh : :func:`.Mesh`
-        The source mesh.
-    dest_mesh : :func:`.Mesh`
-        The destination mesh.
-
-    """
-
-    def __init__(self, src_mesh, dest_mesh):
-        self.src_mesh = src_mesh
-        self.dest_mesh = dest_mesh
-
-    def __str__(self):
-        return (
-            f"The given target function space on domain {repr(self.dest_mesh)} "
-            "contains degrees of freedom which cannot cannot be defined in the "
-            f"source function space on domain {repr(self.src_mesh)}. "
-            "This may be because the target mesh covers a larger domain than the "
-            "source mesh. To disable this error, set allow_missing_dofs=True."
-        )
+    return expr._interpolator
 
 
 class CrossMeshInterpolator(Interpolator):
@@ -446,10 +423,9 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
-        self.target_mesh = self.target_mesh.unique()
         if self.access and self.access != op3.WRITE:
             raise NotImplementedError(
-                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+                "Access other than op3.WRITE not implemented for cross-mesh interpolation."
             )
         else:
             self.access = op3.WRITE
@@ -470,7 +446,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        if self.source_mesh.geometric_dimension != self.target_mesh.geometric_dimension:
+        if self.source_mesh.unique().geometric_dimension != self.target_mesh.unique().geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
         dest_element = self.target_space.ufl_element()
@@ -507,18 +483,22 @@ class CrossMeshInterpolator(Interpolator):
         """
         from firedrake.assemble import assemble
         # Immerse coordinates of target space point evaluation dofs in src_mesh
-        target_space_vec = VectorFunctionSpace(self.target_mesh, self.dest_element)
-        f_dest_node_coords = assemble(interpolate(self.target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.geometric_dimension)
+        target_space_vec = VectorFunctionSpace(self.target_mesh.unique(), self.dest_element)
+        f_dest_node_coords = assemble(interpolate(self.target_mesh.unique().coordinates, target_space_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.unique().geometric_dimension)
         try:
             vom = VertexOnlyMesh(
-                self.source_mesh,
+                self.source_mesh.unique(),
                 dest_node_coords,
                 redundant=False,
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(self.source_mesh, self.target_mesh)
+            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+                                     "contains degrees of freedom which cannot cannot be defined in the "
+                                     f"source function space on domain {self.source_mesh}. "
+                                     "This may be because the target mesh covers a larger domain than the "
+                                     "source mesh. To disable this error, set allow_missing_dofs=True.")
 
         # Get the correct type of function space
         shape = self.target_space.ufl_function_space().value_shape
@@ -633,11 +613,10 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr):
         super().__init__(expr)
-        self.target_mesh = self.target_mesh.unique()
         subset = self.subset
         if subset is None:
-            target = self.target_mesh.topology
-            source = self.source_mesh.topology
+            target = self.target_mesh.unique().topology
+            source = self.source_mesh.unique().topology
             if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
@@ -679,7 +658,7 @@ class SameMeshInterpolator(Interpolator):
             The tensor to interpolate into.
         """
         if self.rank == 0:
-            R = FunctionSpace(self.target_mesh, "Real", 0)
+            R = FunctionSpace(self.target_mesh.unique(), "Real", 0)
             f = Function(R, dtype=ScalarType)
         elif self.rank == 1:
             f = Function(self.ufl_interpolate.function_space())
@@ -724,7 +703,6 @@ class SameMeshInterpolator(Interpolator):
             sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
             eager=True,
         )
-        f = op3.Mat.from_sparsity(sparsity)
         return sparsity
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
@@ -893,30 +871,20 @@ def _build_interpolation_callables(
     assert isinstance(dual_arg, Cofunction | Coargument)
     V = dual_arg.function_space().dual()
 
-    try:
-        to_element = create_element(V.ufl_element())
-    except KeyError:
-        # FInAT only elements
-        raise NotImplementedError(f"Don't know how to create FIAT element for {V.ufl_element()}")
-
     if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = V.mesh()
     source_mesh = extract_unique_domain(operand) or target_mesh
+    target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         # For interpolation onto a VOM, we use a FInAT QuadratureElement as the
         # target element with runtime point set expressions as their
         # quadrature rule point set.
-        rt_var_name = 'rt_X'
-        try:
-            cell = operand.ufl_element().ufl_cell()
-        except AttributeError:
-            # expression must be pure function of spatial coordinates so
-            # domain has correct ufl cell
-            cell = source_mesh.ufl_cell()
-        to_element = rebuild(to_element, cell, rt_var_name)
+        rt_var_name = "rt_X"
+        target_element = runtime_quadrature_element(source_mesh, target_element,
+                                                    rt_var_name=rt_var_name)
 
     iter_spec = get_iteration_spec(target_mesh, "cell")
 
@@ -934,7 +902,7 @@ def _build_interpolation_callables(
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
     # contributions from the facet DOFs of the dual argument.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, Cofunction) and not to_element.is_dg():
+    if isinstance(dual_arg, Cofunction) and not create_element(target_element).is_dg():
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -954,13 +922,7 @@ def _build_interpolation_callables(
         with weight.vec_ro as w, v.vec_wo as y:
             copyin += (lambda: y.pointwiseMult(y, w),)
 
-    # We need to pass both the ufl element and the finat element
-    # because the finat elements might not have the right mapping
-    # (e.g. L2 Piola, or tensor element with symmetries)
-    # FIXME: for the runtime unknown point set (for cross-mesh
-    # interpolation) we have to pass the finat element we construct
-    # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(target_mesh.comm, expr, to_element, V.ufl_element(),
+    kernel = compile_expression(target_mesh.comm, expr, target_element,
                                 domain=source_mesh, parameters=parameters)
 
     local_kernel_args = []
@@ -1065,7 +1027,7 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
+def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
     dual_arg, operand = expr.argument_slots()
     return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters))
@@ -1078,58 +1040,6 @@ def _compile_expression_key(comm, expr, to_element, ufl_element, domain, paramet
 @PETSc.Log.EventDecorator()
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
-
-
-@singledispatch
-def rebuild(element, expr_cell, rt_var_name):
-    """Construct a FInAT QuadratureElement for interpolation onto a
-    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
-    (1, tdim) where tdim is the topological dimension of expr_cell. The
-    weight is [1.0], since the single local dof in the VertexOnlyMesh function
-    space corresponds to a point evaluation at the vertex.
-
-    Parameters
-    ----------
-    element : finat.FiniteElementBase
-        The FInAT element to construct a QuadratureElement for.
-    expr_cell : ufl.Cell
-        The UFL cell of the expression being interpolated.
-    rt_var_name : str
-        String beginning with 'rt_' which is used as the name of the
-        gem.Variable used to represent the UnknownPointSet. The `rt_` prefix
-        forces TSFC to do runtime tabulation.
-
-    Raises
-    ------
-    NotImplementedError
-        If the element type is not implemented yet.
-    """
-    raise NotImplementedError(f"Point evaluation not implemented for a {element} element.")
-
-
-@rebuild.register(ScalarFiatElement)
-def rebuild_dg(element, expr_cell, rt_var_name):
-    # QuadratureElements have a dual basis which is point evaluation at the
-    # quadrature points. By using an UnknownPointSet with one point, TSFC
-    # will generate a kernel with an argument to which we can pass the reference
-    # coordinates of a point and evaluate the expression at that point at runtime.
-    if element.degree != 0 or not isinstance(element.cell, Point):
-        raise NotImplementedError("Interpolation onto a VOM only implemented for P0DG on vertex cells.")
-
-    # gem.Variable name starting with rt_ forces TSFC runtime tabulation
-    assert rt_var_name.startswith("rt_")
-    runtime_points_expr = Variable(rt_var_name, (1, expr_cell.topological_dimension))
-    rule_pointset = UnknownPointSet(runtime_points_expr)
-    # What we use for the weight doesn't matter since we are not integrating
-    rule = QuadratureRule(rule_pointset, weights=[0.0])
-    return QuadratureElement(as_fiat_cell(expr_cell), rule)
-
-
-@rebuild.register(TensorFiniteElement)
-def rebuild_te(element, expr_cell, rt_var_name):
-    return TensorFiniteElement(rebuild(element.base_element, expr_cell, rt_var_name),
-                               element._shape,
-                               transpose=element._transpose)
 
 
 def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_cell_node_map: op2.Map) -> op2.Map:
@@ -1665,7 +1575,7 @@ class MixedInterpolator(Interpolator):
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        sub_mat_type = sub_mat_type or "baij"
+        sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
