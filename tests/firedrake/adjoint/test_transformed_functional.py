@@ -4,7 +4,7 @@ from functools import partial
 import firedrake as fd
 from firedrake.adjoint import (
     Control, L2TransformedFunctional, MinimizationProblem, ReducedFunctional,
-    continue_annotation, minimize, pause_annotation, set_working_tape)
+    continue_annotation, pause_annotation, minimize)
 import numpy as np
 from pyadjoint import TAOSolver
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
@@ -12,12 +12,14 @@ import pytest
 import ufl
 
 
-@pytest.fixture(scope="module", autouse=True)
-def setup_tape():
-    with set_working_tape():
-        pause_annotation()
-        yield
-    pause_annotation()
+@pytest.fixture(autouse=True)
+def test_taping(set_test_tape):
+    pass
+
+
+@pytest.fixture(autouse=True, scope="module")
+def module_annotation(set_module_annotation):
+    pass
 
 
 class ReducedFunctional(ReducedFunctional):

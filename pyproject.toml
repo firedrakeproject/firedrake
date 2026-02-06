@@ -36,7 +36,7 @@ dependencies = [
   "pkgconfig",
   "progress",
   # TODO RELEASE
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint@master",
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint@JHopeCollins/set_working_tape-annotations",
   "pycparser",
   "pytools[siphash]",
   "requests",

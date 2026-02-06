@@ -7,26 +7,19 @@ from checkpoint_schedules import SingleMemoryStorageSchedule
 from numpy.testing import assert_approx_equal, assert_allclose
 
 
-@pytest.fixture
-def rg():
-    return RandomGenerator(PCG64(seed=1234))
-
-
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def test_taping(set_test_tape):
+    pass
 
 
 @pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def module_annotation(set_module_annotation):
+    pass
+
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.mark.skipcomplex
