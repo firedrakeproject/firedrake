@@ -9,6 +9,7 @@ import petsctools
 from loopy import generate_code_v2
 import loopy as lp
 import pyop3 as op3
+import tsfc
 from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky

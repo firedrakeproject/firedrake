@@ -244,7 +244,7 @@ def inject(fine, coarse):
                 d.dat.buffer.reduce_leaves_to_roots_end()
 
             op3.loop(
-                n := Vc.nodal_axes.owned.iter(),
+                n := Vc.nodal_axes.blocked(Vc.shape).owned.iter(),
                 kernel(coarse.dat[n], fine.dat[coarse_node_to_fine_nodes(n)], node_locations.dat[n], fine_coords.dat[coarse_node_to_fine_coords(n)]),
                 eager=True,
             )
