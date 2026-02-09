@@ -838,7 +838,7 @@ def _(
 
 def parse_loop_properly_this_time(
     loop,
-    axes,
+    axis_tree,
     loop_indices,
     codegen_context,
     *,
@@ -846,7 +846,7 @@ def parse_loop_properly_this_time(
     path=None,
     iname_map=None,
 ) -> None:
-    if axes is UNIT_AXIS_TREE:
+    if axis_tree is UNIT_AXIS_TREE:
         # NOTE: might need an expression here sometimes
         for statement in loop.statements:
             _compile(
@@ -858,14 +858,14 @@ def parse_loop_properly_this_time(
         return
 
     if utils.strictly_all(x is None for x in {axis, path, iname_map}):
-        axis = axes.root
+        axis = axis_tree.root
         path = idict()
         iname_map = idict()
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component.size == 0:
+        if axis_tree.linearize(path_, partial=True).size == 0:
             continue
         elif component.size != 1:
             iname = codegen_context.unique_name("i")
@@ -883,10 +883,10 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         with codegen_context.within_inames(within_inames):
-            if subaxis := axes.node_map[path_]:
+            if subaxis := axis_tree.node_map[path_]:
                 parse_loop_properly_this_time(
                     loop,
-                    axes,
+                    axis_tree,
                     loop_indices,
                     codegen_context,
                     axis=subaxis,
@@ -1111,7 +1111,11 @@ def compile_array_assignment(
     axis = axis_tree.node_map[paths[-1]]
 
     for component in axis.components:
-        if component.size == 0:
+        new_paths = paths.copy()
+        new_paths[-1] = paths[-1] | {axis.label: component.label}
+
+        # If the subtree below this is zero-sized then don't do anything
+        if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
             continue
         elif component.size != 1:
             iname = codegen_context.unique_name("i")
@@ -1130,9 +1134,6 @@ def compile_array_assignment(
             new_iname_replace_maps = iname_replace_maps.copy()
             new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
             within_inames = set()
-
-        new_paths = paths.copy()
-        new_paths[-1] = paths[-1] | {axis.label: component.label}
 
         with codegen_context.within_inames(within_inames):
             if axis_tree.node_map[new_paths[-1]]:

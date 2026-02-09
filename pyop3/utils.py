@@ -664,14 +664,11 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
 
     if not attrs_changed:
         return self
-    # TODO: make .comm an attr for all frozen records?
-    # elif self.__dataclass_params__.frozen and hasattr(self, "comm"):
     elif self.__dataclass_params__.frozen:
-        return _make_record_maybe_singleton(self, new_attrs)
-        # try:
-        #     return _make_record_maybe_singleton(self, new_attrs)
-        # except UnhashableObjectException:
-        #     return _make_record(self, new_attrs)
+        try:
+            return _make_record_maybe_singleton(self, new_attrs)
+        except UnhashableObjectException:
+            return _make_record(self, new_attrs)
     else:
         return _make_record(self, new_attrs)
 

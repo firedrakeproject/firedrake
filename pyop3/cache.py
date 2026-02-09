@@ -675,7 +675,7 @@ def memory_and_disk_cache(*args, cachedir=config.cache_dir, **kwargs):
 _heavy_caches = weakref.WeakSet()
 
 
-class heavy_cache:
+class heavy_caches:
     """Context manager that pushes and pops lifetime objects.
 
     For this to be parallel safe, the contract here is that, by using this
@@ -704,12 +704,12 @@ class heavy_cache:
         self._added_objs.clear()
 
 
-def heavy_cached(get_obj: Callable[[], Any]) -> None:
+def with_heavy_caches(get_obj: Callable) -> Callable:
     """Function decorator that pushes and pops lifetime objects."""
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
-            with heavy_cache(obj):
+            with heavy_caches(obj):
                 return func(*args, **kwargs)
         return wrapper
     return decorator

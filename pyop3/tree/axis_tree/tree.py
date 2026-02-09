@@ -1082,9 +1082,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         sizes = size_dat.buffer.data_ro
 
-        from pyop3.debug import warn_todo
-        warn_todo("Cythonize")
-
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, component.local_size)
         for point in range(component.local_size):
@@ -1616,9 +1613,7 @@ class IndexedAxisTree(AbstractAxisTree):
         if len(indices) > 0:
             assert min(indices) >= 0 and max(indices) <= self.unindexed.local_size
 
-        # then convert to a slice if possible, do in Cython!!!
-        import pyop3.debug
-        pyop3.debug.warn_todo("Convert to cython")
+        # then convert to a slice if possible, do in Cython?
         slice_ = None
         n = len(indices)
 

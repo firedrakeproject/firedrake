@@ -33,12 +33,13 @@ from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 import gem
 import finat
 
+from firedrake import utils
 from firedrake.pack import pack, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
 from firedrake.utils import IntType, ScalarType, tuplify, cached_property
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh, get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import MatrixBase, AssembledMatrix
@@ -485,7 +486,7 @@ class CrossMeshInterpolator(Interpolator):
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_space_vec = VectorFunctionSpace(self.target_mesh.unique(), self.dest_element)
         f_dest_node_coords = assemble(interpolate(self.target_mesh.unique().coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.unique().geometric_dimension)
+        dest_node_coords = f_dest_node_coords.dat.data_ro
         try:
             vom = VertexOnlyMesh(
                 self.source_mesh.unique(),

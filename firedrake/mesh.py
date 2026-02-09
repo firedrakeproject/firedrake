@@ -1050,7 +1050,6 @@ class AbstractMeshTopology(abc.ABC):
     def star(self, index, *, k=None):
         return self._star(k=k)(index)
 
-    # TODO: Cythonize
     # NOTE: I think I duplicated this somewhere...
     def _renumber_map(self, map_pts, src_dim, dest_dim, sizes=None, *, src_mesh = None):
         """

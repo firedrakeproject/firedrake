@@ -239,7 +239,7 @@ def prolong_kernel(expression, Vf):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()}
+               "tdim": element.cell.get_spatial_dimension()})
 
     # Now build a pyop3 'Function' wrapping this
     loopy_kernel = lp.make_kernel(
@@ -348,7 +348,7 @@ def restrict_kernel(Vf, Vc):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()}
+               "tdim": element.cell.get_spatial_dimension()})
 
     # Now build a pyop3 'Function' wrapping this
     # sniff arg sizes from the inner kernel

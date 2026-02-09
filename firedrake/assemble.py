@@ -15,7 +15,7 @@ import loopy as lp
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
-from pyop3.cache import heavy_cached
+from pyop3.cache import with_heavy_caches
 from tsfc import kernel_args
 from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -45,9 +45,19 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
 
 
+def _get_heavy_caches(expr, *args, **kwargs):
+    # TODO: This isn't valid for certain inputs (e.g. ZeroBaseForm) but this
+    # is a very heavy-handed way to fix that
+    try:
+        return {d.topology for d in extract_domains(expr)}
+    except:
+        return set()
+
+
+
 @PETSc.Log.EventDecorator()
 @annotate_assemble
-@heavy_cached(lambda expr, *a, **kw: {d.topology for d in extract_domains(expr)})
+@with_heavy_caches(_get_heavy_caches)
 def assemble(expr, *args, **kwargs):
     """Assemble.
 

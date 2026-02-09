@@ -237,7 +237,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
-                if subset is not None:
+                if subset is not Ellipsis:
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()

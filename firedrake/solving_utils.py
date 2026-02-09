@@ -498,7 +498,7 @@ class _SNESContext(object):
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac(ctx._pjac)
 
-        ises = problem.J.arguments()[0].function_space()._ises
+        ises = problem.J.arguments()[0].function_space().field_ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)

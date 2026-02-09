@@ -14,11 +14,11 @@ from pyop3 import utils
 from pyop3.sf import DistributedObject
 from pyop3.tree.axis_tree import ContextAware
 from pyop3.tree.axis_tree.tree import AbstractAxisTree
-from pyop3.expr import Terminal
+from pyop3.expr import TerminalExpression
 from pyop3.exceptions import InvalidIndexCountException
 
 
-class Tensor(ContextAware, Terminal, DistributedObject, abc.ABC):
+class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 

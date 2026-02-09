@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
-from pyop3.cache import heavy_cached
+from pyop3.cache import with_heavy_caches
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
@@ -134,6 +134,20 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     @utils.cached_property
     def dm(self):
         return self.u_restrict.function_space().dm
+
+    @utils.cached_property
+    def _mesh_topologies(self) -> frozenset:
+        """Return all mesh topologies associated with the variational problem.
+
+        These are used as 'heavy' caches.
+
+        """
+        # TODO: This breaks for certain inputs (e.g. FormSum) but this
+        # is a very heavy-handed way to fix that
+        try:
+            return frozenset({d.topology for d in extract_domains(self.F)})
+        except:
+            return frozenset()
 
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
@@ -308,11 +322,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=False)
-        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
+        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space().field_ises,
                           transpose=True, near=False)
-        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=True)
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
@@ -342,7 +356,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
-    @heavy_cached(lambda self, *a, **kw: {d.topology for d in extract_domains(self._problem.F)})
+    @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
