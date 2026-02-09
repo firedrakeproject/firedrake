@@ -32,10 +32,6 @@ _init_likwid()
 del _init_likwid
 
 
-# UNDO ME
-import pyop3.extras
-
-
 from pyop3.insn import Intent
 import pyop3.dtypes, pyop3.tree
 import pyop3.ir
