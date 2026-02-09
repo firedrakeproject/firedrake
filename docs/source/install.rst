@@ -421,20 +421,16 @@ To install Firedrake with SLEPc support you should:
 
    $ export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 
-#. Continue with the installation as normal but install Firedrake with the
-   ``slepc`` optional dependency. For example::
-
-   $ pip install --no-binary h5py 'firedrake[check,slepc]'
-
-.. warning::
-   The ``pip install`` instruction above does not currently work due to
-   `an issue with setuptools <https://gitlab.com/slepc/slepc/-/merge_requests/935>`__.
-   To fix it you should run::
+#. Set ``PIP_CONSTRAINT`` to work around
+   `an issue with setuptools <https://gitlab.com/slepc/slepc/-/merge_requests/935>`__::
 
       $ echo 'setuptools<81' > constraints.txt
       $ export PIP_CONSTRAINT=constraints.txt
 
-   Then continue the installation as normal.
+#. Continue with the installation as normal but install Firedrake with the
+   ``slepc`` optional dependency. For example::
+
+   $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
 VTK
 ~~~
