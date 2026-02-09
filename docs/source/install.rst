@@ -426,6 +426,16 @@ To install Firedrake with SLEPc support you should:
 
    $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
+.. warning::
+   The ``pip install`` instruction above does not currently work due to
+   `an issue with setuptools <https://gitlab.com/slepc/slepc/-/merge_requests/935>`__.
+   To fix it you should run::
+
+      $ echo 'setuptools<81' > constraints.txt
+      $ export PIP_CONSTRAINT=constraints.txt
+
+   Then continue the installation as normal.
+
 VTK
 ~~~
 
