@@ -240,6 +240,12 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
+#. Set ``PIP_CONSTRAINT`` to work around
+   `an issue with setuptools <https://gitlab.com/petsc/petsc/-/merge_requests/9016>`__::
+
+      $ echo 'setuptools<81' > constraints.txt
+      $ export PIP_CONSTRAINT=constraints.txt
+
 #. Install Firedrake::
 
       $ pip install --no-binary h5py 'firedrake[check]'
@@ -420,12 +426,6 @@ To install Firedrake with SLEPc support you should:
 #. Set ``SLEPC_DIR``::
 
    $ export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
-
-#. Set ``PIP_CONSTRAINT`` to work around
-   `an issue with setuptools <https://gitlab.com/slepc/slepc/-/merge_requests/935>`__::
-
-      $ echo 'setuptools<81' > constraints.txt
-      $ export PIP_CONSTRAINT=constraints.txt
 
 #. Continue with the installation as normal but install Firedrake with the
    ``slepc`` optional dependency. For example::
