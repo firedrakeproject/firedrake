@@ -19,7 +19,7 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
-from finat.ufl import TensorElement, VectorElement, MixedElement
+from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 from finat.element_factory import create_element
 
 from tsfc.driver import compile_expression_dual_evaluation
