@@ -38,7 +38,7 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
-from firedrake.exceptions import VertexOnlyMeshMissingPointsError
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
 from pyadjoint import stop_annotating
 import gem
 
@@ -54,7 +54,7 @@ from finat.element_factory import as_fiat_cell
 
 __all__ = [
     'Mesh', 'ExtrudedMesh', 'VertexOnlyMesh', 'RelabeledMesh',
-    'SubDomainData', 'unmarked', 'DistributedMeshOverlapType',
+    'SubDomainData', 'UNMARKED', 'DistributedMeshOverlapType',
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
@@ -76,7 +76,7 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
-unmarked = -1
+UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
@@ -247,7 +247,7 @@ class _Facets(object):
         :param markers: integer marker id or an iterable of marker ids
             (or ``None``, for an empty subset).
         """
-        valid_markers = set([unmarked]).union(self.unique_markers)
+        valid_markers = set([UNMARKED]).union(self.unique_markers)
         markers = as_tuple(markers, numbers.Integral)
         try:
             return self._subsets[markers]
@@ -261,7 +261,7 @@ class _Facets(object):
             # markers
             marked_points_list = []
             for i in markers:
-                if i == unmarked:
+                if i == UNMARKED:
                     _markers = self.mesh.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
                     # Can exclude points labeled with i\in markers here,
                     # as they will be included in the below anyway.
@@ -3349,6 +3349,8 @@ def Mesh(meshfile, **kwargs):
     distribution_parameters = kwargs.get("distribution_parameters", None)
     if distribution_parameters is None:
         distribution_parameters = {}
+    if isinstance(meshfile, Path):
+        meshfile = str(meshfile)
     if isinstance(meshfile, str) and \
        any(meshfile.lower().endswith(ext) for ext in ['.h5', '.hdf5']):
         from firedrake.output import CheckpointFile
@@ -5073,7 +5075,7 @@ class MeshSequenceGeometry(ufl.MeshSequence):
     def unique(self):
         """Return a single component or raise exception."""
         if len(set(self._meshes)) > 1:
-            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+            raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m
 
@@ -5179,6 +5181,6 @@ class MeshSequenceTopology(object):
     def unique(self):
         """Return a single component or raise exception."""
         if len(set(self._meshes)) > 1:
-            raise RuntimeError(f"Found multiple meshes in {self} where a single mesh is expected")
+            raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m

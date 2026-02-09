@@ -7,7 +7,6 @@ from ufl import (Mesh, FunctionSpace, Coefficient,
 from finat.ufl import FiniteElement, VectorElement, TensorElement
 
 from tsfc import compile_expression_dual_evaluation
-from finat.element_factory import create_element
 
 
 @pytest.fixture(params=[interval, quadrilateral, hexahedron],
@@ -29,9 +28,8 @@ def element(request, mesh):
 def flop_count(mesh, source, target):
     Vtarget = FunctionSpace(mesh, target)
     Vsource = FunctionSpace(mesh, source)
-    to_element = create_element(Vtarget.ufl_element())
     expr = Coefficient(Vsource)
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vtarget.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, Vtarget.ufl_element())
     return kernel.flop_count
 
 

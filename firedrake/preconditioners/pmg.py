@@ -9,7 +9,6 @@ from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import IntType_c, cached_property
-from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import serial_cache
@@ -529,8 +528,7 @@ class PMGSNES(SNESBase, PMGBase):
 
 
 def prolongation_transfer_kernel_action(Vf, expr):
-    to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, Vf.ufl_element())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.mesh().coordinates] + coefficients
