@@ -8,12 +8,7 @@ from numpy.testing import assert_approx_equal, assert_allclose
 
 
 @pytest.fixture(autouse=True)
-def test_taping(set_test_tape):
-    pass
-
-
-@pytest.fixture(autouse=True, scope="module")
-def module_annotation(set_module_annotation):
+def autouse_set_test_tape(set_test_tape):
     pass
 
 
