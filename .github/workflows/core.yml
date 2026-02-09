@@ -180,8 +180,8 @@ jobs:
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
 
-          : # Hotfix for slepc4py build
-          echo 'setuptools<=80' > constraints.txt
+          : # Fix for slepc4py build
+          echo 'setuptools<81' > constraints.txt
           export PIP_CONSTRAINT=constraints.txt
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
@@ -432,6 +432,10 @@ jobs:
 
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
+
+          : # Fix for slepc4py build
+          echo 'setuptools<81' > constraints.txt
+          export PIP_CONSTRAINT=constraints.txt
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
