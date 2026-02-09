@@ -232,8 +232,8 @@ def inject(fine, coarse):
         Vf = fine.function_space()
         if not dg:
             fine_coords = get_coordinates(Vf)
-            coarse_to_fine = utils.coarse_node_to_fine_node_map(Vc, Vf)
-            coarse_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
+            coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
+            coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
             node_locations = utils.physical_node_locations(Vc)
             # Have to do this, because the node set core size is not right for

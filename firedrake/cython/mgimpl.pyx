@@ -83,7 +83,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     ndof = fine_per_cell * fine_cell_per_coarse_cell
     if extruded:
         ndof *= ratio
-    coarse_to_fine_map = np.full((Vc.axes.local_size,
+    coarse_to_fine_map = np.full((Vc.axes.local_size//Vc.block_size,
                                   ndof),
                                  -1,
                                  dtype=IntType)

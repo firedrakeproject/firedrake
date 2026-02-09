@@ -33,8 +33,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
@@ -79,8 +77,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
