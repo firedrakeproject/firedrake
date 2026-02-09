@@ -169,7 +169,6 @@ class Matrix(MatrixBase):
             The underlying matrix object. Either a PyOP2 Mat or a PETSc Mat.
         bcs
             An iterable of boundary conditions to apply to this :class:`Matrix`.
-            May be `None` if there are no boundary conditions to apply.
             Empty tuple by default.
         fc_params
             A dictionary of form compiler parameters for this matrix, by default None.

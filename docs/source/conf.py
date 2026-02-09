@@ -134,7 +134,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'pyadjoint\..*'),
     (r'py:.*', r'tsfc\..*'),
     (r'py:.*', r'ufl\..*'),
-    (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
