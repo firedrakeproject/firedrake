@@ -164,7 +164,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "rtree>=1.2",
-  "setuptools>=77.0.3",
+  "setuptools<=80",
 ]
 build-backend = "setuptools.build_meta"
 
