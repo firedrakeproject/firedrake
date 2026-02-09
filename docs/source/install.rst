@@ -147,7 +147,7 @@ do the following steps:
 
    .. code-block:: text
 
-      make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
 
 #. Test the installation (optional) and return to the parent directory::
 
@@ -583,23 +583,37 @@ should be followed:
 
 #. Install system dependencies :ref:`as before<install_system_dependencies>`
 
-#. Clone and build the *default branch* of PETSc:
+#. Clone PETSc. If you are trying to use the ``release`` branch of
+   Firedrake then you should use the PETSc version from ``firedrake-configure``:
+
+   .. code-block:: text
+
+      $ git clone --branch $(python3 firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+
+   If you are instead building the unstable ``main`` branch then the default
+   branch of PETSc (also called ``main``) should be used:
 
    .. code-block:: text
 
       $ git clone https://gitlab.com/petsc/petsc.git
+
+#. Configure and build PETSc as usual:
+
+   .. code-block:: text
+
       $ cd petsc
       $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
       $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
       $ make check
       $ cd ..
 
-#. Clone Firedrake::
+#. Clone the desired branch of Firedrake::
 
-   $ git clone <firedrake url>
+   $ git clone <firedrake url> --branch <firedrake branch>
 
    where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
-   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred and
+   ``<firedrake branch>`` is ``main`` or ``release``.
 
 #. Set the necessary environment variables::
 
