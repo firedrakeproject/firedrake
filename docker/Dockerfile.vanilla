@@ -144,6 +144,11 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
+
+# Fix for petsc4py+slepc4py build to be removed after #4873 is resolved.
+RUN echo 'setuptools<81' > constraints.txt
+ENV PIP_CONSTRAINT=constraints.txt
+
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
    && pip cache purge \
