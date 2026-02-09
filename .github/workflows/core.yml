@@ -180,7 +180,7 @@ jobs:
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
 
-          : # Fix for slepc4py build
+          : # Fix for petsc4py+slepc4py build
           echo 'setuptools<81' > constraints.txt
           export PIP_CONSTRAINT=constraints.txt
 
@@ -433,7 +433,7 @@ jobs:
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
 
-          : # Fix for slepc4py build
+          : # Fix for petsc4py+slepc4py build
           echo 'setuptools<81' > constraints.txt
           export PIP_CONSTRAINT=constraints.txt
 
