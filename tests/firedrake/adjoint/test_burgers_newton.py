@@ -13,20 +13,8 @@ set_log_level(CRITICAL)
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.fixture
@@ -119,7 +107,7 @@ def J(ic, nu, solve_type, timestep, total_steps, V, nu_time_dependent=False):
     # The comment below and the others like it are used to generate the
     # documentation for the firedrake/docs/source/chekpointing.rst file.
     # [test_disk_checkpointing 10]
-    for step in tape.timestepper(range(total_steps)):
+    for step in tape.timestepper(iter(range(total_steps))):
         # Advance the forward model
         # [test_disk_checkpointing 11]
         if nu_time_dependent and step > 4:
