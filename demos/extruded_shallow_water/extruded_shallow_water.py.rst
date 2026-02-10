@@ -56,7 +56,7 @@ is set to a prescribed sine function to create a wave-like disturbance. ::
   p_0 = Function(X)
   p_1 = Function(X)
   p_plot = Function(Xplot)
-  x, y = SpatialCoordinate(m)
+  x, y, z = SpatialCoordinate(mesh)
   p_0.interpolate(sin(4*pi*x)*sin(2*pi*x))
 
   T = 0.5
@@ -71,7 +71,7 @@ into the plotting space for visualization. ::
   p_trial = TrialFunction(Xplot)
   p_test = TestFunction(Xplot)
   solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
-  file << p_plot, t
+  file.write(p_plot, time=t)
 
   E_0 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
 
@@ -161,7 +161,7 @@ We also print the current simulation time at each step for tracking progress.
     p_trial = TrialFunction(Xplot)
     p_test = TestFunction(Xplot)
     solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
-    file << p_plot, t
+    file.write(p_plot, time=t)
     print(t)
 
 Energy Calculation
