@@ -533,6 +533,24 @@ class CrossMeshInterpolator(Interpolator):
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
 
         return point_eval, point_eval_input_ordering
+    
+    @cached_property
+    def _interpolate_from_quadrature(self) -> Interpolate:
+        """Returns symbolic expression for interpolation from the intermediate quadrature
+        space into the user-provided target space. Only relevant if `self.into_quadrature_space` is True.
+
+        Returns
+        -------
+        Interpolate
+            A symbolic interpolate expression.
+        """
+        if self.rank == 2:
+            if self.ufl_interpolate.is_adjoint:
+                return interpolate(TestFunction(self.target_space), self.original_target_space)
+            else:
+                return interpolate(TrialFunction(self.target_space), self.original_target_space)
+        elif self.ufl_interpolate.is_adjoint:
+            return interpolate(TestFunction(self.target_space), self.dual_arg)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import assemble
@@ -564,10 +582,10 @@ class CrossMeshInterpolator(Interpolator):
                     source_space = self.ufl_interpolate.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
-                        return assemble(action(I, interpolate(TestFunction(self.target_space), self.original_target_space))).petscmat
+                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
-                        return assemble(action(interpolate(TrialFunction(self.target_space), self.original_target_space), I)).petscmat
+                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
 
@@ -576,7 +594,7 @@ class CrossMeshInterpolator(Interpolator):
 
             def callable() -> Cofunction:
                 if self.into_quadrature_space:
-                    cofunc = assemble(interpolate(TestFunction(self.target_space), self.dual_arg))
+                    cofunc = assemble(self._interpolate_from_quadrature)
                     f_target = Cofunction(point_eval.function_space())
                 else:
                     cofunc = self.dual_arg
