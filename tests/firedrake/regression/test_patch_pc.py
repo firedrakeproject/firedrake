@@ -3,8 +3,7 @@ import numpy
 from firedrake import *
 
 
-@pytest.fixture(params=[1, 2, 3],
-                ids=["Interval", "Rectangle", "Box"])
+@pytest.fixture(params=[1, 2, 3], ids=["Interval", "Rectangle", "Box"])
 def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     if request.param == 1:
@@ -36,7 +35,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         P = FunctionSpace(mesh, "CG", 1)
         Q = VectorFunctionSpace(mesh, "CG", 1)
         R = TensorFunctionSpace(mesh, "CG", 1)
-        V = P*Q*R
+        V = P * Q * R
 
     shape = V.value_shape
     rhs = numpy.full(shape, 1, dtype=float)
@@ -50,23 +49,26 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         f = Function(V)
         fval = numpy.full(V.sub(i).value_shape, 1.0, dtype=float)
         f.sub(i).interpolate(Constant(fval))
-        a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
-        L = inner(Constant(rhs), v)*dx
-        bcs = [DirichletBC(Q, 0, "on_boundary")
-               for Q in V.subspaces]
+        a = (inner(f[i], f[i]) * inner(grad(u), grad(v))) * dx
+        L = inner(Constant(rhs), v) * dx
+        bcs = [DirichletBC(Q, 0, "on_boundary") for Q in V.subspaces]
     else:
-        a = inner(grad(u), grad(v))*dx
-        L = inner(Constant(rhs), v)*dx
+        a = inner(grad(u), grad(v)) * dx
+        L = inner(Constant(rhs), v) * dx
         bcs = DirichletBC(V, 0, "on_boundary")
 
     uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
-    jacobi = LinearVariationalSolver(problem,
-                                     solver_parameters={"ksp_type": "cg",
-                                                        "pc_type": "sor" if multiplicative else "jacobi",
-                                                        "ksp_monitor": None,
-                                                        "mat_type": "aij"})
+    jacobi = LinearVariationalSolver(
+        problem,
+        solver_parameters={
+            "ksp_type": "cg",
+            "pc_type": "sor" if multiplicative else "jacobi",
+            "ksp_monitor": None,
+            "mat_type": "aij",
+        },
+    )
 
     jacobi.snes.ksp.setConvergenceHistory()
 
@@ -74,20 +76,24 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
 
     jacobi_history = jacobi.snes.ksp.getConvergenceHistory()
 
-    patch = LinearVariationalSolver(problem,
-                                    options_prefix="",
-                                    solver_parameters={"mat_type": "matfree",
-                                                       "ksp_type": "cg",
-                                                       "pc_type": "python",
-                                                       "pc_python_type": "firedrake.PatchPC",
-                                                       "patch_pc_patch_construct_type": "star",
-                                                       "patch_pc_patch_save_operators": True,
-                                                       "patch_pc_patch_sub_mat_type": "aij",
-                                                       "patch_pc_patch_local_type": "multiplicative" if multiplicative else "additive",
-                                                       "patch_pc_patch_symmetrise_sweep": multiplicative,
-                                                       "patch_sub_ksp_type": "preonly",
-                                                       "patch_sub_pc_type": "lu",
-                                                       "ksp_monitor": None})
+    patch = LinearVariationalSolver(
+        problem,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "cg",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_construct_type": "star",
+            "patch_pc_patch_save_operators": True,
+            "patch_pc_patch_sub_mat_type": "aij",
+            "patch_pc_patch_local_type": "multiplicative" if multiplicative else "additive",
+            "patch_pc_patch_symmetrise_sweep": multiplicative,
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            "ksp_monitor": None,
+        },
+    )
 
     patch.snes.ksp.setConvergenceHistory()
 
@@ -97,3 +103,48 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)
+
+
+@pytest.mark.parametrize("integral_type", ["dx_and_ds", "dx_dS_and_ds"])
+def test_patch_pc_exterior_facets(integral_type):
+    """Test that PatchPC correctly handles exterior facet integrals (ds)."""
+    distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(4, 4, distribution_parameters=distribution)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    if integral_type == "dx_and_ds":
+        a = inner(u, v) * dx + inner(u, v) * ds
+        L = inner(Constant(1.0), v) * dx
+    elif integral_type == "dx_dS_and_ds":
+        a = inner(u, v) * dx + avg(u) * avg(v) * dS + inner(u, v) * ds
+        L = inner(Constant(1.0), v) * dx
+
+    # Solve with a direct solver for reference
+    u_direct = Function(V)
+    problem = LinearVariationalProblem(a, L, u_direct)
+    direct = LinearVariationalSolver(problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    direct.solve()
+
+    # Solve with PatchPC
+    u_patch = Function(V)
+    problem_patch = LinearVariationalProblem(a, L, u_patch)
+    patch = LinearVariationalSolver(
+        problem_patch,
+        options_prefix="",
+        solver_parameters={
+            "mat_type": "matfree",
+            "ksp_type": "gmres",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.PatchPC",
+            "patch_pc_patch_construct_type": "star",
+            "patch_pc_patch_construct_dim": 0,
+            "patch_sub_ksp_type": "preonly",
+            "patch_sub_pc_type": "lu",
+            "ksp_rtol": 1e-12,
+        },
+    )
+    patch.solve()
+
+    assert numpy.allclose(u_direct.dat.data_ro, u_patch.dat.data_ro, atol=1e-8)
