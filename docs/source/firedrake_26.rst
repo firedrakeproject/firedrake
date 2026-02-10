@@ -56,6 +56,8 @@ PETSc only          1-3 June    £550    £220    £250                    £100
 Firedrake only	    3-5 June    £550    £220    £250                    £100 
 =================   ========    ======  ======= ======================= ========================== 
 
+`Register here! <https://cvent.me/lqGoPm>`__
+
 Abstract submissions
 --------------------
 
@@ -110,6 +112,29 @@ Organising committee
 * Jemma Shipton, University of Exeter
 * Hussam Al Daas, STFC
 * Pablo Brubeck, University of Oxford
+
+Support
+-------
+
+These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
+`CoSeC <https://www.cosec.ac.uk/communities/>`__ and `STFC
+<https://www.ukri.org/councils/stfc/>`__ 
+
+.. |STFC| image:: /images/stfc.*
+  :height: 60px
+  :target: https://www.ukri.org/councils/stfc/
+
+.. |CoSeC| image:: /images/cosec.*
+  :height: 60px
+  :target: https://www.cosec.ac.uk/communities/
+
+
+.. only:: html
+
+  +--------+---------+
+  | |STFC| | |CoSeC| |
+  +--------+---------+
+
 
 Further details
 ---------------
