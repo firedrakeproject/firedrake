@@ -745,7 +745,7 @@ def test_mixed_interpolator_cross_mesh():
     # | V1 -> V4   V2 -> V4 |
 
     res = assemble(mixed_interp, mat_type="nest")
-    assert isinstance(res, AssembledMatrix)
+    assert isinstance(res, Matrix)
     assert res.petscmat.type == "nest"
 
     split_interp = dict(split_form(mixed_interp))
