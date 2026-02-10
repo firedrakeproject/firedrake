@@ -5,7 +5,7 @@ import petsctools
 from firedrake import *
 from firedrake.adjoint import (
     WhiteNoiseGenerator, PyOP2NoiseBackend, PetscNoiseBackend,
-    AutoregressiveCovariance, CovarianceMat)
+    VOMNoiseBackend, AutoregressiveCovariance, CovarianceMat)
 
 
 def petsc2numpy_vec(petsc_vec):
