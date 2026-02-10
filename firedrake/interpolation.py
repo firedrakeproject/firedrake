@@ -21,7 +21,7 @@ from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
 import pyop3 as op3
-from pyop3.cache import memory_and_disk_cache
+from pyop3.cache import memory_and_disk_cache, with_heavy_caches
 from pyop3.dtypes import get_mpi_dtype
 
 from finat.ufl import TensorElement, VectorElement, MixedElement
@@ -43,6 +43,7 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import MatrixBase, AssembledMatrix
+from firedrake.mesh import get_mesh_topologies
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -211,6 +212,7 @@ class Interpolate(UFLInterpolate):
 
 
 @PETSc.Log.EventDecorator()
+@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 

@@ -32,7 +32,7 @@ from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack
 from firedrake.petsc import PETSc
-from firedrake.mesh import get_iteration_spec
+from firedrake.mesh import get_iteration_spec, get_mesh_topologies
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
@@ -45,19 +45,9 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
 
 
-def _get_heavy_caches(expr, *args, **kwargs):
-    # TODO: This isn't valid for certain inputs (e.g. ZeroBaseForm) but this
-    # is a very heavy-handed way to fix that
-    try:
-        return {d.topology for d in extract_domains(expr)}
-    except:
-        return set()
-
-
-
 @PETSc.Log.EventDecorator()
 @annotate_assemble
-@with_heavy_caches(_get_heavy_caches)
+@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def assemble(expr, *args, **kwargs):
     """Assemble.
 

@@ -17,7 +17,7 @@ from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 import enum
 import numbers
 from functools import cache, cached_property
@@ -6813,3 +6813,17 @@ class MeshSequenceTopology(object):
             raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m
+
+
+def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
+    """Return all `AbstractMeshTopology` objects associated with the expression.
+
+    This valuable as we often like to use the mesh topologies as 'heavy' caches.
+
+    """
+    # FIXME: This isn't valid for certain inputs (e.g. ZeroBaseForm) but this
+    # is a very heavy-handed way to fix that
+    try:
+        return frozenset({d.topology for d in extract_domains(expr)})
+    except:
+        return frozenset()
