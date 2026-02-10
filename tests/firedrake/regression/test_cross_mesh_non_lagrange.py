@@ -30,7 +30,7 @@ def fs_shape(V):
                 ids=lambda x: f"{x[0]}_{x[1]}")
 def V(request):
     element, degree = request.param
-    mesh = UnitSquareMesh(8, 8)
+    mesh = UnitSquareMesh(16, 16)
     return FunctionSpace(mesh, element, degree)
 
 
@@ -102,12 +102,11 @@ def test_cross_mesh_adjoint(V, rank):
     name = V.ufl_element()._short_name
     deg = V.ufl_element().degree()
     if name in ["N1curl", "GLS", "RT"] and deg == 1:
-        if name == "RT" and rank == 0:
-            pass
-        else:
-            pytest.skip(f"Not exact for degree {deg} {name} elements")
+        exact = False
     elif name in ["Regge", "HHJ"] and deg == 0:
-        pytest.skip(f"Not exact for degree {deg} {name} elements")
+        exact = False
+    else:
+        exact = True
 
     mesh1 = UnitSquareMesh(2, 2)
     x1 = SpatialCoordinate(mesh1)
@@ -129,6 +128,16 @@ def test_cross_mesh_adjoint(V, rank):
     oneform_V = inner(expr, TestFunction(V)) * dx  # V^*
     cofunc_Vtarget_direct = assemble(inner(target_expr, TestFunction(V_target)) * dx)
 
+    if exact:
+        def close(x, y):
+            if rank == 0:
+                return np.isclose(x, y)
+            else:
+                return np.allclose(x, y)
+    else:
+        def close(x, y):
+            return np.linalg.norm(x - y)**2 < 1e-5
+
     Q = V.quadrature_space()
 
     if rank == 2:
@@ -143,9 +152,10 @@ def test_cross_mesh_adjoint(V, rank):
         assert mat_equals(I_manual, I_direct)
 
         cofunc_Vtarget_manual = assemble(action(I_manual, oneform_V))
-        assert np.allclose(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+        assert close(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+
         cofunc_Vtarget = assemble(action(I_direct, oneform_V))
-        assert np.allclose(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+        assert close(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
     elif rank == 1:
         # Interp V^* -> Q^*
         I1_adj = interpolate(TestFunction(Q), oneform_V)  # SameMesh
@@ -154,11 +164,11 @@ def test_cross_mesh_adjoint(V, rank):
         # Interp Q^* -> V_target^*
         I2_adj = interpolate(TestFunction(V_target), cofunc_Q)  # CrossMesh
         cofunc_Vtarget_manual = assemble(I2_adj)
-        assert np.allclose(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+        assert close(cofunc_Vtarget_manual.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
 
         cofunc_Vtarget = assemble(interpolate(TestFunction(V_target), oneform_V))  # V^* -> V_target^*
-        assert np.allclose(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
+        assert close(cofunc_Vtarget.dat.data_ro, cofunc_Vtarget_direct.dat.data_ro)
     elif rank == 0:
         res = assemble(interpolate(target_expr, oneform_V))
         actual = assemble(inner(expr, expr) * dx)
-        assert np.isclose(res, actual)
+        assert close(res, actual)

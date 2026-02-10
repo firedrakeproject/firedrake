@@ -431,7 +431,7 @@ class CrossMeshInterpolator(Interpolator):
         if self.source_mesh.unique().geometric_dimension != self.target_mesh.unique().geometric_dimension:
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
-        # Interpolate into intermediate quadrature space for non-identity mapped elements
+        # Interpolate into intermediate quadrature space for non-point-evaluation elements
         if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
             self.original_target_space = self.target_space
             r"""The original target space for interpolation, as specified by the user."""
@@ -505,6 +505,8 @@ class CrossMeshInterpolator(Interpolator):
             raise DofTypeError(f"FunctionSpace {self.target_space} must have point-evaluation dofs.")
 
         # Immerse coordinates of target space point evaluation dofs in src_mesh
+        # If `self.into_quadrature_space` is true, then the point evaluation dofs
+        # are the quadrature points of the original target space.
         target_mesh = self.target_space.mesh().unique()
         target_space_vec = VectorFunctionSpace(target_mesh, self._target_space_element)
         f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
@@ -533,7 +535,7 @@ class CrossMeshInterpolator(Interpolator):
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
 
         return point_eval, point_eval_input_ordering
-    
+
     @cached_property
     def _interpolate_from_quadrature(self) -> Interpolate:
         """Returns symbolic expression for interpolation from the intermediate quadrature
