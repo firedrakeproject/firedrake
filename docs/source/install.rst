@@ -240,6 +240,12 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
+#. Set ``PIP_CONSTRAINT`` to work around
+   `an issue with setuptools <https://gitlab.com/petsc/petsc/-/merge_requests/9016>`__::
+
+      $ echo 'setuptools<81' > constraints.txt
+      $ export PIP_CONSTRAINT=constraints.txt
+
 #. Install Firedrake::
 
       $ pip install --no-binary h5py 'firedrake[check]'
@@ -539,14 +545,6 @@ image). Then you can run::
 
 to start and enter a container.
 
-.. note::
-
-   The 'full-fat' ``firedrakeproject/firedrake`` image only exists for x86
-   architectures because some external packages do not provide ARM wheels.
-   If you are using an ARM Mac (i.e. M1, M2, etc) then you are encouraged to
-   use the ``firedrakeproject/firedrake-vanilla-default`` or
-   ``firedrakeproject/firedrake-vanilla-complex`` images instead.
-
 It is possible to use `Microsoft VSCode <https://code.visualstudio.com/>`__
 inside a running container. Instructions for how to do this may be found
 `here <https://github.com/firedrakeproject/firedrake/wiki/Writing-Firedrake-code-with-VSCode-inside-a-Docker-container>`__.
@@ -558,6 +556,28 @@ inside a running container. Instructions for how to do this may be found
    and host. We therefore strongly advise you to take care when using Docker.
    More information can be found
    `here <https://docs.docker.com/engine/security/#docker-daemon-attack-surface>`__.
+
+.. _dev_containers:
+
+Developer containers
+~~~~~~~~~~~~~~~~~~~~
+
+In addition to the versioned Docker images described above, Firedrake also
+publish 'developer' containers that track the most recent commits to the
+``main`` and ``release`` branches (see :ref:`main_vs_release`). These images
+are useful for downstream CI or for developing Firedrake itself (see
+:doc:`contribute`).
+
+To use these images one should run::
+
+   .. code-block:: bash
+
+      $ docker pull firedrakeproject/<image name>:dev-main
+      # or
+      $ docker pull firedrakeproject/<image name>:dev-release
+
+where ``<image name>`` is ``firedrake-vanilla-default`` or
+``firedrake-vanilla-complex``.
 
 Google Colab
 ------------
@@ -579,7 +599,9 @@ Developer install
       should follow the instructions `here <https://firedrakeproject.org/firedrake/install>`__.
 
 In order to install a development version of Firedrake the following steps
-should be followed:
+should be followed. You should decide in advance which development branch
+that you want to install (``main`` or ``release``, see
+:ref:`here<main_vs_release>` for the differences between them).
 
 #. Install system dependencies :ref:`as before<install_system_dependencies>`
 
