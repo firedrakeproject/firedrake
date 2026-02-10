@@ -434,8 +434,7 @@ class CrossMeshInterpolator(Interpolator):
         # Interpolate into intermediate quadrature space for non-identity mapped elements
         if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
             self.original_target_space = self.target_space
-            r"""The original target space for interpolation, as specified by the user.
-            This is only used if ``self.into_quadrature_space`` is ``True``."""
+            r"""The original target space for interpolation, as specified by the user."""
             self.target_space = self.target_space.quadrature_space()
             r"""The target space for the cross-mesh interpolation. Must have point-evaluation dofs.
             If ``self.original_target_space`` does not have point-evaluation dofs, then this is
@@ -518,21 +517,21 @@ class CrossMeshInterpolator(Interpolator):
                 missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(f"The given target function space on domain {self.target_mesh} "
+            raise DofNotDefinedError(f"The given target function space on domain {target_mesh} "
                                      "contains degrees of freedom which cannot cannot be defined in the "
-                                     f"source function space on domain {self.source_mesh}. "
+                                     f"source function space on domain {self.source_mesh.unique()}. "
                                      "This may be because the target mesh covers a larger domain than the "
                                      "source mesh. To disable this error, set allow_missing_dofs=True.")
 
-        # Get expression for point evaluation at the dest_node_coords
+        # Expression for point evaluation at the dest_node_coords
         P0DG_vom = self._target_space_type(vom, "DG", 0)
         point_eval = interpolate(self.operand, P0DG_vom)
 
-        # Interpolate into the input-ordering VOM
+        # Expression for interpolating into the input-ordering VOM
         P0DG_vom_input_ordering = self._target_space_type(vom.input_ordering, "DG", 0)
-
         arg = Argument(P0DG_vom, 0 if self.ufl_interpolate.is_adjoint else 1)
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
+
         return point_eval, point_eval_input_ordering
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
@@ -541,7 +540,6 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
-        # Interpolate into intermediate quadrature space for non-identity mapped elements
         if self.into_quadrature_space:
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:

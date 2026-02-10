@@ -34,7 +34,7 @@ def V(request):
     return FunctionSpace(mesh, element, degree)
 
 
-# @pytest.mark.parallel([1, 3])
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [1, 2])
 def test_cross_mesh(V, rank):
     mesh1 = UnitSquareMesh(5, 5)
@@ -94,7 +94,7 @@ def test_cross_mesh(V, rank):
         assert np.allclose(f_interpolated_direct.dat.data_ro, f_direct.dat.data_ro)
 
 
-# @pytest.mark.parallel([1, 3])
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("rank", [0, 1, 2])
 def test_cross_mesh_adjoint(V, rank):
     # Can already do Lagrange -> RT adjoint
