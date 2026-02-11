@@ -1,5 +1,5 @@
 from firedrake import *
-from pyop2.mpi import MPI
+from pyop3.mpi import MPI
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
@@ -79,18 +79,13 @@ def urank_sum(ensemble, mesh, W):
     return u
 
 
+@pytest.mark.parallel([1, 3])
 def test_comm_manager():
     with pytest.raises(ValueError):
         Ensemble(COMM_WORLD, 2)
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_comm_manager_parallel():
-    with pytest.raises(ValueError):
-        Ensemble(COMM_WORLD, 2)
-
-
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(6)
 @pytest.mark.parametrize("blocking", blocking)
 def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
     u_reduce = Function(W).assign(0)
@@ -98,8 +93,8 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
     if blocking:
         ensemble.allreduce(urank, u_reduce)
     else:
-        requests = ensemble.iallreduce(urank, u_reduce)
-        MPI.Request.Waitall(requests)
+        request = ensemble.iallreduce(urank, u_reduce)
+        MPI.Request.Wait(request)
 
     parallel_assert(errornorm(urank_sum, u_reduce) < 1e-12)
 
@@ -172,13 +167,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
 
     # check default root=0 works
     if root is None:
-        requests = reduction(urank, u_reduce)
+        request = reduction(urank, u_reduce)
         root = 0
     else:
-        requests = reduction(urank, u_reduce, root=root)
+        request = reduction(urank, u_reduce, root=root)
 
     if not blocking:
-        MPI.Request.Waitall(requests)
+        MPI.Request.Wait(request)
 
     # only u_reduce on rank root should be modified
     error = errornorm(urank_sum, u_reduce)
@@ -199,13 +194,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     spatial_rank = ensemble.comm.rank
 
     states = zeros(ensemble.comm.size, dtype=int)
-    with u_reduce.dat.vec as v:
+    with u_reduce.dat.vec_ro as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
     parallel_assert(len(set(states)) == 1)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("blocking", blocking)
 def test_comm_manager_reduce(blocking):
     ensemble = Ensemble(COMM_WORLD, 1)
@@ -270,13 +265,13 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
 
     # check default root=0 works
     if root is None:
-        requests = bcast(urank)
+        request = bcast(urank)
         root = 0
     else:
-        requests = bcast(urank, root=root)
+        request = bcast(urank, root=root)
 
     if not blocking:
-        MPI.Request.Waitall(requests)
+        MPI.Request.Wait(request)
 
     # broadcasted function
     u_correct = unique_function(mesh, root, W)
@@ -301,18 +296,18 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
         recv = ensemble.irecv
 
     if ensemble.ensemble_rank == rank0:
-        send_requests = send(usend, dest=rank1, tag=rank0)
-        recv_requests = recv(urecv, source=rank1, tag=rank1)
+        send_request = send(usend, dest=rank1, tag=rank0)
+        recv_request = recv(urecv, source=rank1, tag=rank1)
         if not blocking:
-            MPI.Request.waitall(send_requests)
-            MPI.Request.waitall(recv_requests)
+            MPI.Request.wait(send_request)
+            MPI.Request.wait(recv_request)
         error = errornorm(urecv, usend)
     elif ensemble.ensemble_rank == rank1:
-        recv_requests = recv(urecv, source=rank0, tag=rank0)
-        send_requests = send(usend, dest=rank0, tag=rank1)
+        recv_request = recv(urecv, source=rank0, tag=rank0)
+        send_request = send(usend, dest=rank0, tag=rank1)
         if not blocking:
-            MPI.Request.waitall(send_requests)
-            MPI.Request.waitall(recv_requests)
+            MPI.Request.wait(send_request)
+            MPI.Request.wait(recv_request)
         error = errornorm(urecv, usend)
     else:
         error = 0
@@ -326,7 +321,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     )
 
 
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(6)
 @pytest.mark.parametrize("blocking", blocking)
 def test_sendrecv(ensemble, mesh, W, urank, blocking):
 
@@ -343,7 +338,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
         sendrecv = ensemble.isendrecv
 
     requests = sendrecv(usend, dst_rank, sendtag=ensemble.ensemble_rank,
-                        frecv=urecv, source=src_rank, recvtag=src_rank)
+                       frecv=urecv, source=src_rank, recvtag=src_rank)
 
     if not blocking:
         MPI.Request.Waitall(requests)
@@ -351,7 +346,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     parallel_assert(errornorm(urecv, u_expect) < 1e-12)
 
 
-@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parallel(6)
 def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     """
     this test uses linearity of the equation to solve two problems

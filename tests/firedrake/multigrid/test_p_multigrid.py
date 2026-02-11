@@ -387,7 +387,7 @@ def test_p_fas_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.dat.vec_ro as Fvec:
+    with rhs.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -464,7 +464,7 @@ def test_p_fas_nonlinear_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.dat.vec_ro as Fvec:
+    with rhs.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -586,11 +586,11 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
 
     uc = Function(Vc)
     uf = Function(Vf)
-    with uc.dat.vec_wo as xc:
+    with uc.vec_wo as xc:
         xc.setRandom()
     for bc in Vc_bcs:
         bc.zero(uc)
-    with uc.dat.vec_ro as xc, uf.dat.vec as xf:
+    with uc.dat.vec_ro as xc, uf.dat.vec_wo as xf:
         P.mult(xc, xf)
     assert norm(uf - uc) < 1E-12
 
@@ -600,7 +600,7 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
         xf.setRandom()
     for bc in Vf_bcs:
         bc.zero(rf)
-    with rf.dat.vec_ro as xf, rc.dat.vec as xc:
+    with rf.dat.vec_ro as xf, rc.dat.vec_wo as xc:
         P.multTranspose(xf, xc)
 
     assert abs(assemble(action(rf, uf)) - assemble(action(rc, uc))) < 1E-11

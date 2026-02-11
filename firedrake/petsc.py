@@ -7,7 +7,7 @@ from warnings import warn
 import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop2 import mpi
+from pyop3 import mpi
 
 from firedrake import utils
 

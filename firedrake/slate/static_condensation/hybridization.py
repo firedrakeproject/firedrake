@@ -127,7 +127,7 @@ class HybridizationPC(SCBase):
         n = ufl.FacetNormal(mesh_unique)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        if mesh_unique.cell_set._extruded:
+        if mesh_unique.extruded:
             Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
                      + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
         else:
@@ -161,7 +161,7 @@ class HybridizationPC(SCBase):
             integrand = gammar * ufl.dot(sigma, n)
             measures = []
             trace_subdomains = []
-            if mesh_unique.cell_set._extruded:
+            if mesh_unique.extruded:
                 ds = ufl.ds_v
                 for subdomain in sorted(extruded_neumann_subdomains):
                     measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
@@ -187,7 +187,7 @@ class HybridizationPC(SCBase):
             # the exterior boundary. Extruded cells will have both
             # horizontal and vertical facets
             trace_subdomains = ["on_boundary"]
-            if mesh_unique.cell_set._extruded:
+            if mesh_unique.extruded:
                 trace_subdomains.extend(["bottom", "top"])
             trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
@@ -317,7 +317,7 @@ class HybridizationPC(SCBase):
         """
 
         with PETSc.Log.Event("HybridBreak"):
-            with self.unbroken_residual.dat.vec_wo as v:
+            with self.unbroken_residual.vec_wo as v:
                 x.copy(v)
 
             # Transfer unbroken_rhs into broken_rhs
@@ -357,11 +357,11 @@ class HybridizationPC(SCBase):
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
 
             # Solve the system for the Lagrange multipliers
-            with self.schur_rhs.dat.vec_ro as b:
+            with self.schur_rhs.vec_ro as b:
                 if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec
+                    acc = self.trace_solution.vec
                 else:
-                    acc = self.trace_solution.dat.vec_wo
+                    acc = self.trace_solution.vec_wo
                 with acc as x_trace:
                     self.trace_ksp.solve(b, x_trace)
 
@@ -395,7 +395,7 @@ class HybridizationPC(SCBase):
                       "vec_in": (broken_hdiv, READ),
                       "vec_out": (unbroken_hdiv, INC)})
 
-        with self.unbroken_solution.dat.vec_ro as v:
+        with self.unbroken_solution.vec_ro as v:
             v.copy(y)
 
     def view(self, pc, viewer=None):

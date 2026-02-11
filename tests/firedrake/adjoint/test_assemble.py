@@ -47,8 +47,8 @@ def test_assemble_0_forms_mixed():
     rf = ReducedFunctional(s, Control(u))
     # derivative is: (1+4*u)*dx - summing is equivalent to testing with 1
     dJdm = rf.derivative(apply_riesz=True)
-    assert_allclose(dJdm.dat.data_ro[0], 1. + 4. * 7)
-    assert_allclose(dJdm.dat.data_ro[1], 0.0)
+    assert_allclose(dJdm.dat[0].data_ro, 1. + 4. * 7)
+    assert_allclose(dJdm.dat[1].data_ro, 0.0)
 
 
 @pytest.mark.skipcomplex

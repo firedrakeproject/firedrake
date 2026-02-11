@@ -225,7 +225,7 @@ def test_ensemble_dofsizes_correct(ensemblespace):
     ensemble = efs.ensemble
     rank = ensemble.global_comm.rank
 
-    nlocal_rank_dofs = sum(fs.dof_dset.layout_vec.getLocalSize()
+    nlocal_rank_dofs = sum(fs.template_vec.getLocalSize()
                            for fs in efs.local_spaces)
     nlocal_comm_dofs = ensemble.comm.allreduce(nlocal_rank_dofs)
     nglobal_dofs = ensemble.ensemble_comm.allreduce(nlocal_comm_dofs)

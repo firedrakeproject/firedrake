@@ -49,8 +49,9 @@ del petsc
 from ufl import *  # noqa: F401
 from finat.ufl import *  # noqa: F401
 
-from pyop2 import op2                        # noqa: F401
-from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+from pyop3.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+
+from pyop3 import READ, WRITE, RW, INC  # noqa: F401
 
 # Register possible citations
 import firedrake.citations  # noqa: F401
@@ -107,8 +108,9 @@ from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
 from firedrake.output import VTKFile  # noqa: F401
 from firedrake.parameters import (  # noqa: F401
-    Parameters, parameters, disable_performance_optimisations
+    Parameters, parameters
 )
+from firedrake.pack import pack  # noqa: F401
 from firedrake.parloops import (  # noqa: F401
     par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
 )

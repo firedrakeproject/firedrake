@@ -12,7 +12,6 @@ import subprocess
                         "square",
                         "squarequads",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
@@ -29,8 +28,6 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
-    elif request.param == "extrudedvariablelayers":
-        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -147,7 +144,8 @@ def immersed_sphere_vertexcoords(mesh, vertexcoords_old):
         return vertexcoords_old
     else:
         # Get the coordinates of the vertices of the mesh
-        meshvertexcoords = allgather(mesh.comm, mesh.coordinates.dat.data_ro)
+        local_coords = mesh.coordinates.dat.data_ro.reshape((-1, mesh.geometric_dimension))
+        meshvertexcoords = allgather(mesh.comm, local_coords)
         return meshvertexcoords[0:len(vertexcoords_old)]
 
 
@@ -159,9 +157,6 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    # Reshaping because for all meshes, we want (-1, gdim) but
-    # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
-    # () and shape (1,).
     vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
@@ -336,8 +331,8 @@ def test_extruded_cell_parent_cell_list():
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
     assert vms.num_cells() == len(coords)
     assert vmx.num_cells() == len(coords)
-    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._dm_renumbering]).all()
-    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._dm_renumbering]).all()
+    assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._new_to_old_point_renumbering]).all()
+    assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._new_to_old_point_renumbering]).all()
 
     # set up test as in tests/regression/test_locate_cell.py - DG0 has 1 dof
     # per cell which is the expression evaluated at the cell midpoint.
@@ -356,8 +351,8 @@ def test_extruded_cell_parent_cell_list():
     mx_eval = PointEvaluator(mx, coords)
     assert np.allclose(ms_eval.evaluate(fs), expected)
     assert np.allclose(mx_eval.evaluate(fx), expected)
-    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
-    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
+    assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._new_to_old_point_renumbering])
+    assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._new_to_old_point_renumbering])
 
 
 @pytest.mark.parallel

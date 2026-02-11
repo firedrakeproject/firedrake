@@ -105,7 +105,7 @@ class TransferManager(object):
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
                                {"A": (f, firedrake.INC)})
-            with f.dat.vec_ro as fv:
+            with f.vec_ro as fv:
                 return cache._V_dof_weights.setdefault(key, fv.copy())
 
     def V_DG_mass(self, V, DG):
@@ -208,7 +208,7 @@ class TransferManager(object):
         try:
             return cache._work_vec[key]
         except KeyError:
-            return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
+            return cache._work_vec.setdefault(key, V.template_vec.duplicate())
 
     def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
@@ -257,7 +257,7 @@ class TransferManager(object):
 
             # Project into DG space
             # u \in Vs -> u \in VDGs
-            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+            with source.vec_ro as sv, dgsource.vec_wo as dgv:
                 self.V_DG_mass(Vs, VDGs).mult(sv, dgwork)
                 self.DG_inv_mass(VDGs).mult(dgwork, dgv)
 
@@ -267,7 +267,7 @@ class TransferManager(object):
 
             # Project back
             # u \in VDGt -> u \in Vt
-            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+            with dgtarget.vec_ro as dgv, target.vec_wo as t:
                 if self.use_averaging:
                     self.V_approx_inv_mass(Vt, VDGt).mult(dgv, t)
                     t.pointwiseDivide(t, self.V_dof_weights(Vt))
@@ -324,7 +324,7 @@ class TransferManager(object):
             dgwork = self.work_vec(VDGt)
 
             # g \in Vs^* -> g \in VDGs^*
-            with source.dat.vec_ro as sv, dgsource.dat.vec_wo as dgv:
+            with source.vec_ro as sv, dgsource.vec_wo as dgv:
                 if self.use_averaging:
                     work.pointwiseDivide(sv, self.V_dof_weights(Vs))
                     self.V_approx_inv_mass(Vs, VDGs).multTranspose(work, dgv)
@@ -336,7 +336,7 @@ class TransferManager(object):
             self.restrict(dgsource, dgtarget)
 
             # g \in VDGt^* -> g \in Vt^*
-            with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
+            with dgtarget.vec_ro as dgv, target.vec_wo as t:
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)

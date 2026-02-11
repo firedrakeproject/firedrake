@@ -1,4 +1,6 @@
+import textwrap
 import numpy as np
+from functools import cached_property
 import rtree
 import sys
 import ufl
@@ -13,11 +15,13 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
+from immutabledict import immutabledict as idict
 from functools import partial
 from typing import Tuple
+from mpi4py import MPI
 
-from pyop2 import op2, mpi
-from pyop2.exceptions import DataTypeError, DataValueError
+import pyop3 as op3
+from pyop3.mpi import internal_comm
 
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
@@ -27,6 +31,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
+from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
@@ -36,13 +41,12 @@ __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'Point
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
-                ("extruded", c_int),
-                ("n_layers", c_int),
+    _fields_ = [("n_cells", c_int),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
+                ("f_offset", c_int),
                 ("sidx", c_void_p)]
 
 
@@ -78,7 +82,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+        if isinstance(val, op3.Dat):
             assert val.comm == self.comm
             self.dat = val
         else:
@@ -90,7 +94,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self
 
     @PETSc.Log.EventDecorator()
-    def copy(self, deepcopy=False):
+    def copy(self, *, deepcopy=False):
         r"""Return a copy of this CoordinatelessFunction.
 
         :kwarg deepcopy: If ``True``, the new
@@ -98,37 +102,50 @@ class CoordinatelessFunction(ufl.Coefficient):
             and copy values.  If ``False``, the default, then the new
             :class:`CoordinatelessFunction` will share the dof values.
         """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
+        dat = self.dat.copy() if deepcopy else self.dat
         return type(self)(self.function_space(),
-                          val=val, name=self.name(),
+                          val=dat, name=self.name(),
                           dtype=self.dat.dtype)
 
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
-                     for i, (fs, dat) in
-                     enumerate(zip(self.function_space(), self.dat)))
+        if isinstance(self.function_space(), MixedFunctionSpace):
+            # NOTE: This is quite tricky for fieldsplit. Previously the fields would
+            # be renumbered when split, but now we retain the labels in the dat but
+            # not the function space.
+            subfuncs = []
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
+                subspace = self.function_space().sub(i)
+                subdat = self.dat[component.label]
+                subfunc = CoordinatelessFunction(
+                    subspace, subdat, name=f"{self.name()}[{subspace.index}]"
+                )
+                subfuncs.append(subfunc)
+            return tuple(subfuncs)
+        else:
+            return (self,)
 
     @utils.cached_property
-    def _components(self):
-        if self.function_space().rank == 0:
-            return (self, )
-        else:
-            if self.dof_dset.cdim == 1:
-                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
-                                               name=f"view[0]({self.name()})"),)
-            else:
-                return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                    name=f"view[{i}]({self.name()})")
-                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+    def _components(self) -> np.ndarray["CoordinatelessFunction"]:
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                val=self.dat[indices],
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
+            )
+            components[ix] = component
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -145,39 +162,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
         return data[i]
-
-    @property
-    def cell_set(self):
-        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
-        :class:`Function` is defined."""
-        return self.function_space()._mesh.cell_set
-
-    @property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
-        :class:`Function`. One or (for rank-1 and 2
-        :class:`.FunctionSpace`\s) more degrees of freedom are stored
-        at each node.
-        """
-        return self.function_space().node_set
-
-    @property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Function`."""
-        return self.function_space().dof_dset
-
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
-    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
-
-    def interior_facet_node_map(self):
-        return self.function_space().interior_facet_node_map()
-    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
-
-    def exterior_facet_node_map(self):
-        return self.function_space().exterior_facet_node_map()
-    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -252,7 +236,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         :param count: The :class:`ufl.Coefficient` count which creates the
             symbolic identity of this :class:`Function`.
         """
-
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
@@ -280,6 +263,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         if isinstance(function_space, Function):
             self.assign(function_space)
 
+    def __str__(self):
+        return ufl2unicode(self)
+
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
@@ -306,37 +292,54 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.subfunctions))
-
-    @utils.cached_property
-    def _components(self):
-        if self.function_space().rank == 0:
-            return (self, )
+        if isinstance(self.function_space().topological, MixedFunctionSpace):
+            return tuple(
+                type(self)(self.function_space().sub(i), val)
+                for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().block_size))
+            return (self,)
+
+    @cached_property
+    def _components(self):
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+    def sub(self, indices: tuple[int] | int) -> "Function":
+        """Extract the `i`th sub function of this function.
 
-        :arg i: the index to extract
+        If the `Function` is defined on a `~.VectorFunctionSpace` or
+        `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th
+        component of the space, suitable for use in boundary condition application.
 
-        See also :attr:`subfunctions`.
+        Parameters
+        ----------
+        indices :
+            Indices indicating the sub function to extract. If an `int` is
+            used then this is converted into a `tuple`.
 
-        If the :class:`Function` is defined on a
-        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        Returns
+        -------
+        The sub function.
+
+        See Also
+        --------
+        subfunctions
+
+        """
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[indices]
+        else:
+            indices = parse_component_indices(indices, self.function_space().shape)
+            return self._components[indices]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
@@ -443,13 +446,14 @@ class Function(ufl.Coefficient, FunctionMixin):
         should be used.
 
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
-            try:
-                self.dat.data_wo[...] = expr
-            except (DataTypeError, DataValueError) as e:
-                raise ValueError(e)
+            self.dat.data_wo[...] = expr
         elif expr == 0:
-            self.dat.zero(subset=subset)
+            self.dat[subset].zero(eager=True)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
@@ -524,17 +528,10 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cols = mesh.num_cells()
-        if mesh.layers is not None:
-            # TODO: assert constant layer. Can we do variable though?
-            c_function.extruded = 1
-            c_function.n_layers = mesh.layers - 1
-        else:
-            c_function.extruded = 0
-            c_function.n_layers = 1
-        c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
+        c_function.n_cells = mesh.num_cells
+        c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -593,9 +590,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self.dat.data_ro
 
         # Need to ensure data is up-to-date for reading
-        self.dat.global_to_local_begin(op2.READ)
-        self.dat.global_to_local_end(op2.READ)
-        from mpi4py import MPI
+        self.dat.buffer.assemble()
 
         if args:
             arg = (arg,) + args
@@ -635,7 +630,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        with mpi.temp_internal_comm(self.comm) as icomm:
+        with op3.mpi.temp_internal_comm(self.comm) as icomm:
             root_arg = icomm.bcast(arg, root=0)
             same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
             diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
@@ -702,8 +697,18 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
-    def __str__(self):
-        return ufl2unicode(self)
+    # TODO: dont need these any more
+    @property
+    def vec_ro(self):
+        return self.dat.vec_ro
+
+    @property
+    def vec_wo(self):
+        return self.dat.vec_wo
+
+    @property
+    def vec_rw(self):
+        return self.dat.vec_rw
 
 
 class PointNotInDomainError(Exception):
@@ -844,32 +849,39 @@ class PointEvaluator:
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
-
     from os import path
     from firedrake.pointeval_utils import compile_element
-    from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
-    from pyop2.parloop import generate_single_cell_wrapper
+    from pyop3 import compile as compilation
+    from pyop3.pyop2_utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
+    gdim = mesh.geometric_dimension()
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 
-    args = []
-
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    args.append(arg)
-
-    arg = function.dat(op2.READ, function.cell_node_map())
-    args.append(arg)
+    coords_shape = np.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    func_shape = np.prod(function.function_space().finat_element.index_shape, dtype=int)
+    func_bsize = function.function_space().block_size
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
-    src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=[p_ScalarType_c,
-                                                          p_ScalarType_c],
-                                            kernel_name="evaluate_kernel",
-                                            wrapper_name="wrap_evaluate"))
+    wrapper_src = textwrap.dedent(f"""
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1, int const dat1_offset)
+        {{
+          {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
+          {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
+
+          for (int32_t i = 0; i < {coords_shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
+          for (int32_t i = 0; i < {func_shape}; ++i)
+            for (int32_t j = 0; j < {func_bsize}; ++j) {{
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j + dat1_offset];
+            }}
+          evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
+        }}"""
+    )
+    src.append(wrapper_src)
 
     src = "\n".join(src)
 

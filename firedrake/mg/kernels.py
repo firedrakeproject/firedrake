@@ -1,8 +1,7 @@
+import textwrap
 import numpy
 import string
-from pyop2 import op2
-from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
@@ -18,6 +17,7 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
+import pyop3 as op3
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -125,7 +125,7 @@ def compile_element(operand, dual_arg, parameters=None,
     kernel = compile_expression_dual_evaluation(expression,
                                                 ufl_element,
                                                 parameters=parameters,
-                                                name="pyop2_kernel_"+name)
+                                                name="pyop3_kernel_"+name)
     return lp.generate_code_v2(kernel.ast).device_code()
 
 
@@ -177,59 +177,55 @@ def prolong_kernel(expression, Vf):
     try:
         return cache[key]
     except KeyError:
-        evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
+        pass
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
-        {
-            PetscScalar Xref[%(tdim)d];
-            int cell = -1;
-            int bestcell = -1;
-            double bestdist = 1e10;
-            for (int i = 0; i < %(ncandidate)d; i++) {
-                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
-                to_reference_coords_kernel(Xref, X, Xci);
-                if (%(inside_cell)s) {
-                    cell = i;
-                    break;
-                }
+    mesh = extract_unique_domain(coordinates)
+    evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+    coords_element = create_element(coordinates.ufl_element())
+    element = create_element(expression.ufl_element())
 
-                celldist = %(celldist_l1_c_expr)s;
-                if (celldist < bestdist) {
-                    bestdist = celldist;
-                    bestcell = i;
-                }
+    c_kernel = textwrap.dedent("""
+        PetscScalar Xref[%(tdim)d];
+        int cell = -1;
+        int bestcell = -1;
+        double bestdist = 1e10;
+        for (int i = 0; i < %(ncandidate)d; i++) {
+            const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+            double celldist = 2*bestdist;
+            to_reference_coords_kernel(Xref, X, Xci);
+            if (%(inside_cell)s) {
+                cell = i;
+                break;
+            }
 
+            celldist = %(celldist_l1_c_expr)s;
+            if (celldist < bestdist) {
+                bestdist = celldist;
+                bestcell = i;
             }
-            if (cell == -1) {
-                /* We didn't find a cell that contained this point exactly.
-                   Did we find one that was close enough? */
-                if (bestdist < 10) {
-                    cell = bestcell;
-                } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(tdim)s; coord++) {
-                      fprintf(stderr, "%%.14e ", X[coord]);
-                    }
-                    fprintf(stderr, "\\n");
-                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                    abort();
-                }
-            }
-            const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
-            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
-            for ( int i = 0; i < %(Rdim)d; i++ ) {
-                R[i] = 0;
-            }
-            pyop2_kernel_evaluate(%(kernel_args)s);
         }
+        if (cell == -1) {
+            /* We didn't find a cell that contained this point exactly.
+               Did we find one that was close enough? */
+            if (bestdist < 10) {
+                cell = bestcell;
+            } else {
+                fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                for (int coord = 0; coord < %(tdim)s; coord++) {
+                  fprintf(stderr, "%%.14e ", X[coord]);
+                }
+                fprintf(stderr, "\\n");
+                fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                abort();
+            }
+        }
+        const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
+        const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
+        for ( int i = 0; i < %(Rdim)d; i++ ) {
+            R[i] = 0;
+        }
+        pyop3_kernel_evaluate(%(kernel_args)s);
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
                "kernel_args": _make_kernel_args(element, "R", "Xci", "fi", "Xref"),
@@ -239,9 +235,32 @@ def prolong_kernel(expression, Vf):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()}
+               "tdim": element.cell.get_spatial_dimension()})
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+    # Now build a pyop3 'Function' wrapping this
+    loopy_kernel = lp.make_kernel(
+        "{ [i]: 0 < i < 1 }",
+        [
+            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
+        ],
+        [
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
+        ],
+        name="pyop3_kernel_prolong",
+        preambles=[
+            ("20_petsc", "#include <petsc.h>"),
+            ("20_to_reference_kernel", str(to_reference_kernel)),
+            ("20_eval", evaluate_code),
+        ],
+        target=tsfc.parameters.target,
+        lang_version=op3.LOOPY_LANG_VERSION,
+        )
+    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+
+    return cache.setdefault(key, func)
 
 
 def restrict_kernel(Vf, Vc):
@@ -259,60 +278,55 @@ def restrict_kernel(Vf, Vc):
     try:
         return cache[key]
     except KeyError:
-        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
-        evaluate_code = compile_element(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
-        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
-        coords_element = create_element(coordinates.ufl_element())
-        element = create_element(Vc.ufl_element())
+        pass
 
-        my_kernel = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
+    assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
+    evaluate_code = compile_element(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
+    to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+    coords_element = create_element(coordinates.ufl_element())
+    element = create_element(Vc.ufl_element())
 
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
+    c_kernel = textwrap.dedent("""
+        PetscScalar Xref[%(tdim)d];
+        int cell = -1;
+        int bestcell = -1;
+        double bestdist = 1e10;
+        for (int i = 0; i < %(ncandidate)d; i++) {
+            const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+            double celldist = 2*bestdist;
+            to_reference_coords_kernel(Xref, X, Xci);
+            if (%(inside_cell)s) {
+                cell = i;
+                break;
+            }
+
+            celldist = %(celldist_l1_c_expr)s;
+            /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
+            fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
+            if (celldist < bestdist) {
+                bestdist = celldist;
+                bestcell = i;
+            }
+        }
+        if (cell == -1) {
+            /* We didn't find a cell that contained this point exactly.
+               Did we find one that was close enough? */
+            if (bestdist < 10) {
+                cell = bestcell;
+            } else {
+                fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                for (int coord = 0; coord < %(tdim)s; coord++) {
+                  fprintf(stderr, "%%.14e ", X[coord]);
+                }
+                fprintf(stderr, "\\n");
+                fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                abort();
+            }
+        }
+
         {
-            PetscScalar Xref[%(tdim)d];
-            int cell = -1;
-            int bestcell = -1;
-            double bestdist = 1e10;
-            for (int i = 0; i < %(ncandidate)d; i++) {
-                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
-                to_reference_coords_kernel(Xref, X, Xci);
-                if (%(inside_cell)s) {
-                    cell = i;
-                    break;
-                }
-
-                celldist = %(celldist_l1_c_expr)s;
-                /* fprintf(stderr, "cell %%d celldist: %%.14e\\n", i, celldist);
-                fprintf(stderr, "Xref: %%.14e %%.14e %%.14e\\n", Xref[0], Xref[1], Xref[2]); */
-                if (celldist < bestdist) {
-                    bestdist = celldist;
-                    bestcell = i;
-                }
-            }
-            if (cell == -1) {
-                /* We didn't find a cell that contained this point exactly.
-                   Did we find one that was close enough? */
-                if (bestdist < 10) {
-                    cell = bestcell;
-                } else {
-                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
-                    for (int coord = 0; coord < %(tdim)s; coord++) {
-                      fprintf(stderr, "%%.14e ", X[coord]);
-                    }
-                    fprintf(stderr, "\\n");
-                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
-                    abort();
-                }
-            }
-
-            {
-            const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(%(kernel_args)s);
-            }
+        const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
+        pyop3_kernel_evaluate(%(kernel_args)s);
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
@@ -322,9 +336,33 @@ def restrict_kernel(Vf, Vc):
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
                "coarse_cell_inc": element.space_dimension(),
-               "tdim": element.cell.get_spatial_dimension()}
+               "tdim": element.cell.get_spatial_dimension()})
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
+    # Now build a pyop3 'Function' wrapping this
+    # sniff arg sizes from the inner kernel
+    loopy_kernel = lp.make_kernel(
+        "{ [i]: 0 < i < 1 }",
+        [
+            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
+        ],
+        [
+            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
+            lp.GlobalArg("b", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
+            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
+        ],
+        name="pyop3_kernel_restrict",
+        preambles=[
+            ("20_petsc", "#include <petsc.h>"),
+            ("20_to_reference_kernel", str(to_reference_kernel)),
+            ("20_eval", evaluate_code),
+        ],
+        target=tsfc.parameters.target,
+        lang_version=op3.LOOPY_LANG_VERSION,
+        )
+    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+
+    return cache.setdefault(key, func)
 
 
 def inject_kernel(Vf, Vc):
@@ -566,11 +604,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
-        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+        ScalarType, kernel_name="pyop3_kernel_evaluate", index_names=index_names)
     subkernels.append(eval_kernel)
 
     fill_insn, extra_domains = _generate_call_insn(
-        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        "pyop3_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
         depends_on=depends_on, within_inames_is_final=True)
     instructions.append(fill_insn)
     domains.extend(extra_domains)
@@ -600,14 +638,18 @@ def dg_injection_kernel(Vf, Vc, ncell):
     domains.extend(extra_domains)
     depends_on |= {inv_insn.id}
 
-    kernel_name = "pyop2_kernel_injection_dg"
+    kernel_name = "pyop3_kernel_injection_dg"
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+
+    # return op2.Kernel(
+    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+    #     headers=Ainv.headers, events=Ainv.events)
+    kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
+    return op3.Function(kernel, kernel_intents)
+
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

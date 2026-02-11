@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import enum
+from threading import local
 import numpy
 import os
 import tempfile
@@ -16,8 +20,9 @@ from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
-from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache
+import pyop3 as op3
+from pyop3.cache import memory_and_disk_cache, with_heavy_caches
+from pyop3.dtypes import get_mpi_dtype
 
 from finat.ufl import TensorElement, VectorElement, MixedElement
 from finat.element_factory import create_element
@@ -25,15 +30,20 @@ from finat.element_factory import create_element
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
-from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
+import gem
+import finat
+
+from firedrake import utils
+from firedrake.pack import pack, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
+from firedrake.utils import IntType, ScalarType, tuplify, cached_property
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh, get_iteration_spec
 from firedrake.petsc import PETSc
-from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import MatrixBase, AssembledMatrix
+from firedrake.mesh import get_mesh_topologies
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -202,6 +212,7 @@ class Interpolate(UFLInterpolate):
 
 
 @PETSc.Log.EventDecorator()
+@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
@@ -415,12 +426,12 @@ class CrossMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
-        if self.access and self.access != op2.WRITE:
+        if self.access and self.access != op3.WRITE:
             raise NotImplementedError(
-                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+                "Access other than op3.WRITE not implemented for cross-mesh interpolation."
             )
         else:
-            self.access = op2.WRITE
+            self.access = op3.WRITE
 
         # TODO check V.finat_element.is_lagrange() once https://github.com/firedrakeproject/fiat/pull/200 is released
         target_element = self.target_space.ufl_element()
@@ -477,7 +488,7 @@ class CrossMeshInterpolator(Interpolator):
         # Immerse coordinates of target space point evaluation dofs in src_mesh
         target_space_vec = VectorFunctionSpace(self.target_mesh.unique(), self.dest_element)
         f_dest_node_coords = assemble(interpolate(self.target_mesh.unique().coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.target_mesh.unique().geometric_dimension)
+        dest_node_coords = f_dest_node_coords.dat.data_ro
         try:
             vom = VertexOnlyMesh(
                 self.source_mesh.unique(),
@@ -619,6 +630,7 @@ class SameMeshInterpolator(Interpolator):
                 if make_subset:
                     if not self.allow_missing_dofs:
                         raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
+                    raise NotImplementedError
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
                     # Do not need subset as target <= source.
@@ -627,14 +639,14 @@ class SameMeshInterpolator(Interpolator):
 
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            if self.access and self.access != op2.INC:
+            if self.access and self.access != op3.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
-            self.access = op2.INC
+            self.access = op3.INC
         elif self.access is None:
             # Default access for forward 1-form or 2-form (forward and adjoint)
-            self.access = op2.WRITE
+            self.access = op3.WRITE
 
-    def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op2.Mat | Function | Cofunction:
+    def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op3.Mat | Function | Cofunction:
         """Return a suitable tensor to interpolate into.
 
         Parameters
@@ -653,16 +665,16 @@ class SameMeshInterpolator(Interpolator):
             f = Function(R, dtype=ScalarType)
         elif self.rank == 1:
             f = Function(self.ufl_interpolate.function_space())
-            if self.access in {op2.MIN, op2.MAX}:
+            if self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
                 finfo = numpy.finfo(f.dat.dtype)
-                if self.access == op2.MIN:
+                if self.access == op3.MIN_WRITE:
                     val = Constant(finfo.max)
                 else:
                     val = Constant(finfo.min)
                 f.assign(val)
         elif self.rank == 2:
             sparsity = self._get_monolithic_sparsity(mat_type)
-            f = op2.Mat(sparsity)
+            f = op3.Mat.from_sparsity(sparsity)
         else:
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
@@ -686,30 +698,35 @@ class SameMeshInterpolator(Interpolator):
         Vcol = self.interpolate_args[1].function_space()
         if len(Vrow) > 1 or len(Vcol) > 1:
             raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-        Vrow_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vrow)
-        Vcol_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vcol)
-        sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                nest=False,
-                                block_sparse=(mat_type == "baij"))
+        # Pretend that we are assembling the operator to populate the sparsity.
+        sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes)
+        iter_spec = get_iteration_spec(self.target_mesh, "cell")
+        op3.loop(
+            c := iter_spec.loop_index,
+            sparsity[Vrow.entity_node_map(iter_spec), Vcol.entity_node_map(iter_spec)].assign(666),
+            eager=True,
+        )
         return sparsity
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         mat_type = mat_type or "aij"
-        if (isinstance(tensor, Cofunction) and isinstance(self.dual_arg, Cofunction)) and set(tensor.dat).intersection(set(self.dual_arg.dat)):
+        if (
+            isinstance(tensor, Cofunction)
+            and isinstance(self.dual_arg, Cofunction)
+            and tensor.dat == self.dual_arg.dat
+        ):
             # adjoint one-form case: we need an empty tensor, so if it shares dats with
             # the dual_arg we cannot use it directly, so we store it
             f = self._get_tensor(mat_type)
-            copyout = (partial(f.dat.copy, tensor.dat),)
+            copyout = (lambda: tensor.dat.assign(f.dat, eager=True),)
         else:
             f = tensor or self._get_tensor(mat_type)
             copyout = ()
 
-        op2_tensor = f if isinstance(f, op2.Mat) else f.dat
+        op2_tensor = f if isinstance(f, op3.Mat) else f.dat
         loops = []
-        if self.access is op2.INC:
-            loops.append(op2_tensor.zero)
+        if self.access is op3.INC:
+            loops.append(lambda: op2_tensor.zero(eager=True))
 
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
@@ -732,6 +749,7 @@ class SameMeshInterpolator(Interpolator):
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
+            indices = tuple(idx if idx is not None else Ellipsis for idx in indices)
             sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
             loops.extend(_build_interpolation_callables(sub_expr, sub_op2_tensor, self.access, self.subset, bcs))
 
@@ -773,15 +791,15 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             # data, including the correct data size and dimensional information
             # (so for vector function spaces in 2 dimensions we might need a
             # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-            self.mat.mpi_type = _get_mtype(f.dat)[0]
+            self.mat.mpi_type, _ = get_mpi_dtype(f.dat.dtype, f.function_space().block_size)
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
 
                 def callable() -> Cofunction:
-                    with self.dual_arg.dat.vec_ro as source_vec:
+                    with self.dual_arg.vec_ro as source_vec:
                         coeff = self.mat.expr_as_coeff(source_vec)
-                        with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                        with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
                             self.mat.handle.multHermitian(coeff_vec, target_vec)
                     return f
             else:
@@ -789,13 +807,13 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
                 def callable() -> Function:
                     coeff = self.mat.expr_as_coeff()
-                    with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
+                    with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
                         self.mat.handle.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
             # Create a temporary function to get the correct MPI type
             temp_source_func = Function(self.interpolate_args[1].function_space())
-            self.mat.mpi_type = _get_mtype(temp_source_func.dat)[0]
+            self.mat.mpi_type, _ = get_mpi_dtype(temp_source_func.dat.dtype, temp_source_func.function_space().block_size)
 
             def callable() -> PETSc.Mat:
                 return self.mat.handle
@@ -807,7 +825,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return {"aij", "baij", "matfree", None}
 
 
-@known_pyop2_safe
 def _build_interpolation_callables(
     expr: Interpolate | ZeroBaseForm,
     tensor: op2.Dat | op2.Mat | op2.Global,
@@ -841,9 +858,9 @@ def _build_interpolation_callables(
     """
     if isinstance(expr, ZeroBaseForm):
         # Zero simplification, avoid code-generation
-        if access is op2.INC:
+        if access is op3.INC:
             return ()
-        elif access is op2.WRITE:
+        elif access is op3.WRITE:
             return (partial(tensor.zero, subset=subset),)
         # Unclear how to avoid codegen for MIN and MAX
         # Reconstruct the expression as an Interpolate
@@ -857,7 +874,7 @@ def _build_interpolation_callables(
     assert isinstance(dual_arg, Cofunction | Coargument)
     V = dual_arg.function_space().dual()
 
-    if access is op2.READ:
+    if access is op3.READ:
         raise ValueError("Can't have READ access for output function")
 
     # NOTE: The par_loop is always over the target mesh cells.
@@ -872,8 +889,10 @@ def _build_interpolation_callables(
         target_element = runtime_quadrature_element(source_mesh, target_element,
                                                     rt_var_name=rt_var_name)
 
-    cell_set = target_mesh.cell_set
-    if subset is not None:
+    iter_spec = get_iteration_spec(target_mesh, "cell")
+
+    if not (subset is None or subset is Ellipsis):
+        raise NotImplementedError
         assert subset.superset == cell_set
         cell_set = subset
 
@@ -891,88 +910,77 @@ def _build_interpolation_callables(
         W = dual_arg.function_space()
         v = Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
-        copyin += (partial(dual_arg.dat.copy, v.dat),)
+        copyin += (lambda: v.dat.assign(dual_arg.dat, eager=True),)
 
-        # Compute the reciprocal of the DOF multiplicity
-        wdat = W.make_dat()
-        m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        wsize = W.finat_element.space_dimension() * W.block_size
-        kernel_code = f"""
-        void multiplicity(PetscScalar *restrict w) {{
-            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
-        }}"""
-        kernel = op2.Kernel(kernel_code, "multiplicity")
-        op2.par_loop(kernel, cell_set, wdat(op2.INC, m_))
-        with wdat.vec as w:
+        weight = Function(W)
+        op3.loop(
+            c := iter_spec.loop_index,
+            weight.dat[target_mesh.closure(c)].iassign(1),
+            eager=True,
+        )
+        with weight.vec_rw as w:
             w.reciprocal()
 
         # Create a callable to apply the weight
-        with wdat.vec_ro as w, v.dat.vec as y:
-            copyin += (partial(y.pointwiseMult, y, w),)
+        with weight.vec_ro as w, v.vec_wo as y:
+            copyin += (lambda: y.pointwiseMult(y, w),)
 
-    kernel = compile_expression(cell_set.comm, expr, target_element,
+    kernel = compile_expression(target_mesh.comm, expr, target_element,
                                 domain=source_mesh, parameters=parameters)
-    ast = kernel.ast
-    oriented = kernel.oriented
-    needs_cell_sizes = kernel.needs_cell_sizes
-    coefficient_numbers = kernel.coefficient_numbers
-    needs_external_coords = kernel.needs_external_coords
-    name = kernel.name
-    kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=(access is not op2.INC),
-                        flop_count=kernel.flop_count, events=(kernel.event,))
 
-    parloop_args = [kernel, cell_set]
+    local_kernel_args = []
 
-    coefficients = extract_numbered_coefficients(expr, coefficient_numbers)
-    if needs_external_coords:
+    coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
+    if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
     if any(c.dat == tensor for c in coefficients):
         output = tensor
-        tensor = op2.Dat(tensor.dataset)
-        if access is not op2.WRITE:
-            copyin += (partial(output.copy, tensor), )
-        copyout += (partial(tensor.copy, output), )
+        tensor = op3.Dat.empty_like(tensor)
+        if access is not op3.WRITE:
+            copyin += (lambda: tensor.assign(output, eager=True),)
+        copyout += (lambda: output.assign(tensor, eager=True),)
 
     arguments = expr.arguments()
-    if isinstance(tensor, op2.Global):
-        parloop_args.append(tensor(access))
-    elif isinstance(tensor, op2.Dat):
-        V_dest = arguments[-1].function_space()
-        m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
-        parloop_args.append(tensor(access, m_))
+    if not arguments:
+        V_dest = FunctionSpace(target_mesh, "Real", 0)
+        packed_tensor = pack(tensor, V_dest, iter_spec)
+        local_kernel_args.append(packed_tensor)
+    elif len(arguments) < 2:
+        V_dest = utils.just_one(arguments).function_space()
+        packed_tensor = pack(tensor, V_dest, iter_spec)
+        local_kernel_args.append(packed_tensor)
     else:
-        assert access == op2.WRITE  # Other access descriptors not done for Matrices.
+        assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
-        rows_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-        columns_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
+
         lgmaps = None
         if bcs:
+            # NOTE: Probably shouldn't overwrite Vrow and Vcol here...
             if is_dual(Vrow):
                 Vrow = Vrow.dual()
             if is_dual(Vcol):
                 Vcol = Vcol.dual()
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
-            lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
+            lgmaps = [(functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.row_spec.lgmap, bc_rows), functionspaceimpl.mask_lgmap(tensor.buffer.mat_spec.column_spec.lgmap, bc_cols))]
 
-    if oriented:
-        co = target_mesh.cell_orientations()
-        parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
+        packed_tensor = pack(tensor, Vrow, Vcol, iter_spec)
+        local_kernel_args.append(packed_tensor)
 
-    if needs_cell_sizes:
-        cs = source_mesh.cell_sizes
-        parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+    if kernel.oriented:
+        local_kernel_args.append(pack(target_mesh.cell_orientations(), iter_spec))
+
+    if kernel.needs_cell_sizes:
+        local_kernel_args.append(pack(source_mesh.cell_sizes, iter_spec))
 
     for coefficient in coefficients:
-        m_ = get_interp_node_map(source_mesh, target_mesh, coefficient.function_space())
-        parloop_args.append(coefficient.dat(op2.READ, m_))
+        local_kernel_args.append(pack(coefficient, iter_spec))
 
     for const in extract_firedrake_constants(expr):
-        parloop_args.append(const.dat(op2.READ))
+        local_kernel_args.append(const.dat)
 
     # Finally, add the target mesh reference coordinates if they appear in the kernel
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
@@ -989,55 +997,30 @@ def _build_interpolation_callables(
             #       replacing `to_element` with a CoFunction/CoArgument as the
             #       target `dual` which would contain `dual` related
             #       coefficient(s))
-            if any(arg.name == rt_var_name for arg in kernel.code[name].args):
+            if rt_var_name in [arg.name for arg in kernel.ast[kernel.name].args]:
                 # Add the coordinates of the target mesh quadrature points in the
                 # source mesh's reference cell as an extra argument for the inner
                 # loop. (With a vertex only mesh this is a single point for each
                 # vertex cell.)
-                target_ref_coords = target_mesh.reference_coordinates
-                m_ = target_ref_coords.cell_node_map()
-                parloop_args.append(target_ref_coords.dat(op2.READ, m_))
+                local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
 
-    parloop = op2.ParLoop(*parloop_args)
-    if isinstance(tensor, op2.Mat):
-        return parloop, tensor.assemble
+    if any(c.dat.buffer == tensor.buffer for c in coefficients):
+        output = tensor
+        tensor = op3.Dat.empty_like(tensor)
+        if access is not op3.WRITE:
+            copyin += (lambda: tensor.assign(output, eager=True),)
+        copyout += (lambda: output.assign(tensor, eager=True),)
+
+
+    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
+    parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
+    def parloop_callable():
+        parloop(compiler_parameters={"optimize": True})
+
+    if isinstance(tensor, op3.Mat):
+        return parloop_callable, tensor.assemble
     else:
-        return copyin + (parloop, ) + copyout
-
-
-def get_interp_node_map(source_mesh: MeshGeometry, target_mesh: MeshGeometry, fs: WithGeometry) -> op2.Map | None:
-    """Return the map between cells of the target mesh and nodes of the function space.
-
-    If the function space is defined on the source mesh then the node map is composed
-    with a map between target and source cells.
-    """
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        coeff_mesh = fs.mesh()
-        m_ = fs.cell_node_map()
-        if coeff_mesh is target_mesh or not coeff_mesh:
-            # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
-            # a Real space
-            pass
-        elif coeff_mesh is source_mesh:
-            if m_:
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    m_ = vom_cell_parent_node_map_extruded(target_mesh, m_)
-                else:
-                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, m_)
-            else:
-                # m_ is allowed to be None when interpolating from a Real space,
-                # even in the trans-mesh case.
-                pass
-        else:
-            raise ValueError("Have coefficient with unexpected mesh")
-    else:
-        m_ = fs.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
-    return m_
+        return copyin + (parloop_callable, ) + copyout
 
 
 try:
@@ -1060,29 +1043,6 @@ def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tupl
 @PETSc.Log.EventDecorator()
 def compile_expression(comm, *args, **kwargs):
     return compile_expression_dual_evaluation(*args, **kwargs)
-
-
-def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
-    """
-    Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
-    using map2 as the cache key. The composed map maps from the iterset
-    of map1 to the toset of map2. Makes :class:`pyop2.ComposedMap` and
-    caches the result on map1 if the composed map is not found.
-
-    :arg map1: The map with the desired iterset from which the result is
-        retrieved or cached
-    :arg map2: The map with the desired toset
-
-    :returns:  The composed map
-    """
-    cache_key = hash((map2, "composed"))
-    try:
-        cmap = map1._cache[cache_key]
-    except KeyError:
-        # Real function space case separately
-        cmap = None if map2 is None else op2.ComposedMap(map2, map1)
-        map1._cache[cache_key] = cmap
-    return cmap
 
 
 def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_cell_node_map: op2.Map) -> op2.Map:
@@ -1409,7 +1369,7 @@ class VomOntoVomMat:
         # Need to convert the expression into a coefficient
         # so that we can broadcast/reduce it
         coeff = self.expr_as_coeff(source_vec)
-        with coeff.dat.vec_ro as coeff_vec:
+        with coeff.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
             else:
@@ -1586,7 +1546,7 @@ class MixedInterpolator(Interpolator):
                 continue
             sub_bcs = []
             for space, index in zip(spaces, indices):
-                subspace = space.sub(index)
+                subspace = space.sub(index) if index is not None else space
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block

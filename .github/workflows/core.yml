@@ -156,7 +156,7 @@ jobs:
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
           else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+            git clone --depth 1 https://gitlab.com/connorjward/petsc.git --branch connorjward/pyop3
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
@@ -242,76 +242,77 @@ jobs:
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
-      - name: Run PyOP2 tests
+      # TODO: parallel tests as well
+      - name: Run pyop3 tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop3
         timeout-minutes: 10
-
 
       - name: Run Firedrake tests (nprocs = 1)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 90
+        # UNDO ME
+        timeout-minutes: 180
 
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        # UNDO ME
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        # UNDO ME
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 4)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        # UNDO ME
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 5)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        # UNDO ME
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 6)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        # UNDO ME
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 7)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        # UNDO ME
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 8)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        # UNDO ME
+        timeout-minutes: 30
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode

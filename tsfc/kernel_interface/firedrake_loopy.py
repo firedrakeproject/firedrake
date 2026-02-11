@@ -124,8 +124,8 @@ class KernelBuilderBase(_KernelBuilderBase):
             All domains in the form.
 
         """
-        # Cell orientation
         self._cell_orientations = {}
+        kernel_arg_type = kernel_args.CellOrientationsKernelArg
         for i, domain in enumerate(domains):
             integral_type = self._domain_integral_type_map[domain]
             if integral_type is None:
@@ -133,11 +133,11 @@ class KernelBuilderBase(_KernelBuilderBase):
                 self._cell_orientations[domain] = None
             elif integral_type.startswith("interior_facet"):
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (2,), dtype=gem.uint_type)
-                self._cell_orientations[domain] = (gem.Indexed(cell_orientations, (0,)),
-                                                   gem.Indexed(cell_orientations, (1,)))
+                self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),
+                                                   gem.Indexed(cell_orientations, (1,))), kernel_arg_type)
             else:
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (1,), dtype=gem.uint_type)
-                self._cell_orientations[domain] = (gem.Indexed(cell_orientations, (0,)),)
+                self._cell_orientations[domain] = ((gem.Indexed(cell_orientations, (0,)),), kernel_arg_type)
 
     def set_cell_sizes(self, domains):
         """Setup a fake coefficient for "cell sizes" for each domain.
@@ -163,7 +163,7 @@ class KernelBuilderBase(_KernelBuilderBase):
                 # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
                 expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
-                self._cell_sizes[domain] = expr
+                self._cell_sizes[domain] = (expr, kernel_args.CellSizesKernelArg)
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -250,7 +250,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         """
         args = [self.output_arg]
         if self.oriented:
-            cell_orientations, = tuple(self._cell_orientations.values())
+            cell_orientations, = tuple(x for x, _ in self._cell_orientations.values())
             funarg = self.generate_arg_from_expression(cell_orientations, dtype=numpy.int32)
             args.append(kernel_args.CellOrientationsKernelArg(funarg))
         if self.cell_sizes:
@@ -275,7 +275,8 @@ class ExpressionKernelBuilder(KernelBuilderBase):
 
         name = name or "expression_kernel"
         loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
-                                             name, index_names, log=log)
+                                             name, index_names, log=log,
+                                             return_increments=False)
         return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
                                 self.coefficient_numbers, needs_external_coords,
                                 self.tabulations, name, args, count_flops(impero_c), event)
@@ -432,18 +433,16 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         # Add return arg
         funarg = self.generate_arg_from_expression(self.return_variables)
         args = [kernel_args.OutputKernelArg(funarg)]
-        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers({d: self.coefficient_map[c] for d, c in self.domain_coordinate.items()},
+        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers({d: (self.coefficient_map[c],kernel_args.CoordinatesKernelArg) for d, c in self.domain_coordinate.items()},
                                                                                    active_variables,
-                                                                                   kernel_args.CoordinatesKernelArg)
+                                                                                   )
         args.extend(args_)
         active_domain_numbers_cell_orientations, args_ = self.make_active_domain_numbers(self._cell_orientations,
                                                                                          active_variables,
-                                                                                         kernel_args.CellOrientationsKernelArg,
                                                                                          dtype=numpy.int32)
         args.extend(args_)
         active_domain_numbers_cell_sizes, args_ = self.make_active_domain_numbers(self._cell_sizes,
-                                                                                  active_variables,
-                                                                                  kernel_args.CellSizesKernelArg)
+                                                                                  active_variables)
         args.extend(args_)
         coefficient_indices = OrderedDict()
         for coeff, (number, index) in self.coefficient_number_index_map.items():
@@ -462,58 +461,65 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             args.append(kernel_args.ConstantKernelArg(funarg))
         coefficient_indices = tuple(tuple(v) for v in coefficient_indices.values())
         assert len(coefficient_indices) == len(info.coefficient_numbers)
+
         ext_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+            if integral_type == "exterior_facet":
+                ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetKernelArg)
+            elif integral_type == "exterior_facet_vert":
+                ext_dict[domain] = (expr[None].expression, kernel_args.ExteriorFacetVertKernelArg)
+            else:
+                ext_dict[domain] = None
         active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_args.ExteriorFacetKernelArg,
             dtype=numpy.uint32,
         )
         args.extend(args_)
+
         int_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert"] else None
+            if integral_type == "interior_facet":
+                int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetKernelArg)
+            elif integral_type == "interior_facet_vert":
+                int_dict[domain] = (expr['+'].expression, kernel_args.InteriorFacetVertKernelArg)
+            else:
+                int_dict[domain] = None
         active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_args.InteriorFacetKernelArg,
             dtype=numpy.uint32,
         )
         args.extend(args_)
         cell_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            cell_dict[domain] = expr[None].expression if integral_type == "cell" else None
+            cell_dict[domain] = (expr[None].expression, kernel_args.OrientationsCellKernelArg) if integral_type == "cell" else None
         active_domain_numbers_orientations_cell, args_ = self.make_active_domain_numbers(
             cell_dict,
             active_variables,
-            kernel_args.OrientationsCellKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
+            ext_dict[domain] = (expr[None].expression, kernel_args.OrientationsExteriorFacetKernelArg) if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
         active_domain_numbers_orientations_exterior_facet, args_ = self.make_active_domain_numbers(
             ext_dict,
             active_variables,
-            kernel_args.OrientationsExteriorFacetKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
         int_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
-            int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
+            int_dict[domain] = (expr['+'].expression, kernel_args.OrientationsInteriorFacetKernelArg) if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
         active_domain_numbers_orientations_interior_facet, args_ = self.make_active_domain_numbers(
             int_dict,
             active_variables,
-            kernel_args.OrientationsInteriorFacetKernelArg,
             dtype=gem.uint_type,
         )
         args.extend(args_)
@@ -553,7 +559,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         return None
 
-    def make_active_domain_numbers(self, domain_expr_dict, active_variables, kernel_arg_type, dtype=None):
+    def make_active_domain_numbers(self, domain_expr_dict, active_variables, dtype=None):
         """Make active domain numbers.
 
         Parameters
@@ -579,6 +585,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             if expr is None:
                 var = None
             else:
+                (expr, kernel_arg_type) = expr
                 var, = gem.extract_type(expr if isinstance(expr, tuple) else (expr, ), gem.Variable)
             if var in active_variables:
                 funarg = self.generate_arg_from_expression(expr, dtype=dtype)

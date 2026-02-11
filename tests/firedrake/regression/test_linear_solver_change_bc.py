@@ -1,6 +1,8 @@
 from firedrake import *
 import numpy
 
+import pytest
+
 
 def test_linear_solver_change_bc():
     mesh = UnitSquareMesh(4, 4, quadrilateral=False)

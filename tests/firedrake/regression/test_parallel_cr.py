@@ -19,7 +19,7 @@ def test_cr_facet_integral_parallel():
     u2.interpolate(y)
     expect = assemble(x*y*dS)
     assert numpy.allclose(expect, assemble(avg(u1)*avg(u2)*dS))
-    with u2.dat.vec_ro as u2v, u1.dat.vec_ro as u1v:
+    with u2.vec_ro as u2v, u1.vec_ro as u1v:
         y = M.createVecLeft()
         M.mult(u2v, y)
         assert numpy.allclose(expect, u1v.dot(y))

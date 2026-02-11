@@ -71,33 +71,17 @@ def adv_diff(x, quadrilateral=False, advection=True, diffusion=True):
     return sqrt(assemble(inner(t - a, t - a) * dx))
 
 
-def run_adv_diff():
+@pytest.mark.parallel([1, 3])
+def test_adv_diff():
     import numpy as np
     diff = np.array([adv_diff(i) for i in range(5, 8)])
     convergence = np.log2(diff[:-1] / diff[1:])
     assert all(convergence > [1.8, 1.95])
 
 
-def test_adv_diff_serial():
-    run_adv_diff()
-
-
-@pytest.mark.parallel
-def test_adv_diff_parallel():
-    run_adv_diff()
-
-
-def run_adv_diff_on_quadrilaterals():
+@pytest.mark.parallel([1, 3])
+def test_adv_diff_on_quadrilaterals():
     import numpy as np
     diff = np.array([adv_diff(i, quadrilateral=True) for i in range(5, 8)])
     convergence = np.log2(diff[:-1] / diff[1:])
     assert all(convergence > [1.8, 1.95])
-
-
-def test_adv_diff_on_quadrilaterals_serial():
-    run_adv_diff_on_quadrilaterals()
-
-
-@pytest.mark.parallel
-def test_adv_diff_on_quadrilaterals_parallel():
-    run_adv_diff_on_quadrilaterals()

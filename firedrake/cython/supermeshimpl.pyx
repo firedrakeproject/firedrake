@@ -58,15 +58,15 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
-    num_cell_A = V_A.mesh().cell_set.size
-    num_cell_B = V_B.mesh().cell_set.size
+    num_cell_A = V_A.mesh().cells.owned.local_size
+    num_cell_B = V_B.mesh().cells.owned.local_size
 
-    outmat = numpy.empty((V_B.cell_node_map().arity,
-                          V_A.cell_node_map().arity), dtype=ScalarType)
+    outmat = numpy.empty((V_B.cell_node_list.shape[1],
+                          V_A.cell_node_list.shape[1]), dtype=ScalarType)
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
+    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list
+    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list
 
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension
@@ -74,12 +74,12 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
     simplex_B = numpy.empty_like(simplex_A, dtype=ScalarType)
     simplices_C = numpy.empty(MAGIC[gdim], dtype=ScalarType)
 
-    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
-    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
-    V_A_cell_node_map = V_A.cell_node_map().values_with_halo
-    V_B_cell_node_map = V_B.cell_node_map().values_with_halo
-    num_dof_A = V_A.cell_node_map().arity
-    num_dof_B = V_B.cell_node_map().arity
+    vertices_A = mesh_A.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
+    vertices_B = mesh_B.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))
+    V_A_cell_node_map = V_A.cell_node_list
+    V_B_cell_node_map = V_B.cell_node_list
+    num_dof_A = V_A.cell_node_list.shape[1]
+    num_dof_B = V_B.cell_node_list.shape[1]
     for cell_A in range(num_cell_A):
         for cell_B in candidates(cell_A):
             for i in range(num_vertices):
@@ -140,14 +140,14 @@ def intersection_finder(mesh_A, mesh_B):
 
     vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(int)
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(int)
-    nnodes_A = mesh_A.coordinates.dof_dset.total_size
-    nnodes_B = mesh_B.coordinates.dof_dset.total_size
+    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list.astype(int)
+    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list.astype(int)
+    nnodes_A = mesh_A.coordinates.function_space().axes.size
+    nnodes_B = mesh_B.coordinates.function_space().axes.size
     dim_A = mesh_A.geometric_dimension
     dim_B = mesh_B.geometric_dimension
-    ncells_A = mesh_A.num_cells()
-    ncells_B = mesh_B.num_cells()
+    ncells_A = mesh_A.num_cells
+    ncells_B = mesh_B.num_cells
     loc_A = vertex_map_A.shape[1]
     loc_B = vertex_map_B.shape[1]
 
@@ -161,7 +161,7 @@ def intersection_finder(mesh_A, mesh_B):
     libsupermesh_tree_intersection_finder_query_output(&nindices)
 
     indices = numpy.empty((nindices,), dtype=int)
-    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=int)
+    indptr  = numpy.empty((mesh_A.num_cells + 1,), dtype=int)
 
     libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
 

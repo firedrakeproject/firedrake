@@ -23,7 +23,7 @@ def test_coarse_nullspace():
           "mg_coarse_pc_type": "gamg"}
 
     u = Function(V)
-    with u.dat.vec_wo as x:
+    with u.vec_wo as x:
         x.setRandom()
 
     problem = LinearVariationalProblem(a, F, u)

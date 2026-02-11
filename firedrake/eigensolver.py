@@ -218,8 +218,8 @@ class LinearEigensolver(OptionsManager):
         else:
             eigenmodes_real = Function(self._problem.output_space)  # fn of V
             eigenmodes_imag = Function(self._problem.output_space)
-        with eigenmodes_real.dat.vec_wo as vr:
-            with eigenmodes_imag.dat.vec_wo as vi:
+        with eigenmodes_real.vec_wo as vr:
+            with eigenmodes_imag.vec_wo as vi:
                 self.es.getEigenvector(i, vr, vi)  # gets the i-th eigenvector
         if self._problem.restrict:
             eigenmodes_real = Function(self._problem.output_space).interpolate(eigenmodes_real)

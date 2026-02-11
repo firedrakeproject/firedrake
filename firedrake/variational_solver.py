@@ -6,8 +6,11 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
+from pyop3.cache import with_heavy_caches
+
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
@@ -132,6 +135,20 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def dm(self):
         return self.u_restrict.function_space().dm
 
+    @utils.cached_property
+    def _mesh_topologies(self) -> frozenset:
+        """Return all mesh topologies associated with the variational problem.
+
+        These are used as 'heavy' caches.
+
+        """
+        # TODO: This breaks for certain inputs (e.g. FormSum) but this
+        # is a very heavy-handed way to fix that
+        try:
+            return frozenset({d.topology for d in extract_domains(self.F)})
+        except:
+            return frozenset()
+
     @staticmethod
     def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
                            u: Function,
@@ -248,7 +265,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         .. code-block:: python3
 
             def update_diffusivity(current_solution):
-                with cursol.dat.vec_wo as v:
+                with cursol.vec_wo as v:
                     current_solution.copy(v)
                 solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
 
@@ -300,16 +317,16 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=False)
-        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
+        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space().field_ises,
                           transpose=True, near=False)
-        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=True)
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
@@ -339,6 +356,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
+    @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
@@ -377,11 +395,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         if bounds is not None:
             lower, upper = bounds
-            with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
+            with lower.vec_ro as lb, upper.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
         work = self._work
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.vec_rw as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors

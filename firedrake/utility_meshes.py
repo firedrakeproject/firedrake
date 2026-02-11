@@ -2,7 +2,7 @@ import numpy as np
 
 import ufl
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
@@ -86,16 +86,16 @@ reorder_noop = False
 
 def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
     dm = coords.function_space().mesh().topology.topology_dm
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("firedrake_is_ghost")
     dm.removeLabel("exterior_facets")
     dm.removeLabel("interior_facets")
     V = coords.function_space()
-    dmcommon._set_dg_coordinates(dm,
-                                 V.finat_element,
-                                 V.dm.getLocalSection(),
-                                 coords.dat._vec)
+
+    with coords.vec_rw as coords_vec:
+        dmcommon._set_dg_coordinates(dm,
+                                     V.finat_element,
+                                     V.dm.getLocalSection(),
+                                     coords_vec)
     return Mesh(
         dm,
         comm=comm,
@@ -2195,9 +2195,8 @@ def IcosahedralSphereMesh(
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             name=name,
@@ -2647,10 +2646,9 @@ def CubedSphereMesh(
     if degree > 1:
         new_coords = Function(VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             distribution_name=distribution_name,

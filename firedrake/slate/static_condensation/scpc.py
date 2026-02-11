@@ -87,7 +87,7 @@ class SCPC(SCBase):
         """
         self.weight = Function(Vc)
         par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
-        with self.weight.dat.vec as wc:
+        with self.weight.vec as wc:
             wc.reciprocal()
 
         # Get expressions for the condensed linear system
@@ -236,11 +236,11 @@ class SCPC(SCBase):
         :arg x: a PETSc vector containing the incoming right-hand side.
         """
 
-        with self.residual.dat.vec_wo as v:
+        with self.residual.vec_wo as v:
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.subfunctions[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.subfunctions[self.c_field].vec as vc, self.weight.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
@@ -257,11 +257,11 @@ class SCPC(SCBase):
 
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
 
-            with self.condensed_rhs.dat.vec_ro as rhs:
+            with self.condensed_rhs.vec_ro as rhs:
                 if self.condensed_ksp.getInitialGuessNonzero():
-                    acc = self.solution.subfunctions[self.c_field].dat.vec
+                    acc = self.solution.subfunctions[self.c_field].vec
                 else:
-                    acc = self.solution.subfunctions[self.c_field].dat.vec_wo
+                    acc = self.solution.subfunctions[self.c_field].vec_wo
                 with acc as sol:
                     self.condensed_ksp.solve(rhs, sol)
 
@@ -276,7 +276,7 @@ class SCPC(SCBase):
         for local_solver_call in self.local_solvers:
             local_solver_call()
 
-        with self.solution.dat.vec_ro as w:
+        with self.solution.vec_ro as w:
             w.copy(y)
 
     def view(self, pc, viewer=None):

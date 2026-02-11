@@ -5,7 +5,7 @@ mpi4py>3; python_version >= '3.13'
 mpi4py; python_version < '3.13'
 numpy
 pkgconfig
-petsctools
+petsctools @ git+https://github.com/firedrakeproject/petsctools.git@connorjward/cpetsc
 pybind11
 rtree>=1.2
 setuptools>=77.0.3

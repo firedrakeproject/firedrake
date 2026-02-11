@@ -2,7 +2,7 @@ import pytest
 import os
 from firedrake import *
 from firedrake.utils import IntType
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import numpy as np
 
 

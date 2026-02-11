@@ -1,8 +1,7 @@
 import itertools
 import ufl
 
-from pyop2 import op2
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import PETSc
 
 
@@ -156,15 +155,16 @@ class Matrix(MatrixBase):
 
     """
 
-    def __init__(self, a, bcs, mat_type, *args, **kwargs):
-        # sets self.a, self.bcs, self.mat_type, and self.fc_params
-        fc_params = kwargs.pop("fc_params", None)
+    # TODO need to think about the interface now we're not passing a sparsity but
+    # a zeroed matrix
+    def __init__(self, a, bcs, mat_type, pyop3_mat, *, options_prefix=None, fc_params=None):
         MatrixBase.__init__(self, a, bcs, mat_type, fc_params=fc_params)
-        options_prefix = kwargs.pop("options_prefix", None)
-        self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
-        self.petscmat = self.M.handle
+        self.M = pyop3_mat
+        self.petscmat = self.M.buffer.mat
         if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
+
+        # TODO can sniff from pyop3_mat
         self.mat_type = mat_type
 
     def assemble(self):

@@ -1,12 +1,15 @@
 """The parameters dictionary contains global parameter settings."""
-from pyop2.configuration import configuration, target as pyop2_target
+import dataclasses
+
+from pyop3.config import config as PYOP3_CONFIG
+from pyop3.ir.lower import LOOPY_TARGET
 from tsfc import default_parameters
 import sys
 from firedrake.utils import ScalarType, ScalarType_c
 
 max_float = sys.float_info[0]
 
-__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
+__all__ = ['Parameters', 'parameters']
 
 
 class Parameters(dict):
@@ -56,18 +59,7 @@ class Parameters(dict):
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
-# Default to the values of PyOP2 configuration dictionary
-pyop2_opts = Parameters("pyop2_options",
-                        **configuration)
-
-pyop2_opts.set_update_function(lambda k, v: configuration.unsafe_reconfigure(**{k: v}))
-
-# Override values
-pyop2_opts["type_check"] = True
-
-target = pyop2_target
-
-parameters.add(pyop2_opts)
+target = LOOPY_TARGET
 
 parameters.add(Parameters("form_compiler", **default_parameters()))
 parameters["form_compiler"]['scalar_type'] = ScalarType
@@ -86,31 +78,3 @@ parameters.add(Parameters("slate_compiler"))
 parameters["slate_compiler"]["optimise"] = True
 # Should a Slate multiplication be replaced by an action?
 parameters["slate_compiler"]["replace_mul"] = False
-
-
-def disable_performance_optimisations():
-    """Switches off performance optimisations in Firedrake.
-
-    This is mostly useful for debugging purposes.
-
-    This enables PyOP2's runtime checking of par_loop arguments in all
-    cases (even those where they are claimed safe).  Additionally, it
-    switches to compiling generated code in debug mode.
-
-    Returns a function that can be called with no arguments, to
-    restore the state of the parameters dict."""
-
-    check = parameters["pyop2_options"]["type_check"]
-    debug = parameters["pyop2_options"]["debug"]
-    safe_check = parameters["type_check_safe_par_loops"]
-
-    def restore():
-        parameters["pyop2_options"]["type_check"] = check
-        parameters["pyop2_options"]["debug"] = debug
-        parameters["type_check_safe_par_loops"] = safe_check
-
-    parameters["pyop2_options"]["type_check"] = True
-    parameters["pyop2_options"]["debug"] = True
-    parameters["type_check_safe_par_loops"] = True
-
-    return restore

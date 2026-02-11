@@ -18,9 +18,9 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
-from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
-from pyop2.mpi import COMM_WORLD
+import pyop3 as op3
+from pyop3.cache import memory_and_disk_cache, default_parallel_hashkey
+from pyop3.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -129,11 +129,21 @@ class TSFCKernel:
             constant_numbers_per_kernel = constant_numbers
 
             events = (kernel.event,)
-            pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
-                                                 len(kernel.arguments),
-                                                 flop_count=kernel.flop_count,
-                                                 events=events)
-            kernels.append(KernelInfo(kernel=pyop2_kernel,
+
+            ast = kernel.ast
+            if parameters.get("add_likwid_markers", False):
+                from pyop3.ir.transform import add_likwid_markers
+
+                ep = add_likwid_markers(ast.default_entrypoint)
+                ast = ast.with_kernel(ep)
+            ast = ast.with_entrypoints({kernel.name})
+
+            # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
+            #                                      len(kernel.arguments),
+            #                                      flop_count=kernel.flop_count,
+            #                                      events=events)
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=domain_number,
@@ -317,7 +327,7 @@ def gather_integer_subdomain_ids(knls):
     return all_integer_subdomain_ids
 
 
-def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
+def as_pyop3_local_kernel(ast, nargs, access=op3.INC):
     """Convert a loopy kernel to a PyOP2 ``pyop2.LocalKernel``.
 
     :arg ast: The kernel code. This could be, for example, a loopy kernel.
@@ -326,9 +336,8 @@ def as_pyop2_local_kernel(ast, name, nargs, access=op2.INC, **kwargs):
     :arg access: Access descriptor for the first kernel argument.
     """
     # all but the first argument to the kernel are read-only
-    accesses = tuple([access] + [op2.READ]*(nargs-1))
-    return op2.Kernel(ast, name, accesses=accesses,
-                      requires_zeroed_output_arguments=True, **kwargs)
+    accesses = tuple([access] + [op3.READ]*(nargs-1))
+    return op3.Function(ast, accesses)
 
 
 def extract_numbered_coefficients(expr, numbers):

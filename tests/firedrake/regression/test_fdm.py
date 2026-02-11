@@ -1,7 +1,7 @@
 import pytest
 import numpy
 from firedrake import *
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 ksp = {
@@ -86,7 +86,7 @@ facetstar.update(ksp)
 def build_riesz_map(V, d):
     beta = Constant(1E-4)
     subs = [(1, 3)]
-    if V.mesh().cell_set._extruded:
+    if V.mesh().extruded:
         subs += ["top"]
 
     x = SpatialCoordinate(V.mesh())
@@ -194,7 +194,7 @@ def test_variable_coefficient(mesh):
     L = inner(v, Constant(1))*dx
 
     subs = ("on_boundary",)
-    if mesh.cell_set._extruded:
+    if mesh.extruded:
         subs += ("top", "bottom")
     bcs = [DirichletBC(V, 0, sub) for sub in subs]
 
@@ -253,7 +253,7 @@ def test_ipdg_direct_solver(fs):
     alpha = lambda grad_u: dot(dot(A2, grad_u), A1)
     beta = diag(Constant(range(2, ncomp+2)))
 
-    extruded = mesh.cell_set._extruded
+    extruded = mesh.extruded
     subs = (1,)
     if gdim > 1:
         subs += (3,)
@@ -331,7 +331,7 @@ def test_ipdg_direct_solver(fs):
 
     assert solver.snes.ksp.getIterationNumber() == 1
     if homogenize:
-        with uh.dat.vec_ro as uvec:
+        with uh.vec_ro as uvec:
             assert uvec.norm() < 1E-8
     else:
         assert norm(u_exact-uh, "H1") < 1.0E-8

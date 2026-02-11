@@ -2,7 +2,7 @@ import numpy as np
 from fractions import Fraction
 from collections import defaultdict
 
-from pyop2.datatypes import IntType
+from pyop3.dtypes import IntType
 
 import petsctools
 import firedrake
@@ -128,9 +128,7 @@ def MeshHierarchy(mesh, refinement_levels,
     dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
     cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
-    cdm.removeLabel("pyop2_core")
-    cdm.removeLabel("pyop2_owned")
-    cdm.removeLabel("pyop2_ghost")
+    cdm.removeLabel("firedrake_is_ghost")
     cdm.setRefinementUniform(True)
     dms = [cdm]
     if callbacks is not None:
@@ -222,7 +220,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     """
     if not isinstance(base_hierarchy, HierarchyBase):
         raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
-    if any(m.cell_set._extruded for m in base_hierarchy):
+    if any(m.extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 
     if layers is None:
@@ -278,7 +276,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     """
     if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
         raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
-    if base_mesh.cell_set._extruded:
+    if base_mesh.extruded:
         raise ValueError("Base mesh must not be extruded")
     if layers is None:
         if base_layer == -1:
