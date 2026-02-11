@@ -2532,6 +2532,12 @@ class ExtrudedMeshTopology(MeshTopology):
                 assert len(support) == 2
                 self.topology_dm.setSupport(p, support[::-1])
 
+        self.topology_dm.createLabel("exterior_facets_top")
+        self.topology_dm.getLabel("exterior_facets_top").setStratumIS(1, self._exterior_facet_top_plex_indices)
+        self.topology_dm.createLabel("exterior_facets_bottom")
+        self.topology_dm.getLabel("exterior_facets_bottom").setStratumIS(1, self._exterior_facet_bottom_plex_indices)
+        dmcommon.complete_facet_labels(self.topology_dm)
+
     @utils.cached_property
     def _ufl_cell(self):
         return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)

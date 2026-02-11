@@ -1707,9 +1707,9 @@ def facet_closure_nodes(V, sub_domain):
     if sub_domain == "on_boundary":
         pointss = (dm.getStratumIS("exterior_facets", 1),)
     elif sub_domain == "top":
-        pointss = (V.mesh()._exterior_facet_top_plex_indices,)
+        pointss = (dm.getStratumIS("exterior_facets_top", 1),)
     elif sub_domain == "bottom":
-        pointss = (V.mesh()._exterior_facet_bottom_plex_indices,)
+        pointss = (dm.getStratumIS("exterior_facets_bottom", 1),)
     else:
         pointss = tuple(dm.getStratumIS(FACE_SETS_LABEL, i) for i in sub_domain)
 
@@ -1786,7 +1786,7 @@ def complete_facet_labels(PETSc.DM dm):
 
     if get_topological_dimension(dm) == 0:
         return
-    for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
+    for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets", "exterior_facets_top", "exterior_facets_bottom"]:
         if dm.hasLabel(name):
             label = dm.getLabel(name)
             CHKERR( DMPlexLabelComplete(dm.dm, label.dmlabel) )
