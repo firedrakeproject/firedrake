@@ -2516,9 +2516,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
-        # base_dm.removeLabel(dmcommon.FACE_SETS_LABEL)
-        # base_dm.removeLabel("exterior_facets")
-        # base_dm.removeLabel("interior_facets")
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
         self.topology_dm.getLabel("exterior_facets").setName("base_exterior_facets")
         self.topology_dm.getLabel("interior_facets").setName("base_interior_facets")
@@ -2911,6 +2908,8 @@ class ExtrudedMeshTopology(MeshTopology):
         return self._exterior_facet_horiz_plex_indices_is("bottom")
 
     def _exterior_facet_horiz_plex_indices_is(self, facet_type: Literal["top"] | Literal["bottom"]) -> PETSc.IS:
+        assert not self.periodic, "Periodic extruded meshes have no horizontal exterior facets"
+
         # Consider extruding the following interval mesh:
         #
         #     x-----x-----x
@@ -2944,11 +2943,15 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _interior_facet_horiz_plex_indices(self) -> PETSc.IS:
-        return (
-            self._facet_horiz_plex_indices
-            .difference(self._exterior_facet_top_plex_indices)
-            .difference(self._exterior_facet_bottom_plex_indices)
-        )
+        indices = self._facet_horiz_plex_indices
+        if not self.periodic:
+            # Periodic extruded meshes have no horizontal exterior facets
+            indices = (
+                indices
+                .difference(self._exterior_facet_top_plex_indices)
+                .difference(self._exterior_facet_bottom_plex_indices)
+            )
+        return indices
 
     @cached_property
     def _interior_facet_vert_plex_indices(self) -> PETSc.IS:
@@ -3219,12 +3222,17 @@ class ExtrudedMeshTopology(MeshTopology):
     def _support(self) -> op3.Map:
         supports = {}
         supported_supports = (
-            (self.exterior_facets_top, self._exterior_facet_top_support_dat),
-            (self.exterior_facets_bottom, self._exterior_facet_bottom_support_dat),
             (self.exterior_facets_vert, self._exterior_facet_vert_support_dat),
             (self.interior_facets_horiz, self._interior_facet_horiz_support_dat),
             (self.interior_facets_vert, self._interior_facet_vert_support_dat),
         )
+        if not self.periodic:
+            # Periodic extruded meshes have no horizontal exterior facets
+            supported_supports += (
+                (self.exterior_facets_top, self._exterior_facet_top_support_dat),
+                (self.exterior_facets_bottom, self._exterior_facet_bottom_support_dat),
+            )
+
         for iterset, support_dat in supported_supports:
             axis = iterset.owned.as_axis()
             from_path = idict({axis.label: axis.component.label})
