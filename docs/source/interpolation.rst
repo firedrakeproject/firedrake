@@ -109,7 +109,7 @@ This also works when interpolating into a space defined on the facets of the mes
 
 
 Semantics of symbolic interpolation
---------------------------------------------
+-----------------------------------
 
 Let :math:`U` and :math:`V` be finite element spaces with DoFs :math:`\{\psi^{*}_{i}\}` and :math:`\{\phi^{*}_{i}\}`
 and basis functions :math:`\{\psi_{i}\}` and :math:`\{\phi_{i}\}`, respectively.
@@ -437,6 +437,63 @@ the next operation using ``f``.
 
 For interaction with external point data, see the
 :ref:`corresponding manual section <external-point-data>`.
+
+Interpolation between mixed function spaces
+-------------------------------------------
+
+Assembly of interpolation operators between mixed function spaces is also supported.
+Each component of the mixed space may be on different meshes.
+For example, consider the following mixed finite element spaces:
+
+.. math::
+
+   W &= V_1 \times V_2 \\
+   U &= V_3 \times V_4
+
+where each :math:`V_i` is a finite element space defined on possibly different meshes.
+We can assemble the interpolation matrix from :math:`U` to :math:`W` in Firedrake as follows:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_mixed_space_interpolation 1]
+   :end-before: [test_mixed_space_interpolation 2]
+
+We specified ``mat_type="nest"`` here to obtain a PETSc MatNest matrix, but Firedrake also
+supports assembly of ``mat_type="aij"`` and ``mat_type="matfree"`` interpolation matrices
+between mixed function spaces. In this example ``I`` is a block diagonal matrix, with
+each block given by
+
+.. math::
+
+   \begin{pmatrix}
+   V_3 \rightarrow V_1 & 0 \\
+   0 & V_4 \rightarrow V_2
+   \end{pmatrix}
+
+The off-diagonal blocks are zero since the dofs are applied component-wise. Firedrake's form
+compiler recognises this and avoids assembling the zero blocks.
+
+We can assemble more general interpolation matrices between mixed function spaces by interpolating
+vector expressions with arguments. For example, by doing
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_mixed_space_interpolation 3]
+   :end-before: [test_mixed_space_interpolation 4]
+
+we can assemble the interpolation matrix with block structure
+
+.. math::
+
+   \begin{pmatrix}
+   V_3 \rightarrow V_1 & V_4 \rightarrow V_1 \\
+   V_3 \rightarrow V_2 & V_4 \rightarrow V_2
+   \end{pmatrix}
+
+Here we obtain non-zero off-diagonal blocks by including both components of the trial function
+in each component of the expression.
 
 Generating Functions with randomised values
 -------------------------------------------

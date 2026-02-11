@@ -1,10 +1,12 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
-from firedrake.mesh import plex_from_cell_list, Mesh
+from firedrake.mesh import Mesh, plex_from_cell_list
+from firedrake.formmanipulation import split_form
 import numpy as np
 import pytest
 from ufl import product
+import subprocess
 
 
 def allgather(comm, coords):
@@ -15,9 +17,9 @@ def allgather(comm, coords):
     return coords
 
 
-def unitsquaresetup(dest_quad=True):
+def unitsquaresetup():
     m_src = UnitSquareMesh(2, 3)
-    m_dest = UnitSquareMesh(3, 5, quadrilateral=dest_quad)
+    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
     coords = np.array(
         [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
     )  # fairly arbitrary
@@ -47,7 +49,14 @@ def make_high_order(m_low_order, degree):
         "unitsquare_vfs",
         "unitsquare_tfs",
         "unitsquare_N1curl_source",
-        "unitsquare_RT_N1curl_destination",
+        pytest.param(
+            "unitsquare_SminusDiv_destination",
+            marks=pytest.mark.xfail(
+                # CalledProcessError is so the parallel tests correctly xfail
+                raises=(subprocess.CalledProcessError, NotImplementedError),
+                reason="Can only interpolate into spaces with point evaluation nodes",
+            ),
+        ),
         "unitsquare_Regge_source",
         # This test fails in complex mode
         pytest.param("spheresphere", marks=pytest.mark.skipcomplex),
@@ -179,14 +188,14 @@ def parameters(request):
         V_src = FunctionSpace(m_src, "N1curl", 2)  # Not point evaluation nodes
         V_dest = VectorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = VectorFunctionSpace(m_dest, "DQ", 2)
-    elif request.param == "unitsquare_RT_N1curl_destination":
-        m_src, m_dest, coords = unitsquaresetup(dest_quad=False)
+    elif request.param == "unitsquare_SminusDiv_destination":
+        m_src, m_dest, coords = unitsquaresetup()
         expr_src = 2 * SpatialCoordinate(m_src)
         expr_dest = 2 * SpatialCoordinate(m_dest)
         expected = 2 * coords
         V_src = VectorFunctionSpace(m_src, "CG", 2)
-        V_dest = FunctionSpace(m_dest, "RT", 2)  # Not point evaluation nodes
-        V_dest_2 = FunctionSpace(m_dest, "N1curl", 2)  # Not point evaluation nodes
+        V_dest = FunctionSpace(m_dest, "SminusDiv", 2)  # Not point evaluation nodes
+        V_dest_2 = FunctionSpace(m_dest, "SminusCurl", 2)  # Not point evaluation nodes
     elif request.param == "unitsquare_Regge_source":
         m_src, m_dest, coords = unitsquaresetup()
         expr_src = outer(SpatialCoordinate(m_src), SpatialCoordinate(m_src))
@@ -407,6 +416,32 @@ def test_interpolate_unitsquare_tfs_shape(shape, symmetry):
     V_dest = TensorFunctionSpace(m_dest, "CG", 4, shape=shape, symmetry=symmetry)
     f_src = Function(V_src)
     assemble(interpolate(f_src, V_dest))
+
+
+def test_interpolate_cross_mesh_not_point_eval():
+    m_src = UnitSquareMesh(2, 3)
+    m_dest = UnitSquareMesh(3, 5, quadrilateral=True)
+    coords = np.array(
+        [[0.56, 0.6], [0.1, 0.9], [0.9, 0.1], [0.9, 0.9], [0.726, 0.6584]]
+    )  # fairly arbitrary
+    # add the coordinates of the mesh vertices to test boundaries
+    vertices_src = allgather(m_src.comm, m_src.coordinates.dat.data_ro)
+    coords = np.concatenate((coords, vertices_src))
+    vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
+    coords = np.concatenate((coords, vertices_dest))
+    dest_eval = PointEvaluator(m_dest, coords)
+    expr_src = 2 * SpatialCoordinate(m_src)
+    expr_dest = 2 * SpatialCoordinate(m_dest)
+    expected = 2 * coords
+    V_src = FunctionSpace(m_src, "RT", 2)
+    V_dest = FunctionSpace(m_dest, "RTCE", 2)
+    atol = 1e-8  # default
+    # This might not make much mathematical sense, but it should test if we get
+    # the not implemented error for non-point evaluation nodes!
+    with pytest.raises(NotImplementedError):
+        interpolate_function(
+            m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
+        )
 
 
 def interpolate_function(
@@ -718,3 +753,40 @@ def test_interpolate_cross_mesh_interval(periodic):
     f_dest = Function(V_dest).interpolate(f_src)
     x_dest, = SpatialCoordinate(m_dest)
     assert abs(assemble((f_dest - (-(x_dest - .5) ** 2)) ** 2 * dx)) < 1.e-16
+
+
+def test_mixed_interpolator_cross_mesh():
+    # Tests assembly of mixed interpolator across meshes
+    mesh1 = UnitSquareMesh(4, 4)
+    mesh2 = UnitSquareMesh(3, 3, quadrilateral=True)
+    mesh3 = UnitDiskMesh(2)
+    mesh4 = UnitTriangleMesh(3)
+    V1 = FunctionSpace(mesh1, "CG", 1)
+    V2 = FunctionSpace(mesh2, "CG", 2)
+    V3 = FunctionSpace(mesh3, "CG", 3)
+    V4 = FunctionSpace(mesh4, "CG", 4)
+
+    W = V1 * V2
+    U = V3 * V4
+
+    w = TrialFunction(W)
+    w0, w1 = split(w)
+    expr = as_vector([w0 + w1, w0 + w1])
+    mixed_interp = interpolate(expr, U, allow_missing_dofs=True)  # Interpolating from W to U
+
+    # The block matrix structure is
+    # | V1 -> V3   V2 -> V3 |
+    # | V1 -> V4   V2 -> V4 |
+
+    res = assemble(mixed_interp, mat_type="nest")
+    assert isinstance(res, AssembledMatrix)
+    assert res.petscmat.type == "nest"
+
+    split_interp = dict(split_form(mixed_interp))
+
+    for i in range(2):
+        for j in range(2):
+            interp_ij = split_interp[(i, j)]
+            assert isinstance(interp_ij, Interpolate)
+            res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
+            assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
