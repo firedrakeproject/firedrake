@@ -105,6 +105,115 @@ def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, n
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
+@PETSc.Log.EventDecorator()
+def OneTetMesh(
+    perm=None,
+    right=None,
+    distribution_parameters=None,
+    reorder=False,
+    comm=COMM_WORLD,
+    name=DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """
+    Mesh with only two tets in 
+
+    :arg ncells: The number of the cells over the interval.
+    :arg length_or_left: The length of the interval (if ``right``
+         is not provided) or else the left hand boundary point.
+    :arg right: (optional) position of the right
+         boundary point (in which case ``length_or_left`` should
+         be the left boundary point).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+
+    The left hand boundary point has boundary marker 1,
+    while the right hand point has marker 2.
+    """
+    coords = np.array([[0,0,1],[1, -np.sqrt(3)/3, 0],[-1,-np.sqrt(3)/3,0],[2*np.sqrt(3)/3, 0,0]]) 
+    if perm is not None:
+        cells = np.array([perm([0,1,2,3])]) 
+    else:
+        cells = np.array([[3,2,0,4],[1,2,3,4]]) 
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
+    )
+    m = Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+    )
+    return m
+
+
+@PETSc.Log.EventDecorator()
+def TwoTetMesh(
+    perm=None,
+    right=None,
+    distribution_parameters=None,
+    reorder=False,
+    comm=COMM_WORLD,
+    name=DEFAULT_MESH_NAME,
+    distribution_name=None,
+    permutation_name=None,
+):
+    """
+    Mesh with only two tets in 
+
+    :arg ncells: The number of the cells over the interval.
+    :arg length_or_left: The length of the interval (if ``right``
+         is not provided) or else the left hand boundary point.
+    :arg right: (optional) position of the right
+         boundary point (in which case ``length_or_left`` should
+         be the left boundary point).
+    :kwarg distribution_parameters: options controlling mesh
+           distribution, see :func:`.Mesh` for details.
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on.
+    :kwarg name: Optional name of the mesh.
+    :kwarg distribution_name: the name of parallel distribution used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+    :kwarg permutation_name: the name of entity permutation (reordering) used
+           when checkpointing; if `None`, the name is automatically
+           generated.
+
+    The left hand boundary point has boundary marker 1,
+    while the right hand point has marker 2.
+    """
+    coords = np.array([[0,0,1],[0,0,-1],[1, -np.sqrt(3)/3, 0],[-1,-np.sqrt(3)/3,0],[2*np.sqrt(3)/3, 0,0]]) 
+    if perm is not None:
+        cells = np.array([perm([0, 2,3,4]),[1,2,3,4]]) 
+    else:
+        cells = np.array([[3,2,0,4],[1,2,3,4]]) 
+    plex = plex_from_cell_list(
+        3, cells, coords, comm, _generate_default_mesh_topology_name(name)
+    )
+    m = Mesh(
+        plex,
+        reorder=reorder,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+    )
+    return m
+
 
 
 @PETSc.Log.EventDecorator()
