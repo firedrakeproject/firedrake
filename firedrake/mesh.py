@@ -2527,12 +2527,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # To get the right facet orientation for periodic extrusion we have to
         # invert the support for the periodic horizontal facet
         if periodic:
-            # Get the facets on the periodic boundary
-            periodic_facet_indices = (
-                self._interior_facet_horiz_plex_indices.indices
-                .reshape((-1, self.layers-1))[:, 0]
-            )
-            for p in periodic_facet_indices:
+            for p in self._exterior_facet_bottom_plex_indices.indices:
                 support = self.topology_dm.getSupport(p)
                 assert len(support) == 2
                 self.topology_dm.setSupport(p, support[::-1])
@@ -2915,11 +2910,12 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _exterior_facet_bottom_plex_indices(self) -> PETSc.IS:
-        return self._exterior_facet_horiz_plex_indices_is("bottom")
+        if self.periodic:
+            return self._exterior_facet_top_plex_indices
+        else:
+            return self._exterior_facet_horiz_plex_indices_is("bottom")
 
-    def _exterior_facet_horiz_plex_indices_is(self, facet_type: Literal["top"] | Literal["bottom"]) -> PETSc.IS:
-        assert not self.periodic, "Periodic extruded meshes have no horizontal exterior facets"
-
+    def _exterior_facet_horiz_plex_indices_is(self, facet_type: Literal["top", "bottom"]) -> PETSc.IS:
         # Consider extruding the following interval mesh:
         #
         #     x-----x-----x
@@ -2939,14 +2935,22 @@ class ExtrudedMeshTopology(MeshTopology):
         # The external horizontal facets are the first and last horizontal
         # facets in each column. Since we know DMPlex numbers edges contiguously
         # up the column we can just slice them out.
-        if facet_type == "top":
-            take_index = -1
-        else:
-            assert facet_type == "bottom"
+
+        # Periodic extruded meshes have one fewer horizontal facets
+        if self.periodic:
+            num_facets = self.layers - 1
             take_index = 0
+        else:
+            num_facets = self.layers
+            if facet_type == "top":
+                take_index = -1
+            else:
+                assert facet_type == "bottom"
+                take_index = 0
+
         exterior_facet_horiz_indices = (
             self._facet_horiz_plex_indices.indices
-            .reshape((-1, self.layers))[:, take_index]
+            .reshape((-1, num_facets))[:, take_index]
             .flatten()
         )
         return PETSc.IS().createGeneral(exterior_facet_horiz_indices, comm=MPI.COMM_SELF)
@@ -3033,6 +3037,7 @@ class ExtrudedMeshTopology(MeshTopology):
             self._old_to_new_exterior_facet_top_numbering,
             self._old_to_new_cell_numbering,
             "exterior",
+            periodic_mask="top" if self.periodic else None,
         )
 
     @cached_property
@@ -3044,6 +3049,7 @@ class ExtrudedMeshTopology(MeshTopology):
             self._old_to_new_exterior_facet_bottom_numbering,
             self._old_to_new_cell_numbering,
             "exterior",
+            periodic_mask="bottom" if self.periodic else None,
         )
 
     @cached_property
@@ -3230,19 +3236,15 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _support(self) -> op3.Map:
-        supports = {}
         supported_supports = (
+            (self.exterior_facets_top, self._exterior_facet_top_support_dat),
+            (self.exterior_facets_bottom, self._exterior_facet_bottom_support_dat),
             (self.exterior_facets_vert, self._exterior_facet_vert_support_dat),
             (self.interior_facets_horiz, self._interior_facet_horiz_support_dat),
             (self.interior_facets_vert, self._interior_facet_vert_support_dat),
         )
-        if not self.periodic:
-            # Periodic extruded meshes have no horizontal exterior facets
-            supported_supports += (
-                (self.exterior_facets_top, self._exterior_facet_top_support_dat),
-                (self.exterior_facets_bottom, self._exterior_facet_bottom_support_dat),
-            )
 
+        supports = {}
         for iterset, support_dat in supported_supports:
             axis = iterset.owned.as_axis()
             from_path = idict({axis.label: axis.component.label})
@@ -6635,6 +6637,8 @@ def _memoize_facet_supports(
     facet_numbering: PETSc.Section,
     cell_numbering: PETSc.Section,
     facet_type: Literal["exterior", "interior"],
+    *,
+    periodic_mask: Literal["top", "bottom"] | None = None,
 ) -> op3.Dat:
     if facet_type == "exterior":
         support_size = 1
@@ -6646,7 +6650,14 @@ def _memoize_facet_supports(
     support_cells_renum = np.empty((iterset.local_size, support_size), dtype=IntType)
     for facet_plex in facet_plex_indices.indices:
         facet_renum = facet_numbering.getOffset(facet_plex)
-        for i, support_cell_plex in enumerate(plex.getSupport(facet_plex)):
+        support = plex.getSupport(facet_plex)
+
+        if periodic_mask == "top":
+            support = support[:1]
+        elif periodic_mask == "bottom":
+            support = support[1:]
+
+        for i, support_cell_plex in enumerate(support):
             support_cell_renum = cell_numbering.getOffset(support_cell_plex)
             support_cells_renum[facet_renum, i] = support_cell_renum
 
