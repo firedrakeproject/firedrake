@@ -101,7 +101,8 @@ from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
     NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
     prolong, restrict, inject, TransferManager,
-    OpenCascadeMeshHierarchy
+    OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
+    AdaptiveTransferManager
 )
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
