@@ -9,12 +9,8 @@ import os
 
 
 @pytest.fixture(autouse=True)
-def test_taping(set_test_tape):
-    pass
-
-
-@pytest.fixture(autouse=True, scope="module")
-def module_annotation(set_module_annotation):
+def autouse_test_taping(set_test_tape):
+    yield
     if disk_checkpointing():
         pause_disk_checkpointing()
 
