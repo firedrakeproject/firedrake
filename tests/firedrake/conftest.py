@@ -1,5 +1,6 @@
 """Global test configuration."""
 
+import functools
 import os
 import sys
 
@@ -17,6 +18,7 @@ from pyadjoint.tape import (
 from firedrake.petsc import PETSc
 
 
+@functools.cache
 def _skip_test_dependency(dependency):
     """
     Returns whether to skip tests with a certain dependency.
@@ -97,7 +99,6 @@ dependency_skip_markers_and_reasons = (
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
     ("vtk", "skipvtk", "VTK is not installed"),
-
 )
 
 
@@ -169,7 +170,7 @@ def pytest_collection_modifyitems(session, config, items):
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
-            if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:
+            if item.get_closest_marker(marker) is not None and _skip_test_dependency(dep):
                 item.add_marker(pytest.mark.skip(reason))
 
 
