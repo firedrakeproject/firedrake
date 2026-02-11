@@ -261,25 +261,11 @@ which indeed contracts into a number.
 Interpolation across meshes
 ---------------------------
 
-The interpolation API supports interpolation between meshes where the target
-function space has finite elements (as given in the list of
-:ref:`supported elements <supported_elements>`)
-
-* **Lagrange/CG** (also known as Continuous Galerkin or P elements),
-* **Q** (i.e. Lagrange/CG on lines, quadrilaterals and hexahedra),
-* **Discontinuous Lagrange/DG** (also known as Discontinuous Galerkin or DP elements),
-* **DQ** (i.e. Discontinuous Lagrange/DG on lines, quadrilaterals and hexahedra),
-* **Raviart-Thomas/RT**,
-* **Brezzi-Douglas-Marini/BDM**,
-* **Brezzi-Douglas-Fortin-Marini/BDFM**,
-* **Hellan-Herrmann-Johnson/HHJ**,
-* **Nedelec 1st kind/N1curl**,
-* **Nedelec 2nd kind/N2curl**,
-* **Gopalakrishnan-Lederer-Schoberl 1st kind/GLS**,
-* **Gopalakrishnan-Lederer-Schoberl 2nd kind/GLS2**.
-
-Vector, tensor, and mixed function spaces can also be interpolated into from
-other meshes as long as they are constructed from these spaces.
+The interpolation API supports interpolation across meshes where the target
+function space has any finite element which supports interpolation, as specified in the list of
+:ref:`supported elements <supported_elements>`. Vector, tensor, and mixed function
+spaces can also be interpolated into from other meshes as long as they are
+constructed from these spaces.
 
 .. note::
 
