@@ -31,13 +31,15 @@
 <div class="wrapper">
   {% if pagename[:9] == "fenics_15" %}
   <a href="{{ pathto('fenics_15.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner_fenics_15', 'png'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
+  {% elif pagename[:12] == "firedrake_26" %}
+  <a href="{{ pathto('fenics_15.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner_firedrake_petsc_26', 'png'), 1) }}" width="900px" alt="Petsc & Firedrake Workshop 2026 Banner" /></a>
   {% else %}
   <a href="{{ pathto('index.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner', 'png'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
   {% endif %}
   <div id="access">
     <div class="menu">
       <ul>
-        {% if pagename[:9] == "fenics_15" %}
+        {% if pagename[:9] == "fenics_15" or pagename[:12] == "firedrake_26" %}
           <li class="page_item"><a href="{{ pathto('index.html', 1) }}" title="Documentation for Firedrake">Firedrake Homepage</a></li>
         {% else %}
           <li class="page_item"><a href="{{ pathto('documentation.html', 1) }}" title="Documentation for Firedrake">Documentation</a></li>
