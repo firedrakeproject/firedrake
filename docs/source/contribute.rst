@@ -1,14 +1,19 @@
+:orphan:
+
 .. raw:: latex
 
    \clearpage
+
+.. contents::
 
 =========================
 Contributing to Firedrake
 =========================
 
-...
-
-All Firedrake development is managed on GitHub and Slack...
+As Firedrake developers, nothing makes us happier than receiving
+external contributions - it means fewer bugs for us to fix ourselves!
+Contributing to Firedrake is not difficult but involves a number of
+steps, which we will explain below.
 
 Deciding what to fix
 --------------------
@@ -26,7 +31,6 @@ do :doc:`get in touch<contact>` on Slack or GitHub discussions so we know
 that it is happening.
 
 .. _main_vs_release:
-
 
 ``main`` or ``release`` branch?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -50,9 +54,9 @@ Setting up a developer environment
 
 To edit Firedrake code you will need an editable install of either the
 ``main`` or ``release`` branch. Instructions on how to do this can be
-found :ref:`here<dev_install>`.
+found :ref:`here <dev_install>`.
 
-If you are using a :ref:`Docker container<dev_containers>` to edit
+If you are using a :ref:`Docker container <dev_containers>` to edit
 Firedrake code then an editable install of the correct branch of
 Firedrake can be found in ``/opt/firedrake``.
 
@@ -76,21 +80,60 @@ Once you have opened a PR the Firedrake developers will review your
 changes and suggest changes. Once everything has been addressed and there
 is an approving review then we will merge the code.
 
-Developing Firedrake code
--------------------------
+.. _presubmission_checks:
 
-branch + fork
+Pre-submission checklist
+------------------------
 
-policies (style)
-documentation
-tests
-linting
+Before opening a PR/marking it as ready for review you should make sure
+to have done the following:
 
-Contributing documentation
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+#. One or more tests should be added to the Firedrake test suite to avoid
+   regressions in future.
 
-cd firedrake_repo/docs
-make html
+#. Code should conform to Firedrake's `coding guide <https://github.com/firedrakeproject/firedrake/wiki/Firedrake-Coding-Guide>`__.
+
+#. Code should pass linting checks. To do this check locally you should
+   run the command::
+
+      $ make srclint
+
+#. Documentation changes should be checked to make sure that they are
+   correctly rendered. To build the documentation locally you should
+   run::
+
+      $ cd docs
+      $ make html
+
+   and then inspect the generate HTML files in ``docs/build/html``.
 
 Contributing demos
-~~~~~~~~~~~~~~~~~~
+------------------
+
+If you have implemented a complex method using Firedrake then we welcome
+submissions of 'demos' (examples :ref:`here <intro_tutorials>` and
+:ref:`here <advanced_tutorials>`). Demos are short (<100 lines of code)
+Python scripts that are augmented with RST such that they can be nicely
+rendered on the website.
+
+A good demo should convey the critical steps necessary to implement your
+method for others to learn from. It should **not** be a full application.
+
+To contribute a new demo the same steps as
+:ref:`above <presubmission_checks>` should be followed with some
+demo-specific changes:
+
+#. Demos should be merged into the ``release`` branch of Firedrake,
+   not ``main``.
+
+#. The demo should live in a subdirectory of the ``demos/`` directory.
+
+#. To test the demo it must be added to
+   ``tests/firedrake/demos/test_demos_run.py``.
+
+#. The demo should be referenced in ``docs/source/intro_tut.rst``
+   or ``docs/source/advanced_tut.rst`` as appropriate.
+
+For inspiration, an examplar pull request adding several demos to Firedrake
+may be found
+`here <https://github.com/firedrakeproject/firedrake/pull/4317>`__.
