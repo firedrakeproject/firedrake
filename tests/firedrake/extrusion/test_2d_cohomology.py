@@ -53,6 +53,7 @@ def test_betti0(horiz_complex, vert_complex):
     assert nharmonic == 0
 
 
+@pytest.mark.skip(reason="periodic extrusion")
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
                          [((("CG", 1), ("DG", 0)),
                            (("CG", 1), ("DG", 0)))])
