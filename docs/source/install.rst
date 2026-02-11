@@ -616,8 +616,8 @@ that you want to install (``main`` or ``release``, see
 
       $ git clone --branch $(python3 firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
 
-   If you are instead building the unstable ``main`` branch then the default
-   branch of PETSc (also called ``main``) should be used:
+   If you are instead building the unstable ``main`` branch of Firedrake then
+   the default branch of PETSc (also called ``main``) should be used:
 
    .. code-block:: text
 
