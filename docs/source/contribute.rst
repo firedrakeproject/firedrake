@@ -130,6 +130,6 @@ demo-specific changes:
 #. The demo should be referenced in ``docs/source/intro_tut.rst``
    or ``docs/source/advanced_tut.rst`` as appropriate.
 
-For inspiration, an examplar pull request adding several demos to Firedrake
+For inspiration, an exemplar pull request adding several demos to Firedrake
 may be found
 `here <https://github.com/firedrakeproject/firedrake/pull/4317>`__.
