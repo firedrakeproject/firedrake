@@ -13,22 +13,19 @@ Contributing to Firedrake
 As Firedrake developers, nothing makes us happier than receiving
 external contributions - it means fewer bugs for us to fix ourselves!
 Contributing to Firedrake is not difficult but involves a number of
-steps, which we will explain below.
+steps, which we explain below.
 
 Deciding what to fix
 --------------------
 
 If you are interested in making your first contribution to Firedrake but don't
-know what to fix please take a look at our (extensive!)
+know what to fix please take a look at our
 `list of issues <https://github.com/firedrakeproject/firedrake/issues>`__. In
 particular look out for issues labelled as a
 `'good first issue' <https://github.com/firedrakeproject/firedrake/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22>`__.
-Once you've chosen one to attempt to fix please comment on the issue thread
-to notify us and so we can give you advice.
 
-If you already know what you want to fix then great! Before you begin please
-do :doc:`get in touch<contact>` on Slack or GitHub discussions so we know
-that it is happening.
+Once you have chosen what to fix please :doc:`let us know<contact>`
+so we can help you and stay informed.
 
 .. _main_vs_release:
 
@@ -39,14 +36,14 @@ Firedrake development takes place on two different branches, called ``main``
 and ``release``. ``main`` is where major Firedrake developments occur -
 things like new features and API-breaking changes. Changes added to ``main``
 will be made available at the next major Firedrake release (e.g.
-``2025.10.x`` to ``2026.4.0``) every 6 months. In contrast, ``release``
+``2025.10.x`` to ``2026.4.0``) every 6 months. ``release``
 is the stable development branch of Firedrake and will only accept
 bug fixes and documentation or website improvements. Changes to ``release``
 are made available in Firedrake's patch releases (e.g. ``2025.10.2`` to
 ``2025.10.3``), which are made as needed.
 
 When you submit changes you should consider which branch is the better
-candidate for your changes and base your development from that branch
+candidate for your changes, then base your development from that branch
 and submit your PR targetting it.
 
 Setting up a developer environment
@@ -56,7 +53,7 @@ To edit Firedrake code you will need an editable install of either the
 ``main`` or ``release`` branch. Instructions on how to do this can be
 found :ref:`here <dev_install>`.
 
-If you are using a :ref:`Docker container <dev_containers>` to edit
+If you are using a :ref:`developer Docker container <dev_containers>` to edit
 Firedrake code then an editable install of the correct branch of
 Firedrake can be found in ``/opt/firedrake``.
 
@@ -65,20 +62,19 @@ Working with git
 
 Once you have a working install of Firedrake you will need to checkout
 a new branch to develop on. This branch will have to come from a fork
-of the main Firedrake repository. For clarity we recommend you give
-your branch a helpful name like
-``mygithubusername/fix-bug-where-XXX-happens``.
+of the main `Firedrake repository <https://github.com/firedrakeproject/firedrake>`__. For clarity we recommend you give
+your branch a helpful name like ``mygithubusername/fix-bug-with-XXX``.
 
 When you are ready for the Firedrake development team to take a look at
 your code please open a pull request (PR) from your branch into the
 `Firedrake repository <https://github.com/firedrakeproject/firedrake>`__.
 You are encouraged to do this early on in the development process so
-that we can give you early feedback - just make sure to mark the PR
-as a 'draft'!
+that we can give you feedback - just make sure to mark the PR
+as a 'draft'.
 
 Once you have opened a PR the Firedrake developers will review your
-changes and suggest changes. Once everything has been addressed and there
-is an approving review then we will merge the code.
+changes and suggest changes. Once everything has been addressed and
+approved then we will merge the code.
 
 .. _presubmission_checks:
 
@@ -88,8 +84,8 @@ Pre-submission checklist
 Before opening a PR/marking it as ready for review you should make sure
 to have done the following:
 
-#. One or more tests should be added to the Firedrake test suite to avoid
-   regressions in future.
+#. One or more tests should be added to the Firedrake test suite to verify
+   the new functionality works as intended.
 
 #. Code should conform to Firedrake's `coding guide <https://github.com/firedrakeproject/firedrake/wiki/Firedrake-Coding-Guide>`__.
 
@@ -112,14 +108,14 @@ Contributing demos
 
 If you have implemented a complex method using Firedrake then we welcome
 submissions of 'demos' (examples :ref:`here <intro_tutorials>` and
-:ref:`here <advanced_tutorials>`). Demos are short (<100 lines of code)
-Python scripts that are augmented with RST such that they can be nicely
-rendered on the website.
+:ref:`here <advanced_tutorials>`). Demos are short Python scripts
+(<100 lines of code) that are augmented with RST such that they can be
+nicely rendered on the website.
 
 A good demo should convey the critical steps necessary to implement your
 method for others to learn from. It should **not** be a full application.
 
-To contribute a new demo the same steps as
+To contribute a new demo the same checks as
 :ref:`above <presubmission_checks>` should be followed with some
 demo-specific changes:
 

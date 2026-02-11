@@ -568,13 +568,17 @@ publish 'developer' containers that track the most recent commits to the
 are useful for downstream CI or for developing Firedrake itself (see
 :doc:`contribute`).
 
-To use these images one should run::
+To use these images one should run:
 
-   .. code-block:: bash
+.. code-block:: bash
 
-      $ docker pull firedrakeproject/<image name>:dev-main
-      # or
-      $ docker pull firedrakeproject/<image name>:dev-release
+   $ docker pull firedrakeproject/<image name>:dev-main
+
+or
+
+.. code-block:: bash
+
+   $ docker pull firedrakeproject/<image name>:dev-release
 
 where ``<image name>`` is ``firedrake-vanilla-default`` or
 ``firedrake-vanilla-complex``.
