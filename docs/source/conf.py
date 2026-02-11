@@ -172,6 +172,7 @@ linkcheck_ignore = [
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
+    r'https://buy.crosscountrytrains.co.uk'
 ]
 linkcheck_timeout = 30
 
