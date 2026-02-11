@@ -102,6 +102,7 @@ def test_interpolate_external():
 
 def test_line_integral():
     # [test_line_integral 1]
+    from firedrake.mesh import Mesh, plex_from_cell_list
     # Start with a simple field exactly represented in the function space over
     # the unit square domain.
     m = UnitSquareMesh(2, 2)
@@ -113,8 +114,8 @@ def test_line_integral():
     # Note that it only has 1 cell
     cells = np.asarray([[0, 1]])
     vertex_coords = np.asarray([[0.0, 0.0], [1.0, 1.0]])
-    plex = mesh.plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
-    line = mesh.Mesh(plex, dim=2)
+    plex = plex_from_cell_list(1, cells, vertex_coords, comm=m.comm)
+    line = Mesh(plex, dim=2)
     # [test_line_integral 2]
     x, y = SpatialCoordinate(line)
     V_line = FunctionSpace(line, "CG", 2)
