@@ -4180,51 +4180,10 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETS
         &extruded_mesh.dm,
     ))
 
-    # CHKERR(PetscObjectReference(extruded_mesh.obj[0]))
-
-    # label_extruded_entities(extruded_mesh)
+    extruded_mesh.getLabel("exterior_facets").setName("base_exterior_facets")
+    extruded_mesh.getLabel("interior_facets").setName("base_interior_facets")
 
     return extruded_mesh
-
-
-# def label_extruded_entities(PETSc.DM plex) -> None:
-#     """Label points with a tensor-like entity label.
-#
-#     Since labels store integers the label is stored in lexicographic form. That
-#     is, (1, 1) is stored as 11 and so on.
-#
-#     Note that this routine modifies the 'entity' label of the DMPlex in-place.
-#
-#     """
-#     cdef:
-#         char          *label_name_c = <char *>"entity"
-#         DMLabel label_c, orig_label_c
-#         PetscInt      dim_c, d_c, p_start_c, p_end_c, p_c, base_entity_c, entity_c
-#
-#     CHKERR(DMGetLabel(plex.dm, label_name_c, &label_c))
-#     CHKERR(DMLabelDuplicate(label_c, &orig_label_c))
-#     CHKERR(DMLabelReset(label_c))
-#
-#     dim_c = get_topological_dimension(plex)
-#     for d_c in range(dim_c+1):
-#         get_depth_stratum(plex.dm, d_c, &p_start_c, &p_end_c)
-#         for p_c in range(p_start_c, p_end_c):
-#             CHKERR(DMLabelGetValue(orig_label_c, p_c, &base_entity_c))
-#
-#             if base_entity_c >= 10:
-#                 raise NotImplementedError("Not currently considering nested extrusion")
-#
-#             if base_entity_c == d_c:
-#                 # transformed to entity with equal dimension, append 0
-#                 entity_c = base_entity_c * 10
-#             else:
-#                 # transformed to entity with one greater dimension, append 1
-#                 assert base_entity_c + 1 == d_c
-#                 entity_c = base_entity_c * 10 + 1
-#
-#             CHKERR(DMLabelSetValue(label_c, p_c, entity_c))
-#
-#     CHKERR(DMLabelDestroy(&orig_label_c))
 
 
 def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:

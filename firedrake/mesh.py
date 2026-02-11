@@ -2517,15 +2517,25 @@ class ExtrudedMeshTopology(MeshTopology):
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
         self.topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
-        self.topology_dm.getLabel("exterior_facets").setName("base_exterior_facets")
-        self.topology_dm.getLabel("interior_facets").setName("base_interior_facets")
-        r"The PETSc DM representation of the mesh topology."
 
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         self.periodic = periodic
         # submesh
         self.submesh_parent = None
+
+        # To get the right facet orientation for periodic extrusion we have to
+        # invert the support for the periodic horizontal facet
+        if periodic:
+            # Get the facets on the periodic boundary
+            periodic_facet_indices = (
+                self._interior_facet_horiz_plex_indices.indices
+                .reshape((-1, self.layers-1))[:, 0]
+            )
+            for p in periodic_facet_indices:
+                support = self.topology_dm.getSupport(p)
+                assert len(support) == 2
+                self.topology_dm.setSupport(p, support[::-1])
 
     @utils.cached_property
     def _ufl_cell(self):
@@ -6624,7 +6634,7 @@ def _memoize_facet_supports(
     facet_plex_indices: PETSc.IS,
     facet_numbering: PETSc.Section,
     cell_numbering: PETSc.Section,
-    facet_type: Literal["exterior"] | Literal["interior"],
+    facet_type: Literal["exterior", "interior"],
 ) -> op3.Dat:
     if facet_type == "exterior":
         support_size = 1
