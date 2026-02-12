@@ -345,3 +345,28 @@ def test_assemble_tensor_empty_shape(mesh):
     v = Function(V).assign(1)
     expected = assemble(inner(v, v)*dx)
     assert np.allclose(result, expected)
+
+
+@pytest.mark.parametrize("mat_type", ("aij", "matfree"))
+def test_get_assembler_baseform(mat_type):
+    import numpy
+    from firedrake.assemble import get_assembler
+    mesh = UnitIntervalMesh(2)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = Function(V)
+    v = TestFunction(V)
+    b = Cofunction(V.dual())
+
+    F2 = inner(u, v)*dx
+    A2 = get_assembler(derivative(F2, u), mat_type=mat_type).assemble()
+
+    F1 = inner(u, v)*dx - b
+    A1 = get_assembler(derivative(F1, u), mat_type=mat_type).assemble()
+
+    rg = RandomGenerator(PCG64(seed=0))
+    w = rg.uniform(V)
+
+    b1 = assemble(action(A1, w))
+    b2 = assemble(action(A2, w))
+    assert numpy.allclose(b1.dat.data_ro, b2.dat.data_ro)
