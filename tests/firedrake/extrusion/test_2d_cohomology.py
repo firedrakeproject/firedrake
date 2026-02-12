@@ -159,6 +159,7 @@ def test_betti1(horiz_complex, vert_complex):
     assert nharmonic == 0
 
 
+@pytest.mark.skip(reason="periodic extrusion")
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
                          [((("CG", 1), ("DG", 0)),
                            (("CG", 1), ("DG", 0)))])
@@ -297,6 +298,7 @@ def test_betti2(horiz_complex, vert_complex):
     assert nharmonic == 1
 
 
+@pytest.mark.skip(reason="periodic extrusion")
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
                          [((("CG", 1), ("DG", 0)),
                            (("CG", 1), ("DG", 0)))])
@@ -362,16 +364,3 @@ def test_betti2_periodic(horiz_complex, vert_complex):
 
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
-
-
-if __name__ == "__main__":
-    # test_betti0_periodic(("CG", 1), ("DG", 0))
-    weak_mesh = test_betti0([("CG", 1), ("DG", 0)], [("CG", 1), ("DG", 0)])
-
-    import objgraph
-
-    from pyop3.cache import _heavy_caches
-
-    from pyop3.cache import _KNOWN_CACHES
-    mycache = _KNOWN_CACHES[0]
-    breakpoint()

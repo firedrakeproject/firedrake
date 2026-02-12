@@ -225,7 +225,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                    hv=height_var)
         name = "pyop2_kernel_radial_hedgehog_extrusion"
     else:
-        raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
+        raise NotImplementedError(f"Unsupported extrusion type '{extrusion_type}'")
 
     ast = lp.make_kernel(domains, instructions, data, name=name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
@@ -250,7 +250,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         p := iter_spec.loop_index,
         kernel(
             pack(ext_coords, iter_spec),
-            base_coords.dat[extr_mesh.base_mesh_closure(p)],
+            pack(base_coords, iter_spec),
             layer_height,
             my_layer_dat[p]
         ),

@@ -3161,84 +3161,28 @@ class ExtrudedMeshTopology(MeshTopology):
         return closures
 
     @cached_property
-    def _base_fiat_cell_closure_data_localized(self):
-        if self.layers.shape:
-            raise NotImplementedError
-        else:
-            n_extr_cells = int(self.layers) - 1
+    def extr_cell_to_base_cell_map(self):
+        """Return the map from extruded cells to cells of the base mesh."""
+        base_cell_nums = self._base_mesh._old_to_new_cell_numbering_is.indices
+        extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
-        closures = {}
-        for base_dest_dim in range(self._base_mesh.dimension+1):
-            base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
-            # for extr_dest_dim in range(2):
-            #     dest_dim = (base_dest_dim, extr_dest_dim)
-            #     closure_size = self._base_mesh._closure_sizes[self._base_mesh.dimension][base_dest_dim]
-            #
-            #     n_base_cells = self._base_mesh.num_cells
-            #     idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
-            #     num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
-            #
-            #     for ci in range(n_base_cells):
-            #         for j in range(nlayers):
-            #             for k in range(closure_size):
-            #                 idxs[ci, j, k] = base_closures[ci, k]
-            #
-            #     closures[dest_dim] = idxs.reshape((-1, closure_size))
+        dest_axis = self._base_mesh.name
+        dest_stratum = self._base_mesh.cell_label
 
-            dest_dim = base_dest_dim
-            closure_size = self._base_mesh._closure_sizes[self._base_mesh.dimension][base_dest_dim]
+        map_axes = op3.AxisTree.from_iterable([
+            self.cells.owned.root,
+            op3.Axis(1, "extr_cell_base_cell")
+        ])
+        dat = op3.Dat(map_axes, data=extr_base_cell_nums)
 
-            n_base_cells = self._base_mesh.num_cells
-            idxs = np.empty((n_base_cells, n_extr_cells, closure_size), dtype=base_closures.dtype)
-
-            for ci in range(n_base_cells):
-                for j in range(n_extr_cells):
-                    for k in range(closure_size):
-                        idxs[ci, j, k] = base_closures[ci, k]
-
-            closures[dest_dim] = idxs.reshape((-1, closure_size))
-        return closures
-
-    # NOTE: This is very similar to the other closure stuff that we do.
-    @cached_property
-    def base_mesh_closure(self):
-        # map from extruded entities to flat ones.
-        closures = {}
-
-        dim = self.cell_label
-        closure_data = self._base_fiat_cell_closure_data_localized
-
-        map_components = []
-        for map_dim, map_data in closure_data.items():
-            *_, size = map_data.shape
-            if size == 0:
-                continue
-
-            # target_axis = self.name
-            # target_dim = map_dim
-            target_axis = self._base_mesh.name
-            target_dim = map_dim
-
-            # Discard any parallel information, the maps are purely local
-            outer_axis = self.points.root.linearize(dim).localize()
-
-            # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
-            # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
-            # fix automatically internally via additional replace() arguments.
-            map_axes = op3.AxisTree.from_nest(
-                {outer_axis: op3.Axis({target_dim: size}, "closure")}
-            )
-            map_dat = op3.Dat(
-                map_axes, data=map_data.flatten(), prefix="closure"
-            )
-            map_components.append(
-                op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=map_dim)
-            )
-
-            # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-            closures[idict({self.name: dim})] =  (tuple(map_components),)
-
-        return op3.Map(closures, name="closure")
+        return op3.Map(
+            {
+                idict({self.name: self.cell_label}): [[
+                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
+                ]]
+            },
+            name="extr_cell_base_cell",
+        )
 
     @cached_property
     def _support(self) -> op3.Map:

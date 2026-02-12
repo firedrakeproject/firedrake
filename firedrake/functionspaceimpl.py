@@ -1294,10 +1294,14 @@ class FunctionSpace:
             Entity node map.
 
         """
+        iter_mesh = iteration_spec.mesh
         mesh = self.mesh().unique()
-        if iteration_spec.mesh.topology is mesh.topology:
+        if iter_mesh.topology is mesh.topology:
             composed_map = None
             target_integral_type = iteration_spec.integral_type
+        elif isinstance(iter_mesh.topology, ExtrudedMeshTopology) and iter_mesh.topology._base_mesh is mesh.topology:
+            composed_map = iter_mesh.extr_cell_to_base_cell_map(iteration_spec.loop_index)
+            target_integral_type = "cell"
         elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
             composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
         else:
