@@ -1713,7 +1713,7 @@ def facet_closure_nodes(V, sub_domain):
     else:
         pointss = tuple(dm.getStratumIS(FACE_SETS_LABEL, i) for i in sub_domain)
 
-    if all(pts.size == 0 for pts in pointss):
+    if all(not pts or pts.size == 0 for pts in pointss):
         return np.empty(0, dtype=IntType)
 
     nnodes = 0

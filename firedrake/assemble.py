@@ -1571,7 +1571,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @staticmethod
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
-        raise NotImplementedError
 
         # NOTE: We do not inspect subdomains here so the "full" sparsity is
         # allocated even when we might not use all of it. This increases
@@ -1580,22 +1579,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         for integral_type in allocation_integral_types:
             for i, Vrow in enumerate(test.function_space()):
                 if len(test.function_space()) == 1:
-                    i = Ellipsis
+                    i = None
+                mesh = Vrow.mesh()
 
                 for j, Vcol in enumerate(trial.function_space()):
                     if len(trial.function_space()) == 1:
-                        j = Ellipsis
-                    mesh = Vrow.mesh()
-                    # NOTE: This means that we are always looping over the 'row mesh' - is this
-                    # always the right thing to do?
-                    iterset = get_iteration_spec(mesh, integral_type, "everywhere")
-                    index = iterset.loop_index
+                        j = None
 
-                    rmap = Vrow.topological.entity_node_map(iterset)
-                    cmap = Vcol.topological.entity_node_map(iterset)
-
-                    loop = (index, rmap, cmap, (i, j))
-                    loops.append(loop)
+                    loop_info = get_iteration_spec(mesh, integral_type)
+                    loops.append((loop_info, (i, j)))
         return tuple(loops)
 
     @cached_property

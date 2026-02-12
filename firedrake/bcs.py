@@ -201,9 +201,8 @@ class BCBase:
         for idx in self._indices:
             r = r.sub(idx)
 
-        # TODO: This check no longer DTRT
-        # if r.function_space().axes != self._function_space.axes:
-        #     raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
+        if r.function_space().axes != self._function_space.axes:
+            raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
         r.zero(subset=self.node_set)
 
