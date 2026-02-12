@@ -188,6 +188,8 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
     def operands(self) -> tuple[ExpressionT]:
         return (self.a,)
 
+    child_attrs = ("a",)
+
     @property
     def _full_str(self) -> str:
         return f"{self.symbol}{as_str(self.a)}"
@@ -212,6 +214,14 @@ class Neg(UnaryOperator):
     @property
     def symbol(self) -> str:
         return "-"
+
+    @property
+    def local_max(self) -> numbers.Number:
+        return -self.a.local_min
+
+    @property
+    def local_min(self) -> numbers.Number:
+        return -self.a.local_max
 
 
 @utils.frozenrecord()
