@@ -912,22 +912,7 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
             newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
-    # if composite_dat.axis_tree.is_linear:
-    if False:
-        layout = newlayouts[axes.leaf_path]
-        assert not isinstance(layout, expr_types.NaN)
-        materialized_expr = expr_types.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
-    else:
-        materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
-
-    if assignee.name in {"array_512", "array_526"}:
-        breakpoint()
-
-    # key = tuple(assignee.buffer.data)
-    # if key in debug:
-    #     breakpoint()  # hey, I found something
-    # else:
-    #     debug[key] = composite_dat
+    materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
 
     return materialized_expr
 

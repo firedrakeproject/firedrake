@@ -183,7 +183,7 @@ class WithGeometryBase:
 
     @parent.setter
     def parent(self, val):
-        breakpoint()
+        assert False, "previously had a breakpoint here, do we care?"
         self.cargo.parent = val
 
     @property
@@ -1105,10 +1105,7 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_map(self) -> op3.Map:
-        try:
-            cells_axis, node_axis = self.cell_node_dat.axes.nodes
-        except:
-            breakpoint()
+        cells_axis, node_axis = self.cell_node_dat.axes.nodes
         return op3.Map(
             {
                 idict({cells_axis.label: cells_axis.component.label}): [

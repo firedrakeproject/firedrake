@@ -399,10 +399,7 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: AbstractStarF
                 size = region.local_size - region_sizes[_as_region_label(region.label, "owned")]
             region_sizes[_as_region_label(region.label, point_type)] = size
             ptr += size
-    try:
-        assert ptr == sf.size
-    except:
-        breakpoint()
+    assert ptr == sf.size
     return tuple(
         AxisComponentRegion(Scalar(size, constant=True), label)
         for label, size in region_sizes.items()
@@ -494,7 +491,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def regionless(self) -> AxisComponent:
-        breakpoint()  # probably a bad idea
+        assert False, "old code"
         return self.__record_init__(regions=(AxisComponentRegion(self.local_size),), sf=None)
 
     @property
@@ -1230,10 +1227,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         # match for all leaves.
         blocked_tree = self.materialize()
         for block_size in reversed(block_shape):
-            try:
-                block_axis = utils.single_valued(blocked_tree.leaves)
-            except:
-                breakpoint()
+            block_axis = utils.single_valued(blocked_tree.leaves)
             assert block_axis.component.size == block_size
 
             index = ScalarIndex(block_axis.label, block_axis.component.label, 0)
@@ -1695,7 +1689,7 @@ class UnitIndexedAxisTree(DistributedObject):
 
     @cached_property
     def outer_loops(self):
-        breakpoint()
+        assert False, "old code"
         return gather_loop_indices_from_targets(self.targets)
 
     def materialize(self):

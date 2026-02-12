@@ -536,7 +536,6 @@ def check_source_hashes(compiler, code, extension, comm):
             with open(srcfile, "w") as fh:
                 fh.write(code)
             icomm.barrier()
-            breakpoint()
             raise CompilationException(f"Generated code differs across ranks (see output in {output})")
 
 

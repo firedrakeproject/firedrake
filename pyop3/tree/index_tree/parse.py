@@ -584,8 +584,6 @@ def _(called_map, /, loop_context, **kwargs):
                     found = True
                     for output_spec in called_map.connectivity[input_path]:
                         possibilities.append((input_path, output_spec))
-            if not found:
-                breakpoint()
             assert found, "must be at least one matching path"
 
         for input_path, output_spec in possibilities:

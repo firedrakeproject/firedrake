@@ -1486,7 +1486,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @property
     def _sub_mat_type(self) -> str | None:
         if isinstance(self._mat_spec, Mapping):
-            breakpoint()
+            raise NotImplementedError
             # TODO
         else:
             return None

@@ -232,7 +232,6 @@ class StarForest(AbstractStarForest):
             raise ValueError
 
         if any(len(buf) != self.size for buf in [from_buffer, to_buffer]):
-            breakpoint()
             raise BufferSizeMismatchException
 
         # what about cdim?

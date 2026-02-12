@@ -58,7 +58,7 @@ class InstructionTransformer(NodeTransformer):
     @process.register(insn_types.InstructionList)
     @NodeTransformer.postorder
     def _(self, insn_list: insn_types.InstructionList, /, *insns, **kwargs) -> insn_types.Instruction:
-        breakpoint()  # likely wrong
+        raise NotImplementedError
         return maybe_enlist(insns)
 
 

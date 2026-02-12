@@ -137,7 +137,7 @@ def matrix_funptr(form, state):
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
             if c is state:
-                breakpoint()  # not implemented
+                raise NotImplementedError
                 if indices != (0, ):
                     raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
                 args.append(statearg)
