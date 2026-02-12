@@ -142,8 +142,8 @@ def intersection_finder(mesh_A, mesh_B):
     vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertex_map_A = mesh_A.coordinates.function_space().cell_node_list.astype(int)
     vertex_map_B = mesh_B.coordinates.function_space().cell_node_list.astype(int)
-    nnodes_A = mesh_A.coordinates.function_space().axes.size
-    nnodes_B = mesh_B.coordinates.function_space().axes.size
+    nnodes_A = mesh_A.coordinates.function_space().axes.local_size
+    nnodes_B = mesh_B.coordinates.function_space().axes.local_size
     dim_A = mesh_A.geometric_dimension
     dim_B = mesh_B.geometric_dimension
     ncells_A = mesh_A.num_cells
