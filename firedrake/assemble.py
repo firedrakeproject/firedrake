@@ -933,8 +933,8 @@ class FormAssembler(AbstractFormAssembler):
 
     def __new__(cls, *args, **kwargs):
         form = args[0]
-        if not isinstance(form, (ufl.Form, slate.TensorBase)):
-            raise TypeError(f"The first positional argument must be of ufl.Form or slate.TensorBase: got {type(form)} ({form})")
+        if not isinstance(form, (ufl.BaseForm, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.BaseForm or slate.TensorBase: got {type(form)} ({form})")
         # It is expensive to construct new assemblers because extracting the data
         # from the form is slow. Since all of the data structures in the assembler
         # are persistent apart from the output tensor, we stash the assembler on the
@@ -955,9 +955,10 @@ class FormAssembler(AbstractFormAssembler):
         self = super().__new__(cls)
         self._initialised = False
         self.__init__(*args, **kwargs)
-        if _FORM_CACHE_KEY not in form._cache:
-            form._cache[_FORM_CACHE_KEY] = {}
-        form._cache[_FORM_CACHE_KEY][key] = self
+        if hasattr(form, "_cache"):
+            if _FORM_CACHE_KEY not in form._cache:
+                form._cache[_FORM_CACHE_KEY] = {}
+            form._cache[_FORM_CACHE_KEY][key] = self
         return self
 
     @classmethod
