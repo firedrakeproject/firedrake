@@ -2675,6 +2675,7 @@ values from f.)"""
         else:
             coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
+
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
