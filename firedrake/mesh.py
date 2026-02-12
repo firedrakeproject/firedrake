@@ -2678,7 +2678,7 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        with PETSc.Log.Event("spatial_index_build"):
+        with PETSc.Log.Event("Building spatial index"):
             self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
@@ -4208,6 +4208,7 @@ def _dmswarm_create(
     return swarm
 
 
+@PETSc.Log.EventDecorator()
 def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
     """
     Given a list of Firedrake cell numbers (e.g. from mesh.locate_cell) and
