@@ -92,7 +92,7 @@ def prolong(coarse, fine):
             d.dat.buffer.reduce_leaves_to_roots_end()
 
         op3.loop(
-            n := Vf.nodal_axes.owned.iter(),
+            n := Vf.nodal_axes.blocked(Vf.shape).owned.iter(),
             kernel(fine.dat[n], coarse.dat[fine_to_coarse(n)], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
             eager=True,
         )
@@ -166,7 +166,7 @@ def restrict(fine_dual, coarse_dual):
 
         kernel = kernels.restrict_kernel(Vf, Vc)
         op3.loop(
-            n := Vf.nodal_axes.owned.iter(),
+            n := Vf.nodal_axes.blocked(Vf.shape).owned.iter(),
             kernel(coarse_dual.dat[fine_to_coarse(n)], fine_dual.dat[n], node_locations.dat[n], coarse_coords.dat[fine_to_coarse_coords(n)]),
             eager=True,
         )
