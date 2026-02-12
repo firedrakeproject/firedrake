@@ -2097,10 +2097,8 @@ class RealFunctionSpace(FunctionSpace):
             if mode == "plex":
                 if path.keys() != {self._mesh.name}:
                     for axis_target in axis_targets:
-                        if axis_target.axis == f"dof{self._mesh.cell_label}":
+                        if axis_target.axis.startswith("dof"):
                             axis_target = op3.AxisTarget("dof", "XXX", 0)
-                        elif axis_target.axis.startswith("dof"):
-                            axis_target = op3.AxisTarget("dof", "XXX", op3.NAN)
                         new_axis_targets.append(axis_target)
             else:
                 assert mode == "nodal"
