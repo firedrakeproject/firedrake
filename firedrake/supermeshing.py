@@ -454,13 +454,13 @@ each supermesh cell.
     if orig_block_size == 1:
         return mat.buffer.petscmat
     else:
-        (lrows, grows), (lcols, gcols) = mat.getSizes()
+        (lrows, grows), (lcols, gcols) = petscmat.getSizes()
         lrows *= orig_block_size
         grows *= orig_block_size
         lcols *= orig_block_size
         gcols *= orig_block_size
         size = ((lrows, grows), (lcols, gcols))
-        context = BlockMatrix(mat, orig_block_size, block_scale=block_scale)
+        context = BlockMatrix(petscmat, orig_block_size, block_scale=block_scale)
         blockmat = PETSc.Mat().createPython(size, context=context, comm=mat.comm)
         blockmat.setUp()
         return blockmat
