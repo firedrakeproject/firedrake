@@ -4431,6 +4431,19 @@ def _parent_mesh_embedding(
             icomm.Allgatherv(
                 input_ranks_local, (input_ranks_global, ncoords_local_allranks)
             )
+    (
+        parent_cell_nums,
+        reference_coords,
+        ref_cell_dists_l1,
+    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    assert len(parent_cell_nums) == ncoords_global
+    assert len(reference_coords) == ncoords_global
+    assert len(ref_cell_dists_l1) == ncoords_global
+
+    if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+        # The reference coordinates contain an extra unnecessary dimension
+        # which we can safely delete
+        reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information:
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
