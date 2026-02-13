@@ -78,7 +78,7 @@ def mesh_sizes(mh):
     for msh in mh:
         DG0 = FunctionSpace(msh, "DG", 0)
         h = Function(DG0).interpolate(CellDiameter(msh))
-        with h.vec as hvec:
+        with h.dat.vec_ro as hvec:
             _, maxh = hvec.max()
         mesh_size.append(maxh)
     return mesh_size
