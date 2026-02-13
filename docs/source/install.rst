@@ -530,9 +530,9 @@ Firedrake provides a number of different
 `here <https://hub.docker.com/u/firedrakeproject>`__. The main images best
 suited for users are:
 
-* `firedrake-vanilla-default <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
-* `firedrake-vanilla-complex <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
-* `firedrake <https://hub.docker.com/repository/docker/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
+* `firedrake-vanilla-default <https://hub.docker.com/r/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
+* `firedrake-vanilla-complex <https://hub.docker.com/r/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
+* `firedrake <https://hub.docker.com/r/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
 
 To use one of the containers you should run::
 
@@ -544,6 +544,11 @@ image). Then you can run::
    $ docker run -it firedrakeproject/<image name>:latest
 
 to start and enter a container.
+
+You can also download an image for a specific version by replacing ``latest``
+with a version tag, for example::
+
+   $ docker run -it firedrakeproject/<image name>:2025.10.2
 
 It is possible to use `Microsoft VSCode <https://code.visualstudio.com/>`__
 inside a running container. Instructions for how to do this may be found
