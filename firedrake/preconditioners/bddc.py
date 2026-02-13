@@ -47,7 +47,11 @@ class BDDCPC(PCBase):
     coarse space. If a DG(0) Function is provided, then all degrees of freedom on the cell
     are marked. Any nonzero value is counted as a marked degree of freedom/cell.
     Alternatively, ``'primal_markers'`` can be a list with the global degrees of freedom
-    to be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+    - ``'primal_markers'`` a Function marking degrees of freedom of the solution space to be
+    included in the coarse space. Any nonzero value is counted as a marked degree of freedom.
+    If a DG(0) Function is provided, then all degrees of freedom on a marked cell are marked.
+    Alternatively, ``'primal_markers'`` can be a list of integers with the global degrees of freedom to
+    be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
     """
 
     _prefix = "bddc_"
