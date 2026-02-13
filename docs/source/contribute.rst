@@ -16,8 +16,8 @@ bugs in existing capabilities, and a more vibrant and sustainable
 community! Contributing to Firedrake is not difficult but involves a
 number of steps, which we explain below.
 
-Deciding what to fix
---------------------
+Deciding what to contribute
+---------------------------
 
 If you are interested in making your first contribution to Firedrake but don't
 know what to fix please take a look at our
@@ -76,7 +76,10 @@ as a 'draft'.
 
 Once you have opened a PR the Firedrake developers will review your
 changes and suggest changes. Once everything has been addressed and
-approved then we will merge the code.
+approved then we will merge the code. You will then be listed as one
+of Firedrake's `contributors<https://github.com/firedrakeproject/firedrake/graphs/contributors>`__
+and mentioned in the `release notes<https://github.com/firedrakeproject/firedrake/releases>`__
+of the next release. Congratulations!
 
 .. _presubmission_checks:
 
