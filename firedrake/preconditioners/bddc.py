@@ -43,10 +43,11 @@ class BDDCPC(PCBase):
     - ``'get_divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this is
     provide the arguments (a Mat with the assembled bilinear form testing the divergence
     (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
-    - ``'primal_markers'`` a Function marking degrees of freedom to be included in the
+    - ``'primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
     coarse space. If a DG(0) Function is provided, then all degrees of freedom on the cell
-    are marked as primal. Alternatively, primal_markers can be a list with the global
-    degrees of freedom to be included in the coarse space.
+    are marked. Any nonzero value is counted as a marked degree of freedom/cell.
+    Alternatively, ``'primal_markers'`` can be a list with the global degrees of freedom
+    to be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
     """
 
     _prefix = "bddc_"
