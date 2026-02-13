@@ -6,25 +6,13 @@ import numpy as np
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("mesh", [UnitSquareMesh(10, 10)])
-def test_dynamic_meshes_2D(mesh):
+def test_dynamic_meshes_2D():
+    mesh = UnitSquareMesh(10, 10)
     S = mesh.coordinates.function_space()
     s = [Function(S), Function(S), Function(S)]
     mesh.coordinates.assign(mesh.coordinates + s[0])
@@ -71,13 +59,26 @@ def test_dynamic_meshes_2D(mesh):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("mesh", [UnitCubeMesh(4, 4, 5),
-                                  UnitOctahedralSphereMesh(3),
-                                  UnitIcosahedralSphereMesh(3),
-                                  UnitCubedSphereMesh(3),
-                                  TorusMesh(25, 10, 1, 0.5),
-                                  CylinderMesh(10, 25, radius=0.5, depth=0.8)])
-def test_dynamic_meshes_3D(mesh):
+@pytest.mark.parametrize("mesh_type", ["UnitCubeMesh",
+                                       "UnitOctahedralSphereMesh",
+                                       "UnitIcosahedralSphereMesh",
+                                       "UnitCubedSphereMesh",
+                                       "TorusMesh",
+                                       "CylinderMesh"])
+def test_dynamic_meshes_3D(mesh_type):
+    if mesh_type == "UnitCubeMesh":
+        mesh = UnitCubeMesh(4, 4, 5)
+    if mesh_type == "UnitOctahedralSphereMesh":
+        mesh = UnitOctahedralSphereMesh(3)
+    if mesh_type == "UnitIcosahedralSphereMesh":
+        mesh = UnitIcosahedralSphereMesh(3)
+    if mesh_type == "UnitCubedSphereMesh":
+        mesh = UnitCubedSphereMesh(3)
+    if mesh_type == "TorusMesh":
+        mesh = TorusMesh(25, 10, 1, 0.5)
+    if mesh_type == "CylinderMesh":
+        mesh = CylinderMesh(10, 25, radius=0.5, depth=0.8)
+
     S = mesh.coordinates.function_space()
     s = [Function(S), Function(S), Function(S)]
     mesh.coordinates.assign(mesh.coordinates + s[0])
