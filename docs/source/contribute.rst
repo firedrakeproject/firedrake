@@ -11,9 +11,10 @@ Contributing to Firedrake
 =========================
 
 As Firedrake developers, nothing makes us happier than receiving
-external contributions - it means fewer bugs for us to fix ourselves!
-Contributing to Firedrake is not difficult but involves a number of
-steps, which we explain below.
+external contributions - it means exciting new capabilities, fewer
+bugs in existing capabilities, and a more vibrant and sustainable
+community! Contributing to Firedrake is not difficult but involves a
+number of steps, which we explain below.
 
 Deciding what to fix
 --------------------
@@ -33,14 +34,15 @@ so we can help you and stay informed.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Firedrake development takes place on two different branches, called ``main``
-and ``release``. ``main`` is where major Firedrake developments occur -
+and ``release``. The ``main`` branch is where major Firedrake developments occur -
 things like new features and API-breaking changes. Changes added to ``main``
 will be made available at the next major Firedrake release (e.g.
 ``2025.10.x`` to ``2026.4.0``) every 6 months. ``release``
 is the stable development branch of Firedrake and will only accept
 bug fixes and documentation or website improvements. Changes to ``release``
 are made available in Firedrake's patch releases (e.g. ``2025.10.2`` to
-``2025.10.3``), which are made as needed.
+``2025.10.3``), which are made as needed. Changes to ``release`` can be merged
+into ``main`` at any time.
 
 When you submit changes you should consider which branch is the better
 candidate for your changes, then base your development from that branch
@@ -60,7 +62,7 @@ Firedrake can be found in ``/opt/firedrake``.
 Working with git
 ----------------
 
-Once you have a working install of Firedrake you will need to checkout
+Once you have an install of Firedrake you will need to checkout
 a new branch to develop on. This branch will have to come from a fork
 of the main `Firedrake repository <https://github.com/firedrakeproject/firedrake>`__. For clarity we recommend you give
 your branch a helpful name like ``mygithubusername/fix-bug-with-XXX``.
@@ -81,7 +83,7 @@ approved then we will merge the code.
 Pre-submission checklist
 ------------------------
 
-Before opening a PR/marking it as ready for review you should make sure
+Before opening a PR or marking it as ready for review you should make sure
 to have done the following:
 
 #. One or more tests should be added to the Firedrake test suite to verify
@@ -130,6 +132,6 @@ demo-specific changes:
 #. The demo should be referenced in ``docs/source/intro_tut.rst``
    or ``docs/source/advanced_tut.rst`` as appropriate.
 
-For inspiration, an exemplar pull request adding several demos to Firedrake
+For inspiration, an exemplary pull request adding several demos to Firedrake
 may be found
 `here <https://github.com/firedrakeproject/firedrake/pull/4317>`__.
