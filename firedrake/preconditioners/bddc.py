@@ -45,7 +45,7 @@ class BDDCPC(PCBase):
     (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
     - ``'primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
     coarse space. Any nonzero value is counted as a marked degree of freedom.
-    If a DG(0) Function is provided, then all degrees of freedom on the cell are marked. 
+    If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
     Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
     be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
     """
