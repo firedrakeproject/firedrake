@@ -104,6 +104,10 @@ to have done the following:
       $ make html
 
    and then inspect the generated HTML files in ``docs/build/html``.
+   
+   Note that if you did not specify the ``docs`` optional dependencies
+   when installing Firedrake then you may have to manually install
+   some extra packages to build the documentation.
 
 Contributing demos
 ------------------
