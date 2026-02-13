@@ -565,7 +565,7 @@ Developer containers
 In addition to the versioned Docker images described above, Firedrake also
 publish 'developer' containers that track the most recent commits to the
 ``main`` and ``release`` branches (see :ref:`main_vs_release`). These images
-are useful for downstream CI or for developing Firedrake itself (see
+are useful for running CI workflows for downstream libraries or for developing Firedrake itself (see
 :doc:`contribute`).
 
 To use these images, run:
