@@ -568,7 +568,7 @@ publish 'developer' containers that track the most recent commits to the
 are useful for downstream CI or for developing Firedrake itself (see
 :doc:`contribute`).
 
-To use these images one should run:
+To use these images, run:
 
 .. code-block:: bash
 
@@ -586,7 +586,7 @@ where ``<image name>`` is ``firedrake-vanilla-default`` or
 Google Colab
 ------------
 
-Firedrake can also be used inside the brower using Jupyter notebooks and
+Firedrake can also be used inside the browser using Jupyter notebooks and
 `Google Colab <https://colab.research.google.com/>`_. For more information
 please see :doc:`here</notebooks>`.
 

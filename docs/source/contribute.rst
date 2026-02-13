@@ -44,7 +44,7 @@ are made available in Firedrake's patch releases (e.g. ``2025.10.2`` to
 
 When you submit changes you should consider which branch is the better
 candidate for your changes, then base your development from that branch
-and submit your PR targetting it.
+and submit your PR targeting it.
 
 Setting up a developer environment
 ----------------------------------
@@ -66,7 +66,7 @@ of the main `Firedrake repository <https://github.com/firedrakeproject/firedrake
 your branch a helpful name like ``mygithubusername/fix-bug-with-XXX``.
 
 When you are ready for the Firedrake development team to take a look at
-your code please open a pull request (PR) from your branch into the
+your code, please open a pull request (PR) from your branch into the
 `Firedrake repository <https://github.com/firedrakeproject/firedrake>`__.
 You are encouraged to do this early on in the development process so
 that we can give you feedback - just make sure to mark the PR
@@ -89,7 +89,7 @@ to have done the following:
 
 #. Code should conform to Firedrake's `coding guide <https://github.com/firedrakeproject/firedrake/wiki/Firedrake-Coding-Guide>`__.
 
-#. Code should pass linting checks. To do this check locally you should
+#. Code should pass linting checks. To check this locally, you should
    run the command::
 
       $ make srclint
@@ -101,7 +101,7 @@ to have done the following:
       $ cd docs
       $ make html
 
-   and then inspect the generate HTML files in ``docs/build/html``.
+   and then inspect the generated HTML files in ``docs/build/html``.
 
 Contributing demos
 ------------------
