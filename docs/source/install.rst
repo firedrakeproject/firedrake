@@ -147,7 +147,7 @@ do the following steps:
 
    .. code-block:: text
 
-      make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
 
 #. Test the installation (optional) and return to the parent directory::
 
@@ -530,9 +530,9 @@ Firedrake provides a number of different
 `here <https://hub.docker.com/u/firedrakeproject>`__. The main images best
 suited for users are:
 
-* `firedrake-vanilla-default <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
-* `firedrake-vanilla-complex <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
-* `firedrake <https://hub.docker.com/repository/docker/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
+* `firedrake-vanilla-default <https://hub.docker.com/r/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
+* `firedrake-vanilla-complex <https://hub.docker.com/r/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
+* `firedrake <https://hub.docker.com/r/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
 
 To use one of the containers you should run::
 
@@ -545,13 +545,10 @@ image). Then you can run::
 
 to start and enter a container.
 
-.. note::
+You can also download an image for a specific version by replacing ``latest``
+with a version tag, for example::
 
-   The 'full-fat' ``firedrakeproject/firedrake`` image only exists for x86
-   architectures because some external packages do not provide ARM wheels.
-   If you are using an ARM Mac (i.e. M1, M2, etc) then you are encouraged to
-   use the ``firedrakeproject/firedrake-vanilla-default`` or
-   ``firedrakeproject/firedrake-vanilla-complex`` images instead.
+   $ docker run -it firedrakeproject/<image name>:2025.10.2
 
 It is possible to use `Microsoft VSCode <https://code.visualstudio.com/>`__
 inside a running container. Instructions for how to do this may be found
@@ -565,10 +562,36 @@ inside a running container. Instructions for how to do this may be found
    More information can be found
    `here <https://docs.docker.com/engine/security/#docker-daemon-attack-surface>`__.
 
+.. _dev_containers:
+
+Developer containers
+~~~~~~~~~~~~~~~~~~~~
+
+In addition to the versioned Docker images described above, Firedrake also
+publish 'developer' containers that track the most recent commits to the
+``main`` and ``release`` branches (see :ref:`main_vs_release`). These images
+are useful for running CI workflows for downstream libraries or for developing Firedrake itself (see
+:doc:`contribute`).
+
+To use these images, run:
+
+.. code-block:: bash
+
+   $ docker pull firedrakeproject/<image name>:dev-main
+
+or
+
+.. code-block:: bash
+
+   $ docker pull firedrakeproject/<image name>:dev-release
+
+where ``<image name>`` is ``firedrake-vanilla-default`` or
+``firedrake-vanilla-complex``.
+
 Google Colab
 ------------
 
-Firedrake can also be used inside the brower using Jupyter notebooks and
+Firedrake can also be used inside the browser using Jupyter notebooks and
 `Google Colab <https://colab.research.google.com/>`_. For more information
 please see :doc:`here</notebooks>`.
 
@@ -585,27 +608,43 @@ Developer install
       should follow the instructions `here <https://firedrakeproject.org/firedrake/install>`__.
 
 In order to install a development version of Firedrake the following steps
-should be followed:
+should be followed. You should decide in advance which development branch
+that you want to install (``main`` or ``release``, see
+:ref:`here<main_vs_release>` for the differences between them).
 
 #. Install system dependencies :ref:`as before<install_system_dependencies>`
 
-#. Clone and build the *default branch* of PETSc:
+#. Clone PETSc. If you are trying to use the ``release`` branch of
+   Firedrake then you should use the PETSc version from ``firedrake-configure``:
+
+   .. code-block:: text
+
+      $ git clone --branch $(python3 firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+
+   If you are instead building the unstable ``main`` branch of Firedrake then
+   the default branch of PETSc (also called ``main``) should be used:
 
    .. code-block:: text
 
       $ git clone https://gitlab.com/petsc/petsc.git
+
+#. Configure and build PETSc as usual:
+
+   .. code-block:: text
+
       $ cd petsc
       $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
       $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
       $ make check
       $ cd ..
 
-#. Clone Firedrake::
+#. Clone the desired branch of Firedrake::
 
-   $ git clone <firedrake url>
+   $ git clone <firedrake url> --branch <firedrake branch>
 
    where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
-   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred and
+   ``<firedrake branch>`` is ``main`` or ``release``.
 
 #. Set the necessary environment variables::
 
@@ -628,23 +667,54 @@ should be followed:
 
    $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check,docs]'
 
-
 Editing subpackages
 -------------------
 
-Firedrake dependencies can be cloned and installed in editable mode in an
-identical way to Firedrake. For example, to install
-`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
-should run::
+If you want to edit one of Firedrake's dependencies (e.g. FIAT_ or UFL_)
+then you should follow an analogous process to the one used to install a
+developer version of Firedrake above: ``git clone`` the repository and then install
+it in editable mode. However, there are a number of footguns to look out for:
 
-   $ git clone <fiat url>
-   $ pip install --editable ./fiat
+#. The default branch of the subpackage may differ depending on whether you are
+   editing Firedrake ``main`` or ``release``. For example, the FIAT_ ``main`` branch
+   is compatible with Firedrake ``main``, and its ``release`` branch is compatible
+   with Firedrake ``release``.
 
-For most packages it should not be necessary to pass ``--no-build-isolation``.
+   To check the branch that you need  you should check the ``pyproject.toml``
+   on the relevant Firedrake branch
+   (`main <https://github.com/firedrakeproject/firedrake/blob/main/pyproject.toml>`__, `release <https://github.com/firedrakeproject/firedrake/blob/release/pyproject.toml>`__).
+   On Firedrake ``main`` for example you will see:
 
-It is important to note that these packages **must be installed after Firedrake**.
-This is because otherwise installing Firedrake will overwrite the just-installed
-package.
+   .. code-block:: toml
+
+      dependencies = [
+        # ...
+        "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
+        # ...
+      ]
+
+   which tells you that the ``main`` branch of FIAT is expected.
+
+#. These packages **must be installed after Firedrake**. If Firedrake is installed
+   after installing the subpackage then the subpackage will be overwriiten. This is
+   due to the way that pip manages dependencies. Similarly, it is necessary
+   that **dependencies are themselves installed in reverse order**. For example, Firedrake
+   depends on both FIAT_ and UFL_, but FIAT also depends on UFL, therefore FIAT must be
+   installed *after* Firedrake but *before* UFL.
+
+   If you are unsure on the dependency order then, after installing Firedrake, you can
+   use ``pip`` to query each package. For example, part of the output of
+   ``pip show firedrake-fiat`` is:
+
+      .. code-block :: text
+
+         $ pip show firedrake-fiat
+         ...
+         Requires: fenics-ufl, numpy, recursivenodes, scipy, symengine, sympy
+         Required-by: firedrake
+
+#. If you update your branch of Firedrake it may also be necessary to update
+   the subpackages by running ``git pull``. 
 
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
@@ -654,3 +724,5 @@ package.
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
+.. _FIAT: https://github.com/firedrakeproject/fiat
+.. _UFL: https://github.com/FEniCS/ufl
