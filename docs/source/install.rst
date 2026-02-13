@@ -667,23 +667,54 @@ that you want to install (``main`` or ``release``, see
 
    $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check,docs]'
 
-
 Editing subpackages
 -------------------
 
-Firedrake dependencies can be cloned and installed in editable mode in an
-identical way to Firedrake. For example, to install
-`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
-should run::
+If you want to edit one of Firedrake's dependencies (e.g. FIAT_ or UFL_)
+then you should follow an analogous process to the one used to install a
+developer version of Firedrake above: ``git clone`` the repository and then install
+it in editable mode. However, there are a number of footguns to look out for:
 
-   $ git clone <fiat url>
-   $ pip install --editable ./fiat
+#. The default branch of the subpackage may differ depending on whether you are
+   editing Firedrake ``main`` or ``release``. For example, the FIAT_ ``main`` branch
+   is compatible with Firedrake ``main``, and its ``release`` branch is compatible
+   with Firedrake ``release``.
 
-For most packages it should not be necessary to pass ``--no-build-isolation``.
+   To check the branch that you need  you should check the ``pyproject.toml``
+   on the relevant Firedrake branch
+   (`main <https://github.com/firedrakeproject/firedrake/blob/main/pyproject.toml>`__, `release <https://github.com/firedrakeproject/firedrake/blob/release/pyproject.toml>`__).
+   On Firedrake ``main`` for example you will see:
 
-It is important to note that these packages **must be installed after Firedrake**.
-This is because otherwise installing Firedrake will overwrite the just-installed
-package.
+   .. code-block:: toml
+
+      dependencies = [
+        # ...
+        "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
+        # ...
+      ]
+
+   which tells you that the ``main`` branch of FIAT is expected.
+
+#. These packages **must be installed after Firedrake**. If Firedrake is installed
+   after installing the subpackage then the subpackage will be overwriiten. This is
+   due to the way that pip manages dependencies. Similarly, it is necessary
+   that **dependencies are themselves installed in reverse order**. For example, Firedrake
+   depends on both FIAT_ and UFL_, but FIAT also depends on UFL, therefore FIAT must be
+   installed *after* Firedrake but *before* UFL.
+
+   If you are unsure on the dependency order then, after installing Firedrake, you can
+   use ``pip`` to query each package. For example, part of the output of
+   ``pip show firedrake-fiat`` is:
+
+      .. code-block :: text
+
+         $ pip show firedrake-fiat
+         ...
+         Requires: fenics-ufl, numpy, recursivenodes, scipy, symengine, sympy
+         Required-by: firedrake
+
+#. If you update your branch of Firedrake it may also be necessary to update
+   the subpackages by running ``git pull``. 
 
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
@@ -693,3 +724,5 @@ package.
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
+.. _FIAT: https://github.com/firedrakeproject/fiat
+.. _UFL: https://github.com/FEniCS/ufl

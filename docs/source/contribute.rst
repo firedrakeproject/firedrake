@@ -19,14 +19,22 @@ number of steps, which we explain below.
 Deciding what to contribute
 ---------------------------
 
-If you are interested in making your first contribution to Firedrake but don't
-know what to fix please take a look at our
+We are happy to receive contributions in many different forms. For example:
+
+* You think Firedrake is missing some capability that you would like to add.
+
+* You have written some code that you think would be useful to the wider community.
+
+* You don't have a specific fix in mind but would like to help us fix some bugs.
+
+Whichever you choose, we ask that you first :doc:`get in touch<contact>` so we
+can help and guide you through the process.
+
+If you are interested in making your first contribution but don't know what to
+fix please take a look at our
 `list of issues <https://github.com/firedrakeproject/firedrake/issues>`__. In
 particular look out for issues labelled as a
 `'good first issue' <https://github.com/firedrakeproject/firedrake/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22>`__.
-
-Once you have chosen what to fix please :doc:`let us know<contact>`
-so we can help you and stay informed.
 
 .. _main_vs_release:
 
@@ -75,10 +83,10 @@ that we can give you feedback - just make sure to mark the PR
 as a 'draft'.
 
 Once you have opened a PR the Firedrake developers will review your
-changes and suggest changes. Once everything has been addressed and
+work and suggest changes. Once everything has been addressed and
 approved then we will merge the code. You will then be listed as one
-of Firedrake's `contributors<https://github.com/firedrakeproject/firedrake/graphs/contributors>`__
-and mentioned in the `release notes<https://github.com/firedrakeproject/firedrake/releases>`__
+of Firedrake's `contributors <https://github.com/firedrakeproject/firedrake/graphs/contributors>`__
+and mentioned in the `release notes <https://github.com/firedrakeproject/firedrake/releases>`__
 of the next release. Congratulations!
 
 .. _presubmission_checks:
