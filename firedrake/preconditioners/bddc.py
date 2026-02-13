@@ -335,5 +335,5 @@ def get_primal_indices(V, primal_markers):
         primal_indices = numpy.flatnonzero(markers.dat.data >= 1E-12)
         primal_indices += V.dof_dset.layout_vec.getOwnershipRange()[0]
     else:
-        primal_indices = numpy.asarray(primal_markers)
+        primal_indices = numpy.asarray(primal_markers, dtype=PETSc.IntType)
     return primal_indices

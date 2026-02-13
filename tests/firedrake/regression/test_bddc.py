@@ -165,7 +165,7 @@ def cell_aspect_ratio(mesh):
     """Compute the aspect ratio of each cell"""
     J = Jacobian(mesh)
     G = J.T * J
-    hs = tuple(abs(G[i, i])**0.5 for i in range(G.ufl_shape[0]))
+    hs = tuple(abs(G[i, i]**0.5) for i in range(G.ufl_shape[0]))
     hmax = reduce(max_value, hs)
     hmin = reduce(min_value, hs)
 
