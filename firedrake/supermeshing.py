@@ -152,9 +152,6 @@ each supermesh cell.
     preallocator = PETSc.Mat().create(comm=mesh_A.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
-    # rset = V_B.dof_dset
-    # cset = V_A.dof_dset
-
     nrows = V_B.template_vec.getSizes()
     ncols = V_A.template_vec.getSizes()
 
@@ -197,8 +194,8 @@ each supermesh cell.
 
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
-    node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos.reshape((-1, dim))
-    node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos.reshape((-1, dim))
+    node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
+    node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
     num_nodes_A = node_locations_A.shape[0]
     num_nodes_B = node_locations_B.shape[0]
 
