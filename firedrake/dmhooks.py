@@ -363,43 +363,36 @@ def create_subdm(dm, fields, *args, **kwargs):
     :arg fields: The fields in the new sub-DM.
     """
     W = get_function_space(dm)
-    ctx = get_appctx(dm)
-    coarsen = get_ctx_coarsener(dm)
-    parent = get_parent(dm)
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
         idx, = fields
-        subdm = W[idx].dm
+        subspace = W[idx]
         iset = W._ises[idx]
-        add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
-                 call_setup=True)
-
-        if ctx is not None:
-            ctx, = ctx.split([(idx, )])
-            add_hook(parent, setup=partial(push_appctx, subdm, ctx), teardown=partial(pop_appctx, subdm, ctx),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
-                     call_setup=True)
-        return iset, subdm
     else:
         # Need to build an MFS for the subspace
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
 
-        add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
-                 call_setup=True)
         # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                           for f in fields]),
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W.dof_dset.field_ises[f].indices for f in fields]),
                                         comm=W._comm)
-        if ctx is not None:
-            ctx, = ctx.split([fields])
-            add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),
-                     teardown=partial(pop_appctx, subspace.dm, ctx),
-                     call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subspace.dm, coarsen),
-                     teardown=partial(pop_ctx_coarsener, subspace.dm, coarsen),
-                     call_setup=True)
-        return iset, subspace.dm
+
+    subdm = subspace.dm
+    parent = get_parent(dm)
+    add_hook(parent, setup=partial(push_parent, subdm, parent),
+             teardown=partial(pop_parent, subdm, parent),
+             call_setup=True)
+
+    ctx = get_appctx(dm)
+    coarsen = get_ctx_coarsener(dm)
+    if ctx is not None:
+        ctx, = ctx.split([fields])
+        add_hook(parent, setup=partial(push_appctx, subdm, ctx),
+                 teardown=partial(pop_appctx, subdm, ctx),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen),
+                 teardown=partial(pop_ctx_coarsener, subdm, coarsen),
+                 call_setup=True)
+    return iset, subdm
 
 
 @PETSc.Log.EventDecorator()
