@@ -217,6 +217,7 @@ def test_bddc_cellwise_fdm(rg, mh, family, degree, condense):
     assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
 
 
+@pytest.mark.skipcomplex  # max_value does not work in complex mode
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
 def test_bddc_cellwise_high_aspect_ratio(rg, family, degree):
