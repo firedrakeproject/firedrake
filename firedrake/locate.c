@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <spatialindex/capi/sidx_api.h>
 #include <float.h>
+#include <math.h>
 #include <evaluate.h>
 
 int locate_cell(struct Function *f,
@@ -45,6 +46,7 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (uint64_t i = 0; i < nids; i++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
+                current_ref_cell_dist_l1 = isnan(current_ref_cell_dist_l1) ? DBL_MAX : current_ref_cell_dist_l1;
                 for (uint64_t j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
@@ -80,6 +82,7 @@ int locate_cell(struct Function *f,
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;
                 current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                current_ref_cell_dist_l1 = isnan(current_ref_cell_dist_l1) ? DBL_MAX : current_ref_cell_dist_l1;
                 for (uint64_t j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
@@ -114,6 +117,7 @@ int locate_cell(struct Function *f,
         if (f->extruded == 0) {
             for (int c = 0; c < f->n_cols; c++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, c, x);
+                current_ref_cell_dist_l1 = isnan(current_ref_cell_dist_l1) ? DBL_MAX : current_ref_cell_dist_l1;
                 for (uint64_t j = 0; j < ncells_ignore; j++) {
                     if (c == cells_ignore[j]) {
                         cell_ignore_found = 1;
@@ -147,6 +151,7 @@ int locate_cell(struct Function *f,
             for (int c = 0; c < f->n_cols; c++) {
                 for (int l = 0; l < f->n_layers; l++) {
                     current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+                    current_ref_cell_dist_l1 = isnan(current_ref_cell_dist_l1) ? DBL_MAX : current_ref_cell_dist_l1;
                     for (uint64_t j = 0; j < ncells_ignore; j++) {
                         if (l == cells_ignore[j]) {
                             cell_ignore_found = 1;
