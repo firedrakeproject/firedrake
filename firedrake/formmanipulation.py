@@ -3,7 +3,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm, Interpolate
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -71,6 +71,11 @@ class ExtractSubBlock(MultiFunction):
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+
+        if isinstance(form, Interpolate) and not args:
+            dual_arg, _ = form.argument_slots()
+            args = dual_arg.arguments()
+
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -191,14 +196,14 @@ class ExtractSubBlock(MultiFunction):
             return self(ZeroBaseForm(o.arguments()))
 
         dual_arg, _ = o.argument_slots()
-        if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
-            # The dual argument has been contracted or does not need to be split
+        dual_arguments = dual_arg.arguments()
+        if len(dual_arguments) == 1 and len(dual_arguments[0].function_space()) == 1:
             return o._ufl_expr_reconstruct_(operand, dual_arg)
 
-        if not isinstance(dual_arg, Coargument):
+        if not isinstance(dual_arg, Coargument | Cofunction):
             raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
 
-        indices = self.blocks[dual_arg.number()]
+        indices = self.blocks[dual_arguments[0].number()]
         V = dual_arg.function_space()
 
         # Split the target (dual) argument
@@ -254,6 +259,11 @@ def split_form(form, diagonal=False):
     """
     splitter = ExtractSubBlock()
     args = form.arguments()
+
+    if isinstance(form, Interpolate) and not args:
+        dual_arg, _ = form.argument_slots()
+        args = dual_arg.arguments()
+
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
     rank = len(shape)
