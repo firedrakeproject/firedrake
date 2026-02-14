@@ -350,6 +350,8 @@ def test_vanka_equivalence(problem_type):
     filter_warnings(star_solver.solve)
     star_its = star_solver.snes.getLinearSolveIterations()
 
+    mh._shared_data_cache["transfer_kernels"] = {}
+
     u.assign(0)
     comp_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=comp_params, nullspace=nsp)
     filter_warnings(comp_solver.solve)
