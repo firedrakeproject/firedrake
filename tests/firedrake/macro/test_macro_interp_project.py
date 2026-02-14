@@ -26,7 +26,7 @@ def h1_proj(u, f, bcs=None):
     F = inner(d(u-f), d(v)) * dx + inner(u-f, v) * dx
 
     a = derivative(F, u)
-    L = -F
+    L = assemble(-F)
     solve(a == L, u, bcs=bcs)
     return assemble(F(u-f))**0.5
 
