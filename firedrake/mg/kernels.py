@@ -8,6 +8,7 @@ from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.algorithms.analysis import extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
@@ -92,22 +93,26 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
     return evaluate_template_c % code
 
 
-def compile_element(operand, dual_arg, parameters=None,
-                    name="evaluate"):
+def compile_element(ufl_interpolate, parameters=None, name="evaluate"):
     """Generate code for point evaluations.
 
     Parameters
     ----------
-    operand: ufl.Expr
-        A primal expression
-    dual_arg: ufl.Coargument | ufl.Cofunction
-        A dual argument or coefficient
+    ufl_interpolate: ufl.Interpolate
+        A symbolic Interpolate expression
+
+    parameters: dict
+        The form compiler parameters
+
+    name: str
+        The name of the kernel
 
     Returns
     -------
     str
         The generated code
     """
+    dual_arg, operand = ufl_interpolate.argument_slots()
     source_mesh = extract_unique_domain(operand)
     target_space = dual_arg.arguments()[0].ufl_function_space()
 
@@ -120,7 +125,7 @@ def compile_element(operand, dual_arg, parameters=None,
         dual_arg = ufl.Cofunction(target_space.dual())
     else:
         dual_arg = ufl.Coargument(target_space.dual(), number=dual_arg.number())
-    expression = ufl.Interpolate(operand, dual_arg)
+    expression = ufl_interpolate._ufl_expr_reconstruct_(operand, dual_arg)
 
     kernel = compile_expression_dual_evaluation(expression,
                                                 ufl_element,
@@ -151,8 +156,11 @@ def _make_element_key(element):
     return entity_dofs_key(element.complex.get_topology()) + entity_dofs_key(element.entity_dofs())
 
 
-def prolong_kernel(expression, Vf):
-    Vc = expression.ufl_function_space()
+def prolong_kernel(ufl_interpolate):
+    dual_arg, _ = ufl_interpolate.argument_slots()
+    coarse, = extract_coefficients(ufl_interpolate)
+    Vc = coarse.ufl_function_space()
+    Vf = dual_arg.ufl_function_space().dual()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
     if Vc.mesh().extruded:
@@ -177,16 +185,17 @@ def prolong_kernel(expression, Vf):
     try:
         return cache[key]
     except KeyError:
-        evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
+        name = "pyop2_kernel_prolong"
+        evaluate_code = compile_element(ufl_interpolate)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
-        element = create_element(expression.ufl_element())
+        element = create_element(coarse.ufl_element())
 
         my_kernel = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
+        static void %(name)s(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -230,7 +239,8 @@ def prolong_kernel(expression, Vf):
             }
             pyop2_kernel_evaluate(%(kernel_args)s);
         }
-        """ % {"to_reference": str(to_reference_kernel),
+        """ % {"name": name,
+               "to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
                "kernel_args": _make_kernel_args(element, "R", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
@@ -241,10 +251,14 @@ def prolong_kernel(expression, Vf):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+        return cache.setdefault(key, op2.Kernel(my_kernel, name=name))
 
 
-def restrict_kernel(Vf, Vc):
+def restrict_kernel(ufl_interpolate):
+    dual_arg, operand = ufl_interpolate.argument_slots()
+    primal_arg, = ufl_interpolate.arguments()
+    Vc = primal_arg.ufl_function_space().dual()
+    Vf = dual_arg.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     if Vf.mesh().extruded:
         assert Vc.mesh().extruded
@@ -260,7 +274,7 @@ def restrict_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
-        evaluate_code = compile_element(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
+        evaluate_code = compile_element(ufl_interpolate)
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
@@ -327,8 +341,12 @@ def restrict_kernel(Vf, Vc):
         return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
 
 
-def inject_kernel(Vf, Vc):
+def inject_kernel(ufl_interpolate):
+    dual_arg, _ = ufl_interpolate.argument_slots()
+    Vc = dual_arg.ufl_function_space().dual()
     if Vc.finat_element.is_dg():
+        fine, = extract_coefficients(ufl_interpolate)
+        Vf = fine.ufl_function_space()
         hierarchy, level = utils.get_level(Vc.mesh())
         if Vf.extruded:
             assert Vc.extruded
@@ -348,10 +366,9 @@ def inject_kernel(Vf, Vc):
             return cache[key]
         except KeyError:
             ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+            return cache.setdefault(key, (dg_injection_kernel(ufl_interpolate, ncandidate), True))
     else:
-        expression = ufl.Coefficient(Vf)
-        return (prolong_kernel(expression, Vc), False)
+        return (prolong_kernel(ufl_interpolate), False)
 
 
 class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
@@ -396,18 +413,23 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
         return funarg
 
 
-def dg_injection_kernel(Vf, Vc, ncell):
+def dg_injection_kernel(ufl_interpolate, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
-    macro_builder = MacroKernelBuilder(ScalarType, ncell)
-    macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
-    macro_builder._entity_ids = {Vf.mesh(): (0,)}
-    f = ufl.Coefficient(Vf)
-    macro_builder.set_coefficients([f])
-    macro_builder.set_coordinates(Vf.mesh())
 
+    dual_arg, operand = ufl_interpolate.argument_slots()
+    coefficients = extract_coefficients(ufl_interpolate)
+    source_mesh = extract_unique_domain(operand)
+    macro_builder = MacroKernelBuilder(ScalarType, ncell)
+    macro_builder._domain_integral_type_map = {source_mesh: "cell"}
+    macro_builder._entity_ids = {source_mesh: (0,)}
+    macro_builder.set_coefficients(coefficients)
+    macro_builder.set_coordinates(source_mesh)
+
+    fine, = coefficients
+    Vf = fine.ufl_function_space()
     Vfe = create_element(Vf.ufl_element())
     ref_complex = Vfe.complex
     variant = Vf.ufl_element().variant() or "default"
@@ -415,40 +437,43 @@ def dg_injection_kernel(Vf, Vc, ncell):
         from FIAT import macro
         ref_complex = macro.PowellSabinSplit(Vfe.cell)
 
-    macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
+    quadrature_degree = estimate_total_polynomial_degree(ufl.inner(operand, ufl.TestFunction(Vf)))
+    macro_quadrature_rule = make_quadrature(ref_complex, quadrature_degree)
     index_cache = {}
     parameters = default_parameters()
     integration_dim, _ = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
-                     ufl_cell=Vf.ufl_cell(),
+                     ufl_cell=source_mesh.ufl_cell(),
                      integration_dim=integration_dim,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"])
 
     macro_context = fem.PointSetContext(**macro_cfg)
-    fexpr, = fem.compile_ufl(f, macro_context)
-    X = ufl.SpatialCoordinate(Vf.mesh())
+    fexpr, = fem.compile_ufl(operand, macro_context)
+    X = ufl.SpatialCoordinate(source_mesh)
     C_a, = fem.compile_ufl(X, macro_context)
-    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
+    detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(source_mesh)),
                                            complex_mode=complex_mode)
     macro_detJ, = fem.compile_ufl(detJ, macro_context)
 
+    Vc = dual_arg.ufl_function_space().dual()
     Vce = create_element(Vc.ufl_element())
+    target_mesh = Vc.mesh()
 
-    info = TSFCIntegralDataInfo(domain=Vc.mesh(),
+    info = TSFCIntegralDataInfo(domain=target_mesh,
                                 integral_type="cell",
                                 subdomain_id=("otherwise",),
                                 domain_number=0,
-                                domain_integral_type_map={Vc.mesh(): "cell"},
+                                domain_integral_type_map={target_mesh: "cell"},
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
                                 coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
-    coarse_builder.set_coordinates([Vc.mesh()])
-    coarse_builder.set_entity_numbers([Vc.mesh()])
+    coarse_builder.set_coordinates([target_mesh])
+    coarse_builder.set_entity_numbers([target_mesh])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
@@ -458,14 +483,14 @@ def dg_injection_kernel(Vf, Vc, ncell):
     quadrature_rule = make_quadrature(Vce.cell, 0)
 
     coarse_cfg = dict(interface=coarse_builder,
-                      ufl_cell=Vc.ufl_cell(),
+                      ufl_cell=target_mesh.ufl_cell(),
                       integration_dim=integration_dim,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
                       scalar_type=parameters["scalar_type"])
 
-    X = ufl.SpatialCoordinate(Vc.mesh())
-    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(Vc.mesh()),
+    X = ufl.SpatialCoordinate(target_mesh)
+    K = ufl_utils.preprocess_expression(ufl.JacobianInverse(target_mesh),
                                         complex_mode=complex_mode)
     coarse_context = fem.PointSetContext(**coarse_cfg)
     C_0, = fem.compile_ufl(X, coarse_context)
@@ -491,7 +516,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     # Coarse basis function evaluated at fine quadrature points
     phi_c = fem.fiat_to_ufl(Vce.point_evaluation(0, X_a, (Vce.cell.get_dimension(), 0)), 0)
 
-    index_shape = f.ufl_element().reference_value_shape
+    index_shape = Vf.ufl_element().reference_value_shape
     tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
