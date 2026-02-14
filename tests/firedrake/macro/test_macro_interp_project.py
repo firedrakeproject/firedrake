@@ -22,17 +22,13 @@ def h1_proj(u, f, bcs=None):
     # space, store the result in u.
     v = TestFunction(u.function_space())
 
-    d = {H2: grad, H1: grad, HCurl: curl, HDiv: div, HDivDiv: div}[u.ufl_element().sobolev_space]
-    F = (inner(d(u-f), d(v)) * dx
-         + inner(u-f, v) * dx)
-    fcp = {"mode": "vanilla"}
-    solve(F == 0, u,
-          bcs=bcs,
-          solver_parameters={"snes_type": "ksponly",
-                             "ksp_type": "preonly",
-                             "pc_type": "cholesky"},
-          form_compiler_parameters=fcp)
-    return assemble(F(u-f), form_compiler_parameters=fcp)**0.5
+    d = {H2: grad, H1: grad, HCurl: curl, HDiv: div}[u.ufl_element().sobolev_space]
+    F = inner(d(u-f), d(v)) * dx + inner(u-f, v) * dx
+
+    a = derivative(F, u)
+    L = -F
+    solve(a == L, u, bcs=bcs)
+    return assemble(F(u-f))**0.5
 
 
 def h1_proj_bc(u, f):
