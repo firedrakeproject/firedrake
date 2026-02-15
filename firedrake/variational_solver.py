@@ -94,7 +94,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         if restrict and bcs:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
-            self.u_restrict = Function(V_res).assign(u)
+            self.u_restrict = Function(V_res)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             if isinstance(F, Form):
                 F_arg, = F.arguments()
@@ -370,6 +370,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             if dm not in problem_dms:
                 problem_dms.append(dm)
         problem_dms.append(solution_dm)
+
+        if problem.restrict:
+            # Transfer the initial guess into the RestrictedFunctionSpace
+            problem.u_restrict.assign(problem.u)
 
         if self._ctx.pre_apply_bcs:
             for bc in problem.dirichlet_bcs():
