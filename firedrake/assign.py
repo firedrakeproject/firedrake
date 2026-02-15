@@ -285,7 +285,7 @@ class Assigner:
                 # Permute source indices into the target ordering.
                 size = target_space.dof_dset.total_size
                 perm = np.empty((size,), dtype=source_map.values.dtype)
-                perm[values(target_map).flat] = values(source_map).flat
+                np.put(perm, values(target_map), values(source_map))
                 if not assign_to_halos:
                     perm = perm[:target_space.dof_dset.size]
                 return perm[subset_indices]
