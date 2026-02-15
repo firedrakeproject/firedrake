@@ -167,9 +167,9 @@ class Assigner:
         elif len(source_meshes) == 1:
             target_mesh = extract_unique_domain(assignee, expand_mesh_sequence=False)
             source_mesh, = source_meshes
-            if target_mesh is source_mesh:
+            if target_mesh == source_mesh:
                 pass
-            elif target_mesh.submesh_youngest_common_ancester(source_mesh) is None:
+            elif target_mesh.submesh_youngest_common_ancestor(source_mesh) is None:
                 raise ValueError(
                     "All functions in the expression must be defined on a single domain "
                     "that is in the same submesh family as domain of the assignee"
