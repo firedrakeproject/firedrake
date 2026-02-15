@@ -2,6 +2,9 @@
 from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
+from petsc4py import PETSc
+from mpi4py import MPI
+import numpy as np
 import tempfile
 import os
 import shutil
@@ -49,7 +52,8 @@ class checkpoint_init_data:
         _checkpoint_init_data = self._init
 
 
-def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
+def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True,
+                              per_rank_dirname=None):
     """Add a DiskCheckpointer to the current tape.
 
     Disk checkpointing is fully enabled by calling::
@@ -68,12 +72,17 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
     or a combination of both.
 
+    For HPC systems with fast node-local storage, per-rank checkpointing can
+    be enabled to avoid parallel HDF5 overhead::
+
+        enable_disk_checkpointing(per_rank_dirname="/local/scratch")
+
     Parameters
     ----------
     dirname : str
-        The directory in which the disk checkpoints should be stored. If not
-        specified then the current working directory is used. Checkpoints are
-        stored in a temporary subdirectory of this directory.
+        The directory in which the shared disk checkpoints should be stored.
+        If not specified then the current working directory is used.
+        Checkpoints are stored in a temporary subdirectory of this directory.
     comm : mpi4py.MPI.Intracomm
         The MPI communicator over which the computation to be disk checkpointed
         is defined. This will usually match the communicator on which the
@@ -81,10 +90,19 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
+    per_rank_dirname : str
+        If specified, enables per-rank checkpointing where each MPI rank
+        writes function data to its own HDF5 file in this directory using
+        PETSc Vec I/O on ``COMM_SELF``. This avoids parallel HDF5 and is
+        ideal for node-local storage on HPC systems. The mesh checkpoint
+        (via ``checkpointable_mesh``) still uses shared storage. Requires
+        the same number of ranks on restore.
     """
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
-        tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
+        tape._package_data["firedrake"] = DiskCheckpointer(
+            dirname, comm, cleanup, per_rank_dirname
+        )
 
 
 def disk_checkpointing():
@@ -120,14 +138,19 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False):
+    def __init__(self, name, comm, cleanup=False, per_rank=False):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
+        self.per_rank = per_rank
 
     def __del__(self):
-        if self.cleanup and self.comm.rank == 0 and os.path.exists(self.name):
-            os.remove(self.name)
+        if self.cleanup and os.path.exists(self.name):
+            if self.per_rank:
+                # Each rank cleans up its own file.
+                os.remove(self.name)
+            elif self.comm.rank == 0:
+                os.remove(self.name)
 
 
 class DiskCheckpointer(TapePackageData):
@@ -136,9 +159,9 @@ class DiskCheckpointer(TapePackageData):
     Parameters
     ----------
     dirname : str
-        The directory in which the disk checkpoints should be stored. If not
-        specified then the current working directory is used. Checkpoints are
-        stored in a temporary subdirectory of this directory.
+        The directory in which the shared disk checkpoints should be stored.
+        If not specified then the current working directory is used.
+        Checkpoints are stored in a temporary subdirectory of this directory.
     comm : mpi4py.MPI.Intracomm
         The MPI communicator over which the computation to be disk checkpointed
         is defined. This will usually match the communicator on which the
@@ -146,28 +169,43 @@ class DiskCheckpointer(TapePackageData):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
+    per_rank_dirname : str
+        If specified, enables per-rank checkpointing for function data.
     """
 
-    def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True):
+    def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True,
+                 per_rank_dirname=None):
+        self.per_rank = per_rank_dirname is not None
+        self.comm = comm
+        self.cleanup = cleanup
 
+        # Shared directory (for mesh checkpoint and init data).
         if comm.rank == 0:
             self.dirname = comm.bcast(tempfile.mkdtemp(
                 prefix="firedrake_adjoint_checkpoint_", dir=dirname or os.getcwd()
             ))
         else:
             self.dirname = comm.bcast("")
-        self.comm = comm
-        self.cleanup = cleanup
         if self.cleanup and comm.rank == 0:
-            # Delete the checkpoint folder on process exit.
+            # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
-        # # A checkpoint file holding the state of block variables set outside
-        # the tape.
-        self.init_checkpoint_file = self.new_checkpoint_file()
-        self.current_checkpoint_file = self.new_checkpoint_file()
 
-    def new_checkpoint_file(self):
-        """Set up a disk checkpointing file."""
+        # Per-rank directory (for function data checkpoints).
+        if self.per_rank:
+            self.rank_dirname = tempfile.mkdtemp(
+                prefix=f"firedrake_adjoint_checkpoint_rank{comm.rank}_",
+                dir=per_rank_dirname
+            )
+            if self.cleanup:
+                atexit.register(shutil.rmtree, self.rank_dirname)
+
+        # A checkpoint file holding the state of block variables set outside
+        # the tape (always shared, used by checkpointable_mesh).
+        self.init_checkpoint_file = self._new_shared_checkpoint_file()
+        self.current_checkpoint_file = self._new_checkpoint_file()
+
+    def _new_shared_checkpoint_file(self):
+        """Set up a shared disk checkpointing file (all ranks use same file)."""
         from firedrake.checkpointing import CheckpointFile
         if self.comm.rank == 0:
             _, checkpoint_file = tempfile.mkstemp(
@@ -180,7 +218,32 @@ class DiskCheckpointer(TapePackageData):
         with CheckpointFile(checkpoint_file, 'w'):
             pass
         return CheckPointFileReference(checkpoint_file, self.comm,
-                                       self.cleanup)
+                                       self.cleanup, per_rank=False)
+
+    def _new_per_rank_checkpoint_file(self):
+        """Set up a per-rank disk checkpointing file."""
+        fd, checkpoint_file = tempfile.mkstemp(
+            dir=self.rank_dirname, suffix=".h5"
+        )
+        os.close(fd)
+        # Create a valid empty HDF5 file via PETSc.
+        viewer = PETSc.ViewerHDF5()
+        viewer.create(checkpoint_file, mode='w', comm=MPI.COMM_SELF)
+        viewer.destroy()
+        return CheckPointFileReference(checkpoint_file, self.comm,
+                                       self.cleanup, per_rank=True)
+
+    def _new_checkpoint_file(self):
+        """Set up a checkpoint file for function data."""
+        if self.per_rank:
+            return self._new_per_rank_checkpoint_file()
+        else:
+            return self._new_shared_checkpoint_file()
+
+    # Keep the old name as an alias for backwards compatibility.
+    def new_checkpoint_file(self):
+        """Set up a disk checkpointing file."""
+        return self._new_checkpoint_file()
 
     def clear(self, init=True):
         """Reset the DiskCheckPointer.
@@ -198,8 +261,8 @@ class DiskCheckpointer(TapePackageData):
         if not self.cleanup:
             return
         if init:
-            self.init_checkpoint_file = self.new_checkpoint_file()
-        self.current_checkpoint_file = self.new_checkpoint_file()
+            self.init_checkpoint_file = self._new_shared_checkpoint_file()
+        self.current_checkpoint_file = self._new_checkpoint_file()
 
     def reset(self):
         self.clear(init=False)
@@ -272,6 +335,22 @@ class CheckpointBase(ABC):
         pass
 
 
+def _generate_per_rank_name(function):
+    """Generate a unique name for per-rank Vec storage based on function space."""
+    V = function.function_space()
+    mesh = V.mesh()
+    # Handle MeshSequenceGeometry (mesh hierarchies) by getting the
+    # underlying MeshGeometry.
+    if hasattr(mesh, '_meshes'):
+        mesh = mesh[-1]
+    parts = ["pr"]
+    parts.append(mesh.name)
+    for Vsub in V:
+        elem = Vsub.ufl_element()
+        parts.append(elem.shortstr().replace(" ", "_").replace(",", "_"))
+    return "_".join(parts)
+
+
 class CheckpointFunction(CheckpointBase, OverloadedType):
     """Metadata for a Function checkpointed to disk.
 
@@ -290,7 +369,6 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     _checkpoint_indices = {}
 
     def __init__(self, function):
-        from firedrake.checkpointing import CheckpointFile
         self.name = function.name()
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
@@ -300,11 +378,21 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                 "No current checkpoint file. Call enable_disk_checkpointing()."
             )
 
+        self.count = function.count()
+
+        if self.file.per_rank:
+            self._function_space = function.function_space()
+            self._save_per_rank(function)
+        else:
+            self._save_shared(function)
+
+    def _save_shared(self, function):
+        """Save function data to a shared HDF5 file via CheckpointFile."""
+        from firedrake.checkpointing import CheckpointFile
         stored_names = CheckpointFunction._checkpoint_indices
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.count = function.count()
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
                 function.function_space()
@@ -316,14 +404,71 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
+    def _save_per_rank(self, function):
+        """Save local Vec data to a per-rank HDF5 file via PETSc on COMM_SELF."""
+        stored_names = CheckpointFunction._checkpoint_indices
+        if self.file.name not in stored_names:
+            stored_names[self.file.name] = {}
+
+        self.stored_name = _generate_per_rank_name(function)
+        indices = stored_names[self.file.name]
+        indices.setdefault(self.stored_name, 0)
+        indices[self.stored_name] += 1
+        self.stored_index = indices[self.stored_name]
+
+        vec_name = f"{self.stored_name}_{self.stored_index}"
+
+        with function.dat.vec_ro as v:
+            local_array = v.getArray().copy()
+
+        local_vec = PETSc.Vec().createSeq(len(local_array), comm=MPI.COMM_SELF)
+        local_vec.setName(vec_name)
+        local_vec.setArray(local_array)
+
+        viewer = PETSc.ViewerHDF5()
+        viewer.create(self.file.name, mode='a', comm=MPI.COMM_SELF)
+        local_vec.view(viewer)
+        viewer.destroy()
+        local_vec.destroy()
+
     def restore(self):
         """Read and return this Function from the checkpoint."""
+        if self.file.per_rank:
+            return self._restore_per_rank()
+        else:
+            return self._restore_shared()
+
+    def _restore_shared(self):
+        """Load function data from a shared HDF5 file via CheckpointFile."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'r') as infile:
             function = infile.load_function(self.mesh, self.stored_name,
                                             idx=self.stored_index)
         return type(function)(function.function_space(),
                               function.dat, name=self.name, count=self.count)
+
+    def _restore_per_rank(self):
+        """Load local Vec data from a per-rank HDF5 file via PETSc on COMM_SELF."""
+        from firedrake import Function
+
+        vec_name = f"{self.stored_name}_{self.stored_index}"
+
+        f = Function(self._function_space, name=self.name, count=self.count)
+
+        with f.dat.vec_wo as v:
+            local_size = v.getLocalSize()
+            local_vec = PETSc.Vec().createSeq(local_size, comm=MPI.COMM_SELF)
+            local_vec.setName(vec_name)
+
+            viewer = PETSc.ViewerHDF5()
+            viewer.create(self.file.name, mode='r', comm=MPI.COMM_SELF)
+            local_vec.load(viewer)
+            viewer.destroy()
+
+            v.setArray(local_vec.getArray())
+            local_vec.destroy()
+
+        return f
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
