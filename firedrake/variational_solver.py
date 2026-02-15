@@ -94,7 +94,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         if restrict and bcs:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
-            self.u_restrict = Function(V_res).interpolate(u)
+            self.u_restrict = Function(V_res)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             if isinstance(F, Form):
                 F_arg, = F.arguments()
@@ -371,6 +371,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
+        if problem.restrict:
+            # Transfer the initial guess into the RestrictedFunctionSpace
+            problem.u_restrict.assign(problem.u)
+
         if self._ctx.pre_apply_bcs:
             for bc in problem.dirichlet_bcs():
                 bc.apply(problem.u_restrict)
@@ -394,7 +398,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             work.copy(u)
         self._setup = True
         if problem.restrict:
-            problem.u.interpolate(problem.u_restrict)
+            problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
