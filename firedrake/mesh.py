@@ -940,15 +940,15 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     # submesh
 
     @utils.cached_property
-    def submesh_ancesters(self):
-        """Tuple of submesh ancesters."""
+    def submesh_ancestors(self):
+        """Tuple of submesh ancestors."""
         if self.submesh_parent:
-            return (self, ) + self.submesh_parent.submesh_ancesters
+            return (self, ) + self.submesh_parent.submesh_ancestors
         else:
             return (self, )
 
-    def submesh_youngest_common_ancester(self, other):
-        """Return the youngest common ancester of self and other.
+    def submesh_youngest_common_ancestor(self, other):
+        """Return the youngest common ancestor of self and other.
 
         Parameters
         ----------
@@ -958,18 +958,18 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         Returns
         -------
         AbstractMeshTopology or None
-            Youngest common ancester or None if not found.
+            Youngest common ancestor or None if not found.
 
         """
         # self --- ... --- m --- common --- common --- common
         #                          /
         #       other --- ... --- m
-        self_ancesters = list(self.submesh_ancesters)
-        other_ancesters = list(other.submesh_ancesters)
+        self_ancestors = list(self.submesh_ancestors)
+        other_ancestors = list(other.submesh_ancestors)
         c = None
-        while self_ancesters and other_ancesters:
-            a = self_ancesters.pop()
-            b = other_ancesters.pop()
+        while self_ancestors and other_ancestors:
+            a = self_ancestors.pop()
+            b = other_ancestors.pop()
             if a is b:
                 c = a
             else:
@@ -1014,17 +1014,17 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
 
         """
-        common = self.submesh_youngest_common_ancester(other)
+        common = self.submesh_youngest_common_ancestor(other)
         if common is None:
             raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
         maps = []
         integral_type = other_integral_type
         subset_points = other_subset_points
-        aa = other.submesh_ancesters
+        aa = other.submesh_ancestors
         for a in aa[:aa.index(common)]:
             m, integral_type, subset_points = a.submesh_map_child_parent(integral_type, subset_points)
             maps.append(m)
-        bb = self.submesh_ancesters
+        bb = self.submesh_ancestors
         for b in reversed(bb[:bb.index(common)]):
             m, integral_type, subset_points = b.submesh_map_child_parent(integral_type, subset_points, reverse=True)
             maps.append(m)
@@ -1727,7 +1727,7 @@ class MeshTopology(AbstractMeshTopology):
             `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
 
         """
-        common = self.submesh_youngest_common_ancester(base_mesh)
+        common = self.submesh_youngest_common_ancestor(base_mesh)
         if common is None:
             raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
         elif base_mesh is self:

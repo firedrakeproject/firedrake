@@ -189,7 +189,7 @@ def validate_domains(form):
         # Check that all domains are related to each other
         domain = itg.ufl_domain()
         for other_domain in itg.extra_domain_integral_type_map():
-            if domain.submesh_youngest_common_ancester(other_domain) is None:
+            if domain.submesh_youngest_common_ancestor(other_domain) is None:
                 raise MismatchingDomainError("Assembly of forms over unrelated meshes is not supported. "
                                              "Try using Submeshes or cross-mesh interpolation.")
 
