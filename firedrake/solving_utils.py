@@ -276,6 +276,19 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
+    def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
+        """Reconstruct this _SNESContext instance with new arguments."""
+        problem = problem or self.problem
+        mat_type = mat_type or self.mat_type
+        pmat_type = pmat_type or self.pmat_type
+        kwargs.setdefault("sub_mat_type", self.sub_mat_type)
+        kwargs.setdefault("sub_pmat_type", self.sub_pmat_type)
+        kwargs.setdefault("appctx", self.appctx)
+        kwargs.setdefault("options_prefix", self.options_prefix)
+        kwargs.setdefault("transfer_manager", self.transfer_manager)
+        kwargs.setdefault("pre_apply_bcs", self.pre_apply_bcs)
+        return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
     @property
     def transfer_manager(self):
         """This allows the transfer manager to be set from options, e.g.
