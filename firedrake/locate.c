@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <spatialindex/capi/sidx_api.h>
+#include <rstar_capi.h>
 #include <float.h>
 #include <evaluate.h>
 
@@ -15,7 +15,7 @@ int locate_cell(struct Function *f,
         size_t ncells_ignore,
         int* cells_ignore)
 {
-    RTError err;
+    RTreeError err;
     int cell = -1;
     int cell_ignore_found = 0;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
@@ -32,20 +32,18 @@ int locate_cell(struct Function *f,
        code that needs to be compiled - see pointquery_utils.py */
 
     if (f->sidx) {
-        int64_t *ids = NULL;
-        uint64_t nids = 0;
-        /* We treat our list of candidate cells (ids) from libspatialindex's
-            Index_Intersects_id as our source of truth: the point must be in
-            one of the cells. */
-        err = Index_Intersects_id(f->sidx, x, x, dim, &ids, &nids);
-        if (err != RT_None) {
-            fputs("ERROR: Index_Intersects_id failed in libspatialindex!", stderr);
+        size_t *ids = NULL;
+        size_t nids = 0;
+        err = RTree_LocateAllAtPoint((const struct RStar_RTree *)f->sidx, x, &ids, &nids);
+        if (err != Ok) {
+            fputs("ERROR: RTree_LocateAllAtPoint failed in rstar-capi!\n", stderr);
+            PrintRTreeError(err);
             return -1;
         }
         if (f->extruded == 0) {
-            for (uint64_t i = 0; i < nids; i++) {
+            for (size_t i = 0; i < nids; i++) {
                 current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, ids[i], x);
-                for (uint64_t j = 0; j < ncells_ignore; j++) {
+                for (size_t j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
                         break;
@@ -75,12 +73,12 @@ int locate_cell(struct Function *f,
             }
         }
         else {
-            for (uint64_t i = 0; i < nids; i++) {
+            for (size_t i = 0; i < nids; i++) {
                 int nlayers = f->n_layers;
                 int c = ids[i] / nlayers;
                 int l = ids[i] % nlayers;
                 current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-                for (uint64_t j = 0; j < ncells_ignore; j++) {
+                for (size_t j = 0; j < ncells_ignore; j++) {
                     if (ids[i] == cells_ignore[j]) {
                         cell_ignore_found = 1;
                         break;
