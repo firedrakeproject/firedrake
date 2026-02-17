@@ -176,13 +176,6 @@ class WithGeometryBase(object):
         else:
             return (self, )
 
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
-
     mesh = ufl.FunctionSpace.ufl_domain
 
     @property
@@ -735,13 +728,6 @@ class FunctionSpace(object):
         """Split into a tuple of constituent spaces."""
         return (self,)
 
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
-
     def __getitem__(self, i):
         r"""Return the ith subspace."""
         if i != 0:
@@ -1139,13 +1125,6 @@ class MixedFunctionSpace(object):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
