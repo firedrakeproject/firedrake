@@ -3163,7 +3163,7 @@ class ExtrudedMeshTopology(MeshTopology):
     @cached_property
     def extr_cell_to_base_cell_map(self):
         """Return the map from extruded cells to cells of the base mesh."""
-        base_cell_nums = self._base_mesh._old_to_new_cell_numbering_is.indices
+        base_cell_nums = np.arange(self._base_mesh.num_cells, dtype=IntType)
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
         dest_axis = self._base_mesh.name

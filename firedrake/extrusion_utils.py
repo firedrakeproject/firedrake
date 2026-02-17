@@ -246,7 +246,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
 
 
-    op3.do_loop(
+    op3.loop(
         p := iter_spec.loop_index,
         kernel(
             pack(ext_coords, iter_spec),
@@ -254,6 +254,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             layer_height,
             my_layer_dat[p]
         ),
+        eager=True,
     )
 
 

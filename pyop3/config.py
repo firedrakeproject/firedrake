@@ -18,6 +18,14 @@ def paramclass(cls: type) -> type:
 
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
 
+# TODO: should live elsewhere
+_nothing = object()
+"""Sentinel value indicating nothing should be done.
+
+This is useful in cases where `None` holds some meaning.
+
+"""
+
 
 @dataclasses.dataclass(frozen=True)
 class ConfigOption:
@@ -26,7 +34,7 @@ class ConfigOption:
     description: str
     # kw only below
     from_str: Callable = lambda x: x
-    default_debug_value: Any = None
+    default_debug_value: Any = _nothing
     value_getter: Callable | None = None
     value_setter: Callable | None = None
 
@@ -255,7 +263,10 @@ def _prepare_configuration() -> Pyop3Configuration:
         if option_name in env_options:
             option = option_spec.from_str(env_options.pop(option_name))
         elif debug_mode:
-            option = option_spec.default_debug_value
+            if option_spec.default_debug_value is not _nothing:
+                option = option_spec.default_debug_value
+            else:
+                option = option_spec.default_value
         else:
             option = option_spec.default_value
         parsed_options[option_name] = option

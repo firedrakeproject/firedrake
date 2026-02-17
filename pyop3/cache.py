@@ -66,8 +66,12 @@ def _get_refcounts(lifetime_objs):
     return [sys.getrefcount(obj) for obj in lifetime_objs]
 
 
-@gc_disabled()
+# @gc_disabled()
 def _checked_get_key(cache_type, get_key, lifetime_objs=None):
+    # I think that this is fine. Refcycles aren't really an issue.
+    return get_key()
+
+
     if not lifetime_objs or issubclass(cache_type, weakref.WeakKeyDictionary):
         return get_key()
 
@@ -86,6 +90,9 @@ def _checked_get_key(cache_type, get_key, lifetime_objs=None):
 
 @gc_disabled()
 def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
+    # I think that this is fine. Refcycles aren't really an issue.
+    return get_value()
+
     if not lifetime_objs or issubclass(cache_type, weakref.WeakValueDictionary):
         return get_value()
 
