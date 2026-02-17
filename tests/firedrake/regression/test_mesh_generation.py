@@ -408,12 +408,12 @@ def test_bendy_cube_unit(degree):
     return run_bendy_cube_unit(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_parallel(degree):
     return run_bendy_cube(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_unit_parallel(degree):
     return run_bendy_cube_unit(degree)
 

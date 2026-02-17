@@ -6,8 +6,7 @@ import firedrake as fd
 
 
 def random_func(f):
-    for dat in f.dat:
-        dat.data[:] = np.random.rand(*(dat.data.shape))
+    f.dat.data_wo[...] = np.random.rand(*(f.dat.data.shape))
     return f
 
 
@@ -19,8 +18,7 @@ def random_efunc(f):
 
 def assign_scalar(u, s):
     for v in u.subfunctions:
-        for dat in v.dat:
-            dat.data[:] = s
+        v.dat.data_wo[...] = s
     return u
 
 
@@ -163,9 +161,9 @@ def test_efunc_zero_with_subset(ensemblefunc):
     assign_scalar(ensemblefunc, nonzero)
 
     # Functions on mixed function spaces don't accept the
-    # subset argument, so we pass None in those slots to
+    # subset argument, so we pass ... in those slots to
     # have the subset argument ignored for those subcomponents.
-    subsets = [None if type(V.ufl_element()) is fd.MixedElement else Subset(V.node_set, [0, 1])
+    subsets = [Ellipsis if type(V.ufl_element()) is fd.MixedElement else [0, 1]
                for V in ensemblefunc.function_space().local_spaces]
 
     ensemblefunc.zero(subsets)
@@ -174,7 +172,7 @@ def test_efunc_zero_with_subset(ensemblefunc):
     failed_zero_subset = []
     failed_nonzero_notsubset = []
     for i, (u, subset) in enumerate(zip(ensemblefunc.subfunctions, subsets)):
-        if subset is None:
+        if subset is Ellipsis:
             with u.dat.vec_ro as uvec:
                 if uvec.norm() > 1e-14:
                     failed_zero_all.append(i)

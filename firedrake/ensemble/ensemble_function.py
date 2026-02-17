@@ -1,6 +1,8 @@
 from functools import cached_property
 from contextlib import contextmanager
 
+import pyop3 as op3
+
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
@@ -73,30 +75,24 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         """
         def local_function(i):
             V = self._fs.local_spaces[i]
-            usubs = self._subcomponents(i)
-            if len(usubs) == 1:
-                dat = usubs[0].dat
+            cidxs = self._fs._component_indices(i)
+            if len(cidxs) == 1:
+                subdat = self._full_local_function.dat[cidxs[0]]
             else:
-                dat = MixedDat((u.dat for u in usubs))
-            return Function(V, val=dat)
+                assert len(cidxs) > 1
+                slice_ = op3.Slice(
+                    "field",
+                    [
+                        op3.AffineSliceComponent(idx, label=i)
+                        for i, idx in enumerate(cidxs)
+                    ],
+                    label="field",
+                )
+                subdat = self._full_local_function.dat[slice_]
+            return Function(V, val=subdat)
 
         return tuple(local_function(i)
                      for i in range(self._fs.nlocal_spaces))
-
-    def _subcomponents(self, i):
-        """
-        Return the subfunctions of the local mixed function storage
-        corresponding to the i-th local function.
-
-        Firedrake doesn't support nested ``MixedFunctionSpace``, so internally
-        :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace` flattens all the
-        local :class:`~firedrake.functionspaceimpl.FunctionSpace` into a
-        single ``MixedFunctionSpace``. This method retrieves the components of
-        the flattened MixedFunction corresponding to the i-th local
-        :class:`~firedrake.function.Function`.
-        """
-        return tuple(self._full_local_function.subfunctions[j]
-                     for j in self._fs._component_indices(i))
 
     @PETSc.Log.EventDecorator()
     def riesz_representation(self, **kwargs):

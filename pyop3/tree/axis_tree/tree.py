@@ -1849,6 +1849,10 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
 
     matching_target = utils.StrictlyUniqueDict()
     for source_path_ in source_paths:
+        # When we index a mixed function space we renumber the fields contiguously
+        # from zero. This means that we can have different targets for the same
+        # axis. To resolve this we always prefer the oldest index. This feels
+        # terribly hacky.
         match_found = False
         for candidate_targets in target_set[source_path_]:
             target_path_ = target_path | merge_dicts(t.path for t in candidate_targets)
@@ -1864,11 +1868,13 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
                     match_found = True
                     matching_target[source_path_] = candidate_targets
                     matching_target |= submatching_target
+                    break
             else:  # at a leaf
                 if target_path_ in target_axes.leaf_paths:
                     assert not match_found
                     match_found = True
                     matching_target[source_path_] = candidate_targets
+                    break
 
         if not match_found:
             raise IncompatibleAxisTargetException

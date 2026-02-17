@@ -440,9 +440,14 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
         # If the axis is found in 'target_paths' then this means that it has
         # been addressed by the index tree and hence a slice isn't needed.
         # We simply follow the path of the tree that is addressed and recurse.
-        axis_component_label = utils.single_valued((
+        # NOTE: Like _match_target_rec we can unfortunately end up with some
+        # irritating clashes with mixed spaces and so the following does not work.
+        # axis_component_label = utils.single_valued((
+        #     target_path[axis.label] for target_path in matching_target_paths
+        # ))
+        axis_component_label = [
             target_path[axis.label] for target_path in matching_target_paths
-        ))
+        ][0]
         axis_path_ = axis_path | {axis.label: axis_component_label}
         if axes.node_map[axis_path_]:
             return _complete_index_tree_with_slices(axes=axes, target_paths=matching_target_paths, axis_path=axis_path_)
