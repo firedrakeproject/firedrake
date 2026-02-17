@@ -2475,7 +2475,7 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @cached_property
+    @utils.cached_property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
@@ -2607,13 +2607,15 @@ values from f.)"""
         else:
             coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
+
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        self._spatial_index = rstar.from_regions(coords_min, coords_max)
+        with PETSc.Log.Event("spatial_index_build"):
+            self._spatial_index = rstar.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
@@ -4276,7 +4278,8 @@ def _parent_mesh_embedding(
         # it.
         if redundant:
             # rank 0 broadcasts coords to all ranks
-            coords_local = icomm.bcast(coords, root=0)
+            with PETSc.Log.Event("pm_embed_coords_bcast"):
+                coords_local = icomm.bcast(coords, root=0)
             ncoords_local = coords_local.shape[0]
             coords_global = coords_local
             ncoords_global = coords_global.shape[0]
@@ -4294,17 +4297,20 @@ def _parent_mesh_embedding(
             # 30-34.
             coords_local = coords
             ncoords_local = coords.shape[0]
-            ncoords_local_allranks = icomm.allgather(ncoords_local)
+            with PETSc.Log.Event("pm_embed_ncoords_allgather"):
+                ncoords_local_allranks = icomm.allgather(ncoords_local)
             ncoords_global = sum(ncoords_local_allranks)
             # The below code looks complicated but it's just an allgather of the
             # (variable length) coords_local array such that they are concatenated.
             coords_local_size = np.array(coords_local.size)
             coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
-            icomm.Allgatherv(coords_local_size, coords_local_sizes)
+            with PETSc.Log.Event("pm_embed_coord_sizes_allgatherv"):
+                icomm.Allgatherv(coords_local_size, coords_local_sizes)
             coords_global = np.empty(
                 (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
             )
-            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+            with PETSc.Log.Event("pm_embed_coords_allgatherv"):
+                icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
             # # ncoords_local_allranks is in rank order so we can just sum up the
             # # previous ranks to get the starting index for the global numbering.
             # # For rank 0 we make use of the fact that sum([]) = 0.
@@ -4314,9 +4320,11 @@ def _parent_mesh_embedding(
             global_idxs_global = np.arange(coords_global.shape[0])
             input_coords_idxs_local = np.arange(ncoords_local)
             input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
-            )
+            with PETSc.Log.Event("pm_embed_inputidx_allgatherv"):
+                icomm.Allgatherv(
+                    input_coords_idxs_local,
+                    (input_coords_idxs_global, ncoords_local_allranks),
+                )
             input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
             input_ranks_global = np.empty(ncoords_global, dtype=int)
             icomm.Allgatherv(
