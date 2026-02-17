@@ -1320,7 +1320,8 @@ class OneFormAssembler(ParloopFormAssembler):
     def _as_pyop3_type(tensor, indices=None):
         if indices is not None and any(index is not None for index in indices):
             i, = indices
-            return tensor.dat[i]
+            label = tensor.function_space().field_axis.component_labels[i]
+            return tensor.dat[label]
         else:
             return tensor.dat
 
@@ -1514,22 +1515,24 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             if test_index is None:
                 if len(test.function_space()) > 1:
                     test_spaces = tuple(test.function_space())
-                    test_indices = range(len(test_spaces))
+                    test_indices = test.function_space().field_axis.component_labels
                 else:
                     test_spaces = (test.function_space(),)
                     test_indices = (Ellipsis,)
             else:
                 test_spaces = (test.function_space()[test_index],)
+                test_index = test.function_space().field_axis.component_labels[test_index]
                 test_indices = (test_index,)
             if trial_index is None:
                 if len(trial.function_space()) > 1:
                     trial_spaces = tuple(trial.function_space())
-                    trial_indices = range(len(trial_spaces))
+                    trial_indices = trial.function_space().field_axis.component_labels
                 else:
                     trial_spaces = trial.function_space()
                     trial_indices = (Ellipsis,)
             else:
                 trial_spaces = (trial.function_space()[trial_index],)
+                trial_index = trial.function_space().field_axis.component_labels[trial_index]
                 trial_indices = (trial_index,)
 
             for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
@@ -1539,7 +1542,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 trial_map = trial_space.entity_node_map(loop_info)
                 op3.loop(
                     loop_info.loop_index,
-                    # sparsity[trial_index_, test_index_][trial_map, test_map].assign(666),
                     sparsity[test_index_, trial_index_][test_map, trial_map].assign(666),
                     eager=True,
                 )
@@ -1685,8 +1687,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             row_index, column_index = indices
             if row_index is None:
                 row_index = Ellipsis
+            else:
+                row_index = tensor.arguments()[0].function_space().field_axis.component_labels[row_index]
             if column_index is None:
                 column_index = Ellipsis
+            else:
+                column_index = tensor.arguments()[1].function_space().field_axis.component_labels[column_index]
             return tensor.M[row_index, column_index]
         else:
             return tensor.M

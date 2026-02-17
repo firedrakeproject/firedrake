@@ -53,6 +53,10 @@ def test_periodic(shapify, direction, space):
     g_p = Function(V_p)
     g_p.interpolate(get_func(V_p, direction))
 
+    print()
+    print(f"{f.dat.data = }")
+    print(f"{f_p.dat.data = }")
+    # print(f"{g_p.dat.data = }")
     assert errornorm(f_p, g_p) < 1e-8
 
     g = Function(V)

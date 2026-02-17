@@ -83,8 +83,8 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
                 slice_ = op3.Slice(
                     "field",
                     [
-                        op3.AffineSliceComponent(idx, label=i)
-                        for i, idx in enumerate(cidxs)
+                        op3.AffineSliceComponent(idx, label=idx)
+                        for idx in cidxs
                     ],
                     label="field",
                 )

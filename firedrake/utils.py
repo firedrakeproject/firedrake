@@ -33,6 +33,7 @@ from pyop3.utils import (  # noqa: F401
     split_by,
     as_tuple,
     is_sorted,
+    unique_name as op3_unique_name,
 )
 
 import petsctools

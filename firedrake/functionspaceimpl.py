@@ -677,6 +677,8 @@ class FunctionSpace:
         :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
         respectively."""
 
+        if name is None:
+            name = utils.op3_unique_name("function_space")
         self.name = name
         r"""The (optional) descriptive name for this space."""
         self.comm = mesh.comm
@@ -1570,20 +1572,25 @@ class MixedFunctionSpace:
         if len(mesh) != len(spaces):
             raise RuntimeError(f"len(mesh) ({len(mesh)}) != len(spaces) ({len(spaces)})")
 
-        # If any of 'spaces' is an indexed function space (i.e. from an already
-        # mixed space) then recover the original space to use here.
-        orig_spaces = []
-        for space in spaces:
-            if isinstance(space, ProxyFunctionSpace) and space.index is not None:
-                space = space.parent._orig_spaces[space.index]
-            orig_spaces.append(space)
-        spaces = orig_spaces
+        # Make sure all of the spaces have a unique name
+        new_spaces = []
+        subspace_names = set()
+        for subspace in spaces:
+            subspace_name = subspace.name
+            counter = 1
+            while subspace_name in subspace_names:
+                subspace_name = f"{subspace.name}_copy{counter}"
+                counter += 1
+            subspace_names.add(subspace_name)
+            new_subspace = type(subspace)(subspace.mesh(), subspace.element,
+                                          name=subspace_name, layout=subspace.layout)
+            new_spaces.append(new_subspace)
+        spaces = new_spaces
 
         # If 'layout' isn't provided then build from the subspaces
         if layout is None:
             layout = ("field", tuple(subspace.layout for subspace in spaces))
 
-        self._orig_spaces = spaces
         self.layout = layout
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
@@ -1625,13 +1632,10 @@ class MixedFunctionSpace:
         return self._make_axes("nodal")
 
     def _make_axes(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
-        field_axis = utils.single_valued((
-            axis for axis in self.layout_axes.nodes if axis.label == "field"
-        ))
-        axis_tree = op3.AxisTree(field_axis)
+        axis_tree = op3.AxisTree(self.field_axis)
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(
-            field_axis.components, self._orig_spaces, strict=True
+            self.field_axis.components, self._spaces, strict=True
         ):
             if mode == "plex":
                 subaxes = subspace.plex_axes
@@ -1639,7 +1643,7 @@ class MixedFunctionSpace:
                 assert mode == "nodal"
                 subaxes = subspace.nodal_axes
 
-            leaf_path = idict({field_axis.label: field_component.label})
+            leaf_path = idict({self.field_axis.label: field_component.label})
             axis_tree = axis_tree.add_subtree(
                 leaf_path, subaxes.materialize()
             )
@@ -1647,9 +1651,9 @@ class MixedFunctionSpace:
             # Target a full slice of the 'field' component
             targets[leaf_path] = [[
                 op3.AxisTarget(
-                    field_axis.label,
+                    self.field_axis.label,
                     field_component.label,
-                    op3.AxisVar(field_axis.linearize(field_component.label)),
+                    op3.AxisVar(self.field_axis.linearize(field_component.label)),
                 ),
             ]]
             for subpath, subaxis_targets in subaxes.targets.items():
@@ -1665,13 +1669,16 @@ class MixedFunctionSpace:
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
-        field_axis = op3.Axis(
-            [op3.AxisComponent(1, space.index) for space in self._spaces],
-            "field",
-        )
         return merge_axis_constraints(
-            field_axis,
+            self.field_axis,
             [space.axis_constraints for space in self._spaces],
+        )
+
+    @cached_property
+    def field_axis(self) -> op3.Axis:
+        return op3.Axis(
+            [op3.AxisComponent(1, space.name) for space in self._spaces],
+            "field",
         )
 
     def mesh(self):

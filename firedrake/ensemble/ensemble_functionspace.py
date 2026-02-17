@@ -191,8 +191,7 @@ class EnsembleFunctionSpaceBase:
         Return the indices into the local mixed function storage
         corresponding to the i-th local function space.
         """
-        offset = sum(len(V) for V in self.local_spaces[:i])
-        return tuple(offset + j for j in range(len(self.local_spaces[i])))
+        return tuple(subspace.name for subspace in self.local_spaces[i])
 
     def create_vec(self):
         """Return a PETSc Vec on the ``Ensemble.global_comm`` with the same layout
