@@ -1,5 +1,4 @@
 import numpy as np
-import rtree
 import sys
 import ufl
 import warnings
@@ -877,15 +876,16 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    libspatialindex_so = Path(rtree.core.rt._name).absolute()
-    lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-    ldargs += [str(libspatialindex_so), lsi_runpath]
+    rstar_root = Path(__file__).resolve().parents[2] / "rstar"
+    rstar_include = rstar_root / "rstar-capi" / "include"
+    rstar_lib = rstar_root / "target" / "release"
+    ldargs += [f"-L{rstar_lib}", "-lrstar_capi", f"-Wl,-rpath,{rstar_lib}"]
     dll = compilation.load(
         src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
+            f"-I{rstar_include}"
         ] + [f"-I{d}/include" for d in get_petsc_dir()],
         ldargs=ldargs,
         comm=function.comm
