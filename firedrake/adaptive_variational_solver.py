@@ -269,7 +269,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         cell = mesh.ufl_cell()
         variant = "integral"  # Finite element type
         cell_residual_degree = self.degree + self.options.cell_residual_extra_degree
-        facet_residuaL_degree = self.degree + self.options.facet_residual_extra_degree
+        facet_residual_degree = self.degree + self.options.facet_residual_extra_degree
         # ------------------------------- Primal residual -------------------------------
         # Cell bubbles
         B = FunctionSpace(mesh, "B", dim+1, variant=variant)  # Bubble function space
@@ -291,7 +291,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         FB = FunctionSpace(mesh, "FB", dim, variant=variant)
         cones = Function(FB).assign(1)
         # Broken facet bubble space
-        el = BrokenElement(FiniteElement("FB", cell=cell, degree=facet_residuaL_degree+dim, variant=variant))
+        el = BrokenElement(FiniteElement("FB", cell=cell, degree=facet_residual_degree+dim, variant=variant))
         if V.value_shape == ():
             Q = FunctionSpace(mesh, el)
         else:
@@ -317,9 +317,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
         # ------------------------------- Adjoint residual -------------------------------
         if self.options.use_adjoint_residual:
-            (vF,) = F.arguments()  # test Argument used in F
             # r*(v) = J"(u)[v] - A"_u(u)[v, z]  since F = A(u;v) - L(v)
-            # rstar = -derivative(J, self.u, vF) + derivative(replace(F, {vF: self.z}), self.u, vF)
             dF = derivative(F, self.u, TrialFunction(V))
             dJ = derivative(J, self.u, TestFunction(V))
             rstar = action(adjoint(dF), self.z_lo) - dJ
@@ -414,19 +412,24 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
     def set_adaptive_cell_markers(self):
         """Mark cells for refinement (Dorfler marking)"""
-        sorted_indices = np.argsort(-self.etaT.dat.data_ro)
-        sorted_etaT = self.etaT.dat.data[sorted_indices]
-        cumulative_sum = np.cumsum(sorted_etaT)
-        threshold = self.options.dorfler_alpha * self.etaT_total
-        M = np.searchsorted(cumulative_sum, threshold) + 1
-        marked_cells = sorted_indices[:M]
-
         mesh = self.amh[-1]
+        if mesh.comm.size == 1:
+            threshold = self.options.dorfler_alpha * self.etaT_total
+            sorted_indices = np.argsort(-self.etaT.dat.data_ro)
+            sorted_etaT = self.etaT.dat.data[sorted_indices]
+            cumulative_sum = np.cumsum(sorted_etaT)
+            M = np.searchsorted(cumulative_sum, threshold) + 1
+            marked_cells = sorted_indices[:M]
+        else:
+            # TODO implemented a parallel sort
+            with self.etaT.dat.vec_ro as evec:
+                _, eta_max = evec.max()
+            threshold = self.options.dorfler_alpha * eta_max
+            marked_cells = self.etaT.dat.data_ro > threshold
+
         markers_space = FunctionSpace(mesh, "DG", 0)
         self.markers = Function(markers_space)
-        with self.markers.dat.vec as mv:
-            marr = mv.getArray()
-            marr[marked_cells] = 1
+        self.markers.dat.data_wo[marked_cells] = 1
 
     def refine_problem(self):
         mesh = self.amh[-1]
@@ -439,7 +442,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.u_exact is not None:
             self.u_exact = refine(self.u_exact, refine, coefficient_mapping=coef_map)
         self.u = self.problem.u
-        self.print("******* dim =", self.u.function_space().dim())
 
     def solve(self):
         for it in range(self.options.max_iterations):
@@ -466,11 +468,10 @@ class GoalAdaptiveNonlinearVariationalSolver():
             self.print("Refining uniformly")
             self.set_uniform_cell_markers()
         else:
+            self.print("Computing local refinement indicators eta_K ...")
             if self.options.manual_indicators:
-                self.print("[MANUAL] Computing local refinement indicators (η_K)...")
                 self.manual_error_indicators()
             else:
-                self.print("Computing local refinement indicators, eta_K...")
                 self.automatic_error_indicators()
             self.compute_efficiency()
             self.set_adaptive_cell_markers()
