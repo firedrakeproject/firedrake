@@ -4297,20 +4297,17 @@ def _parent_mesh_embedding(
             # 30-34.
             coords_local = coords
             ncoords_local = coords.shape[0]
-            with PETSc.Log.Event("pm_embed_ncoords_allgather"):
-                ncoords_local_allranks = icomm.allgather(ncoords_local)
+            ncoords_local_allranks = icomm.allgather(ncoords_local)
             ncoords_global = sum(ncoords_local_allranks)
             # The below code looks complicated but it's just an allgather of the
             # (variable length) coords_local array such that they are concatenated.
             coords_local_size = np.array(coords_local.size)
             coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
-            with PETSc.Log.Event("pm_embed_coord_sizes_allgatherv"):
-                icomm.Allgatherv(coords_local_size, coords_local_sizes)
+            icomm.Allgatherv(coords_local_size, coords_local_sizes)
             coords_global = np.empty(
                 (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
             )
-            with PETSc.Log.Event("pm_embed_coords_allgatherv"):
-                icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
             # # ncoords_local_allranks is in rank order so we can just sum up the
             # # previous ranks to get the starting index for the global numbering.
             # # For rank 0 we make use of the fact that sum([]) = 0.
@@ -4320,11 +4317,10 @@ def _parent_mesh_embedding(
             global_idxs_global = np.arange(coords_global.shape[0])
             input_coords_idxs_local = np.arange(ncoords_local)
             input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-            with PETSc.Log.Event("pm_embed_inputidx_allgatherv"):
-                icomm.Allgatherv(
-                    input_coords_idxs_local,
-                    (input_coords_idxs_global, ncoords_local_allranks),
-                )
+            icomm.Allgatherv(
+                input_coords_idxs_local,
+                (input_coords_idxs_global, ncoords_local_allranks),
+            )
             input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
             input_ranks_global = np.empty(ncoords_global, dtype=int)
             icomm.Allgatherv(
