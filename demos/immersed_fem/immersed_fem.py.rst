@@ -294,7 +294,7 @@ We can load and check the generated meshes in Firedrake. ::
    fig, ax = plt.subplots(len(meshes), 1, figsize = (8, len(meshes)*3), tight_layout=True)
    for m, ax in zip(meshes, ax):
       triplot(m, axes=ax)
-      ax.set_title(f'Mesh via {m.name}, # cells: {m.num_cells()}')
+      ax.set_title(f'Mesh via {m.name}, # cells: {m.num_cells}')
       ax.legend(loc='upper left')   
 
    fig.savefig("gmsh_demo.png", dpi = 400)

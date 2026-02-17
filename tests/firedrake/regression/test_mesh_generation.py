@@ -419,7 +419,7 @@ def test_bendy_cube_unit_parallel(degree):
 
 
 def _mesh_is_reordered(mesh):
-    default_numbering = np.arange(mesh.num_points(), dtype=IntType)
+    default_numbering = np.arange(mesh.num_points, dtype=IntType)
     assert (mesh._new_to_old_point_renumbering.indices != default_numbering).any()
 
 
@@ -474,7 +474,7 @@ def test_changing_default_reorder_works(reorder):
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    assert m.num_cells() == num_cells
+    assert m.num_cells == num_cells
 
 
 @pytest.mark.parallel(nprocs=2)

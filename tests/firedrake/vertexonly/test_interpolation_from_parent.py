@@ -144,7 +144,7 @@ def immersed_sphere_vertexcoords(mesh, vertexcoords_old):
         return vertexcoords_old
     else:
         # Get the coordinates of the vertices of the mesh
-        local_coords = mesh.coordinates.dat.data_ro.reshape((-1, mesh.geometric_dimension))
+        local_coords = mesh.coordinates.dat.data_ro
         meshvertexcoords = allgather(mesh.comm, local_coords)
         return meshvertexcoords[0:len(vertexcoords_old)]
 
@@ -157,7 +157,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
+    vertexcoords = vm.coordinates.dat.data_ro
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
     w_expr = assemble(interpolate(expr, W))
@@ -168,7 +168,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
+    vertexcoords = vm.coordinates.dat.data_ro
     fs_fam, fs_deg, fs_typ = fs
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -263,7 +263,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
 
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
+    vertexcoords = vm.coordinates.dat.data_ro
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
         == "Discontinuous Lagrange"
@@ -329,8 +329,8 @@ def test_extruded_cell_parent_cell_list():
 
     vms = VertexOnlyMesh(ms, coords, missing_points_behaviour="ignore")
     vmx = VertexOnlyMesh(mx, coords, missing_points_behaviour="ignore")
-    assert vms.num_cells() == len(coords)
-    assert vmx.num_cells() == len(coords)
+    assert vms.num_cells == len(coords)
+    assert vmx.num_cells == len(coords)
     assert np.equal(vms.coordinates.dat.data_ro, coords[vms.topology._new_to_old_point_renumbering]).all()
     assert np.equal(vmx.coordinates.dat.data_ro, coords[vmx.topology._new_to_old_point_renumbering]).all()
 

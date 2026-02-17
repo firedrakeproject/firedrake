@@ -180,7 +180,7 @@ Finally, at each mesh size, we print out the number of cells in the
 mesh and the number of iterations the solver took to converge ::
 
     #
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 The resulting convergence is unimpressive:
 
@@ -282,7 +282,7 @@ applying the action of blocks, so we can use a block matrix format. ::
     for n in range(8):
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 The resulting convergence is algorithmically good, however, the larger
 problems still take a long time.
@@ -367,7 +367,7 @@ Let's see what happens. ::
     for n in range(8):
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 This is much better, the problem takes much less time to solve and
 when observing the iteration counts for inverting :math:`S` we can see
@@ -422,7 +422,7 @@ and so we no longer need a flexible Krylov method. ::
     for n in range(8):
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 This results in the following GMRES iteration counts
 
@@ -487,7 +487,7 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
     for n in range(8):
         solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
         solver.solve()
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 This actually results in slightly worse convergence than the diagonal
 approximation we used above.
@@ -571,7 +571,7 @@ Let's see what the iteration count looks like now. ::
     for n in range(8):
         solver, w = build_problem(n, parameters, aP=riesz, block_matrix=True)
         solver.solve()
-        print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
+        print(w.function_space().mesh().unique().num_cells, solver.snes.ksp.getIterationNumber())
 
 ============== ==================
  Mesh elements  GMRES iterations

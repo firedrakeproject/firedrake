@@ -103,16 +103,16 @@ def test_tripcolor_shading():
     fig, axes = plt.subplots(ncols=4, sharex=True, sharey=True)
 
     collection = tripcolor(f0, num_sample_points=1, axes=axes[0])
-    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells
 
     collection = tripcolor(f1, num_sample_points=1, axes=axes[1])
-    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells
 
     collection = tripcolor(f0, num_sample_points=1, shading="flat", axes=axes[2])
-    assert collection.get_array().shape[0] == mesh.num_cells()
+    assert collection.get_array().shape[0] == mesh.num_cells
 
     collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[3])
-    assert collection.get_array().shape[0] == mesh.num_cells()
+    assert collection.get_array().shape[0] == mesh.num_cells
 
 
 @pytest.mark.skipplot

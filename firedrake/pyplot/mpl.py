@@ -773,7 +773,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
             x_vals = function_plotter(line.function_space().mesh().coordinates)
             y_vals = function_plotter(line)
             points = np.array([x_vals, y_vals])
-            num_cells = line.function_space().mesh().num_cells()
+            num_cells = line.function_space().mesh().num_cells
             result.append(_interp_bezier(points, num_cells, axes, label=label, **kwargs))
 
     _autoscale_view(axes, None)

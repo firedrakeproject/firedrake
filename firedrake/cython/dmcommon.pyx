@@ -2031,7 +2031,7 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
     """Return coordinates for the dm, reordered according to the
     global numbering permutation for the coordinate function space.
 
-    Shape is a tuple of (mesh.num_vertices(), geometric_dim)."""
+    Shape is a tuple of (mesh.num_vertices, geometric_dim)."""
     cdef:
         PETSc.Section dm_sec, coord_sec
         PetscInt v, vStart, vEnd, offset, dm_offset, c, cStart, cEnd
