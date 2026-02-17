@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+from functools import reduce
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -9,15 +10,16 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params():
+def bddc_params(mat_type="is", cellwise=False):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
     }
     sp = {
-        "mat_type": "is",
+        "mat_type": mat_type,
         "pc_type": "python",
         "pc_python_type": "firedrake.BDDCPC",
+        "bddc_cellwise": cellwise,
         "bddc_pc_bddc_neumann": chol,
         "bddc_pc_bddc_dirichlet": chol,
         "bddc_pc_bddc_coarse": chol,
@@ -26,13 +28,13 @@ def bddc_params():
 
 
 def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, atol=0):
-    sp_bddc = bddc_params()
-    if not cellwise:
+    mat_type = "matfree" if cellwise and variant != "fdm" else "is"
+    sp_bddc = bddc_params(mat_type=mat_type, cellwise=cellwise)
+    if variant != "fdm":
         assert not condense
         sp = sp_bddc
 
     elif condense:
-        assert variant == "fdm"
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FacetSplitPC",
@@ -52,7 +54,6 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
             "facet_fdm_fieldsplit_1": sp_bddc,
         }
     else:
-        assert variant == "fdm"
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",
@@ -74,7 +75,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -122,6 +123,10 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
         nsp = VectorSpaceBasis(basis)
         nsp.orthonormalize()
 
+    appctx = {}
+    if threshold is not None:
+        appctx["primal_markers"] = get_primal_markers(mesh, threshold=threshold)
+
     uh = Function(V, name="solution")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
@@ -129,7 +134,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
-                                     solver_parameters=sp)
+                                     solver_parameters=sp, appctx=appctx)
     solver.solve()
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
@@ -138,6 +143,43 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     assert min(ew) >= 1.0
     kappa = max(abs(ew)) / min(abs(ew))
     return kappa ** 0.5
+
+
+def tensor_mesh(x, extruded=False, **kwargs):
+    base = TensorRectangleMesh(x, x, quadrilateral=True, **kwargs)
+    if extruded:
+        mesh = ExtrudedMesh(base, len(x)-1, layer_height=np.diff(x))
+    else:
+        mesh = base
+    return mesh
+
+
+def corner_refined_mesh(nx, ratio=0.5, extruded=False, **kwargs):
+    t = 1-np.logspace(-nx, -1, nx, base=1/ratio)
+    t /= t[0]
+    x = np.concatenate([-t, [0], np.flip(t)])
+    return tensor_mesh(x, extruded=extruded, **kwargs)
+
+
+def cell_aspect_ratio(mesh):
+    """Compute the aspect ratio of each cell"""
+    J = Jacobian(mesh)
+    G = J.T * J
+    hs = tuple(abs(G[i, i]**0.5) for i in range(G.ufl_shape[0]))
+    hmax = reduce(max_value, hs)
+    hmin = reduce(min_value, hs)
+
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    ratio = Function(DG0).interpolate(hmax / hmin)
+    return ratio
+
+
+def get_primal_markers(mesh, threshold=2**15):
+    """Cell marker for cells with high aspect ratio"""
+    threshold = Constant(threshold)
+    marker = cell_aspect_ratio(mesh)
+    marker.interpolate(conditional(ge(marker, threshold), 1, 0))
+    return marker
 
 
 @pytest.fixture(params=(2, 3), ids=("square", "cube"))
@@ -175,6 +217,20 @@ def test_bddc_cellwise_fdm(rg, mh, family, degree, condense):
     assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
 
 
+@pytest.mark.skipcomplex  # max_value does not work in complex mode
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family,degree", [("Q", 4)])
+def test_bddc_cellwise_high_aspect_ratio(rg, family, degree):
+    """Test that marking high aspect ratio cells leads to robust iteration counts"""
+    variant = "fdm"
+    bcs = True
+    mh = [corner_refined_mesh(nx) for nx in (10, 12)]
+    # For these meshes it is better to set adaptive BDDC parameters,
+    # but here we just test the appctx["primal_markers"] interface
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=True, threshold=2**6) for m in mh]
+    assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
+
+
 @pytest.mark.parallel
 @pytest.mark.parametrize("family,degree", [("Q", 4)])
 @pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
@@ -187,12 +243,37 @@ def test_bddc_aij_quad(rg, mh, family, degree, vector):
 
 
 @pytest.mark.parallel
-@pytest.mark.parametrize("family,degree", [("CG", 3), ("N1curl", 3), ("N1div", 3)])
-def test_bddc_aij_simplex(rg, family, degree):
+@pytest.mark.parametrize("family,degree,cellwise", [("CG", 3, False), ("CG", 3, True), ("N1curl", 3, False), ("N1div", 3, False)])
+def test_bddc_aij_simplex(rg, family, degree, cellwise):
     """Test h-dependence of condition number by measuring iteration counts"""
     variant = None
     bcs = True
     base = UnitCubeMesh(2, 2, 2)
     meshes = MeshHierarchy(base, 2)
-    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs) for m in meshes]
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("cellwise", (True, False))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+def test_create_matis(local_mat_type, cellwise):
+    from firedrake.preconditioners.bddc import create_matis
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    a = inner(grad(TrialFunction(V)), grad(TestFunction(V)))*dx
+    A = assemble(a, mat_type="matfree").petscmat
+
+    A, assembler = create_matis(A, local_mat_type, cellwise=cellwise)
+    B = assemble(a, mat_type=local_mat_type).petscmat
+    if local_mat_type == "matfree":
+        Ax, x = A.createVecs()
+        Bx, _ = B.createVecs()
+        x.setRandom()
+        A.mult(x, Ax)
+        B.mult(x, Bx)
+        assert np.allclose(Ax.array, Bx.array)
+    else:
+        A.convert("aij")
+        B.axpy(-1, A)
+        assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)
