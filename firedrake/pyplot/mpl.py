@@ -964,15 +964,11 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.layers:
-            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
-        if function.ufl_shape == ():
-            vec_length = 1
-        else:
-            vec_length = function.ufl_shape[0]
 
-        if vec_length == 1:
+        # Match the indices of the einsum
+        if len(data.shape) == 2:
             data = np.reshape(data, data.shape + (1,))
+        assert len(data.shape) == 3
 
         return np.einsum("ijk, jl->ilk", data, elem).reshape(-1)
