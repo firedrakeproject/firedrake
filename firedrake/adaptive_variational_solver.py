@@ -72,7 +72,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
     to the PDE.
     """
     def __init__(self, problem: NonlinearVariationalProblem, goal_functional, tolerance: float, solver_parameters: dict,
-                 *, primal_solver_parameters=None, dual_solver_parameters=None, exact_solution=None, exact_goal=None, verbose=True,
+                 *, primal_solver_parameters=None, dual_solver_parameters=None, exact_solution=None, exact_goal=None, source_term, verbose=True,
                  nullspace=None):
         # User input vars
         self.problem = problem
@@ -83,11 +83,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.u_exact = as_mixed(exact_solution) if isinstance(exact_solution, (tuple, list)) else exact_solution
         self.goal_exact = exact_goal
         self.options = GoalAdaptiveOptions(solver_parameters)
+        self.source_term = source_term
 
         # Derived vars
         self.verbose = verbose
         V = problem.u.function_space()
-        self.u = problem.u
         self.element = V.ufl_element()
         self.degree = self.element.degree()
         self.nullspace = nullspace
@@ -119,13 +119,12 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
+        solve_uh()
         if self.options.use_adjoint_residual:
             # Now solve in higher space
             high_degree = self.degree + self.options.dual_extra_degree  # Use dual degree
             high_element = PMGPC.reconstruct_degree(self.element, high_degree)
             Vhigh = V.reconstruct(element=high_element)
-            solve_uh()
-
             u_high = Function(Vhigh).interpolate(u)
             self.print("u norm:", norm(u))
             self.print("u_high norm:", norm(u_high))
@@ -144,13 +143,14 @@ class GoalAdaptiveNonlinearVariationalSolver():
             if self.options.primal_low_method == "solve":
                 solve_uh()
             elif self.options.primal_low_method == "project":
-                u.project(self.u_high)
+                u.project(u_high)
             else:
                 # Default to interpolation - but gives bad results?
-                u.interpolate(self.u_high)
-            self.u_err = self.u_high - u
+                u.interpolate(u_high)
+            u_err = u_high - u
         else:
-            solve_uh()
+            u_err = None
+        return u_err
 
     def solve_dual(self):
         J = self.goal_functional
@@ -161,8 +161,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
         def solve_zh(z):
             Z = z.function_space()
-            degree = Z.ufl_element().degree()
-            self.print(f"Solving dual (degree: {degree}, dofs: {Z.dim()}) ...")
+            self.print(f"Solving dual (degree: {Z.ufl_element().degree()}, dofs: {Z.dim()}) ...")
             dF = derivative(F, u, TrialFunction(Z))
             dJ = derivative(J, u, TestFunction(Z))
             G = action(adjoint(dF), z) - dJ
@@ -191,23 +190,23 @@ class GoalAdaptiveNonlinearVariationalSolver():
         else:
             # Default to interpolation
             self.z_lo.interpolate(self.z)
+        z_err = self.z - self.z_lo
+        return z_err
 
-        self.z_err = self.z - self.z_lo
-
-    def compute_etah(self):
+    def compute_etah(self, u_err, z_err):
         """Compute error estimate"""
         from firedrake.assemble import assemble
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
 
-        primal_err = abs(assemble(residual(F, self.z_err)))
+        primal_err = abs(assemble(residual(F, z_err)))
         if self.options.use_adjoint_residual:
             dF = derivative(F, u)
             dJ = derivative(J, u)
             G = action(adjoint(dF), self.z_lo) - dJ
 
-            dual_err = abs(assemble(residual(G, self.u_err)))
+            dual_err = abs(assemble(residual(G, u_err)))
             eta_h = 0.5 * abs(primal_err + dual_err)
         else:
             eta_h = primal_err
@@ -235,27 +234,19 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.options.use_adjoint_residual:
             self.print(f"{"Primal error, |rho(u_h;z-z_h)|:":45s}{"eta_pri:":8s}{primal_err:15.12f}")
             self.print(f"{"Dual error, |rho*(z_h;u-u_h)|:":45s}{"eta_adj:":8s}{dual_err:15.12f}")
-            self.print(f"{"Difference":35s}{"|eta_pri - η_adj|:":18s}{abs(primal_err-dual_err):19.12e}")
+            self.print(f"{"Difference":35s}{"|eta_pri - eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}")
             self.print(f"{"Predicted error, 0.5|rho+rho*|":45s}{"eta_h:":8s}{eta_h:15.12f}")
         else:
             self.print(f"{"Predicted error, |rho(u_h;z-z_h)|":45s}{"eta_h:":8s}{eta_h:15.12f}")
         return eta_h, eta
 
-    def automatic_error_indicators(self):
+    def automatic_error_indicators(self, u_err, z_err):
         """Compute cell and facet residuals R_cell, R_facet"""
         from firedrake.assemble import assemble
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
         V = u.function_space()
-
-        z_lo = Function(V)
-        z_lo.interpolate(self.z)
-        self.z_err = self.z - z_lo
-        if self.options.use_adjoint_residual:
-            u_lo = Function(V)
-            u_lo.interpolate(self.u_high)
-            self.u_err = self.u_high - u_lo
 
         mesh = V.mesh().unique()
         dim = mesh.topological_dimension
@@ -303,9 +294,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
         test = TestFunction(DG0)
 
         eta_primal = assemble(
-            inner(inner(Rcell, self.z_err), test)*dx +
-            + inner(avg(inner(Rfacet, self.z_err)), both(test))*dS +
-            + inner(inner(Rfacet, self.z_err), test)*ds
+            inner(inner(Rcell, z_err), test)*dx +
+            + inner(avg(inner(Rfacet, z_err)), both(test))*dS +
+            + inner(inner(Rfacet, z_err), test)*ds
         )
         with eta_primal.dat.vec as evec:
             evec.abs()
@@ -328,9 +319,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
             Rfacet_star = Rhat_star/cones
 
             eta_dual = assemble(
-                inner(inner(Rcell_star, self.u_err), test)*dx
-                + inner(avg(inner(Rfacet_star, self.u_err)), both(test))*dS
-                + inner(inner(Rfacet_star, self.u_err), test)*ds
+                inner(inner(Rcell_star, u_err), test)*dx
+                + inner(avg(inner(Rfacet_star, u_err)), both(test))*dS
+                + inner(inner(Rfacet_star, u_err), test)*ds
             )
             with eta_dual.dat.vec as evec:
                 evec.abs()
@@ -360,7 +351,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             self.print("L2 error in (dual) refinement indicators: ", unorm)
         return etaT
 
-    def manual_error_indicators(self):
+    def manual_error_indicators(self, u_err, z_err):
         """ Currently only implemented for Poisson, but can be overriden. To adapt to other PDEs, replace the form of
         etaT = assemble() to the symbolic form of the error indicators. This form is usually obtained by integrating
         the weak form by parts (to recover the strong form) and redistributing facet fluxes.
@@ -369,12 +360,13 @@ class GoalAdaptiveNonlinearVariationalSolver():
         u = self.problem.u
         mesh = u.function_space().mesh().unique()
         n = FacetNormal(mesh)
+        f = self.source_term
         DG0 = FunctionSpace(mesh, "DG", degree=0)
         test = TestFunction(DG0)
         etaT = assemble(
-            inner(self.f + div(grad(u)), self.z_err * test) * dx
-            - inner(jump(grad(u), n), self.z_err * avg(test)) * dS
-            - inner(dot(grad(u), n), self.z_err * test) * ds
+            inner(f + div(grad(u)), z_err * test) * dx
+            - inner(jump(grad(u), n), z_err * avg(test)) * dS
+            - inner(dot(grad(u), n), z_err * test) * ds
         )
         with etaT.dat.vec as evec:
             evec.abs()
@@ -441,7 +433,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.goal_functional = refine(self.goal_functional, refine, coefficient_mapping=coef_map)
         if self.u_exact is not None:
             self.u_exact = refine(self.u_exact, refine, coefficient_mapping=coef_map)
-        self.u = self.problem.u
+        if self.source_term is not None:
+            self.source_term = refine(self.source_term, refine, coefficient_mapping=coef_map)
 
     def solve(self):
         for it in range(self.options.max_iterations):
@@ -452,10 +445,10 @@ class GoalAdaptiveNonlinearVariationalSolver():
         it = len(self.amh) - 1
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         self.write_mesh(it)
-        self.solve_primal()
-        self.solve_dual()
+        u_err = self.solve_primal()
+        z_err = self.solve_dual()
         self.write_solution(it)
-        eta_h, eta = self.compute_etah()
+        eta_h, eta = self.compute_etah(u_err, z_err)
         if eta_h < self.tolerance:
             self.print("Error estimate below tolerance, finished.")
             return 1
@@ -470,9 +463,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
         else:
             self.print("Computing local refinement indicators eta_K ...")
             if self.options.manual_indicators:
-                etaT = self.manual_error_indicators()
+                etaT = self.manual_error_indicators(u_err, z_err)
             else:
-                etaT = self.automatic_error_indicators()
+                etaT = self.automatic_error_indicators(u_err, z_err)
             self.compute_efficiency(etaT, eta_h, eta)
             markers = self.set_adaptive_cell_markers(etaT)
 
@@ -566,7 +559,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if should_write:
             run_name = self.options.run_name
             self.print("Writing (primal) solution ...")
-            VTKFile(self.output_dir / f"{run_name}/{run_name}_solution_{it}.pvd").write(*self.u.subfunctions)
+            u = self.problem.u
+            VTKFile(self.output_dir / f"{run_name}/{run_name}_solution_{it}.pvd").write(*u.subfunctions)
             self.print("Writing (dual) solution ...")
             VTKFile(self.output_dir / f"{run_name}/{run_name}_dual_solution_{it}.pvd").write(*self.z.subfunctions)
 
