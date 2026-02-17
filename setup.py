@@ -11,7 +11,6 @@ import libsupermesh
 import numpy as np
 import pybind11
 import petsctools
-import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
@@ -120,25 +119,24 @@ else:
     # Set the library name and hope for the best
     hdf5_ = ExternalDependency(libraries=["hdf5"])
 
-# When we link against spatialindex or libsupermesh we need to know where
+# When we link against rstar-capi or libsupermesh we need to know where
 # the '.so' files end up. Since installation happens in an isolated
-# environment we cannot simply query rtree and libsupermesh for the
+# environment we cannot simply query the currently loaded libraries for the
 # current paths as they will not be valid once the installation is complete.
 # Therefore we set the runtime library search path to all the different
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
-# libspatialindex
-# example:
-# gcc -I/rtree/include
-# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
-libspatialindex_so = Path(rtree.core.rt._name).absolute()
-spatialindex_ = ExternalDependency(
-    include_dirs=[rtree.finder.get_include()],
-    extra_link_args=[str(libspatialindex_so)],
-    runtime_library_dirs=[
-        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
-    ],
+# rstar-capi
+rstar_root = Path(__file__).resolve().parents[1] / "rstar"
+rstar_capi_include = rstar_root / "rstar-capi" / "include"
+rstar_capi_libdir = rstar_root / "target" / "release"
+rstar_ = ExternalDependency(
+    include_dirs=[str(rstar_capi_include)],
+    library_dirs=[str(rstar_capi_libdir)],
+    libraries=["rstar_capi"],
+    runtime_library_dirs=[str(rstar_capi_libdir)],
+    extra_link_args=[f"-Wl,-rpath,{rstar_capi_libdir}"],
 )
 
 # libsupermesh
@@ -196,12 +194,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/spatialindex.pyx: numpy, spatialindex
+    # firedrake/cython/rstar.pyx: numpy, rstar-capi
     cython_list.append(Extension(
-        name="firedrake.cython.spatialindex",
+        name="firedrake.cython.rstar",
         language="c",
-        sources=[os.path.join("firedrake", "cython", "spatialindex.pyx")],
-        **(mpi_ + numpy_ + spatialindex_)
+        sources=[os.path.join("firedrake", "cython", "rstar.pyx")],
+        **(mpi_ + numpy_ + rstar_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(

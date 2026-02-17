@@ -15,7 +15,6 @@ from ufl.domain import extract_unique_domain
 import enum
 import numbers
 import abc
-import rtree
 from textwrap import dedent
 from pathlib import Path
 
@@ -32,7 +31,7 @@ import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.cython.spatialindex as spatialindex
+import firedrake.cython.rstar as rstar
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
@@ -2553,8 +2552,8 @@ values from f.)"""
         Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
 
-        None if the geometric dimension is 1, since libspatialindex
-        does not support 1D.
+        None if the geometric dimension is 1, since point location falls
+        back to brute force in that case.
 
         Notes
         -----
@@ -2568,7 +2567,7 @@ values from f.)"""
 
         gdim = self.geometric_dimension
         if gdim <= 1:
-            info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
+            info_red("Spatial indexing is skipped for 1-dimensional meshes, falling back on brute force.")
             return None
 
         coord_element = self.ufl_coordinate_element()
@@ -2681,8 +2680,7 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        self._spatial_index = rstar.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
@@ -2833,20 +2831,22 @@ values from f.)"""
                 }}
             """)
 
-            libspatialindex_so = Path(rtree.core.rt._name).absolute()
-            lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
+            rstar_root = Path(__file__).resolve().parents[2] / "rstar"
+            rstar_include = rstar_root / "rstar-capi" / "include"
+            rstar_lib = rstar_root / "target" / "release"
             dll = compilation.load(
                 src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}"
+                    f"-I{rstar_include}"
                 ] + [f"-I{d}/include" for d in get_petsc_dir()],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    str(libspatialindex_so),
+                    f"-L{rstar_lib}",
+                    "-lrstar_capi",
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    lsi_runpath
+                    f"-Wl,-rpath,{rstar_lib}"
                 ],
                 comm=self.comm
             )
