@@ -145,7 +145,7 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
-    if hasattr(V, "_coarse"):
+    if hasattr(V, "_coarse") and self == coarsen:
         return V._coarse
 
     V_fine = V
@@ -180,7 +180,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.NonlinearVariationalProblem)
 def coarsen_nlvp(problem, self, coefficient_mapping=None):
-    if hasattr(problem, "_coarse"):
+    if hasattr(problem, "_coarse") and self == coarsen:
         return problem._coarse
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
