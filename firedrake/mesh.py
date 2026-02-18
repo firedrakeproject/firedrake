@@ -35,7 +35,7 @@ import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
-from firedrake.parameters import parameters
+from firedrake.parameters import parameters, target
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
@@ -2563,7 +2563,7 @@ values from f.)"""
         Hence the bounding box will contain the entire element.
         """
         from firedrake import function, functionspace
-        from firedrake.parloops import par_loop, READ, MIN, MAX
+        import loopy as lp
 
         gdim = self.geometric_dimension
         if gdim <= 1:
@@ -2591,11 +2591,26 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
-        coords_min = function.Function(V, dtype=RealType)
-        coords_max = function.Function(V, dtype=RealType)
+        coords_min = function.Function(V, dtype=RealType).dat
+        coords_max = function.Function(V, dtype=RealType).dat
 
-        coords_min.dat.data.fill(np.inf)
-        coords_max.dat.data.fill(-np.inf)
+        # coords_min.dat.data.fill(np.inf)
+        # coords_max.dat.data.fill(-np.inf)
+
+        if mesh.extruded:
+            # Limitations of pyop2 mean we need to build this function space
+            # TODO: Fix this when pyop3 is available
+            V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+            coords_min = function.Function(V, dtype=RealType).dat
+            coords_max = function.Function(V, dtype=RealType).dat
+        else:
+            cell_set = mesh.cell_set
+            dset = op2.DataSet(cell_set, dim=gdim)
+            coords_min = op2.Dat(dset, dtype=RealType)
+            coords_max = op2.Dat(dset, dtype=RealType)
+
+        coords_min.data.fill(np.inf)
+        coords_max.data.fill(-np.inf)
 
         if utils.complex_mode:
             if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
@@ -2606,8 +2621,9 @@ values from f.)"""
         else:
             coords = mesh.coordinates
 
-        cell_node_list = mesh.coordinates.function_space().cell_node_list
-        _, nodes_per_cell = cell_node_list.shape
+        # cell_node_list = mesh.coordinates.function_space().cell_node_list
+        # _, nodes_per_cell = cell_node_list.shape
+        nodes_per_cell = mesh.coordinates.function_space().finat_element.space_dimension()
 
         domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
@@ -2616,15 +2632,30 @@ values from f.)"""
             f_max[0, d] = fmax(f_max[0, d], f[i, d])
         end
         """
-        par_loop((domain, instructions), ufl.dx,
-                 {'f': (coords, READ),
-                  'f_min': (coords_min, MIN),
-                  'f_max': (coords_max, MAX)})
+        kargs = [
+            lp.GlobalArg("f", dtype=RealType, shape=(nodes_per_cell, gdim), is_input=True, is_output=False),
+            lp.GlobalArg("f_max", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
+            lp.GlobalArg("f_min", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
+        ]
+        knl = lp.make_function(domain, instructions, kargs, name="bounding_box_kernel", target=target,
+                               seq_dependencies=True,)
+        knl = op2.Kernel(knl, name="bounding_box_kernel")
+        op2.parloop(knl,
+                    cell_set,
+                    coords.dat(op2.READ, coords.cell_node_map()),
+                    coords_max(op2.MAX),
+                    coords_min(op2.MIN))
+        
+        # par_loop((domain, instructions), ufl.dx,
+        #          {'f': (coords, READ),
+        #           'f_min': (coords_min, MIN),
+        #           'f_max': (coords_max, MAX)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = V.cell_node_list.reshape(-1)
-        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
-        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+        # column_list = V.cell_node_list.reshape(-1)
+        column_list = np.arange(mesh.num_cells(), dtype=IntType)
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.data_ro_with_halos)
 
         return coords_min, coords_max
 
