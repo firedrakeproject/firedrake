@@ -2563,7 +2563,7 @@ values from f.)"""
         Hence the bounding box will contain the entire element.
         """
         from firedrake import function, functionspace
-        import loopy as lp
+        from firedrake.parloops import par_loop, READ, MIN, MAX
 
         gdim = self.geometric_dimension
         if gdim <= 1:
@@ -2589,27 +2589,6 @@ values from f.)"""
             f.interpolate(self.coordinates)
             mesh = Mesh(f)
 
-        if mesh.extruded:
-            # Limitations of pyop2 mean we need to build this function space
-            # TODO: Fix this when pyop3 is available
-            V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
-            f = function.Function(V, dtype=RealType)
-            max_args = (op2.MAX, f.cell_node_map())
-            min_args = (op2.MIN, f.cell_node_map())
-            coords_min = f.dat
-            coords_max = op2.Dat(coords_min)
-            column_list = V.cell_node_list.reshape(-1)
-        else:
-            dset = op2.DataSet(mesh.cell_set, dim=gdim)
-            coords_min = op2.Dat(dset, dtype=RealType)
-            coords_max = op2.Dat(dset, dtype=RealType)
-            max_args = (op2.MAX,)
-            min_args = (op2.MIN,)
-            column_list = np.arange(mesh.num_cells(), dtype=IntType)
-
-        coords_min.data.fill(np.inf)
-        coords_max.data.fill(-np.inf)
-
         if utils.complex_mode:
             if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
@@ -2619,7 +2598,20 @@ values from f.)"""
         else:
             coords = mesh.coordinates
 
-        nodes_per_cell = mesh.coordinates.function_space().finat_element.space_dimension()
+        cell_node_list = mesh.coordinates.function_space().cell_node_list
+        if not mesh.extruded:
+            all_coords = coords.dat.data_ro_with_halos[cell_node_list]  # (total_cells, nodes_per_cell, gdim)
+            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+
+        # Extruded case: calculate the bounding boxes for all cells by running a kernel
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
+        _, nodes_per_cell = cell_node_list.shape
 
         domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
@@ -2628,23 +2620,16 @@ values from f.)"""
             f_max[0, d] = fmax(f_max[0, d], f[i, d])
         end
         """
-        kargs = [
-            lp.GlobalArg("f", dtype=RealType, shape=(nodes_per_cell, gdim), is_input=True, is_output=False),
-            lp.GlobalArg("f_max", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
-            lp.GlobalArg("f_min", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
-        ]
-        knl = lp.make_function(domain, instructions, kargs, name="bounding_box_kernel", target=target,
-                               lang_version=(2018, 2))
-        knl = op2.Kernel(knl, name="bounding_box_kernel")
-        op2.parloop(knl,
-                    mesh.cell_set,
-                    coords.dat(op2.READ, coords.cell_node_map()),
-                    coords_max(*max_args),
-                    coords_min(*min_args))
+        par_loop((domain, instructions), ufl.dx,
+                 {'f': (coords, READ),
+                  'f_min': (coords_min, MIN),
+                  'f_max': (coords_max, MAX)})
 
         # Reorder bounding boxes according to the cell indices we use
-        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.data_ro_with_halos)
-        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.data_ro_with_halos)
+        column_list = V.cell_node_list.reshape(-1)
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+
         return coords_min, coords_max
 
     @property
