@@ -4446,7 +4446,6 @@ def _parent_mesh_embedding(
     with PETSc.Log.Event("get_parent_mesh_rank_ownership_information"):
         visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
         visible_ranks[: parent_mesh.cell_set.size] = parent_mesh.comm.rank
-        # These entries will be overwritten by the halo exchange below.
         visible_ranks[parent_mesh.cell_set.size :] = -1
         dmcommon.exchange_cell_orientations(
             parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
