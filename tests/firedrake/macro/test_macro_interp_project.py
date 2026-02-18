@@ -17,22 +17,23 @@ def proj_bc(u, f):
     return proj(u, f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
 
 
-def h1_proj(u, f, bcs=None):
-    # compute h1 projection of f into u's function
+def riesz_proj(u, f, bcs=None):
+    # compute the Riesz representative of f in u's function
     # space, store the result in u.
     v = TestFunction(u.function_space())
+    w = TrialFunction(u.function_space())
 
+    # Apply the Riesz map <==> projection in the H(d) inner-product norm
     d = {H2: grad, H1: grad, HCurl: curl, HDiv: div}[u.ufl_element().sobolev_space]
-    F = inner(d(u-f), d(v)) * dx + inner(u-f, v) * dx
-
-    a = derivative(F, u)
-    L = assemble(-F)
+    a = inner(d(w), d(v)) * dx + inner(w, v) * dx
+    L = a(v, f)
     solve(a == L, u, bcs=bcs)
-    return assemble(F(u-f))**0.5
+
+    return assemble(a(u-f, u-f))**0.5
 
 
-def h1_proj_bc(u, f):
-    return h1_proj(u, f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
+def riesz_proj_bc(u, f):
+    return riesz_proj(u, f, bcs=DirichletBC(u.function_space(), f, "on_boundary"))
 
 
 @pytest.fixture(params=("square", "cube"))
@@ -49,7 +50,7 @@ def mesh(request):
                           ('alfeld', 1),
                           ('alfeld', 'd'),
                           ('iso(2)', 2)])
-@pytest.mark.parametrize('op', (interp, proj, proj_bc, h1_proj, h1_proj_bc))
+@pytest.mark.parametrize('op', (interp, proj, proj_bc, riesz_proj, riesz_proj_bc))
 def test_projection_scalar_monomial(op, mesh, degree, variant):
     if degree == 'd':
         degree = mesh.geometric_dimension
@@ -108,7 +109,7 @@ def run_convergence(mh, el, deg, convrate, op):
                           (2, 'HCT', 3, 3),
                           (2, 'HCT-red', 3, 2),
                           ])
-@pytest.mark.parametrize('op', (proj, h1_proj))
+@pytest.mark.parametrize('op', (proj, riesz_proj))
 def test_scalar_convergence(hierarchy, dim, el, deg, convrate, op):
     if op == proj:
         convrate += 1
@@ -128,7 +129,7 @@ def test_scalar_convergence(hierarchy, dim, el, deg, convrate, op):
                           (3, 'Guzman-Neilan 1st kind H1', 1, 1),
                           (3, 'Guzman-Neilan H1(div)', 3, 2),
                           ])
-@pytest.mark.parametrize('op', (proj, h1_proj))
+@pytest.mark.parametrize('op', (proj, riesz_proj))
 def test_piola_convergence(hierarchy, dim, el, deg, convrate, op):
     if op == proj:
         convrate += 1
