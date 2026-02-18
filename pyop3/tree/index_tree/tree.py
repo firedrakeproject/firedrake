@@ -1029,7 +1029,7 @@ def _(loop_index: LoopIndex, /, *args, **kwargs):
     #     LoopIndexVar(p, "a") * 2      and LoopIndexVar(p, "b")
     # new_targets: dict[ConcretePathT, list[list[AxisTarget]]] = {idict(): []}
     replace_map = {
-        axis.label: LoopIndexVar(loop_index, axis.localize())
+        axis.label: LoopIndexVar(loop_index, axis.regionless())
         for axis, _ in iterset.visited_nodes(iterset.leaf_path)
     }
 
@@ -1206,8 +1206,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             c for c in target_axis.components if c.label == target_component_label
         )
 
-        # NOTE: is the localize() really needed?
-        linear_axis = axis.linearize(axis_component.label).localize()
+        linear_axis = axis.linearize(axis_component.label).regionless()
 
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:

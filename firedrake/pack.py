@@ -12,7 +12,7 @@ from immutabledict import immutabledict as idict
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
-from firedrake.functionspaceimpl import WithGeometry
+from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry
 from firedrake.matrix import Matrix
 from firedrake.mesh import IterationSpec
 
@@ -73,6 +73,9 @@ def _pack_dat_nonmixed(
     nodes: bool = False,
     permutation: collections.abc.Iterable | None = None,
 ):
+    if isinstance(space.topological, RestrictedFunctionSpace):
+        space = space.function_space
+
     mesh = space.mesh()
 
     if not nodes:
@@ -101,6 +104,11 @@ def _(
     *,
     nodes: bool = False,
 ):
+    if isinstance(row_space.topological, RestrictedFunctionSpace):
+        row_space = row_space.function_space
+    if isinstance(column_space.topological, RestrictedFunctionSpace):
+        column_space = column_space.function_space
+
     if mat.buffer.mat_type == "python":
         mat_context = mat.buffer.mat.getPythonContext()
         if isinstance(mat_context, op3.RowDatPythonMatContext):
@@ -379,7 +387,7 @@ def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tup
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'
     perm_selector_axis = op3.Axis(len(perms), "which")
-    dof_axis = utils.single_valued(axis for axis in axes.axes if axis.label == f"dof{dim_label}")
+    dof_axis = utils.single_valued(axis for axis in space.plex_axes.axes if axis.label == f"dof{dim_label}")
     perm_dat_axis_tree = op3.AxisTree.from_iterable([perm_selector_axis, dof_axis])
     perm_dat = op3.Dat(perm_dat_axis_tree, buffer=perms_buffer, prefix="perm")
     return op3.as_linear_buffer_expression(perm_dat)

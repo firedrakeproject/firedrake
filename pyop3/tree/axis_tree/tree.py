@@ -214,6 +214,10 @@ class _UnitAxisTree(CacheMixin):
     def __str__(self) -> str:
         return "<UNIT>"
 
+    # copied from labelled tree
+    def __contains__(self, node) -> bool:
+        return False
+
     size = 1
     local_max_size = 1
     alloc_size = 1
@@ -240,6 +244,9 @@ class _UnitAxisTree(CacheMixin):
         return idict()
 
     def localize(self):
+        return self
+
+    def regionless(self):
         return self
 
     def prune(self) -> Self:
@@ -568,6 +575,15 @@ class AxisComponent(LabelledNodeComponent):
             assert self.sf is None
             return self
 
+    @utils.cached_method()
+    def regionless(self) -> AxisComponent:
+        if len(self.regions) > 1:
+            merged_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+            return self.__record_init__(regions=(merged_region,), sf=None)
+        else:
+            assert self.sf is None
+            return self
+
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
     fields = MultiComponentLabelledNode.fields | {"components"}
@@ -709,6 +725,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     @utils.cached_method()
     def localize(self):
         return self.copy(components=tuple(c.localize() for c in self.components))
+
+    @utils.cached_method()
+    def regionless(self):
+        return self.copy(components=tuple(c.regionless() for c in self.components))
 
     def component_offset(self, component):
         cidx = self.component_index(component)
@@ -1072,7 +1092,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         else:
             size_expr = self.materialize().subtree(subpath).local_size
 
-        size_dat = Dat.empty(axis.linearize(component.label).localize(), dtype=IntType)
+        size_dat = Dat.empty(axis.linearize(component.label).regionless(), dtype=IntType)
 
 
         size_dat.assign(size_expr, eager=True)
@@ -1216,7 +1236,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             for component in axis.components:
                 for region in component.regions:
                     if region.label is not None:
-                        region_labels.add(region.label)
+                        if isinstance(region.label, collections.abc.Set):
+                            region_labels.update(region.label)
+                        else:
+                            region_labels.add(region.label)
         return tuple(region_labels)
 
     def _block_indices(self, block_shape: Sequence[int, ...]) -> tuple[ScalarIndex, ...]:
@@ -1285,7 +1308,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
             for component in axis.components:
                 path_ = path | {axis.label: component.label}
-                expr = AxisVar(axis.linearize(component.label).localize())
+                expr = AxisVar(axis.linearize(component.label).regionless())
                 target = AxisTarget(axis.label, component.label, expr)
                 targets_[path_] = [[target]]
         return utils.freeze(targets_)
@@ -1325,6 +1348,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def localize(self) -> AxisTree:
         node_map = {
             path: axis.localize() if axis else None
+            for path, axis in self.node_map.items()
+        }
+        return type(self)(node_map)
+
+    @utils.cached_method()
+    def regionless(self) -> AxisTree:
+        node_map = {
+            path: axis.regionless() if axis else None
             for path, axis in self.node_map.items()
         }
         return type(self)(node_map)
@@ -1486,6 +1517,14 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=self.unindexed.localize(),
         )
 
+    @utils.cached_method()
+    def regionless(self):
+        return type(self)(
+            self.materialize().regionless(),
+            targets=self.targets,
+            unindexed=self.unindexed.regionless(),
+        )
+
     # TODO: Should have nest indices and nest labels as separate concepts.
     # The former is useful for buffers and the latter for trees
     @cached_property
@@ -1595,9 +1634,12 @@ class IndexedAxisTree(AbstractAxisTree):
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
-        indices_dat = Dat.empty(self.materialize().localize(), dtype=IntType, prefix="indices")
+        indices_dat = Dat.empty(self.materialize().regionless(), dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
+            # if "constrained" in str(iterset):
+            #     import pyop3.debug
+            #     pyop3.debug.enable_conditional_breakpoints()
             p = iterset.iter()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
@@ -1674,6 +1716,9 @@ class UnitIndexedAxisTree(DistributedObject):
         self.unindexed = unindexed
         self._targets = targets
 
+    def __contains__(self, node) -> bool:
+        return False
+
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         return complete_axis_targets({
@@ -1695,14 +1740,18 @@ class UnitIndexedAxisTree(DistributedObject):
     def materialize(self):
         return UNIT_AXIS_TREE
 
+    @utils.cached_method()
     def localize(self):
-        return self._localized
-
-    @cached_property
-    def _localized(self):
         return type(self)(
             targets=self.targets,
             unindexed=self.unindexed.localize(),
+        )
+
+    @utils.cached_method()
+    def regionless(self):
+        return type(self)(
+            targets=self.targets,
+            unindexed=self.unindexed.regionless(),
         )
 
     size = 1
@@ -1713,10 +1762,6 @@ class UnitIndexedAxisTree(DistributedObject):
 
     def as_axis(self) -> Axis:
         return Axis(0)
-
-    @property
-    def regionless(self):
-        return self
 
     @cached_property
     def _subst_layouts_default(self):
@@ -1982,6 +2027,12 @@ class AxisForest(DistributedObject):
 
     def localize(self) -> AxisForest:
         return type(self)((tree.localize() for tree in self.trees))
+
+    def regionless(self) -> AxisForest:
+        return type(self)((tree.regionless() for tree in self.trees))
+
+    def with_region_labels(self, labels) -> AxisForest:
+        return type(self)((tree.with_region_labels(labels) for tree in self.trees))
 
     def prune(self) -> AxisForest:
         return type(self)((tree.prune() for tree in self.trees))
@@ -2398,7 +2449,7 @@ def _(axis: Axis, /, replace_map):
 
 @replace_exprs.register(AxisComponent)
 def _(component: AxisComponent, /, replace_map):
-    return component.copy(regions=tuple(replace_exprs(r, replace_map) for r in component.regions))
+    return component.__record_init__(regions=tuple(replace_exprs(r, replace_map) for r in component.regions))
 
 
 @replace_exprs.register(AxisComponentRegion)

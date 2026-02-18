@@ -167,32 +167,14 @@ class ImplicitPackUnpackExpander(NodeTransformer):
         for (arg, intent), shape in zip(
             terminal.function_arguments, terminal.argument_shapes, strict=True
         ):
-            # bare_arg, arg_pack_insns, arg_unpack_insns = _expand_reshapes(arg, intent)
-            # gathers.extend(arg_pack_insns)
-            # scatters.extend(arg_unpack_insns)
-            #
-            #     if intent == READ:
-            #         gathers.extend(ArrayAssignment(temporary, arg, "write"))
-            #     elif intent == WRITE:
-            #         # This is currently necessary because some local kernels
-            #         # (interpolation) actually increment values instead of setting
-            #         # them directly. This should ideally be addressed.
-            #         gathers.append(ArrayAssignment(temporary, 0, "write"))
-            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
-            #     elif intent == RW:
-            #         gathers.append(ArrayAssignment(temporary, arg, "write"))
-            #         scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
-            #     else:
-            #         assert intent == INC
-
             # emit pack/unpack instructions
             if _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
-                    temporary = Dat.null(arg.axes.materialize().localize(), dtype=arg.dtype, prefix="t")
+                    temporary = Dat.null(arg.axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    temporary = Mat.null(arg.row_axes.materialize().localize(), arg.column_axes.materialize().localize(), dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.row_axes.materialize().regionless(), arg.column_axes.materialize().regionless(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(insn_types.ArrayAssignment(temporary, arg, "write"))

@@ -7,6 +7,7 @@ from immutabledict import immutabledict as idict
 
 from pyop3 import utils
 from pyop3.buffer import ArrayBuffer
+from pyop3.cache import cached_on
 from pyop3.dtypes import IntType
 from pyop3.expr import Dat, AxisVar, LoopIndexVar, ScalarBufferExpression
 from pyop3.expr.base import loopified_shape  # TODO: move into visitors
@@ -41,6 +42,8 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
     return tree_size
 
 
+# TODO: just be a cached method? Or globally cache?
+@cached_on(lambda tree, *a, **kw: tree, lambda tree, path, label: (path, label))
 def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, component_label: ComponentLabelT):
     from pyop3 import Scalar
     from pyop3.expr.visitors import replace_terminals, replace

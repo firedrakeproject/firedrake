@@ -84,7 +84,7 @@ def _(loop_var: expr_types.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, *
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
-        raise MissingVariableException(f"'({loop_var.loopindex.id}, {loop_var.axis.label})' not found in 'loop_indices'")
+        raise MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
 
 
 @_evaluate.register
@@ -158,7 +158,7 @@ def _(scalar: expr_types.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
 @_evaluate.register
 def _(dat_expr: expr_types.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
-    return dat_expr.buffer.buffer.data_ro_with_halos[offset]
+    return dat_expr.buffer.buffer.data_ro[offset]
 
 
 
@@ -180,9 +180,9 @@ def _(loop_var: expr_types.LoopIndexVar):
 def _(var):
     return OrderedSet()
 
-@collect_loop_index_vars.register(expr_types.BinaryOperator)
+@collect_loop_index_vars.register(expr_types.Operator)
 def _(op: expr_types.BinaryOperator):
-    return collect_loop_index_vars(op.a) | collect_loop_index_vars(op.b)
+    return OrderedSet().union(*map(collect_loop_index_vars, op.operands))
 
 
 @collect_loop_index_vars.register(expr_types.Dat)

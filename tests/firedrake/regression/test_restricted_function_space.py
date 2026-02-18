@@ -30,9 +30,8 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     normal_fs_matrix_reduced = np.delete(normal_fs_matrix_reduced, delete_rows,
                                          axis=1)
 
-    assert (restricted_fs_matrix.M.nrows == np.shape(normal_fs_matrix_reduced)[0])
-    assert (restricted_fs_matrix.M.ncols == np.shape(normal_fs_matrix_reduced)[1])
-    assert (np.array_equal(normal_fs_matrix_reduced, restricted_fs_matrix.M.values))
+    restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
+    assert np.array_equal(normal_fs_matrix_reduced, restricted_values)
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])

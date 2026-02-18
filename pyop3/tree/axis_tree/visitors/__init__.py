@@ -86,6 +86,9 @@ class BufferCollector(LabelledTreeVisitor):
         self._lazy_expr_collector = expr_collector
         super().__init__()
 
+    def __call__(self, tree):
+        return super().__call__(tree) | self._collect_expr_buffers(tree.size)
+
     @classmethod
     @memory_cache(heavy=True)
     def maybe_singleton(cls, comm) -> Self:

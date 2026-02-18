@@ -152,8 +152,8 @@ class Mat(Tensor):
         """Return a new "unindexed" array with the same shape."""
         # TODO: use axis forests instead of trees here
         return type(self).null(
-            self.row_axes.materialize().localize(),
-            self.column_axes.materialize().localize(),
+            self.row_axes.materialize().regionless(),
+            self.column_axes.materialize().regionless(),
             dtype=self.dtype,
             prefix="t",
         )
@@ -282,6 +282,11 @@ class Mat(Tensor):
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
+        return self.as_array("ro")
+
+
+    def as_array(self, mode, *, regions=frozenset({"owned"})):
+        assert mode == "ro"
         if self.comm.size > 1:
             raise RuntimeError("Only valid in serial")
 
@@ -306,7 +311,7 @@ class Mat(Tensor):
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
-                return petscmat[self.row_axes._buffer_slice, self.column_axes._buffer_slice]
+                return petscmat[self.row_axes.with_region_labels(regions)._buffer_slice, self.column_axes.with_region_labels(regions)._buffer_slice]
         else:
             raise NotImplementedError
 

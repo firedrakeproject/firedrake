@@ -248,7 +248,9 @@ class NullStarForest(AbstractStarForest):
         self.__post_init__()
 
     def __post_init__(self):
-        assert isinstance(self.size, numbers.Integral)
+        # for ragged not true
+        # assert isinstance(self.size, numbers.Integral)
+        pass
 
     # }}}
 

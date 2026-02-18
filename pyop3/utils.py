@@ -243,6 +243,11 @@ class OrderedSet(AbstractOrderedSet):
         if value not in self._values:
             self._values.append(value)
 
+    def update(self, /, *others):
+        for other in others:
+            for item in other:
+                self.add(item)
+
 
 class OrderedFrozenSet(AbstractOrderedSet):
 

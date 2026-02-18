@@ -280,9 +280,12 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
         # Tabulate
         else:
+            # if str(subtree) == "{dof: {XXX: (dat_71_buffer[i_{mesh}] + dat_73_buffer[i_{mesh}])}}":
+            #     breakpoint()
             step_expr = _accumulate_step_sizes(subtree.size, linear_axis, axis_tree.comm)
 
-            if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
+            # if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
+            if linear_axis.label not in {n.label for n in utils.just_one(get_shape(step_expr)).nodes}:
                 step_expr = AxisVar(linear_axis) * step_expr
 
             layout_expr_acc_ = layout_expr_acc + step_expr + start
@@ -348,59 +351,63 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
 
 # TODO: should cache this!!!
 # TODO: I dont really understand why this is so complicated, maybe do something like materialise dats?
-@functools.singledispatch
-def _accumulate_step_sizes(obj: Any, axis, comm):
-    """TODO
-
-    This is suitable for ragged expressions where step sizes need to be accumulated
-    into an offset array.
-
-    """
-    raise TypeError
-
-
-@_accumulate_step_sizes.register(numbers.Number)
-@_accumulate_step_sizes.register(op3_expr.ScalarBufferExpression)
-def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
-    return num
-
-
-@_accumulate_step_sizes.register(op3_expr.Mul)
-def _(mul: op3_expr.Mul, /, axis: Axis, comm) -> op3_expr.Mul:
-    return _accumulate_step_sizes(mul.a, axis, comm) * _accumulate_step_sizes(mul.b, axis, comm)
-
-
-@_accumulate_step_sizes.register(op3_expr.Add)
-def _(add: op3_expr.Add, /, axis: Axis, comm) -> op3_expr.Add:
-    return _accumulate_step_sizes(add.a, axis, comm) + _accumulate_step_sizes(add.b, axis, comm)
-
-
-@_accumulate_step_sizes.register(op3_expr.Sub)
-def _(sub: op3_expr.Sub, /, axis: Axis, comm) -> op3_expr.Sub:
-    return _accumulate_step_sizes(sub.a, axis, comm) - _accumulate_step_sizes(sub.b, axis, comm)
-
-
-@_accumulate_step_sizes.register(op3_expr.Comparison)
-def _(cond: op3_expr.Comparison, /, axis: Axis, comm) -> op3_expr.Comparison:
-    return type(cond)(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
-
-
-@_accumulate_step_sizes.register(op3_expr.Conditional)
-def _(cond: op3_expr.Conditional, /, axis: Axis, comm) -> op3_expr.Conditional:
-    return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
-
-
-@_accumulate_step_sizes.register(LinearDatBufferExpression)
-def _(dat_expr: LinearDatBufferExpression, /, axis: Axis, comm) -> LinearDatBufferExpression:
-    return _accumulate_dat_expr(dat_expr, axis, comm)
+# @functools.singledispatch
+# def _accumulate_step_sizes(obj: Any, axis, comm):
+#     """TODO
+#
+#     This is suitable for ragged expressions where step sizes need to be accumulated
+#     into an offset array.
+#
+#     """
+#     raise TypeError
+#
+#
+# @_accumulate_step_sizes.register(numbers.Number)
+# @_accumulate_step_sizes.register(op3_expr.ScalarBufferExpression)
+# def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
+#     return num
+#
+#
+# @_accumulate_step_sizes.register(op3_expr.Mul)
+# def _(mul: op3_expr.Mul, /, axis: Axis, comm) -> op3_expr.Mul:
+#     return _accumulate_step_sizes(mul.a, axis, comm) * _accumulate_step_sizes(mul.b, axis, comm)
+#
+#
+# @_accumulate_step_sizes.register(op3_expr.Add)
+# def _(add: op3_expr.Add, /, axis: Axis, comm) -> op3_expr.Add:
+#     return _accumulate_step_sizes(add.a, axis, comm) + _accumulate_step_sizes(add.b, axis, comm)
+#
+#
+# @_accumulate_step_sizes.register(op3_expr.Sub)
+# def _(sub: op3_expr.Sub, /, axis: Axis, comm) -> op3_expr.Sub:
+#     return _accumulate_step_sizes(sub.a, axis, comm) - _accumulate_step_sizes(sub.b, axis, comm)
+#
+#
+# @_accumulate_step_sizes.register(op3_expr.Comparison)
+# def _(cond: op3_expr.Comparison, /, axis: Axis, comm) -> op3_expr.Comparison:
+#     return type(cond)(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
+#
+#
+# @_accumulate_step_sizes.register(op3_expr.Conditional)
+# def _(cond: op3_expr.Conditional, /, axis: Axis, comm) -> op3_expr.Conditional:
+#     return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
+#
+#
+# @_accumulate_step_sizes.register(LinearDatBufferExpression)
+# def _(dat_expr: LinearDatBufferExpression, /, axis: Axis, comm) -> LinearDatBufferExpression:
+#     return _accumulate_dat_expr(dat_expr, axis, comm)
 
 
 @memory_cache(heavy=True)
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
+# def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
+def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
-    if linear_axis not in utils.just_one(get_shape(size_expr)):
+    if linear_axis.label not in {n.label for n in utils.just_one(get_shape(size_expr)).nodes}:
         return size_expr
+
+    # linear_axis has to be isomorphic to the expression but it needn't match exactly
+    linear_axis = utils.just_one({n for n in utils.just_one(get_shape(size_expr)).nodes if n.label == linear_axis.label})
 
     # We do an accumulate (exscan) over a single axis. This means that things
     # always start from zero and so we can add the result to the accumulated
@@ -423,7 +430,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     outer_loop_tree = offset_axes.drop_node(loc)
     assert linear_axis not in outer_loop_tree.nodes
 
-    offset_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
+    offset_dat = Dat.zeros(offset_axes.regionless(), dtype=IntType)
 
     size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
 
@@ -485,15 +492,14 @@ def _tabulate_regions(offset_axes, step, comm):
     locs = np.full(offset_axes.local_size, -1, dtype=IntType)
     ptr = 0
     for regions in _collect_regions(offset_axes):
-        regioned_offset_axes = offset_axes.with_region_labels(regions)
-        assert not regioned_offset_axes._all_region_labels
+        regioned_offset_axes = offset_axes.with_region_labels(regions).regionless()
 
-        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.localize())
+        # regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless())
 
         if not regioned_offset_axes.is_linear:
             raise NotImplementedError("Doesn't strictly have to be linear here")
 
-        region_offset_dat = Dat.empty(regioned_offset_axes, dtype=IntType)
+        region_offset_dat = Dat.empty(regioned_offset_axes.materialize(), dtype=IntType)
 
         offset_expr = utils.just_one(regioned_offset_axes.leaf_subst_layouts.values())
 
@@ -510,7 +516,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # all of the available axes (there is no axis-wise 'exscan' here). This is
     # because the axes above this have not yet been tabulated so accumulation
     # is not a concern.
-    step_dat = Dat.zeros(offset_axes.localize(), dtype=IntType)
+    step_dat = Dat.zeros(offset_axes.regionless(), dtype=IntType)
     step_dat.assign(step, eager=True)
 
     # But the steps here are in the wrong order since they do not account for

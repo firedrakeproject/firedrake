@@ -13,6 +13,7 @@ from immutabledict import immutabledict as idict
 from pyop3 import utils
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
+from pyop3.tree.axis_tree.tree import MissingVariableException
 
 
 class Expression(Node, abc.ABC):
@@ -40,14 +41,8 @@ class Expression(Node, abc.ABC):
 
     def __str__(self) -> str:
         return self._full_str
-        # if len(full_str) > self.MAX_NUM_CHARS:
-        #     pos = self.MAX_NUM_CHARS // 2 - 1
-        #     return f"{full_str[:pos]}..{full_str[-pos:]}"
-        # else:
-        #     return full_str
 
     def __add__(self, other: ExpressionT, /) -> Expression:
-        # FIXME: This is generally not valid to do! In parallel we can't be sure that this is collective
         if other == 0:
             return self
         else:
@@ -121,16 +116,13 @@ class Expression(Node, abc.ABC):
         return GreaterThanOrEqual(self, other)
 
     def __or__(self, other) -> Or | bool:
-        # return self._maybe_eager_or(self, other)
-        return Or(self, other)
+        return self._maybe_eager_or(self, other)
 
     def __ror__(self, other) -> Or | bool:
-        # return self._maybe_eager_or(other, self)
-        return Or(other, self)
+        return self._maybe_eager_or(other, self)
 
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
-        # not safe!
         from pyop3 import evaluate
         from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
 
@@ -435,6 +427,9 @@ class Conditional(TernaryOperator):
     @property
     def local_max(self) -> numbers.Number:
         raise TypeError("not sure that this makes sense")
+        from pyop3.expr.visitors import get_local_max
+
+        return max(*map(get_local_max, [self.if_true, self.if_false]))
 
     @property
     def local_min(self) -> numbers.Number:
@@ -443,11 +438,18 @@ class Conditional(TernaryOperator):
 
 
 def conditional(predicate, if_true, if_false):
-    # If both branches are the same then just return one of them.
+    from pyop3 import evaluate
+
     if if_true == if_false:
         return if_true
-    else:
+
+    try:
+        predicate = evaluate(predicate)
+    except MissingVariableException:
         return Conditional(predicate, if_true, if_false)
+    else:
+        assert isinstance(predicate, bool)
+        return if_true if predicate else if_false
 
 
 class TerminalExpression(Expression, Terminal, abc.ABC):

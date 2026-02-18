@@ -284,7 +284,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     @classmethod
     def from_axis_trees(cls, buffer_ref, row_axes, column_axes) -> MatPetscMatBufferExpression:
         row_layout, column_layout = (
-            CompositeDat(axis_tree.materialize().localize(), axis_tree.subst_layouts())
+            CompositeDat(axis_tree.materialize().regionless(), axis_tree.subst_layouts())
             for axis_tree in [row_axes, column_axes]
         )
         return cls(buffer_ref, row_layout, column_layout)
@@ -378,7 +378,7 @@ def _(dat: Dat) -> LinearDatBufferExpression:
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
-    axes = dat.axes.localize()
+    axes = dat.axes.regionless()
     layout = utils.just_one(axes.leaf_subst_layouts.values())
     return LinearDatBufferExpression(BufferRef(dat.buffer), layout)
 

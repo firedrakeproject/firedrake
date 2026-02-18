@@ -818,7 +818,7 @@ class FunctionSpace:
 
             ndofs = self.local_section.getDof(old_pt) // self.block_size
 
-            if new_pt not in constrained_points:
+            if old_pt not in constrained_points:
                 num_unconstrained_dofs[new_pt] = ndofs
                 num_constrained_dofs[new_pt] = 0
             else:
@@ -1520,7 +1520,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             str(self.function_space), self.name, self.boundary_set)
 
     def __hash__(self):
-        return hash((self.mesh(), self.layout_axes, self.ufl_element(),
+        return hash((self.mesh(), self.layout, self.ufl_element(),
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
@@ -1531,10 +1531,15 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        scalar_axis_tree = self.axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.size
+        scalar_axis_tree = self.layout_axes.blocked(self.shape)
 
-        node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+        regions = []
+        for owned_or_ghost in ["owned", "ghost"]:
+            for maybe_constrained in ["unconstrained", "constrained"]:
+                region_size = scalar_axis_tree.with_region_labels({owned_or_ghost, maybe_constrained}).size
+                regions.append(op3.AxisComponentRegion(region_size, frozenset({owned_or_ghost, maybe_constrained})))
+
+        node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf)], "nodes")
         axis_tree = op3.AxisTree(node_axis)
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
