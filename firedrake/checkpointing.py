@@ -8,7 +8,7 @@ from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, MeshSequenceGeometry, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
 from firedrake.functionspacedata import get_global_numbering, create_element
@@ -502,6 +502,37 @@ class HDF5File(object):
 
     def __del__(self):
         self.close()
+
+
+def _generate_function_space_name(V):
+    """Return a unique function space name.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        The function space to generate a name for.
+    """
+    V_names = [PREFIX + "_function_space"]
+    for Vsub in V:
+        elem = Vsub.ufl_element()
+        if isinstance(elem, finat.ufl.RestrictedElement):
+            # RestrictedElement.shortstr() contains '<>|{}'.
+            elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
+        elif isinstance(elem, finat.ufl.EnrichedElement):
+            # EnrichedElement.shortstr() contains '<>+'.
+            elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
+        else:
+            elem_name = elem.shortstr()
+            elem_name = elem_name.replace('?', 'None')
+            # MixedElement, VectorElement, TensorElement
+            # use '<' and '>' in shortstr(), but changing
+            # these to '(' and ')' causes no confusion.
+            elem_name = elem_name.replace('<', '(').replace('>', ')')
+        mesh = Vsub.mesh()
+        if isinstance(mesh, MeshSequenceGeometry):
+            mesh = mesh[-1]
+        V_names.append("_".join([mesh.name, elem_name]))
+    return "_".join(V_names)
 
 
 class CheckpointFile(object):
@@ -1403,24 +1434,7 @@ class CheckpointFile(object):
 
     def _generate_function_space_name(self, V):
         """Return a unique function space name."""
-        V_names = [PREFIX + "_function_space"]
-        for Vsub in V:
-            elem = Vsub.ufl_element()
-            if isinstance(elem, finat.ufl.RestrictedElement):
-                # RestrictedElement.shortstr() contains '<>|{}'.
-                elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
-            elif isinstance(elem, finat.ufl.EnrichedElement):
-                # EnrichedElement.shortstr() contains '<>+'.
-                elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
-            else:
-                elem_name = elem.shortstr()
-                elem_name = elem_name.replace('?', 'None')
-                # MixedElement, VectorElement, TensorElement
-                # use '<' and '>' in shortstr(), but changing
-                # these to '(' and ')' causes no confusion.
-                elem_name = elem_name.replace('<', '(').replace('>', ')')
-            V_names.append("_".join([Vsub.mesh().name, elem_name]))
-        return "_".join(V_names)
+        return _generate_function_space_name(V)
 
     def _generate_dm_name(self, nodes_per_entity, real_tensorproduct, block_size):
         return "_".join([PREFIX, "dm"]

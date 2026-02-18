@@ -1,5 +1,4 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-import ufl
 from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
@@ -365,22 +364,6 @@ class CheckpointBase(ABC):
         pass
 
 
-def _generate_checkpoint_vec_name(function):
-    """Generate a unique name for checkpoint-comm Vec storage based on function space."""
-    V = function.function_space()
-    mesh = V.mesh()
-    # Handle MeshSequenceGeometry (mesh hierarchies) by getting the
-    # underlying MeshGeometry.
-    if isinstance(mesh, ufl.MeshSequence):
-        mesh = mesh[-1]
-    parts = ["ckpt"]
-    parts.append(mesh.name)
-    for Vsub in V:
-        elem = Vsub.ufl_element()
-        parts.append(elem.shortstr().replace(" ", "_").replace(",", "_"))
-    return "_".join(parts)
-
-
 class CheckpointFunction(CheckpointBase, OverloadedType):
     """Metadata for a Function checkpointed to disk.
 
@@ -436,12 +419,13 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
     def _save_checkpoint_comm(self, function):
         """Save local Vec data to an HDF5 file via PETSc on checkpoint_comm."""
+        from firedrake.checkpointing import _generate_function_space_name
         cc = self.file.checkpoint_comm
         stored_names = CheckpointFunction._checkpoint_indices
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.stored_name = _generate_checkpoint_vec_name(function)
+        self.stored_name = _generate_function_space_name(function.function_space())
         indices = stored_names[self.file.name]
         indices.setdefault(self.stored_name, 0)
         indices[self.stored_name] += 1
