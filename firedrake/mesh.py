@@ -2633,7 +2633,8 @@ values from f.)"""
             lp.GlobalArg("f_max", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
             lp.GlobalArg("f_min", dtype=RealType, shape=(1, gdim), is_input=True, is_output=True),
         ]
-        knl = lp.make_function(domain, instructions, kargs, name="bounding_box_kernel", target=target)
+        knl = lp.make_function(domain, instructions, kargs, name="bounding_box_kernel", target=target,
+                               lang_version=(2018, 2))
         knl = op2.Kernel(knl, name="bounding_box_kernel")
         op2.parloop(knl,
                     mesh.cell_set,
