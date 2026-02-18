@@ -3,10 +3,21 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 from firedrake.adjoint_utils.checkpointing import disk_checkpointing
+from pyadjoint.tape import set_working_tape, continue_annotation, pause_annotation
 from checkpoint_schedules import SingleDiskStorageSchedule
+from mpi4py import MPI
 import numpy as np
 import os
 import tempfile
+
+
+@pytest.fixture
+def set_test_tape():
+    """Set a new working tape for this test."""
+    continue_annotation()
+    with set_working_tape():
+        yield
+    pause_annotation()
 
 
 @pytest.fixture(autouse=True)
@@ -205,40 +216,23 @@ def test_bcs():
     assert np.allclose(rf(F), obj)
 
 
-# --- Per-rank disk checkpointing tests ---
-# These test the per_rank_dirname option which writes each MPI rank's
-# function data to its own HDF5 file using PETSc Vec I/O on COMM_SELF.
-# This avoids parallel HDF5 and enables node-local storage on HPC systems.
-
-
-@pytest.mark.skipcomplex
-def test_per_rank_disk_checkpointing():
-    set_working_tape(Tape())
-    tape = get_working_tape()
-    tape.clear_tape()
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
-    tape.enable_checkpointing(SingleDiskStorageSchedule())
-    mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
-    J_disk, grad_J_disk = adjoint_example(mesh)
-
-    assert disk_checkpointing() is False
-    tape.clear_tape()
-
-    J_mem, grad_J_mem = adjoint_example(mesh)
-    assert np.allclose(J_disk, J_mem)
-    assert np.allclose(assemble((grad_J_disk - grad_J_mem)**2*dx), 0.0)
+# --- checkpoint_comm disk checkpointing tests ---
+# These test the checkpoint_comm option which writes function data using
+# PETSc Vec I/O on a user-supplied communicator instead of CheckpointFile.
+# Passing MPI.COMM_SELF gives each rank its own file, avoiding parallel
+# HDF5 and enabling node-local storage on HPC systems.
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
-def test_per_rank_disk_checkpointing_parallel():
+def test_checkpoint_comm_disk_checkpointing_parallel():
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
+    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_checkpoint_comm_")
+    enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
+                              checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
     J_disk, grad_J_disk = adjoint_example(mesh)
@@ -251,11 +245,12 @@ def test_per_rank_disk_checkpointing_parallel():
 
 
 @pytest.mark.skipcomplex
-def test_per_rank_successive_writes():
+def test_checkpoint_comm_successive_writes():
     tape = get_working_tape()
     tape.clear_tape()
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_sw_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
+    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_checkpoint_comm_sw_")
+    enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
+                              checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
 
     mesh = checkpointable_mesh(UnitSquareMesh(1, 1))
@@ -274,84 +269,16 @@ def test_per_rank_successive_writes():
 
 
 @pytest.mark.skipcomplex
-def test_per_rank_adjoint_dependencies_set():
-    tape = get_working_tape()
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_deps_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
-    tape.enable_checkpointing(SingleDiskStorageSchedule())
-    mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
-    V = FunctionSpace(mesh, "CG", 1)
-    c = Function(V).interpolate(1.0)
-
-    def delta_expr(x0, x, y, sigma_x=2000.0):
-        sigma_x = Constant(sigma_x)
-        return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
-
-    x, y = SpatialCoordinate(mesh)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    u_np1 = Function(V, name="u_np1")
-    u_n = Function(V, name="u_n")
-    u_nm1 = Function(V, name="u_nm1")
-    time_term = (u - 2.0 * u_n + u_nm1) / Constant(0.001**2) * v * dx
-    a = c * c * dot(grad(u_n), grad(v)) * dx
-    F = time_term + a + delta_expr(Constant([0.5, 0.5]), x, y) * v * dx
-    lin_var = LinearVariationalProblem(lhs(F), rhs(F), u_np1, constant_jacobian=True)
-    solver = LinearVariationalSolver(lin_var)
-    J = 0.
-    for _ in tape.timestepper(iter(range(10))):
-        solver.solve()
-        u_nm1.assign(u_n)
-        u_n.assign(u_np1)
-        J += assemble(u_np1 * u_np1 * dx)
-
-    J_hat = ReducedFunctional(J, Control(c))
-    assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
-
-
-@pytest.mark.skipcomplex
-def test_per_rank_bcs():
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_bcs_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
-
-    tape = get_working_tape()
-    tape.enable_checkpointing(SingleDiskStorageSchedule())
-
-    mesh = checkpointable_mesh(UnitSquareMesh(5, 5))
-    V = FunctionSpace(mesh, "CG", 2)
-    T = Function(V)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    a = inner(grad(u), grad(v)) * dx
-    x = SpatialCoordinate(mesh)
-    F = Function(V)
-    control = Control(F)
-    F.interpolate(sin(x[0] * pi) * sin(2 * x[1] * pi))
-    L = F * v * dx
-    uu = Function(V)
-    bcs = [DirichletBC(V, T, (1,))]
-    problem = LinearVariationalProblem(a, L, uu, bcs=bcs)
-    solver = LinearVariationalSolver(problem)
-
-    for i in tape.timestepper(iter(range(3))):
-        T.assign(T + 1.0)
-        solver.solve()
-    obj = assemble(uu * uu * dx)
-    rf = ReducedFunctional(obj, control)
-    assert np.allclose(rf(F), obj)
-
-
-@pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
-def test_per_rank_multi_mesh_parallel():
-    """Test per-rank checkpointing with two independently partitioned meshes."""
+def test_checkpoint_comm_multi_mesh_parallel():
+    """Test checkpoint_comm checkpointing with two independently partitioned meshes."""
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
-    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_per_rank_multi_")
-    enable_disk_checkpointing(per_rank_dirname=tmpdir)
+    tmpdir = tempfile.mkdtemp(prefix="firedrake_test_checkpoint_comm_multi_")
+    enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
+                              checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
 
     mesh_a = checkpointable_mesh(UnitSquareMesh(10, 10, name="mesh_a"))
@@ -405,3 +332,155 @@ def test_per_rank_multi_mesh_parallel():
 
     J_mem = assemble(u_a2**2 * dx) + assemble(u_b2**2 * dx)
     assert np.allclose(J, J_mem)
+
+
+# --- node_comm disk checkpointing tests ---
+# These test the checkpoint_comm option with a shared-memory communicator
+# obtained via MPI.COMM_TYPE_SHARED. On a single machine all ranks share
+# one communicator, exercising the multi-rank createMPI + parallel HDF5
+# path where ranks collectively write to a shared checkpoint file.
+
+
+def _node_comm():
+    """Return a communicator grouping ranks that share physical memory."""
+    return MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED)
+
+
+def _broadcast_tmpdir(comm):
+    """Create a tmpdir on rank 0 and broadcast the path to all ranks."""
+    if comm.rank == 0:
+        d = tempfile.mkdtemp(prefix="firedrake_test_node_comm_")
+    else:
+        d = None
+    return comm.bcast(d, root=0)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+def test_node_comm_disk_checkpointing_parallel():
+    """Test disk checkpointing with a shared-memory node communicator."""
+    node_comm = _node_comm()
+    set_working_tape(Tape())
+    tape = get_working_tape()
+    tape.clear_tape()
+    continue_annotation()
+    tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
+    enable_disk_checkpointing(checkpoint_comm=node_comm,
+                              checkpoint_dir=tmpdir)
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+    mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
+    J_disk, grad_J_disk = adjoint_example(mesh)
+
+    assert disk_checkpointing() is False
+    tape.clear_tape()
+    J_mem, grad_J_mem = adjoint_example(mesh)
+    assert np.allclose(J_disk, J_mem)
+    assert np.allclose(assemble((grad_J_disk - grad_J_mem)**2*dx), 0.0)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+def test_node_comm_multi_mesh_parallel():
+    """Test node-comm checkpointing with two independently partitioned meshes."""
+    node_comm = _node_comm()
+    set_working_tape(Tape())
+    tape = get_working_tape()
+    tape.clear_tape()
+    continue_annotation()
+    tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
+    enable_disk_checkpointing(checkpoint_comm=node_comm,
+                              checkpoint_dir=tmpdir)
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+
+    mesh_a = checkpointable_mesh(UnitSquareMesh(10, 10, name="mesh_a"))
+    mesh_b = checkpointable_mesh(UnitSquareMesh(7, 7, name="mesh_b"))
+
+    Va = FunctionSpace(mesh_a, "CG", 2)
+    Vb = FunctionSpace(mesh_b, "CG", 1)
+
+    x_a, y_a = SpatialCoordinate(mesh_a)
+    m = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
+
+    u_a = Function(Va, name="u_a")
+    v_a = TestFunction(Va)
+    F_a = inner(grad(u_a), grad(v_a)) * dx - m * v_a * dx
+    solve(F_a == 0, u_a)
+
+    u_b = Function(Vb, name="u_b")
+    v_b = TestFunction(Vb)
+    source_val = assemble(u_a * dx)
+    x_b, y_b = SpatialCoordinate(mesh_b)
+    F_b = inner(grad(u_b), grad(v_b)) * dx - Constant(source_val) * v_b * dx
+    bcs_b = [DirichletBC(Vb, 0.0, "on_boundary")]
+    solve(F_b == 0, u_b, bcs=bcs_b)
+
+    J = assemble(u_a**2 * dx) + assemble(u_b**2 * dx)
+    Jhat = ReducedFunctional(J, Control(m))
+
+    with stop_annotating():
+        m_new = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
+
+    Jnew = Jhat(m_new)
+    assert np.allclose(J, Jnew)
+
+    assert disk_checkpointing() is False
+    tape.clear_tape()
+
+    m2 = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
+    u_a2 = Function(Va, name="u_a")
+    v_a2 = TestFunction(Va)
+    F_a2 = inner(grad(u_a2), grad(v_a2)) * dx - m2 * v_a2 * dx
+    solve(F_a2 == 0, u_a2)
+
+    u_b2 = Function(Vb, name="u_b")
+    v_b2 = TestFunction(Vb)
+    source_val2 = assemble(u_a2 * dx)
+    F_b2 = inner(grad(u_b2), grad(v_b2)) * dx - Constant(source_val2) * v_b2 * dx
+    solve(F_b2 == 0, u_b2, bcs=[DirichletBC(Vb, 0.0, "on_boundary")])
+
+    J_mem = assemble(u_a2**2 * dx) + assemble(u_b2**2 * dx)
+    assert np.allclose(J, J_mem)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=3)
+def test_node_comm_adjoint_dependencies_parallel():
+    """Test node-comm checkpointing with timestepper and taylor_test."""
+    node_comm = _node_comm()
+    set_working_tape(Tape())
+    tape = get_working_tape()
+    tape.clear_tape()
+    continue_annotation()
+    tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
+    enable_disk_checkpointing(checkpoint_comm=node_comm,
+                              checkpoint_dir=tmpdir)
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+    mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
+    V = FunctionSpace(mesh, "CG", 1)
+    c = Function(V).interpolate(1.0)
+
+    def delta_expr(x0, x, y, sigma_x=2000.0):
+        sigma_x = Constant(sigma_x)
+        return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
+
+    x, y = SpatialCoordinate(mesh)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_np1 = Function(V, name="u_np1")
+    u_n = Function(V, name="u_n")
+    u_nm1 = Function(V, name="u_nm1")
+    time_term = (u - 2.0 * u_n + u_nm1) / Constant(0.001**2) * v * dx
+    a = c * c * dot(grad(u_n), grad(v)) * dx
+    F = time_term + a + delta_expr(Constant([0.5, 0.5]), x, y) * v * dx
+    lin_var = LinearVariationalProblem(lhs(F), rhs(F), u_np1, constant_jacobian=True)
+    solver = LinearVariationalSolver(lin_var)
+    J = 0.
+    for _ in tape.timestepper(iter(range(10))):
+        solver.solve()
+        u_nm1.assign(u_n)
+        u_n.assign(u_np1)
+        J += assemble(u_np1 * u_np1 * dx)
+
+    J_hat = ReducedFunctional(J, Control(c))
+    assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9

@@ -3,8 +3,6 @@ from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callb
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 from petsc4py import PETSc
-from mpi4py import MPI
-import numpy as np
 import tempfile
 import os
 import shutil
@@ -53,7 +51,7 @@ class checkpoint_init_data:
 
 
 def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True,
-                              per_rank_dirname=None):
+                              checkpoint_comm=None, checkpoint_dir=None):
     """Add a DiskCheckpointer to the current tape.
 
     Disk checkpointing is fully enabled by calling::
@@ -72,10 +70,11 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True,
     `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
     or a combination of both.
 
-    For HPC systems with fast node-local storage, per-rank checkpointing can
-    be enabled to avoid parallel HDF5 overhead::
+    For HPC systems with fast node-local storage, function data can be
+    checkpointed on a sub-communicator to avoid parallel HDF5 overhead::
 
-        enable_disk_checkpointing(per_rank_dirname="/local/scratch")
+        enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
+                                  checkpoint_dir="/local/scratch")
 
     Parameters
     ----------
@@ -90,18 +89,28 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True,
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    per_rank_dirname : str
-        If specified, enables per-rank checkpointing where each MPI rank
-        writes function data to its own HDF5 file in this directory using
-        PETSc Vec I/O on ``COMM_SELF``. This avoids parallel HDF5 and is
-        ideal for node-local storage on HPC systems. The mesh checkpoint
-        (via ``checkpointable_mesh``) still uses shared storage. Requires
-        the same number of ranks on restore.
+    checkpoint_comm : mpi4py.MPI.Intracomm or None
+        If specified, function data is checkpointed using PETSc Vec I/O on
+        this communicator instead of using Firedrake's CheckpointFile. This
+        bypasses parallel HDF5 and is ideal for node-local storage on HPC
+        systems. Passing ``MPI.COMM_SELF`` gives each rank its own file,
+        while a shared node communicator groups ranks that share storage.
+        The mesh checkpoint (via ``checkpointable_mesh``) always uses shared
+        storage. Requires the same communicator layout on restore.
+    checkpoint_dir : str or None
+        The directory in which checkpoint_comm files are stored. Only used
+        when ``checkpoint_comm`` is not None. Each group of ranks sharing
+        a checkpoint_comm creates a temporary subdirectory here. This
+        directory must be accessible from all ranks within each
+        checkpoint_comm group. For example, using a node-local path like
+        /tmp is safe when checkpoint_comm groups ranks on the same node,
+        but would fail if checkpoint_comm spans nodes whose filesystems
+        are not shared.
     """
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(
-            dirname, comm, cleanup, per_rank_dirname
+            dirname, comm, cleanup, checkpoint_comm, checkpoint_dir
         )
 
 
@@ -138,17 +147,18 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False, per_rank=False):
+    def __init__(self, name, comm, cleanup=False, checkpoint_comm=None):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
-        self.per_rank = per_rank
+        self.checkpoint_comm = checkpoint_comm
 
     def __del__(self):
         if self.cleanup and os.path.exists(self.name):
-            if self.per_rank:
-                # Each rank cleans up its own file.
-                os.remove(self.name)
+            if self.checkpoint_comm is not None:
+                # Cleanup coordinated within checkpoint_comm.
+                if self.checkpoint_comm.rank == 0:
+                    os.remove(self.name)
             elif self.comm.rank == 0:
                 os.remove(self.name)
 
@@ -169,13 +179,19 @@ class DiskCheckpointer(TapePackageData):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    per_rank_dirname : str
-        If specified, enables per-rank checkpointing for function data.
+    checkpoint_comm : mpi4py.MPI.Intracomm or None
+        If specified, function data is checkpointed on this communicator.
+    checkpoint_dir : str or None
+        Directory for checkpoint_comm files. This directory must be
+        accessible from all ranks within each checkpoint_comm group.
+        For example, using a node-local path like /tmp is safe when
+        checkpoint_comm groups ranks on the same node, but would fail
+        if checkpoint_comm spans nodes whose filesystems are not shared.
     """
 
     def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True,
-                 per_rank_dirname=None):
-        self.per_rank = per_rank_dirname is not None
+                 checkpoint_comm=None, checkpoint_dir=None):
+        self.checkpoint_comm = checkpoint_comm
         self.comm = comm
         self.cleanup = cleanup
 
@@ -190,14 +206,18 @@ class DiskCheckpointer(TapePackageData):
             # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
 
-        # Per-rank directory (for function data checkpoints).
-        if self.per_rank:
-            self.rank_dirname = tempfile.mkdtemp(
-                prefix=f"firedrake_adjoint_checkpoint_rank{comm.rank}_",
-                dir=per_rank_dirname
-            )
-            if self.cleanup:
-                atexit.register(shutil.rmtree, self.rank_dirname)
+        # Checkpoint-comm directory (for function data checkpoints).
+        if self.checkpoint_comm is not None:
+            cc = self.checkpoint_comm
+            if cc.rank == 0:
+                self.cc_dirname = cc.bcast(tempfile.mkdtemp(
+                    prefix="firedrake_adjoint_checkpoint_cc_",
+                    dir=checkpoint_dir or os.getcwd()
+                ))
+            else:
+                self.cc_dirname = cc.bcast("")
+            if self.cleanup and cc.rank == 0:
+                atexit.register(shutil.rmtree, self.cc_dirname)
 
         # A checkpoint file holding the state of block variables set outside
         # the tape (always shared, used by checkpointable_mesh).
@@ -218,25 +238,30 @@ class DiskCheckpointer(TapePackageData):
         with CheckpointFile(checkpoint_file, 'w'):
             pass
         return CheckPointFileReference(checkpoint_file, self.comm,
-                                       self.cleanup, per_rank=False)
+                                       self.cleanup)
 
-    def _new_per_rank_checkpoint_file(self):
-        """Set up a per-rank disk checkpointing file."""
-        fd, checkpoint_file = tempfile.mkstemp(
-            dir=self.rank_dirname, suffix=".h5"
-        )
-        os.close(fd)
+    def _new_checkpoint_comm_file(self):
+        """Set up a checkpoint file on the checkpoint communicator."""
+        cc = self.checkpoint_comm
+        if cc.rank == 0:
+            fd, checkpoint_file = tempfile.mkstemp(
+                dir=self.cc_dirname, suffix=".h5"
+            )
+            os.close(fd)
+            checkpoint_file = cc.bcast(checkpoint_file)
+        else:
+            checkpoint_file = cc.bcast("")
         # Create a valid empty HDF5 file via PETSc.
         viewer = PETSc.ViewerHDF5()
-        viewer.create(checkpoint_file, mode='w', comm=MPI.COMM_SELF)
+        viewer.create(checkpoint_file, mode='w', comm=cc)
         viewer.destroy()
         return CheckPointFileReference(checkpoint_file, self.comm,
-                                       self.cleanup, per_rank=True)
+                                       self.cleanup, checkpoint_comm=cc)
 
     def _new_checkpoint_file(self):
         """Set up a checkpoint file for function data."""
-        if self.per_rank:
-            return self._new_per_rank_checkpoint_file()
+        if self.checkpoint_comm is not None:
+            return self._new_checkpoint_comm_file()
         else:
             return self._new_shared_checkpoint_file()
 
@@ -335,15 +360,15 @@ class CheckpointBase(ABC):
         pass
 
 
-def _generate_per_rank_name(function):
-    """Generate a unique name for per-rank Vec storage based on function space."""
+def _generate_checkpoint_vec_name(function):
+    """Generate a unique name for checkpoint-comm Vec storage based on function space."""
     V = function.function_space()
     mesh = V.mesh()
     # Handle MeshSequenceGeometry (mesh hierarchies) by getting the
     # underlying MeshGeometry.
     if hasattr(mesh, '_meshes'):
         mesh = mesh[-1]
-    parts = ["pr"]
+    parts = ["ckpt"]
     parts.append(mesh.name)
     for Vsub in V:
         elem = Vsub.ufl_element()
@@ -380,9 +405,9 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
         self.count = function.count()
 
-        if self.file.per_rank:
+        if self.file.checkpoint_comm is not None:
             self._function_space = function.function_space()
-            self._save_per_rank(function)
+            self._save_checkpoint_comm(function)
         else:
             self._save_shared(function)
 
@@ -404,13 +429,14 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
-    def _save_per_rank(self, function):
-        """Save local Vec data to a per-rank HDF5 file via PETSc on COMM_SELF."""
+    def _save_checkpoint_comm(self, function):
+        """Save local Vec data to an HDF5 file via PETSc on checkpoint_comm."""
+        cc = self.file.checkpoint_comm
         stored_names = CheckpointFunction._checkpoint_indices
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.stored_name = _generate_per_rank_name(function)
+        self.stored_name = _generate_checkpoint_vec_name(function)
         indices = stored_names[self.file.name]
         indices.setdefault(self.stored_name, 0)
         indices[self.stored_name] += 1
@@ -421,20 +447,22 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         with function.dat.vec_ro as v:
             local_array = v.getArray().copy()
 
-        local_vec = PETSc.Vec().createSeq(len(local_array), comm=MPI.COMM_SELF)
+        local_vec = PETSc.Vec().createMPI(
+            (len(local_array), PETSc.DECIDE), comm=cc
+        )
         local_vec.setName(vec_name)
         local_vec.setArray(local_array)
 
         viewer = PETSc.ViewerHDF5()
-        viewer.create(self.file.name, mode='a', comm=MPI.COMM_SELF)
+        viewer.create(self.file.name, mode='a', comm=cc)
         local_vec.view(viewer)
         viewer.destroy()
         local_vec.destroy()
 
     def restore(self):
         """Read and return this Function from the checkpoint."""
-        if self.file.per_rank:
-            return self._restore_per_rank()
+        if self.file.checkpoint_comm is not None:
+            return self._restore_checkpoint_comm()
         else:
             return self._restore_shared()
 
@@ -447,9 +475,10 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         return type(function)(function.function_space(),
                               function.dat, name=self.name, count=self.count)
 
-    def _restore_per_rank(self):
-        """Load local Vec data from a per-rank HDF5 file via PETSc on COMM_SELF."""
+    def _restore_checkpoint_comm(self):
+        """Load local Vec data from an HDF5 file via PETSc on checkpoint_comm."""
         from firedrake import Function
+        cc = self.file.checkpoint_comm
 
         vec_name = f"{self.stored_name}_{self.stored_index}"
 
@@ -457,11 +486,13 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
         with f.dat.vec_wo as v:
             local_size = v.getLocalSize()
-            local_vec = PETSc.Vec().createSeq(local_size, comm=MPI.COMM_SELF)
+            local_vec = PETSc.Vec().createMPI(
+                (local_size, PETSc.DECIDE), comm=cc
+            )
             local_vec.setName(vec_name)
 
             viewer = PETSc.ViewerHDF5()
-            viewer.create(self.file.name, mode='r', comm=MPI.COMM_SELF)
+            viewer.create(self.file.name, mode='r', comm=cc)
             local_vec.load(viewer)
             viewer.destroy()
 
