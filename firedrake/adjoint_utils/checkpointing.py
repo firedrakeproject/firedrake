@@ -1,4 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
+import ufl
 from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
@@ -7,6 +8,7 @@ import tempfile
 import os
 import shutil
 import atexit
+import warnings
 from abc import ABC, abstractmethod
 from numbers import Number
 _enable_disk_checkpoint = False
@@ -265,9 +267,12 @@ class DiskCheckpointer(TapePackageData):
         else:
             return self._new_shared_checkpoint_file()
 
-    # Keep the old name as an alias for backwards compatibility.
     def new_checkpoint_file(self):
         """Set up a disk checkpointing file."""
+        warnings.warn(
+            "'new_checkpoint_file' is deprecated, use '_new_checkpoint_file' instead",
+            FutureWarning
+        )
         return self._new_checkpoint_file()
 
     def clear(self, init=True):
@@ -366,7 +371,7 @@ def _generate_checkpoint_vec_name(function):
     mesh = V.mesh()
     # Handle MeshSequenceGeometry (mesh hierarchies) by getting the
     # underlying MeshGeometry.
-    if hasattr(mesh, '_meshes'):
+    if isinstance(mesh, ufl.MeshSequence):
         mesh = mesh[-1]
     parts = ["ckpt"]
     parts.append(mesh.name)

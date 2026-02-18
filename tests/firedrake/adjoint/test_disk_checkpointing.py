@@ -334,22 +334,23 @@ def test_checkpoint_comm_multi_mesh_parallel():
     assert np.allclose(J, J_mem)
 
 
-# --- node_comm disk checkpointing tests ---
-# These test the checkpoint_comm option with a shared-memory communicator
-# obtained via MPI.COMM_TYPE_SHARED. On a single machine all ranks share
-# one communicator, exercising the multi-rank createMPI + parallel HDF5
-# path where ranks collectively write to a shared checkpoint file.
+# --- sub_comm disk checkpointing tests ---
+# These test the checkpoint_comm option with a communicator that groups
+# ranks into sub-communicators of size > 1 but < COMM_WORLD, exercising
+# the multi-rank createMPI + parallel HDF5 path where ranks collectively
+# write to a shared checkpoint file.
 
 
-def _node_comm():
-    """Return a communicator grouping ranks that share physical memory."""
-    return MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED)
+def _sub_comm():
+    """Return a communicator splitting ranks into groups of 2."""
+    comm = MPI.COMM_WORLD
+    return comm.Split(color=comm.rank // 2, key=comm.rank)
 
 
 def _broadcast_tmpdir(comm):
     """Create a tmpdir on rank 0 and broadcast the path to all ranks."""
     if comm.rank == 0:
-        d = tempfile.mkdtemp(prefix="firedrake_test_node_comm_")
+        d = tempfile.mkdtemp(prefix="firedrake_test_sub_comm_")
     else:
         d = None
     return comm.bcast(d, root=0)
@@ -357,15 +358,15 @@ def _broadcast_tmpdir(comm):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
-def test_node_comm_disk_checkpointing_parallel():
-    """Test disk checkpointing with a shared-memory node communicator."""
-    node_comm = _node_comm()
+def test_sub_comm_disk_checkpointing_parallel():
+    """Test disk checkpointing with a multi-rank sub-communicator."""
+    sub_comm = _sub_comm()
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
-    enable_disk_checkpointing(checkpoint_comm=node_comm,
+    enable_disk_checkpointing(checkpoint_comm=sub_comm,
                               checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
@@ -380,15 +381,15 @@ def test_node_comm_disk_checkpointing_parallel():
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
-def test_node_comm_multi_mesh_parallel():
-    """Test node-comm checkpointing with two independently partitioned meshes."""
-    node_comm = _node_comm()
+def test_sub_comm_multi_mesh_parallel():
+    """Test sub-comm checkpointing with two independently partitioned meshes."""
+    sub_comm = _sub_comm()
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
-    enable_disk_checkpointing(checkpoint_comm=node_comm,
+    enable_disk_checkpointing(checkpoint_comm=sub_comm,
                               checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
 
@@ -444,15 +445,15 @@ def test_node_comm_multi_mesh_parallel():
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
-def test_node_comm_adjoint_dependencies_parallel():
-    """Test node-comm checkpointing with timestepper and taylor_test."""
-    node_comm = _node_comm()
+def test_sub_comm_adjoint_dependencies_parallel():
+    """Test sub-comm checkpointing with timestepper and taylor_test."""
+    sub_comm = _sub_comm()
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
-    enable_disk_checkpointing(checkpoint_comm=node_comm,
+    enable_disk_checkpointing(checkpoint_comm=sub_comm,
                               checkpoint_dir=tmpdir)
     tape.enable_checkpointing(SingleDiskStorageSchedule())
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
