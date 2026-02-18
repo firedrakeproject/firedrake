@@ -3,7 +3,7 @@ from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import cached_property, complex_mode, IntType
+from firedrake.utils import complex_mode, IntType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
 from firedrake.ufl_expr import extract_domains
@@ -11,7 +11,7 @@ from firedrake.ufl_expr import extract_domains
 from collections import namedtuple
 import operator
 from itertools import chain
-from functools import partial
+from functools import cached_property, partial
 import numpy
 from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain

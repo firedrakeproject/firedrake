@@ -41,8 +41,6 @@ from decorator import decorator
 import argparse
 import petsc4py
 
-from functools import cached_property  # noqa: F401
-
 from pyop2.exceptions import DataTypeError, DataValueError
 from pyop2.configuration import configuration
 
