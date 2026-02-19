@@ -4461,7 +4461,6 @@ def _parent_mesh_embedding(
             locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
         else:
             locally_visible_cell_nums = parent_cell_nums[locally_visible]
-
         ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
 
     # see below for why np.inf is used here.
@@ -4543,9 +4542,11 @@ def _parent_mesh_embedding(
             )
             changed_ranks_tied &= locally_visible
             # update the identified rank
-            ranks[changed_ranks_tied] = visible_ranks[
-                parent_cell_nums[changed_ranks_tied]
-            ]
+            if parent_mesh.extruded:
+                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
+            else:
+                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
+            ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
             # if the rank now matches then we have found the correct cell
             locally_visible[changed_ranks_tied] &= (
                 owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
