@@ -4454,13 +4454,15 @@ def _parent_mesh_embedding(
         # See below for why np.inf is used here.
         ranks = np.full(ncoords_global, np.inf)
         locally_visible[:] = parent_cell_nums != -1
+
         if parent_mesh.extruded:
-            base_parent_cell_nums, _ = _parent_extrusion_numbering(
-                parent_cell_nums[locally_visible], parent_mesh.layers
-            )
-            ranks[locally_visible] = visible_ranks[base_parent_cell_nums]
+            # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
+            # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
+            locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
         else:
-            ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
+            locally_visible_cell_nums = parent_cell_nums[locally_visible]
+
+        ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
 
     # see below for why np.inf is used here.
     ref_cell_dists_l1[~locally_visible] = np.inf
