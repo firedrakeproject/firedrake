@@ -7,6 +7,7 @@ from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
+from functools import cached_property
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -87,7 +88,7 @@ class LinearEigenproblem:
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""Return the dm associated with the output space."""
         if self.restrict:

@@ -23,6 +23,7 @@ from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, temp_internal_comm
 )
+from functools import cached_property
 from pyop2.utils import as_tuple
 import petsctools
 from petsctools import OptionsManager, get_external_packages
@@ -189,7 +190,7 @@ class _Facets(object):
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
-    @utils.cached_property
+    @cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
         a given marker value. This is required because not all
@@ -287,13 +288,13 @@ class _Facets(object):
         else:
             return self.facets
 
-    @utils.cached_property
+    @cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
         return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
-    @utils.cached_property
+    @cached_property
     def local_facet_orientation_dat(self):
         """Dat for the local facet orientations."""
         dtype = gem.uint_type
@@ -927,7 +928,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    @utils.cached_property
+    @cached_property
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
 
@@ -939,7 +940,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
     # submesh
 
-    @utils.cached_property
+    @cached_property
     def submesh_ancestors(self):
         """Tuple of submesh ancestors."""
         if self.submesh_parent:
@@ -1166,7 +1167,7 @@ class MeshTopology(AbstractMeshTopology):
     def _mark_entity_classes(self):
         dmcommon.mark_entity_classes(self.topology_dm)
 
-    @utils.cached_property
+    @cached_property
     def _ufl_cell(self):
         plex = self.topology_dm
         tdim = plex.getDimension()
@@ -1190,7 +1191,7 @@ class MeshTopology(AbstractMeshTopology):
         # corresponding UFL mesh.
         return ufl.Cell(_cells[tdim][nfacets])
 
-    @utils.cached_property
+    @cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
@@ -1216,7 +1217,7 @@ class MeshTopology(AbstractMeshTopology):
         """All DM.PolytopeTypes of cells in the mesh."""
         return dmcommon.get_dm_cell_types(self.topology_dm)
 
-    @utils.cached_property
+    @cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -1288,11 +1289,11 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
-    @utils.cached_property
+    @cached_property
     def entity_orientations(self):
         return dmcommon.entity_orientations(self, self.cell_closure)
 
-    @utils.cached_property
+    @cached_property
     def local_cell_orientation_dat(self):
         """Local cell orientation dat."""
         return op2.Dat(
@@ -1339,11 +1340,11 @@ class MeshTopology(AbstractMeshTopology):
         obj.point2facetnumber = point2facetnumber
         return obj
 
-    @utils.cached_property
+    @cached_property
     def exterior_facets(self):
         return self._facets("exterior")
 
-    @utils.cached_property
+    @cached_property
     def interior_facets(self):
         return self._facets("interior")
 
@@ -1358,15 +1359,15 @@ class MeshTopology(AbstractMeshTopology):
         _set = op2.Set(_classes, f"{kind.capitalize()[:3]}Facets", comm=self.comm)
         return _numbers, _classes, _set
 
-    @utils.cached_property
+    @cached_property
     def _exterior_facet_numbers_classes_set(self):
         return self._facet_numbers_classes_set("exterior")
 
-    @utils.cached_property
+    @cached_property
     def _interior_facet_numbers_classes_set(self):
         return self._facet_numbers_classes_set("interior")
 
-    @utils.cached_property
+    @cached_property
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
@@ -1411,7 +1412,7 @@ class MeshTopology(AbstractMeshTopology):
         eStart, eEnd = self.topology_dm.getDepthStratum(d)
         return eEnd - eStart
 
-    @utils.cached_property
+    @cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
@@ -1526,74 +1527,74 @@ class MeshTopology(AbstractMeshTopology):
         values[from_indices] = to_indices
         return op2.Map(from_set, to_set, 1, values.reshape((-1, 1)), f"{self}_submesh_map_{from_set}_{to_set}")
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_cell_map(self):
         return self._submesh_make_entity_entity_map(self.cell_set, self.submesh_parent.cell_set, self.cell_closure[:, -1], self.submesh_parent.cell_closure[:, -1], True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_exterior_facet_parent_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_exterior_facet_parent_interior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_interior_facet_parent_exterior_facet_map(self):
         raise RuntimeError("Should never happen")
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_interior_facet_parent_interior_facet_map(self):
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_interior_facet_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_child_cell_parent_exterior_facet_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_cell_child_cell_map(self):
         return self._submesh_make_entity_entity_map(self.submesh_parent.cell_set, self.cell_set, self.submesh_parent.cell_closure[:, -1], self.cell_closure[:, -1], False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_interior_facet_map(self):
         raise RuntimeError("Should never happen")
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_exterior_facet_child_cell_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
 
-    @utils.cached_property
+    @cached_property
     def submesh_parent_interior_facet_child_cell_map(self):
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
@@ -1813,11 +1814,11 @@ class ExtrudedMeshTopology(MeshTopology):
         # submesh
         self.submesh_parent = None
 
-    @utils.cached_property
+    @cached_property
     def _ufl_cell(self):
         return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
 
-    @utils.cached_property
+    @cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension))
@@ -1827,7 +1828,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """All DM.PolytopeTypes of cells in the mesh."""
         raise NotImplementedError("'dm_cell_types' is not implemented for ExtrudedMeshTopology")
 
-    @utils.cached_property
+    @cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -1835,11 +1836,11 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
-    @utils.cached_property
+    @cached_property
     def entity_orientations(self):
         return self._base_mesh.entity_orientations
 
-    @utils.cached_property
+    @cached_property
     def local_cell_orientation_dat(self):
         """Local cell orientation dat."""
         return self._base_mesh.local_cell_orientation_dat
@@ -1920,7 +1921,7 @@ class ExtrudedMeshTopology(MeshTopology):
                 nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    @utils.cached_property
+    @cached_property
     def layers(self):
         """Return the layers parameter used to construct the mesh topology,
         which is the number of layers represented by the number of occurences
@@ -2044,11 +2045,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             assert isinstance(self._parent_mesh, VertexOnlyMeshTopology)
             dmcommon.mark_entity_classes(self.topology_dm)
 
-    @utils.cached_property
+    @cached_property
     def _ufl_cell(self):
         return ufl.Cell(_cells[0][0])
 
-    @utils.cached_property
+    @cached_property
     def _ufl_mesh(self):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension))
@@ -2078,7 +2079,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """All DM.PolytopeTypes of cells in the mesh."""
         return (PETSc.DM.PolytopeType.POINT,)
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -2119,15 +2120,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise ValueError("Unknown facet type '%s'" % kind)
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def exterior_facets(self):
         return self._facets("exterior")
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def interior_facets(self):
         return self._facets("interior")
 
-    @utils.cached_property
+    @cached_property
     def cell_to_facets(self):
         """Raises an AttributeError since cells in a
         `VertexOnlyMeshTopology` have no facets.
@@ -2155,12 +2156,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return self.num_vertices()
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -2169,7 +2170,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellnum")
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
@@ -2177,7 +2178,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_cell_list, "cell_parent_cell")
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_list(self):
         """Return a list of parent mesh base cells numbers in vertex only
         mesh cell order.
@@ -2188,7 +2189,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellbasenum")
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
@@ -2198,7 +2199,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
                        self.cell_parent_base_cell_list, "cell_parent_base_cell")
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_list(self):
         """Return a list of parent mesh extrusion heights in vertex only
         mesh cell order.
@@ -2209,7 +2210,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.topology_dm.restoreField("parentcellextrusionheight")
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_extrusion_height_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
@@ -2222,14 +2223,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def mark_entities(self, tf, label_value, label_name=None):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
         cell_global_index = np.copy(self.topology_dm.getField("globalindex").ravel())
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -2275,7 +2276,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         sf.setGraph(nroots, ilocal, input_ranks_and_idxs)
         return sf
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2292,7 +2293,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             ilocal[e_p_map - cStart] = np.arange(len(e_p_map))
         return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves
+    @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_without_halos_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2483,7 +2484,7 @@ values from f.)"""
 
         raise AttributeError(message)
 
-    @utils.cached_property
+    @cached_property
     def cell_sizes(self):
         """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
 
@@ -2543,7 +2544,7 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @utils.cached_property
+    @cached_property
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
 
@@ -2854,7 +2855,7 @@ values from f.)"""
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
-    @utils.cached_property  # TODO: Recalculate if mesh moves. Extend this for regular meshes.
+    @cached_property  # TODO: Recalculate if mesh moves. Extend this for regular meshes.
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -5031,7 +5032,7 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         if set_hierarchy:
             self.set_hierarchy()
 
-    @utils.cached_property
+    @cached_property
     def topology(self):
         return MeshSequenceTopology([m.topology for m in self._meshes])
 
@@ -5067,7 +5068,7 @@ class MeshSequenceGeometry(ufl.MeshSequence):
     def __getitem__(self, i):
         return self._meshes[i]
 
-    @utils.cached_property
+    @cached_property
     def extruded(self):
         m = self.unique()
         return m.extruded
@@ -5173,7 +5174,7 @@ class MeshSequenceTopology(object):
     def __getitem__(self, i):
         return self._meshes[i]
 
-    @utils.cached_property
+    @cached_property
     def extruded(self):
         m = self.unique()
         return m.extruded

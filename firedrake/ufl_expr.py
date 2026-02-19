@@ -9,6 +9,7 @@ import firedrake
 from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
+from functools import cached_property
 
 
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
@@ -50,15 +51,15 @@ class Argument(ufl.argument.Argument):
     def coefficients(self):
         return ()
 
-    @utils.cached_property
+    @cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
 
-    @utils.cached_property
+    @cached_property
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map
 
-    @utils.cached_property
+    @cached_property
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map
 
@@ -102,15 +103,15 @@ class Coargument(ufl.argument.Coargument):
                                          number, part=part)
         self._function_space = function_space
 
-    @utils.cached_property
+    @cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
 
-    @utils.cached_property
+    @cached_property
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map
 
-    @utils.cached_property
+    @cached_property
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map
 

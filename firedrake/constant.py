@@ -16,6 +16,7 @@ from ufl.formatting.ufl2unicode import (
     Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
     colorama,
 )
+from functools import cached_property
 from ufl.utils.counted import Counted
 
 
@@ -124,7 +125,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         """Return a null function space."""
         return None
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         return (self,)
 

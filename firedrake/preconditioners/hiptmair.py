@@ -15,6 +15,7 @@ import firedrake.dmhooks as dmhooks
 import firedrake.utils as utils
 import ufl
 import finat.ufl
+from functools import cached_property
 
 
 __all__ = ("TwoLevelPC", "HiptmairPC")
@@ -284,6 +285,6 @@ class BCFromNodes(DirichletBC):
         self._nodes = nodes
         super(BCFromNodes, self).__init__(V, g, tuple())
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         return self._nodes

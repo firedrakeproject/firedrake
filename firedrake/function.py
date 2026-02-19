@@ -13,7 +13,7 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 
 from pyop2 import op2, mpi
@@ -109,7 +109,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -117,7 +117,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -306,7 +306,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -314,7 +314,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -514,7 +514,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()

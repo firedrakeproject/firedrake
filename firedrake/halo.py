@@ -1,7 +1,7 @@
 from pyop2 import op2, utils
 from mpi4py import MPI
 import numpy
-from functools import partial
+from functools import partial, cached_property
 
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, complex_mode
@@ -103,7 +103,7 @@ class Halo(op2.Halo):
         self.dm.setPointSF(dm.getPointSF())
         self.dm.setDefaultSection(section)
 
-    @utils.cached_property
+    @cached_property
     def sf(self):
         sf = dmcommon.create_halo_exchange_sf(self.dm)
         sf.setFromOptions()
@@ -111,11 +111,11 @@ class Halo(op2.Halo):
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
         return sf
 
-    @utils.cached_property
+    @cached_property
     def comm(self):
         return self.comm
 
-    @utils.cached_property
+    @cached_property
     def local_to_global_numbering(self):
         lsec = self.dm.getDefaultSection()
         gsec = self.dm.getDefaultGlobalSection()

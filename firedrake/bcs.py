@@ -1,7 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import numpy as np
 
-from functools import partial, reduce
+from functools import partial, reduce, cached_property
 import itertools
 
 import ufl
@@ -88,7 +88,7 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         # Define facet, edge, vertex using tuples:
@@ -123,7 +123,7 @@ class BCBase(object):
             s.append((ndim - 1 - i, as_tuple(sd[i])))
         return as_tuple(s)
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
@@ -171,7 +171,7 @@ class BCBase(object):
                 bcnodes.append(bcnodes1)
         return np.concatenate(bcnodes)
 
-    @utils.cached_property
+    @cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
