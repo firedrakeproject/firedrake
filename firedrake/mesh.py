@@ -35,7 +35,7 @@ import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
-from firedrake.parameters import parameters, target
+from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
@@ -2600,7 +2600,7 @@ values from f.)"""
 
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         if not mesh.extruded:
-            all_coords = coords.dat.data_ro_with_halos[cell_node_list]  # (total_cells, nodes_per_cell, gdim)
+            all_coords = coords.dat.data_ro_with_halos[cell_node_list]
             return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
