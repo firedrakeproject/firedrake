@@ -2671,7 +2671,6 @@ values from f.)"""
         else:
             coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
-
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
@@ -4438,17 +4437,16 @@ def _parent_mesh_embedding(
     # each rank, parent_mesh.comm.rank creates a Constant with the local rank
     # number, and halo exchange ensures that this information is visible, as
     # nessesary, to other processes.
-    with PETSc.Log.Event("get_parent_mesh_rank_ownership_information"):
-        P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
-        with stop_annotating():
-            visible_ranks = interpolation.interpolate(
-                constant.Constant(parent_mesh.comm.rank), P0DG
-            )
-            visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
+    P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
+    with stop_annotating():
+        visible_ranks = interpolation.interpolate(
+            constant.Constant(parent_mesh.comm.rank), P0DG
+        )
+        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
 
-        locally_visible = np.full(ncoords_global, False)
-        # See below for why np.inf is used here.
-        ranks = np.full(ncoords_global, np.inf)
+    locally_visible = np.full(ncoords_global, False)
+    # See below for why np.inf is used here.
+    ranks = np.full(ncoords_global, np.inf)
 
     (
         parent_cell_nums,

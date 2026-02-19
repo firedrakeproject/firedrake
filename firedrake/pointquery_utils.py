@@ -23,7 +23,6 @@ import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
 
-@PETSc.Log.EventDecorator()
 def make_args(function):
     arg = function.dat(op2.READ, function.cell_node_map())
     return (arg,)

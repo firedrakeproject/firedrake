@@ -8,7 +8,6 @@ from libc.stdint cimport uintptr_t
 
 include "spatialindexinc.pxi"
 
-
 cdef class SpatialIndex(object):
     """Python class for holding a native spatial index object."""
 
