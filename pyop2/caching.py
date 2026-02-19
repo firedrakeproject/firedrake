@@ -564,7 +564,7 @@ def parallel_cache(
                         if root >= 0:
                             # Found a rank with a cache hit, broadcast 'value' from it
                             value = comm.bcast(value, root=root)
-                            
+
                 if (
                     configuration["spmd_strict"]
                     and not pytools.is_single_valued(
