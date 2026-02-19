@@ -2590,14 +2590,6 @@ values from f.)"""
             f.interpolate(self.coordinates)
             mesh = Mesh(f)
 
-        # Calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
-        coords_min = function.Function(V, dtype=RealType)
-        coords_max = function.Function(V, dtype=RealType)
-
-        coords_min.dat.data.fill(np.inf)
-        coords_max.dat.data.fill(-np.inf)
-
         if utils.complex_mode:
             if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
@@ -2608,6 +2600,18 @@ values from f.)"""
             coords = mesh.coordinates
 
         cell_node_list = mesh.coordinates.function_space().cell_node_list
+        if not mesh.extruded:
+            all_coords = coords.dat.data_ro_with_halos[cell_node_list]
+            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+
+        # Extruded case: calculate the bounding boxes for all cells by running a kernel
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
         _, nodes_per_cell = cell_node_list.shape
 
         domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
