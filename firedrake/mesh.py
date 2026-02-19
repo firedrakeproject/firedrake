@@ -39,7 +39,6 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
-from pyadjoint import stop_annotating
 import gem
 
 try:
@@ -4445,8 +4444,9 @@ def _parent_mesh_embedding(
     # Get parent mesh rank ownership information.
     with PETSc.Log.Event("get_parent_mesh_rank_ownership_information"):
         visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-        visible_ranks[: parent_mesh.cell_set.size] = parent_mesh.comm.rank
-        visible_ranks[parent_mesh.cell_set.size :] = -1
+        visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
+        visible_ranks[parent_mesh.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
         dmcommon.exchange_cell_orientations(
             parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
         )
