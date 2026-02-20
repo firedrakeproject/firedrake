@@ -13,7 +13,7 @@ class EnsembleFunctionMixin(OverloadedType):
     Enables EnsembleFunction to do the following:
     - Be a Control for a NumpyReducedFunctional (_ad_to_list and _ad_assign_numpy)
     - Be used with pyadjoint TAO solver (_ad_{to,from}_petsc)
-    - Be used as a Control for Taylor tests (_ad_dot)
+    - Be used as a Control for Taylor tests (_ad_dot, _ad_add, _ad_mul)
     """
 
     @staticmethod
@@ -32,10 +32,8 @@ class EnsembleFunctionMixin(OverloadedType):
     @staticmethod
     def _ad_to_list(m):
         with m.vec_ro() as gvec:
-            lvec = PETSc.Vec().createSeq(gvec.size,
-                                         comm=PETSc.COMM_SELF)
-            PETSc.Scatter().toAll(gvec).scatter(
-                gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
+            scatter, lvec = PETSc.Scatter().toAll(gvec)
+            scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
         return lvec.array_r.tolist()
 
     @staticmethod
@@ -50,22 +48,22 @@ class EnsembleFunctionMixin(OverloadedType):
         local_dot = sum(uself._ad_dot(uother, options=options)
                         for uself, uother in zip(self.subfunctions,
                                                  other.subfunctions))
-        return self.ensemble.ensemble_comm.allreduce(local_dot)
-
-    def _ad_convert_riesz(self, value, options=None):
-        raise NotImplementedError
+        return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
 
     def _ad_init_zero(self, dual=False):
-        from firedrake import EnsembleFunction, EnsembleCofunction
+        from firedrake import EnsembleFunction
+        space = self.function_space()
         if dual:
-            return EnsembleCofunction(self.function_space().dual())
-        else:
-            return EnsembleFunction(self.function_space())
+            space = space.dual()
+        return EnsembleFunction(space)
+
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
             raise NotImplementedError(
-                "Disk checkpointing not implemented for EnsembleFunctions")
+                f"Disk checkpointing not implemented for {type(self).__name__}")
         else:
             return self.copy()
 
@@ -73,12 +71,12 @@ class EnsembleFunctionMixin(OverloadedType):
         if type(checkpoint) is type(self):
             return checkpoint
         raise NotImplementedError(
-            "Disk checkpointing not implemented for EnsembleFunctions")
+            f"Disk checkpointing not implemented for {type(self).__name__}")
 
     def _ad_from_petsc(self, vec):
-        with self.vec_wo as self_v:
+        with self.vec_wo() as self_v:
             vec.copy(self_v)
 
     def _ad_to_petsc(self, vec=None):
-        with self.vec_ro as self_v:
+        with self.vec_ro() as self_v:
             return self_v.copy(vec or self._vec.duplicate())
