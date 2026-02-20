@@ -1425,6 +1425,8 @@ class MeshTopology(AbstractMeshTopology):
         `cell_facet_neighbours[c][i]`.
         """
         num_facets = self.ufl_cell().num_facets
+        num_vertices = self.ufl_cell().num_vertices
+
         dset = op2.DataSet(self.cell_set, dim=num_facets)
 
         # Create a local numpy buffer to store the neighbours of each cell
@@ -1435,7 +1437,6 @@ class MeshTopology(AbstractMeshTopology):
         plex = self.topology_dm
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
 
-        num_vertices = self.ufl_cell().num_vertices
         for c_plex_point in range(cStart, cEnd):
             """
             facets = plex.getCone(c) # facets of the cell c
