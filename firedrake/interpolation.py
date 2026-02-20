@@ -183,7 +183,7 @@ class Interpolate(UFLInterpolate):
 
         submesh_interp_implemented = (
             all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
-            and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]
+            and target_mesh.submesh_ancestors[-1] is source_mesh.submesh_ancestors[-1]
             and target_mesh.topological_dimension == source_mesh.topological_dimension
         )
         if target_mesh is source_mesh or submesh_interp_implemented:
