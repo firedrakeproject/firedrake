@@ -4442,26 +4442,24 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    with PETSc.Log.Event("get_parent_mesh_rank_ownership_information"):
-        visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-        visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
-        visible_ranks[parent_mesh.cell_set.size:] = -1
-        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-        dmcommon.exchange_cell_orientations(
-            parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-        )
-        locally_visible = np.full(ncoords_global, False)
-        # See below for why np.inf is used here.
-        ranks = np.full(ncoords_global, np.inf)
-        locally_visible[:] = parent_cell_nums != -1
+    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+    visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
+    visible_ranks[parent_mesh.cell_set.size:] = -1
+    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+    dmcommon.exchange_cell_orientations(
+        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+    )
+    locally_visible = parent_cell_nums != -1
 
-        if parent_mesh.extruded:
-            # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
-            # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
-            locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
-        else:
-            locally_visible_cell_nums = parent_cell_nums[locally_visible]
-        ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
+    if parent_mesh.extruded:
+        # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
+        # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
+        locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
+    else:
+        locally_visible_cell_nums = parent_cell_nums[locally_visible]
+
+    ranks = np.full(ncoords_global, np.inf)   # See below for why np.inf is used here.
+    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
 
     # see below for why np.inf is used here.
     ref_cell_dists_l1[~locally_visible] = np.inf
