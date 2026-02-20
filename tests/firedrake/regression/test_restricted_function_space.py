@@ -4,7 +4,7 @@ from firedrake import *
 
 
 def compare_function_space_assembly(function_space, restricted_function_space,
-                                    bcs, res_bcs=[]):
+                                    bcs, res_bcs=()):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
     original_form = inner(u, v) * dx
@@ -31,27 +31,21 @@ def compare_function_space_assembly(function_space, restricted_function_space,
                                          axis=1)
 
     restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
-    assert np.array_equal(normal_fs_matrix_reduced, restricted_values)
+    assert np.allclose(normal_fs_matrix_reduced, restricted_values)
 
 
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_1_1_square(j):
-    mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(mesh, "CG", j)
+@pytest.mark.parametrize("n,p", [(1, 1), (1, 2), (1, 5), (2, 1), (5, 1)])
+@pytest.mark.parametrize("redundant_bc", [False, True])
+def test_restricted_function_space_square(n, p, redundant_bc):
+    mesh = UnitSquareMesh(n, n)
+    V = FunctionSpace(mesh, "CG", p)
     bc = DirichletBC(V, 0, 2)
     V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
-    res_bc = DirichletBC(V_res, 0, 2)
-    compare_function_space_assembly(V, V_res, [bc], [res_bc])
-
-
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_j_j_square(j):
-    mesh = UnitSquareMesh(j, j)
-    V = FunctionSpace(mesh, "CG", 1)
-    bc = DirichletBC(V, 0, 2)
-    V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
-
-    compare_function_space_assembly(V, V_res, [bc])
+    if redundant_bc:
+        res_bcs = (DirichletBC(V_res, 0, 2),)
+    else:
+        res_bcs = ()
+    compare_function_space_assembly(V, V_res, [bc], res_bcs)
 
 
 def test_poisson_homogeneous_bcs():

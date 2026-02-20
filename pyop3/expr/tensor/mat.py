@@ -141,7 +141,7 @@ class Mat(Tensor):
     def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.unindexed.size*column_axes.unindexed.size, dtype=dtype, **buffer_kwargs)
+        buffer = NullBuffer(row_axes.unindexed.local_max_size*column_axes.unindexed.local_max_size, dtype=dtype, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}

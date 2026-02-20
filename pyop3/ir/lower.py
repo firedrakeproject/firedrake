@@ -186,6 +186,7 @@ class LoopyCodegenContext(CodegenContext):
             if buffer_key in self._kernel_names:
                 return self._kernel_names[buffer_key]
             shape = self._temporary_shapes.get(buffer_key, (buffer.size,))
+            assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
             name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
         else:
             if intent is None:

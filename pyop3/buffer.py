@@ -94,6 +94,9 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
+    def __post_init__(self) -> None:
+        assert isinstance(self.size, numbers.Integral)
+
     @property
     @abc.abstractmethod
     def size(self) -> int:
@@ -140,6 +143,8 @@ class NullBuffer(AbstractArrayBuffer):
         self._dtype = dtype
         self._max_value = max_value
         self._ordered = ordered
+
+        self.__post_init__()
 
     # }}}
 
