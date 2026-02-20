@@ -515,6 +515,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
     @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -539,6 +540,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes

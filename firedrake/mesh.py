@@ -2545,6 +2545,7 @@ values from f.)"""
         self._spatial_index = None
 
     @cached_property
+    @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
 
@@ -2590,14 +2591,6 @@ values from f.)"""
             f.interpolate(self.coordinates)
             mesh = Mesh(f)
 
-        # Calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
-        coords_min = function.Function(V, dtype=RealType)
-        coords_max = function.Function(V, dtype=RealType)
-
-        coords_min.dat.data.fill(np.inf)
-        coords_max.dat.data.fill(-np.inf)
-
         if utils.complex_mode:
             if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
@@ -2608,6 +2601,18 @@ values from f.)"""
             coords = mesh.coordinates
 
         cell_node_list = mesh.coordinates.function_space().cell_node_list
+        if not mesh.extruded:
+            all_coords = coords.dat.data_ro_with_halos[cell_node_list]
+            return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
+
+        # Extruded case: calculate the bounding boxes for all cells by running a kernel
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        coords_min = function.Function(V, dtype=RealType)
+        coords_max = function.Function(V, dtype=RealType)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
         _, nodes_per_cell = cell_node_list.shape
 
         domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
@@ -2630,6 +2635,7 @@ values from f.)"""
         return coords_min, coords_max
 
     @property
+    @PETSc.Log.EventDecorator()
     def spatial_index(self):
         """Builds spatial index from bounding box coordinates, expanding
         the bounding box by the mesh tolerance.
@@ -2676,7 +2682,8 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        with PETSc.Log.Event("spatial_index_build"):
+            self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
@@ -2733,6 +2740,7 @@ values from f.)"""
             return None, None
         return cells[0], ref_coords[0]
 
+    @PETSc.Log.EventDecorator()
     def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
@@ -2777,16 +2785,16 @@ values from f.)"""
         ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
-        self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
-                                             xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-                                             cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
-                                             npoints,
-                                             cells_ignore.shape[1],
-                                             cells_ignore)
+        run_c = self._c_locator(tolerance=tolerance)
+        cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
+        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        with PETSc.Log.Event("c_locator_run"):
+            run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
 
+    @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
@@ -3217,6 +3225,7 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     return mesh
 
 
+@PETSc.Log.EventDecorator()
 def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     """Make `VertexOnlyMesh` from a mesh topology.
 
@@ -3746,6 +3755,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         self._other_fields = fields
 
 
+@PETSc.Log.EventDecorator()
 def _pic_swarm_in_mesh(
     parent_mesh,
     coords,
@@ -4004,6 +4014,7 @@ def _pic_swarm_in_mesh(
     return swarm, original_ordering_swarm, n_missing_points
 
 
+@PETSc.Log.EventDecorator()
 def _dmswarm_create(
     fields,
     comm,
@@ -4286,6 +4297,7 @@ def _mpi_array_lexicographic_min(x, y, datatype):
 array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
 
 
+@PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
     parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
 ):
@@ -4590,6 +4602,7 @@ def _parent_mesh_embedding(
     )
 
 
+@PETSc.Log.EventDecorator()
 def _swarm_original_ordering_preserve(
     comm,
     swarm,
