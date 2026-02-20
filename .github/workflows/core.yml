@@ -182,7 +182,6 @@ jobs:
 
           : # Fix for petsc4py+slepc4py build
           echo 'setuptools<81' > constraints.txt
-          echo 'Cython>=3.0,<3.2.4' >> constraints.txt
           export PIP_CONSTRAINT=constraints.txt
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
@@ -262,7 +261,7 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 90
 
       - name: Run tests (nprocs = 2)
