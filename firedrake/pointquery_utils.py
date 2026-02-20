@@ -28,11 +28,13 @@ def make_args(function):
     return (arg,)
 
 
+@PETSc.Log.EventDecorator()
 def make_wrapper(function, **kwargs):
     args = make_args(function)
     return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
 
 
+@PETSc.Log.EventDecorator()
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh, tolerance))

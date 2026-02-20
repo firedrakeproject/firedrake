@@ -1,4 +1,4 @@
-from libc.stdint cimport int64_t, uint8_t, uint32_t, uint64_t
+from libc.stdint cimport int64_t, uint32_t, uint64_t
 
 cdef extern from "spatialindex/capi/sidx_api.h":
     ctypedef enum RTError:
@@ -38,11 +38,10 @@ cdef extern from "spatialindex/capi/sidx_api.h":
     RTError IndexProperty_SetIndexVariant(IndexPropertyH hProp, RTIndexVariant value)
     RTError IndexProperty_SetIndexStorage(IndexPropertyH hProp, RTStorageType value)
     void IndexProperty_Destroy(IndexPropertyH hProp)
-
     IndexH Index_Create(IndexPropertyH hProp)
-    RTError Index_InsertData(IndexH index, int64_t id,
-                             double* pdMin, double* pdMax, uint32_t nDimension,
-                             const uint8_t* pData, uint32_t nDataLength)
+    IndexH Index_CreateWithArray(IndexPropertyH hProp, uint64_t n, uint32_t dimension, 
+                                 uint64_t i_stri, uint64_t d_i_stri, uint64_t d_j_stri,
+                                 int64_t *ids, double *mins, double *maxs)
     RTError Index_Intersects_id(IndexH index, double* pdMin, double* pdMax, uint32_t nDimension,
                                 int64_t** ids, uint64_t* nResults)
     void Index_Destroy(IndexH index)
