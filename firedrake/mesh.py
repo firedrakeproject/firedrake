@@ -1434,15 +1434,32 @@ class MeshTopology(AbstractMeshTopology):
         # and querying the DMPlex for local cell information
         plex = self.topology_dm
         cStart, cEnd = plex.getHeightStratum(0)  # range of DMPlex point numbers representing cells
-        for c in range(cStart, cEnd):
+
+        num_vertices = self.ufl_cell().num_vertices
+        for c_plex_point in range(cStart, cEnd):
+            """
             facets = plex.getCone(c) # facets of the cell c
             for lf, f in enumerate(facets):
+                # NOTE: the facet ID `lf` here refers to the facet's position in the DMPlex cone ordering
+                # not FIAT's local facet ID
                 support = plex.getSupport(f) # cells adjacent to facet f
                 if len(support) == 2:
                     # an interior facet has 2 adjacent cells
                     # so the neighbouring cell corresponds to the other adjacent cell
                     other_c = support[0] if support[1] == c else support[1]
                     cell_neighbours[c - cStart, lf] = other_c - cStart # assign to local index of cell c
+            """
+            c_id = self._cell_numbering.getOffset(c_plex_point) # get Firedrake cell ID of plex cell point number
+            
+            # Instead of iterating over the plex facet points, iterate over FIAT's local facet IDs
+            for lf in range(num_facets):
+                lf_plex_point = self.cell_closure[c_id, num_vertices + lf] # get plex point number corresponding to facet lf
+                support = plex.getSupport(lf_plex_point)
+                if len(support) == 2:
+                    # an interior facet has 2 adjacent cells
+                    # so the neighbouring cell corresponds to the adjacent cell that's not the current cell
+                    other_c_plex_point = support[0] if support[1] == c_plex_point else support[1]
+                    cell_neighbours[c_id, lf] = self._cell_numbering.getOffset(other_c_plex_point)
 
         cell_facet_neighbours = op2.Dat(
             dset,
@@ -1571,7 +1588,7 @@ class MeshTopology(AbstractMeshTopology):
                 io = 0
                 for bit in bits:
                     io= 2*io + bit
-                o_int = (2**len(bits)) + io
+                o_int = (2**len(bits))*eo + io
 
             Q, t = FIAT.reference_element.make_affine_mapping(xs, ys)
             o_coord_maps[o_int] = (Q, t)
@@ -1608,7 +1625,7 @@ class MeshTopology(AbstractMeshTopology):
 
         # Populate the local buffers by iterating over interior facets
         # and extracting cell adjacency information from the mesh topology directly
-        facet_cells = self.interior_facets.facet_cell 
+        facet_cells = self.interior_facets.facet_cell
         local_facets = self.interior_facets.local_facet_dat.data_ro
         
         local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro
