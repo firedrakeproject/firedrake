@@ -182,6 +182,7 @@ jobs:
 
           : # Fix for petsc4py+slepc4py build
           echo 'setuptools<81' > constraints.txt
+          echo 'Cython>=3.0,<3.2.4' >> constraints.txt
           export PIP_CONSTRAINT=constraints.txt
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
