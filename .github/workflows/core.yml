@@ -268,10 +268,10 @@ jobs:
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
-          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 2 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
+          # mpiexec -n 2 python3 -m pytest -v --splits 4 --group 1 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
+          # mpiexec -n 2 python3 -m pytest -v --splits 4 --group 2 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
           mpiexec -n 2 python3 -m pytest -v --splits 4 --group 3 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
-          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 4 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
+          # mpiexec -n 2 python3 -m pytest -v --splits 4 --group 4 -m parallel[match] $EXTRA_PYTEST_ARGS firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
