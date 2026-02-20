@@ -141,7 +141,7 @@ docker = [  # Used in firedrake-vanilla container
 
 [build-system]
 requires = [
-  "Cython>=3.0",
+  "Cython>=3.0,<3.2.4",
   "libsupermesh",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
