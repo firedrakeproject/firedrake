@@ -265,12 +265,32 @@ class Assigner:
     def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
         assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
         if assign_to_halos:
-            subset_indices = ... if subset is None else subset.indices
+            indices = operator.attrgetter("indices")
             data_ro = operator.attrgetter("data_ro_with_halos")
+            values = operator.attrgetter("values_with_halo")
         else:
-            subset_indices = ... if subset is None else subset.owned_indices
+            indices = operator.attrgetter("owned_indices")
             data_ro = operator.attrgetter("data_ro")
-        func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+            values = operator.attrgetter("values")
+        subset_indices = Ellipsis if subset is None else indices(subset)
+
+        def source_indices(f):
+            target_space = lhs_func.function_space()
+            target_map = target_space.cell_node_map()
+            source_map = f.function_space().cell_node_map()
+            if source_map is target_map:
+                # Source and target spaces have the same DoF ordering.
+                return subset_indices
+            else:
+                # Permute source indices into the target ordering.
+                size = target_space.dof_dset.total_size
+                perm = np.empty((size,), dtype=source_map.values.dtype)
+                np.put(perm, values(target_map), values(source_map))
+                if not assign_to_halos:
+                    perm = perm[:target_space.dof_dset.size]
+                return perm[subset_indices]
+
+        func_data = np.array([data_ro(f.dat)[source_indices(f)] for f in funcs])
         rvalue = self._compute_rvalue(func_data)
         self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
         if assign_to_halos:
