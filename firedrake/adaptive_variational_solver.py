@@ -114,7 +114,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.N_vec.append(V.dim())
 
         def solve_uh():
-            self.print(f"Solving primal (degree: {self.degree}, dofs: {V.dim()}) ...")
+            self.print(f'Solving primal (degree: {self.degree}, dofs: {V.dim()}) ...')
             solver = NonlinearVariationalSolver(self.problem, solver_parameters=self.sp_primal)
             solver.set_transfer_manager(self.atm)
             solver.solve()
@@ -214,7 +214,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.etah_vec.append(eta_h)
 
         Juh = assemble(J)
-        self.print(f"{"Computed goal":45s}{"J(uh):":8s}{Juh:15.12f}")
+        self.print(f'{"Computed goal":45s}{"J(uh):":8s}{Juh:15.12f}')
         self.Juh = Juh
 
         if self.goal_exact is not None:
@@ -226,18 +226,18 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.u_exact is not None or self.goal_exact is not None:
             eta = abs(Juh - Ju)
             self.eta_vec.append(eta)
-            self.print(f"{"Exact goal":45s}{"J(u):":8s}{Ju:15.12f}")
-            self.print(f"{"True error, |J(u) - J(u_h)|":45s}{"eta:":8s}{eta:15.12f}")
+            self.print(f'{"Exact goal":45s}{"J(u):":8s}{Ju:15.12f}')
+            self.print(f'{"True error, |J(u) - J(u_h)|":45s}{"eta:":8s}{eta:15.12f}')
         else:
             eta = None
 
         if self.options.use_adjoint_residual:
-            self.print(f"{"Primal error, |rho(u_h;z-z_h)|:":45s}{"eta_pri:":8s}{primal_err:15.12f}")
-            self.print(f"{"Dual error, |rho*(z_h;u-u_h)|:":45s}{"eta_adj:":8s}{dual_err:15.12f}")
-            self.print(f"{"Difference":35s}{"|eta_pri - eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}")
-            self.print(f"{"Predicted error, 0.5|rho+rho*|":45s}{"eta_h:":8s}{eta_h:15.12f}")
+            self.print(f'{"Primal error, |rho(u_h;z-z_h)|:":45s}{"eta_pri:":8s}{primal_err:15.12f}')
+            self.print(f'{"Dual error, |rho*(z_h;u-u_h)|:":45s}{"eta_adj:":8s}{dual_err:15.12f}')
+            self.print(f'{"Difference":35s}{"|eta_pri - eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}')
+            self.print(f'{"Predicted error, 0.5|rho+rho*|":45s}{"eta_h:":8s}{eta_h:15.12f}')
         else:
-            self.print(f"{"Predicted error, |rho(u_h;z-z_h)|":45s}{"eta_h:":8s}{eta_h:15.12f}")
+            self.print(f'{"Predicted error, |rho(u_h;z-z_h)|":45s}{"eta_h:":8s}{eta_h:15.12f}')
         return eta_h, eta
 
     def automatic_error_indicators(self, u_err, z_err):
@@ -332,8 +332,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
                 self.eta_primal_total = abs(evec.sum())
             with eta_dual.dat.vec as evec:
                 self.eta_dual_total = abs(evec.sum())
-            self.print(f"{"Sum of primal refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}")
-            self.print(f"{"Sum of dual refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}")
+            self.print(f'{"Sum of primal refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}')
+            self.print(f'{"Sum of dual refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}')
         else:
             etaT = eta_primal
 
@@ -377,7 +377,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             etaT_total = abs(evec.sum())
 
         self.etaTsum_vec.append(etaT_total)
-        self.print(f"{"Sum of refinement indicators":45s}{"Ση_K:":8s}{etaT_total:15.12f}")
+        self.print(f'{"Sum of refinement indicators":45s}{"Ση_K:":8s}{etaT_total:15.12f}')
 
         if self.u_exact is not None or self.goal_exact is not None:
             # Compute efficiency indices
@@ -385,12 +385,12 @@ class GoalAdaptiveNonlinearVariationalSolver():
             eff2 = etaT_total / eta
             self.eff1_vec.append(eff1)
             self.eff2_vec.append(eff2)
-            self.print(f"{"Effectivity index 1":45s}{"η_h/η:":8s}{eff1:7.4f}")
-            self.print(f"{"Effectivity index 2":45s}{"Ση_K/η:":8s}{eff2:7.4f}")
+            self.print(f'{"Effectivity index 1":45s}{"η_h/η:":8s}{eff1:7.4f}')
+            self.print(f'{"Effectivity index 2":45s}{"Ση_K/η:":8s}{eff2:7.4f}')
         else:
             eff3 = etaT_total / eta_h
             self.eff3_vec.append(eff3)
-            self.print(f"{"Effectivity index:":45s}{"Ση_K/η_h:":8s}{eff3:7.4f}")
+            self.print(f'{"Effectivity index:":45s}{"Ση_K/η_h:":8s}{eff3:7.4f}')
 
     def set_adaptive_cell_markers(self, etaT):
         """Mark cells for refinement (Dorfler marking)"""
