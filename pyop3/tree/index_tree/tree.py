@@ -18,6 +18,7 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 import numpy as np
 from mpi4py import MPI
 import pymbolic as pym
+from pyop3.collections import StrictlyUniqueDict, StrictlyUniqueDefaultDict
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 import pytools
 from immutabledict import immutabledict as idict
@@ -1509,7 +1510,7 @@ def compose_targets(orig_axes, orig_targets, indexed_axes, indexed_target, fullm
 
     assert not orig_axes.is_empty
 
-    composed_target = utils.StrictlyUniqueDict()
+    composed_target = StrictlyUniqueDict()
 
     if not axis_path:
         # special handling for entries that are not tied to a specific axis

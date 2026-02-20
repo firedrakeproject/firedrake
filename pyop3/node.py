@@ -7,9 +7,9 @@ from functools import cached_property
 from typing import Any
 
 from immutabledict import immutabledict as idict
-from pyop3 import utils
+from pyop3 import collections as op3_collections, utils
 from pyop3.cache import memory_cache
-from pyop3.utils import OrderedFrozenSet
+from pyop3.collections import OrderedFrozenSet
 
 
 # maybe implement __record_init__ here?
@@ -159,7 +159,7 @@ class LabelledTreeVisitor(Visitor):
     def __init__(self):
         # FIXME: component.size is unique to each axis object, but the cache
         # keys used aren't. This means that we hit cache erroneously sometimes.
-        super().__init__(visited_cache=utils.AlwaysEmptyDict())
+        super().__init__(visited_cache=op3_collections.AlwaysEmptyDict())
 
         # variables that are only valid mid traversal
         self._tree = None

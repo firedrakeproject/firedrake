@@ -22,11 +22,11 @@ from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuff
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 
 from pyop3 import utils
+from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
 from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, MissingVariableException, matching_axis_tree
 from pyop3.dtypes import IntType
-from pyop3.utils import OrderedSet, just_one, OrderedFrozenSet
 
 import pyop3.expr as expr_types
 from pyop3.insn.base import ArrayAccessType, loop_
@@ -433,7 +433,7 @@ def _(dat: expr_types.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
     axis_tree = utils.just_one(axis_trees)
     dat_axes = matching_axis_tree(dat.axes, axis_tree)
     if dat_axes.is_linear:
-        layout = just_one(dat_axes.leaf_subst_layouts.values())
+        layout = utils.just_one(dat_axes.leaf_subst_layouts.values())
         expr = expr_types.LinearDatBufferExpression(BufferRef(dat.buffer), layout)
     else:
         expr = expr_types.NonlinearDatBufferExpression(BufferRef(dat.buffer), dat_axes.leaf_subst_layouts)
@@ -478,7 +478,7 @@ def _(dat_expr: expr_types.BufferExpression, /, axis_trees: Iterable[AxisTree, .
 
 @concretize_layouts.register(expr_types.NonlinearDatBufferExpression)
 def _(dat_expr: expr_types.NonlinearDatBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.NonlinearDatBufferExpression:
-    axis_tree = just_one(axis_trees)
+    axis_tree = utils.just_one(axis_trees)
     # NOTE: This assumes that we have uniform axis trees for all elements of the
     # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
     # violated this will raise a KeyError.
@@ -534,7 +534,7 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
 
     @process.register(expr_types.LinearDatBufferExpression)
     def _(self, dat_expr: expr_types.LinearDatBufferExpression, index, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], selector, **kwargs) -> idict:
-        axis_tree = just_one(axis_trees)
+        axis_tree = utils.just_one(axis_trees)
         selector_ = selector[index] if selector is not None else None
         return idict({
             index: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, selector=selector_, **kwargs)
@@ -543,7 +543,7 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
 
     @process.register(expr_types.NonlinearDatBufferExpression)
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, index, /, *, axis_trees, selector, **kwargs) -> idict:
-        axis_tree = just_one(axis_trees)
+        axis_tree = utils.just_one(axis_trees)
 
         candidates = {}
         for path, layout in dat_expr.layouts.items():
@@ -1094,7 +1094,7 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
         result.assign(fn(result, expr)),
         eager=True
     )
-    return just_one(result.buffer._data)
+    return utils.just_one(result.buffer._data)
 
 
 def max_(a, b, /, *, lazy: bool = False) -> expr_types.Conditional | numbers.Number:

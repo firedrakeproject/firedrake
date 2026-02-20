@@ -14,6 +14,7 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3 import utils
 from ..base import LoopIndexVar
 from .base import IdentityTensorTransform, ReshapeTensorTransform, Tensor, TensorTransform
@@ -52,7 +53,7 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-@utils.record()
+@pyop3.record.record()
 class Dat(Tensor):
     """Multi-dimensional, hierarchical array.
 
@@ -627,7 +628,7 @@ class Dat(Tensor):
 
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class CompositeDat(Terminal):
 
     # {{{ instance attrs
@@ -662,7 +663,7 @@ class CompositeDat(Terminal):
     dtype = IntType
 
 
-@utils.record()
+@pyop3.record.record()
 class AggregateDat:
     """A dat formed of multiple subdats concatenated together."""
     subdats: np.ndarray[Dat]

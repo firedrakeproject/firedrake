@@ -45,7 +45,7 @@ from pyop3.insn.base import (
     non_null,
     filter_null,
 )
-from pyop3.utils import OrderedFrozenSet
+from pyop3.collections import OrderedFrozenSet
 
 
 class InstructionTransformer(NodeTransformer):

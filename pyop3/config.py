@@ -10,6 +10,8 @@ import warnings
 
 from immutabledict import immutabledict as idict
 
+from pyop3.constants import _nothing
+
 
 def paramclass(cls: type) -> type:
     """Decorator that turns a class into a dataclass for storing parameters."""
@@ -17,14 +19,6 @@ def paramclass(cls: type) -> type:
 
 
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
-
-# TODO: should live elsewhere
-_nothing = object()
-"""Sentinel value indicating nothing should be done.
-
-This is useful in cases where `None` holds some meaning.
-
-"""
 
 
 @dataclasses.dataclass(frozen=True)

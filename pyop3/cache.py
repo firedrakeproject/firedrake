@@ -28,6 +28,7 @@ from typing import Any, Callable, Hashable
 from petsc4py import PETSc
 
 from pyop3 import utils
+from pyop3.collections import AlwaysEmptyDict
 from pyop3.config import config
 from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
@@ -547,8 +548,8 @@ def parallel_cache(
         def wrapper(*args, **kwargs):
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
                 if heavy and len(_heavy_caches) == 0:
-                    caches = (utils.AlwaysEmptyDict(),)
-                    cache_type = utils.AlwaysEmptyDict
+                    caches = (AlwaysEmptyDict(),)
+                    cache_type = AlwaysEmptyDict
                     value = CACHE_MISS
                 else:
                     def make_instrumented_cache():

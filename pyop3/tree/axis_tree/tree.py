@@ -23,14 +23,14 @@ from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Uni
 
 import cachetools
 import numpy as np
-from cachetools import cachedmethod
 from mpi4py import MPI
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 from pyop3.cache import cached_on, CacheMixin
-from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
+from pyop3.collections import StrictlyUniqueDict, OrderedSet
 from pyop3.dtypes import IntType
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
 from pyop3.mpi import collective, temp_internal_comm
 from pyop3 import utils
@@ -1232,7 +1232,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     # TODO: rename to just _region_labels or similar
     @cached_property
     def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
-        region_labels = utils.OrderedSet()
+        region_labels = OrderedSet()
         for axis in self.axes:
             for component in axis.components:
                 for region in component.regions:
@@ -1302,7 +1302,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
         from pyop3 import AxisVar
 
-        targets_ = utils.StrictlyUniqueDict({idict(): ((),)})
+        targets_ = StrictlyUniqueDict({idict(): ((),)})
         for path, axis in self.node_map.items():
             if axis is None:
                 continue
@@ -1486,7 +1486,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
-        targets_ = utils.StrictlyUniqueDict()
+        targets_ = StrictlyUniqueDict()
         for path, axis in self.node_map.items():
             targets_[path] = self._targets[path] + self._materialized.targets[path]
         return complete_axis_targets(targets_)
@@ -1889,7 +1889,7 @@ def _match_target_rec(source_axes, target_axes, target_set, *, source_path, targ
             for source_component in source_axis.components
         )
 
-    matching_target = utils.StrictlyUniqueDict()
+    matching_target = StrictlyUniqueDict()
     for source_path_ in source_paths:
         match_found = False
         for candidate_targets in target_set[source_path_]:
@@ -2358,7 +2358,7 @@ def relabel_path(path, suffix:str):
 def loopify_axis_tree(axis_tree: AbstractAxisTree) -> tuple[AxisTree, Mapping]:
     from pyop3.expr.base import get_loop_tree
 
-    loop_axes = utils.OrderedSet()
+    loop_axes = OrderedSet()
     loop_var_replace_map = {}
     replaced_node_map = {}
     for path, axis in axis_tree.node_map.items():
@@ -2460,7 +2460,7 @@ def gather_loop_indices_from_targets(targets):
     # NOTE: think this isn't really needed, remove with 'outer_loops'
     from pyop3.expr.visitors import collect_loop_index_vars
 
-    loop_indices = utils.OrderedSet()
+    loop_indices = OrderedSet()
     for axis_targetss in targets.values():
         for axis_targets in axis_targetss:
             for axis_target in axis_targets:

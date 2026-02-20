@@ -14,6 +14,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyop3 import buffer
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.typing import KwargsT
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
@@ -38,7 +39,7 @@ from pyop3.utils import (
 )
 
 
-@utils.record()
+@pyop3.record.record()
 class Mat(Tensor):
 
     # {{{ instance attributes
@@ -554,7 +555,7 @@ class ColumnDatPythonMatContext(DatPythonMatContext):
 
 
 # TODO: Should inherit from SymbolicTensor/SymbolicMat
-@utils.record()
+@pyop3.record.record()
 class AggregateMat:
     """A matrix formed of multiple submatrices concatenated together."""
     submats: np.ndarray[Mat]

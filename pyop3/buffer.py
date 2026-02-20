@@ -14,6 +14,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+impoty pyop3.record
 from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
@@ -113,7 +114,7 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         pass
 
 
-@utils.record()
+@pyop3.record.record()
 class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
@@ -205,7 +206,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
-@utils.record()
+@pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a numpy array."""
 
@@ -773,7 +774,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         set_petsc_mat_diagonal(self.petscmat, value)
 
 
-@utils.record()
+@pyop3.record.record()
 class AllocatedPetscMatBuffer(PetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -813,7 +814,7 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     # }}}
 
 
-@utils.record()
+@pyop3.record.record()
 class PetscMatPreallocatorBuffer(PetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 

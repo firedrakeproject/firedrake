@@ -10,13 +10,14 @@ from typing import Any
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.collections import OrderedSet
 from pyop3.dtypes import IntType
 from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent, UnparsedSlice
-from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
+from pyop3.utils import debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 
 class IncompletelyIndexedException(Pyop3Exception):

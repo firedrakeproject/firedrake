@@ -13,6 +13,7 @@ import numpy as np
 from petsc4py import PETSc
 
 from pyop3.cache import memory_cache
+from pyop3.collections import OrderedSet
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
@@ -346,7 +347,7 @@ def _collect_regions(axes: AxisTree):
     [{"a": "A", "b": "X"}, {"a": "A", "b": "Y"}, {"a": "B", "b": "X"}, {"a": "B", "b": "Y"}]
 
     """
-    region_sets = utils.OrderedSet()
+    region_sets = OrderedSet()
     for axis in axes.axes:
         for component in axis.components:
             region_labels = [r.label for r in component.regions]

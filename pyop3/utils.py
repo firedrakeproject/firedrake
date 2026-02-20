@@ -19,38 +19,12 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
-from pyop3.cache import memory_cache
+from pyop3.collections import AbstractOrderedSet
 from pyop3.config import config
+from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException
 from pyop3.mpi import collective
-
-
-# NOTE: Perhaps better inside another module
-PYOP3_DECIDE = object()
-"""Placeholder indicating that a value should be set by pyop3.
-
-This is important in cases where the more traditional `None` is actually
-meaningful.
-
-"""
-
-
-_nothing = object()
-"""Sentinel value indicating nothing should be done.
-
-This is useful in cases where `None` holds some meaning.
-
-"""
-
-
-
-class UnorderedCollectionException(Pyop3Exception):
-    """Exception raised when an ordered collection is required."""
-
-
-class EmptyCollectionException(Pyop3Exception):
-    """Exception raised when a non-empty collection is required."""
 
 
 class UniqueNameGenerator(pytools.UniqueNameGenerator):
@@ -99,6 +73,7 @@ def deprecated(prefer=None, internal=False):
     return decorator
 
 
+# remove me
 class auto:
     pass
 
@@ -126,138 +101,6 @@ class Labelled(abc.ABC):
         return unique_name(f"_label_{cls.__name__}")
 
 
-# TODO is Identified really useful?
-# class UniqueRecord(pytools.ImmutableRecord, Identified):
-#     fields = {"id"}
-#
-#     def __init__(self, id=None):
-#         pytools.ImmutableRecord.__init__(self)
-#         Identified.__init__(self, id)
-
-
-class ValueMismatchException(Pyop3Exception):
-    pass
-
-
-class AlwaysEmptyDict(dict):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def __setitem__(self, key, value, /) -> None:
-        pass
-
-    def setdefault(self, key, default=None, /):
-        return default
-
-
-class StrictlyUniqueDict(dict):
-    """A dictionary where overwriting entries will raise an error."""
-    def __setitem__(self, key, value, /) -> None:
-        if key in self and value != self[key]:
-            raise ValueMismatchException
-        return super().__setitem__(key, value)
-
-
-class StrictlyUniqueDefaultDict(collections.defaultdict):
-    def __setitem__(self, key, value, /) -> None:
-        if key in self and value != self[key]:
-            raise ValueMismatchException
-        return super().__setitem__(key, value)
-
-
-# NOTE: This has a lot of scope for improvements
-class UniqueList(list):
-    def append(self, value, /) -> None:
-        if value in self:
-            raise ValueMismatchException
-        return super().append(value)
-
-
-class AbstractOrderedSet:
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self._values!r})"
-
-    def __str__(self) -> str:
-        return f"{{{', '.join(map(str, self._values))}}}"
-
-    def __len__(self) -> int:
-        return len(self._values)
-
-    def __eq__(self, other, /) -> bool:
-        return type(other) is type(self) and other._values == self._values
-
-    def __getitem__(self, index, /):
-        return self._values[index]
-
-    def __contains__(self, item, /) -> bool:
-        return item in self._values
-
-    def __iter__(self):
-        # return iter(self._values.keys())
-        return iter(self._values)
-
-    def __reversed__(self):
-        return iter(reversed(self._values))
-
-    def __or__(self, other, /) -> Self:
-        assert is_ordered_sequence(other)
-        values = list(self._values)
-        for item in other:
-            if item not in values:
-                values.append(item)
-        return type(self)(values)
-
-    def union(self, /, *others) -> Self:
-        new = self
-        for other in others:
-            new |= other
-        return new
-
-    def index(self, value, /) -> Any:
-        return self._values.index(value)
-
-
-class OrderedSet(AbstractOrderedSet):
-    """A mutable ordered set."""
-
-    def __init__(self, values=None, /) -> None:
-        if values is not None:
-            self._values = list(values)
-        else:
-            self._values = []
-
-
-    def index(self, value) -> int:
-        return self._values.index(value)
-
-    def count(self, value) -> int:
-        # why did I write this?
-        raise NotImplementedError
-
-    def copy(self) -> OrderedSet:
-        return OrderedSet(self._values)
-
-    def add(self, value):
-        # self._values[value] = None
-        if value not in self._values:
-            self._values.append(value)
-
-    def update(self, /, *others):
-        for other in others:
-            for item in other:
-                self.add(item)
-
-
-class OrderedFrozenSet(AbstractOrderedSet):
-
-    def __init__(self, values: collections.abc.Sequence = (), /) -> None:
-        self._values = tuple(values)
-
-    def __hash__(self) -> int:
-        return hash((type(self), self._values))
-
-
 def as_tuple(item: Any) -> tuple[Any, ...]:
     if isinstance(item, collections.abc.Iterable):
         return tuple(item)
@@ -267,38 +110,6 @@ def as_tuple(item: Any) -> tuple[Any, ...]:
 
 def split_at(iterable, index):
     return iterable[:index], iterable[index:]
-
-
-class PrettyTuple(tuple):
-    """Implement a tuple with nice syntax for recursive functions. Like set notation."""
-
-    def __or__(self, other):
-        return type(self)(self + (other,))
-
-
-class LengthMismatchException(Pyop3Exception):
-    pass
-
-
-@deprecated("Use zip(strict=True) instead")
-def strict_zip(*iterables):
-    return zip(*iterables, strict=True)
-
-
-def rzip(*iterables):
-    if any(not isinstance(it, collections.abc.Sized) for it in iterables):
-        raise ValueError("Can only rzip with objects that have a known length")
-
-    max_length = max(len(it) for it in iterables)
-    return zip(*(pad(it, max_length, False) for it in iterables))
-
-
-def pad(iterable, length, after=True, padding_value=None):
-    missing = [padding_value] * (length - len(iterable))
-    if after:
-        return itertools.chain(iterable, missing)
-    else:
-        return itertools.chain(missing, iterable)
 
 
 single_valued = pytools.single_valued
@@ -628,93 +439,6 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-def record():
-    return _make_record_class(eq=False)
-
-
-def frozenrecord():
-    return _make_record_class(frozen=True)
-
-
-def _make_record_class(**kwargs):
-    def wrapper(cls):
-        cls = dataclasses.dataclass(**kwargs)(cls)
-        cls.__record_init__ = _record_init
-
-        def _record_method_cache(self):
-            return collections.defaultdict(dict)
-
-        # if kwargs.get("frozen", False):
-        #     cls.__hash__ = _frozenrecord_hash
-
-        return cls
-    return wrapper
-
-
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
-    new_attrs = {}
-    attrs_changed = False
-    for field in dataclasses.fields(self):
-        orig_attr = getattr(self, field.name)
-        new_attr = attrs.pop(field.name, orig_attr)
-        if not safe_equals(new_attr, orig_attr):
-            attrs_changed = True
-        new_attrs[field.name] = new_attr
-
-    if attrs:
-        valid_attr_names = tuple(field.name for field in dataclasses.fields(self))
-        raise AssertionError(
-            f"Unrecognised attributes: '{attrs.keys()}' are not in '{valid_attr_names}'"
-        )
-
-    if not attrs_changed:
-        return self
-    elif self.__dataclass_params__.frozen:
-        try:
-            return _make_record_maybe_singleton(self, new_attrs)
-        except UnhashableObjectException:
-            return _make_record(self, new_attrs)
-    else:
-        return _make_record(self, new_attrs)
-
-
-# NOTE: We use COMM_SELF because __record_init__ isn't always called collectively.
-# I need to think harder about the legality of this. Should I disallow the comm attr
-# for objects where this happens?
-# @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
-@memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
-def _make_record_maybe_singleton(*args, **kwargs):
-    return _make_record(*args, **kwargs)
-
-
-def _make_record(self, attrs):
-    new = object.__new__(type(self))
-    for field_name, attr in attrs.items():
-        object.__setattr__(new, field_name, attr)
-
-    if hasattr(new, "__post_init__"):
-        new.__post_init__()
-
-    return new
-
-
-def _frozenrecord_hash(self):
-    if hasattr(self, "_cached_hash"):
-        return self._cached_hash
-
-    hash_ = hash(dataclasses.fields(self))
-    object.__setattr__(self, "_cached_hash", hash_)
-    return hash_
-
-
-def attr(attr_name: str) -> property:
-    return property(lambda self: getattr(self, attr_name))
-
-
-class UnhashableObjectException(Exception):
-    pass
-
-
 @functools.singledispatch
 def freeze(obj: Any) -> Hashable:
     raise UnhashableObjectException
@@ -749,27 +473,6 @@ def _(dict_: dict) -> immutabledict:
 @freeze.register
 def _(hashable: Hashable) -> Hashable:
     return hashable
-
-
-# def match_attr(iterable, /, attr_name: str, *, allow_missing=False) -> Any:
-#     attr = None
-#     attr_found = False
-#     for item in iterflat(iterable):
-#         if hasattr(item, attr_name):
-#             new_attr = getattr(item, attr_name)
-#
-#             if attr_found:
-#                 assert new_attr == attr
-#             else:
-#                 attr = new_attr
-#
-#             attr_found = True
-#         elif not allow_missing:
-#             raise RuntimeError
-#
-#     assert attr_found
-#     return attr
-
 
 
 def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:

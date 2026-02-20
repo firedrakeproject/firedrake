@@ -13,15 +13,15 @@ class SizeMismatchException(Pyop3Exception):
     """Exception raised when the size of an array does not match what is expected."""
 
 
-class CommMismatchException(Pyop3Exception):
-    """Exception raised when MPI communicators do not match."""
-
-
 class InvalidIndexTargetException(Pyop3Exception):
     """Exception raised when we try to match index information to a mismatching axis tree."""
 
 
-class CommNotFoundException(Pyop3Exception):
+class ValueMismatchException(Pyop3Exception):
+    pass
+
+
+class UnhashableObjectException(Pyop3Exception, TypeError):
     pass
 
 
@@ -37,5 +37,17 @@ class CacheException(Pyop3Exception):
 
 class CompilationException(Pyop3Exception):
     """Error during compilation."""
+
+# }}}
+
+# {{{ parallel
+
+class CommNotFoundException(Pyop3Exception):
+    pass
+
+
+class CommMismatchException(Pyop3Exception):
+    """Exception raised when MPI communicators do not match."""
+
 
 # }}}

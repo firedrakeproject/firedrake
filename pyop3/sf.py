@@ -11,6 +11,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.dtypes import get_mpi_dtype, IntType
 
@@ -91,7 +92,7 @@ class AbstractStarForest(DistributedObject, abc.ABC):
         self.broadcast_end(*args)
 
 
-@utils.record()
+@pyop3.record.record()
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
 

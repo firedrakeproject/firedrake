@@ -8,12 +8,12 @@ from typing import Any, Hashable
 
 from immutabledict import immutabledict as idict
 
-import pyop3.tree.axis_tree as op3_tree
 from pyop3 import utils
+from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
 from pyop3.node import Visitor, LabelledTreeVisitor
 from pyop3.tree.labelled_tree import parent_path
-from pyop3.utils import OrderedFrozenSet
+import pyop3.tree.axis_tree as op3_tree
 from pyop3.expr.visitors import BufferCollector as ExprBufferCollector, DiskCacheKeyGetter as ExprDiskCacheKeyGetter
 
 from .layout import compute_layouts  # noqa: F401

@@ -8,13 +8,11 @@ from functools import cached_property  # noqa: F401
 from decorator import decorator
 from petsc4py import PETSc
 
+from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict
 from pyop3.dtypes import ScalarType, as_cstr
-from pyop3.dtypes import RealType     # noqa: F401
-from pyop3.dtypes import IntType      # noqa: F401
-from pyop3.dtypes import as_ctypes    # noqa: F401
+from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
 from pyop3.utils import (  # noqa: F401
-    OrderedSet,
     readonly,
     pairwise,
     steps,
@@ -27,8 +25,6 @@ from pyop3.utils import (  # noqa: F401
     debug_assert,
     freeze,
     strict_int,
-    StrictlyUniqueDict,
-    StrictlyUniqueDefaultDict,
     invert,
     split_by,
     as_tuple,
