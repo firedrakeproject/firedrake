@@ -33,7 +33,8 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import MatrixBase, AssembledMatrix
+from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
+from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
@@ -340,8 +341,8 @@ class Interpolator(abc.ABC):
             specified. By default None.
         mat_type
             The PETSc matrix type to use when assembling a rank 2 interpolation.
-            For cross-mesh interpolation, only ``"aij"`` is supported. For same-mesh
-            interpolation, ``"aij"`` and ``"baij"`` are supported. For same/cross mesh interpolation
+            For cross-mesh interpolation, ``"aij"`` and ``"matfree"`` are supported. For same-mesh
+            interpolation, ``"aij"``, ``"baij"``, and ``"matfree"`` are supported. For same/cross mesh interpolation
             between :func:`.MixedFunctionSpace`, ``"aij"`` and ``"nest"`` are supported.
             For interpolation between input-ordering linked :func:`.VertexOnlyMesh`,
             ``"aij"``, ``"baij"``, and ``"matfree"`` are supported.
@@ -357,7 +358,14 @@ class Interpolator(abc.ABC):
         """
         self._check_mat_type(mat_type)
 
+        if mat_type == "matfree" and self.rank == 2:
+            ctx = ImplicitMatrixContext(
+                self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+            )
+            return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
+
         result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
+
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
@@ -365,7 +373,8 @@ class Interpolator(abc.ABC):
             if tensor:
                 result.copy(tensor.petscmat)
                 return tensor
-            return AssembledMatrix(self.interpolate_args, bcs, result)
+            else:
+                return Matrix(self.ufl_interpolate, result, bcs=bcs)
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -657,7 +666,7 @@ class CrossMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", None}
+        return {"aij", "matfree", None}
 
 
 class SameMeshInterpolator(Interpolator):
@@ -820,7 +829,7 @@ class SameMeshInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "baij", None}
+        return {"aij", "baij", "matfree", None}
 
 
 class VomOntoVomInterpolator(SameMeshInterpolator):
@@ -1708,4 +1717,4 @@ class MixedInterpolator(Interpolator):
 
     @property
     def _allowed_mat_types(self):
-        return {"aij", "nest", None}
+        return {"aij", "nest", "matfree", None}
