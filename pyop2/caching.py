@@ -564,16 +564,14 @@ def parallel_cache(
                         if root >= 0:
                             # Found a rank with a cache hit, broadcast 'value' from it
                             value = comm.bcast(value, root=root)
-                else:
-                    # In-memory caches are stashed on the comm and so must always agree
-                    # on their contents.
-                    if (
-                        configuration["spmd_strict"]
-                        and not pytools.is_single_valued(
-                            comm.allgather(value is not CACHE_MISS)
-                        )
-                    ):
-                        raise ValueError("Cache hit on some ranks but missed on others")
+
+                if (
+                    configuration["spmd_strict"]
+                    and not pytools.is_single_valued(
+                        comm.allgather(value is not CACHE_MISS)
+                    )
+                ):
+                    raise ValueError("Cache hit on some ranks but missed on others")
 
             if value is CACHE_MISS:
                 if bcast:
