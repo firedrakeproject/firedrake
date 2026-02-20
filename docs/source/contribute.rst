@@ -18,8 +18,9 @@ number of steps, which we explain below.
 
 .. note::
 
-   We accept contributions to Firedrake that are written by AI but they are
-   subject to some additional requirements. These are detailed in our
+   We accept contributions to Firedrake where the author has been
+   assisted by AI tools but they are subject to some additional
+   requirements. These are detailed in our
    `AI policy <https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy>`_.
 
 Deciding what to contribute
