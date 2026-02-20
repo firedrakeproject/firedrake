@@ -16,6 +16,12 @@ bugs in existing capabilities, and a more vibrant and sustainable
 community! Contributing to Firedrake is not difficult but involves a
 number of steps, which we explain below.
 
+.. note::
+
+   We accept contributions to Firedrake that are written by AI but subject
+   to some additional requirements. These are detailed in our
+   `AI policy <https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy>`_.
+
 Deciding what to contribute
 ---------------------------
 
@@ -115,7 +121,7 @@ to have done the following:
       $ make html
 
    and then inspect the generated HTML files in ``docs/build/html``.
-   
+
    Note that if you did not specify the ``docs`` optional dependencies
    when installing Firedrake then you may have to manually install
    some extra packages to build the documentation.
