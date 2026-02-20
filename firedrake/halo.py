@@ -1,4 +1,4 @@
-from pyop2 import op2, utils
+from pyop2 import op2
 from mpi4py import MPI
 import numpy
 from functools import partial, cached_property

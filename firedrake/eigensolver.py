@@ -4,7 +4,6 @@ from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake import utils
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
 from functools import cached_property

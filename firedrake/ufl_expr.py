@@ -6,7 +6,7 @@ from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain
 import firedrake
-from firedrake import utils, function, cofunction
+from firedrake import function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 from functools import cached_property

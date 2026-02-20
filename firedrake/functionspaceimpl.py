@@ -19,7 +19,7 @@ from ufl.duals import is_dual, is_primal
 from pyop2 import op2
 from pyop2.utils import as_tuple
 
-from firedrake import dmhooks, utils
+from firedrake import dmhooks
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc

@@ -12,7 +12,6 @@ from firedrake.parameters import parameters
 from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
-import firedrake.utils as utils
 import ufl
 import finat.ufl
 from functools import cached_property
