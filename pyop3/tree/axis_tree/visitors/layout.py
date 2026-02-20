@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import collections
 import functools
+import itertools
 import numbers
 import typing
 from typing import Any
@@ -187,20 +189,33 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     # 3. regions = {"y"}, starts = [2, 2], [[0, 1, 4]][i_A, i_B], [[2, 3, 2]][i_A, i_C]
     # 4. regions = {"y"}, starts = [2, 3], [[0, 1, 4]][i_A, i_B], [[2, 3, 5]][i_A, i_C]
     #
-    # TODO: There a particular cases (e.g. multiple regions but only a single
+    # TODO: There are particular cases (e.g. multiple regions but only a single
     # component or no matching regions) where it is sufficient to do an affine
     # layout instead of tabulating a start expression. We currently do not detect
     # this.
     starts = [0] * len(to_tabulate)
+    visited_regions_per_offset_dat = collections.defaultdict(set)
     for regions in _collect_regions(axis_tree):
         for i, (offset_axes, offset_dat) in enumerate(to_tabulate):
+            matching_regions = regions.intersection(offset_axes._all_region_labels)
 
             # Axes do not match the current region set, this means that it is
             # zero-sized.
-            if not all(region in offset_axes._all_region_labels for region in regions):
+            if not matching_regions:
                 continue
 
-            regioned_axes = offset_axes.with_region_labels(regions)
+            # Also skip if we've already looked at this region set for this dat.
+            # For example if one tree branch only has owned/ghost whereas the
+            # other has owned/ghost and unconstrained/constrained then we only want
+            # to visit once.
+            if matching_regions in visited_regions_per_offset_dat[offset_dat]:
+                continue
+
+            visited_regions_per_offset_dat[offset_dat].add(matching_regions)
+
+            # Set 'allow_missing' to true because not all axes will reference the
+            # fullest set of regions
+            regioned_axes = offset_axes.with_region_labels(regions, allow_missing=True)
             assert not regioned_axes._all_region_labels  # confusing!
 
             # Add the global offset to the values in this region
@@ -209,7 +224,7 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
             # Figure out how large the looped-over part of the tree is (including subaxes)
             # as this will inform the stride size.
-            step_size = axis_tree.linearize(offset_axes.leaf_path, partial=True).with_region_labels(regions).size or 1
+            step_size = axis_tree.linearize(offset_axes.leaf_path, partial=True).with_region_labels(regions, allow_missing=True).size or 1
 
             # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
@@ -300,7 +315,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
     return idict(layouts)
 
 
-def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
+def _collect_regions(axes: AxisTree):
     # NOTE: This is now a set, not a mapping
     """
     (can think of as some sort of linearisation of the tree, should probably error if orders do not match)
@@ -331,21 +346,21 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
     [{"a": "A", "b": "X"}, {"a": "A", "b": "Y"}, {"a": "B", "b": "X"}, {"a": "B", "b": "Y"}]
 
     """
-    merged_regions = []  # NOTE: Could be an ordered set
-    axis = axes.node_map[path]
-    for component in axis.components:
-        path_ = path | {axis.label: component.label}
-        for region in component.regions:
-            merged_region = frozenset({region.label}) if region.label is not None else frozenset()
+    region_sets = utils.OrderedSet()
+    for axis in axes.axes:
+        for component in axis.components:
+            region_labels = [r.label for r in component.regions]
+            if utils.strictly_all(rl is None for rl in region_labels):
+                continue
+            region_set = [
+                rl if isinstance(rl, frozenset) else frozenset({rl})
+                for rl in  region_labels
+            ]
+            region_sets.add(region_set)
 
-            if axes.node_map[path_]:
-                for submerged_region in _collect_regions(axes, path=path_):
-                    merged_region_ = merged_region | submerged_region
-                    if merged_region_ not in merged_regions:
-                        merged_regions.append(merged_region_)
-            else:
-                if merged_region not in merged_regions:
-                    merged_regions.append(merged_region)
+    merged_regions = []
+    for merged_region in itertools.product(*region_sets):
+        merged_regions.append(frozenset().union(*merged_region))
     return tuple(merged_regions)
 
 

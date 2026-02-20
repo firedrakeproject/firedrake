@@ -1614,7 +1614,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
-        index = Ellipsis if V.index is None else V.index
+        index = Ellipsis if V.index is None else V.name
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             # if fs.topological != self.topological:
@@ -1874,8 +1874,14 @@ class ParloopBuilder:
             jbc = 0 if j is None else j
             row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
 
-            i = Ellipsis if i is None else i
-            j = Ellipsis if j is None else j
+            if i is None:
+                i = Ellipsis
+            else:
+                i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
+            if j is None:
+                j = Ellipsis
+            else:
+                j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
 
             mat_buffer = matrix.M.buffer
 

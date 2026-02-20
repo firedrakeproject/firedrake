@@ -1587,8 +1587,12 @@ class MixedFunctionSpace:
                 subspace_name = f"{subspace.name}_copy{counter}"
                 counter += 1
             subspace_names.add(subspace_name)
-            new_subspace = type(subspace)(subspace.mesh(), subspace.element,
-                                          name=subspace_name, layout=subspace.layout)
+            if isinstance(subspace, RestrictedFunctionSpace):
+                new_subspace = type(subspace)(subspace.function_space, subspace.boundary_set,
+                                              name=subspace_name)
+            else:
+                new_subspace = type(subspace)(subspace.mesh(), subspace.element,
+                                              name=subspace_name, layout=subspace.layout)
             new_spaces.append(new_subspace)
         spaces = new_spaces
 
@@ -1899,7 +1903,7 @@ class ProxyFunctionSpace(FunctionSpace):
        Users should not build a :class:`ProxyFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, mesh, element, name=None):
+    def __new__(cls, mesh, element, name=None, **kwargs):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:

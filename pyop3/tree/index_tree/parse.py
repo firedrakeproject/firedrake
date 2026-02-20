@@ -493,6 +493,7 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
+@_as_context_free_indices.register(str)
 @_as_context_free_indices.register(slice)
 @_as_context_free_indices.register(numbers.Integral)
 @_as_context_free_indices.register(UnparsedSlice)

@@ -1428,19 +1428,15 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        # NOTE: Identical code is used elsewhere
-        if not self.comm:  # maybe goes away if we disallow comm=None
-            numbering = np.arange(self.size, dtype=IntType)
-        else:
-            with temp_internal_comm(self.sf.comm) as icomm:
-                start = self.sf.comm.exscan(self.owned.local_size) or 0
-            numbering = np.arange(start, start + self.local_size, dtype=IntType)
+        with temp_internal_comm(self.sf.comm) as icomm:
+            start = self.sf.comm.exscan(self.owned.local_size) or 0
+        numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
-            # set ghost entries to -1 to make sure they are overwritten
-            # TODO: if config.debug:
-            numbering[self.owned.local_size:] = -1
-            self.sf.broadcast(numbering, MPI.REPLACE)
-            debug_assert(lambda: (numbering >= 0).all())
+        # set ghost entries to -1 to make sure they are overwritten
+        # TODO: if config.debug:
+        numbering[self.owned.local_size:] = -1
+        self.sf.broadcast(numbering, MPI.REPLACE)
+        debug_assert(lambda: (numbering >= 0).all())
         return Dat(self, data=numbering)
 
 
@@ -1634,7 +1630,7 @@ class IndexedAxisTree(AbstractAxisTree):
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
-        indices_dat = Dat.empty(self.materialize().regionless(), dtype=IntType, prefix="indices")
+        indices_dat = Dat.full(self.materialize().regionless(), -1, dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             # if "constrained" in str(iterset):
