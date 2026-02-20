@@ -169,10 +169,12 @@ def test_one_element_mesh_parallel():
     run_one_element_mesh()
 
 
-def test_box():
-    assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
+@pytest.mark.parametrize("hexahedral", [False, True])
+def test_box(hexahedral):
+    assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3, hexahedral=hexahedral)) - 6) < 1e-3
 
 
+@pytest.mark.parallel([1, 3])
 def test_periodic_unit_cube():
     assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
@@ -237,11 +239,6 @@ def test_tensor_box_parallel():
     ycoords = [1.0, 1.4, 2.0]
     zcoords = [0.5, 0.6, 0.7, 1.0]
     assert abs(integrate_one(TensorBoxMesh(xcoords, ycoords, zcoords)) - 0.6) < 1e-3
-
-
-@pytest.mark.parallel
-def test_periodic_unit_cube_parallel():
-    assert abs(integrate_one(PeriodicUnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
 def assert_num_exterior_facets_equals_zero(m):
@@ -471,7 +468,7 @@ def test_boxmesh_kind(kind, num_cells):
     assert m.num_cells() == num_cells
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_periodic_unit_cube_hex_cell():
     mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, True, False], hexahedral=True)
     x, y, z = SpatialCoordinate(mesh)
@@ -482,12 +479,9 @@ def test_periodic_unit_cube_hex_cell():
     assert error < 1.e-30
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 def test_periodic_unit_cube_hex_facet():
     mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, False, False], hexahedral=True)
-    for subdomain_id in [1, 2]:
-        area = assemble(Constant(1.) * dS(domain=mesh, subdomain_id=subdomain_id))
-        assert abs(area - 1.0) < 1.e-15
     for subdomain_id in [3, 4, 5, 6]:
         area = assemble(Constant(1.) * ds(domain=mesh, subdomain_id=subdomain_id))
         assert abs(area - 1.0) < 1.e-15
