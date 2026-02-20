@@ -229,6 +229,7 @@ class _UnitAxisTree(CacheMixin):
     leaf_paths = (idict(),)
     leaf_path = idict()
     nodes = ()
+    node_labels = frozenset()
     _all_region_labels = ()
     node_map = idict({idict(): None})
 
