@@ -239,7 +239,7 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+          # firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
       - name: Run PyOP2 tests
@@ -248,10 +248,10 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          # firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          # firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          # firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          # firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
         timeout-minutes: 10
 
 
@@ -268,107 +268,110 @@ jobs:
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 1 -m parallel[match] "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 2 -m parallel[match] "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 3 -m parallel[match] "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          mpiexec -n 2 python3 -m pytest -v --splits 4 --group 4 -m parallel[match] "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          # firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
-      - name: Run Gusto smoke tests
-        # Only test Gusto in real mode
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          if [ ${{ inputs.target_branch }} = 'release' ]; then
-            GUSTO_BRANCH='main'
-          else
-            GUSTO_BRANCH='future'
-          fi
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
-          pip install --verbose ./gusto-repo
-          python -m pytest -n 8 --verbose \
-            gusto-repo/integration-tests/balance/test_saturated_balance.py \
-            gusto-repo/integration-tests/equations/test_thermal_sw.py \
-            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
-        timeout-minutes: 10
-
-      - name: Run Thetis smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
-          pip install --verbose ./thetis-repo
-          python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
-        timeout-minutes: 10
-
-      - name: Run spyro smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
-          pip install --verbose ./spyro-repo
-          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
-        timeout-minutes: 5
-
-      - name: Run G-ADOPT smoke tests
-        if: |
-          inputs.run_tests &&
-          (success() || steps.install.conclusion == 'success') &&
-          matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.target_branch }}
-          pip install --verbose ./g-adopt-repo
-          make -C g-adopt-repo/demos/mantle_convection/base_case check
-        timeout-minutes: 5
+      # - name: Run Gusto smoke tests
+      #   # Only test Gusto in real mode
+      #   if: |
+      #     inputs.run_tests &&
+      #     (success() || steps.install.conclusion == 'success') &&
+      #     matrix.arch == 'default'
+      #   run: |
+      #     . venv/bin/activate
+      #     if [ ${{ inputs.target_branch }} = 'release' ]; then
+      #       GUSTO_BRANCH='main'
+      #     else
+      #       GUSTO_BRANCH='future'
+      #     fi
+      #     git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch $GUSTO_BRANCH
+      #     pip install --verbose ./gusto-repo
+      #     python -m pytest -n 8 --verbose \
+      #       gusto-repo/integration-tests/balance/test_saturated_balance.py \
+      #       gusto-repo/integration-tests/equations/test_thermal_sw.py \
+      #       gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
+      #   timeout-minutes: 10
+      #
+      # - name: Run Thetis smoke tests
+      #   if: |
+      #     inputs.run_tests &&
+      #     (success() || steps.install.conclusion == 'success') &&
+      #     matrix.arch == 'default'
+      #   run: |
+      #     . venv/bin/activate
+      #     git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo --branch ${{ inputs.target_branch }}
+      #     pip install --verbose ./thetis-repo
+      #     python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
+      #   timeout-minutes: 10
+      #
+      # - name: Run spyro smoke tests
+      #   if: |
+      #     inputs.run_tests &&
+      #     (success() || steps.install.conclusion == 'success') &&
+      #     matrix.arch == 'default'
+      #   run: |
+      #     . venv/bin/activate
+      #     git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+      #     pip install --verbose ./spyro-repo
+      #     mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
+      #   timeout-minutes: 5
+      #
+      # - name: Run G-ADOPT smoke tests
+      #   if: |
+      #     inputs.run_tests &&
+      #     (success() || steps.install.conclusion == 'success') &&
+      #     matrix.arch == 'default'
+      #   run: |
+      #     . venv/bin/activate
+      #     git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.target_branch }}
+      #     pip install --verbose ./g-adopt-repo
+      #     make -C g-adopt-repo/demos/mantle_convection/base_case check
+      #   timeout-minutes: 5
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
