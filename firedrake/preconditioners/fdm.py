@@ -1,5 +1,5 @@
 from textwrap import dedent
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -15,7 +15,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
-from firedrake.utils import cached_property
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element

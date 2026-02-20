@@ -2,7 +2,6 @@
 import collections.abc
 import warnings
 from decorator import decorator
-from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401

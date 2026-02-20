@@ -1,6 +1,7 @@
 import collections.abc
 import ctypes
 from dataclasses import dataclass
+from functools import cached_property
 import os
 from typing import Optional, Tuple
 import itertools
@@ -18,7 +19,7 @@ from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
 from pyop2.codegen.rep2loopy import generate
 from pyop2.types import IterationRegion, Constant, READ
-from pyop2.utils import cached_property, get_petsc_dir
+from pyop2.utils import get_petsc_dir
 
 
 # We set eq=False to force identity-based hashing. This is required for when

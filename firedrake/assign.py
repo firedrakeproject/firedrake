@@ -2,9 +2,10 @@ import functools
 import operator
 
 import numpy as np
+from functools import cached_property
+
 from pyadjoint.tape import annotate_tape
 from pyop2 import op2
-from pyop2.utils import cached_property
 import pytools
 import finat.ufl
 from ufl.algorithms import extract_coefficients

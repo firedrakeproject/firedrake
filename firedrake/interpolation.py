@@ -3,7 +3,7 @@ import os
 import tempfile
 import abc
 
-from functools import partial
+from functools import cached_property, partial
 from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
 from numbers import Number
@@ -25,7 +25,7 @@ from finat.element_factory import create_element
 from tsfc.driver import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
-from firedrake.utils import IntType, ScalarType, cached_property, known_pyop2_safe, tuplify
+from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
 from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
