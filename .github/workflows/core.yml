@@ -212,6 +212,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
+          pip install -I git+https://github.com/firedrakeproject/ufl.git@pbrubeck/fix/replace-coefficient-derivative
           firedrake-clean
           pip list
 
