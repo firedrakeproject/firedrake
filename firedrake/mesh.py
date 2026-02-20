@@ -39,7 +39,6 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
-from pyadjoint import stop_annotating
 import gem
 
 try:
@@ -4377,11 +4376,6 @@ def _parent_mesh_embedding(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
 
-    import firedrake.functionspace as functionspace
-    import firedrake.constant as constant
-    import firedrake.interpolation as interpolation
-    import firedrake.assemble as assemble
-
     with temp_internal_comm(parent_mesh.comm) as icomm:
         # In parallel, we need to make sure we know which point is which and save
         # it.
@@ -4433,25 +4427,6 @@ def _parent_mesh_embedding(
             icomm.Allgatherv(
                 input_ranks_local, (input_ranks_global, ncoords_local_allranks)
             )
-
-    # Get parent mesh rank ownership information:
-    # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
-    # a Function whose dat contains rank ownership information in an ordering
-    # that is accessible using Firedrake's cell numbering. This is because, on
-    # each rank, parent_mesh.comm.rank creates a Constant with the local rank
-    # number, and halo exchange ensures that this information is visible, as
-    # nessesary, to other processes.
-    P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
-    with stop_annotating():
-        visible_ranks = interpolation.interpolate(
-            constant.Constant(parent_mesh.comm.rank), P0DG
-        )
-        visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
-
-    locally_visible = np.full(ncoords_global, False)
-    # See below for why np.inf is used here.
-    ranks = np.full(ncoords_global, np.inf)
-
     (
         parent_cell_nums,
         reference_coords,
@@ -4466,8 +4441,26 @@ def _parent_mesh_embedding(
         # which we can safely delete
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
-    locally_visible[:] = parent_cell_nums != -1
-    ranks[locally_visible] = visible_ranks[parent_cell_nums[locally_visible]]
+    # Get parent mesh rank ownership information.
+    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+    visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
+    visible_ranks[parent_mesh.cell_set.size:] = -1
+    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+    dmcommon.exchange_cell_orientations(
+        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+    )
+    locally_visible = parent_cell_nums != -1
+
+    if parent_mesh.extruded:
+        # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
+        # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
+        locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
+    else:
+        locally_visible_cell_nums = parent_cell_nums[locally_visible]
+
+    ranks = np.full(ncoords_global, np.inf)   # See below for why np.inf is used here.
+    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
+
     # see below for why np.inf is used here.
     ref_cell_dists_l1[~locally_visible] = np.inf
 
@@ -4547,9 +4540,11 @@ def _parent_mesh_embedding(
             )
             changed_ranks_tied &= locally_visible
             # update the identified rank
-            ranks[changed_ranks_tied] = visible_ranks[
-                parent_cell_nums[changed_ranks_tied]
-            ]
+            if parent_mesh.extruded:
+                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
+            else:
+                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
+            ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
             # if the rank now matches then we have found the correct cell
             locally_visible[changed_ranks_tied] &= (
                 owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
