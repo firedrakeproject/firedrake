@@ -412,10 +412,12 @@ def dup_comm(comm_in):
     :returns internal_comm: An internal (PyOP2) communicator."""
     assert not is_pyop2_comm(comm_in)
 
+    comm_in.barrier()
+
     if not comm_in.name:
         print(f"In comm {comm_in.py2f()} has no name")
-        import traceback
-        traceback.print_stack()
+        # import traceback
+        # traceback.print_stack()
 
     # Check if communicator has an embedded PyOP2 comm.
     internal_comm = comm_in.Get_attr(innercomm_keyval)
@@ -423,6 +425,7 @@ def dup_comm(comm_in):
         print(f"{comm_in.name}, {comm_in.rank}: has no internal comm", flush=True)
         # Haven't seen this comm before, duplicate it.
         internal_comm = comm_in.Dup()
+        internal_comm.barrier()
         comm_in.Set_attr(innercomm_keyval, internal_comm)
         internal_comm.Set_attr(outercomm_keyval, comm_in)
         # Name
@@ -436,6 +439,7 @@ def dup_comm(comm_in):
         internal_comm.Set_attr(cidx_keyval, [cidx])
         _DUPED_COMM_DICT[cidx] = internal_comm
     elif is_pyop2_comm(internal_comm):
+        internal_comm.barrier()
         print(f"{comm_in.name}, {comm_in.rank}: has an internal comm", flush=True)
         # Inner comm is a PyOP2 comm, return it
         incref(internal_comm)
