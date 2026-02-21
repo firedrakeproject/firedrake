@@ -11,15 +11,6 @@ import os
 import tempfile
 
 
-@pytest.fixture
-def set_test_tape():
-    """Set a new working tape for this test."""
-    continue_annotation()
-    with set_working_tape():
-        yield
-    pause_annotation()
-
-
 @pytest.fixture(autouse=True)
 def autouse_test_taping(set_test_tape):
     yield

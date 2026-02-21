@@ -20,6 +20,7 @@ import firedrake.utils as utils
 import firedrake
 import numpy as np
 import os
+import tempfile
 import h5py
 
 
@@ -535,6 +536,173 @@ def _generate_function_space_name(V):
     return "_".join(V_names)
 
 
+class TemporaryFunctionCheckpointFile:
+    """Manages temporary HDF5 files for saving/loading function data via PETSc Vec I/O.
+
+    This class encapsulates the low-level PETSc Vec I/O that enables function
+    checkpointing on a sub-communicator (e.g. per-rank or per-node), bypassing
+    the parallel HDF5 overhead of :class:`CheckpointFile`.
+
+    Parameters
+    ----------
+    comm : mpi4py.MPI.Intracomm
+        The communicator on which checkpoint files are collectively created
+        and accessed.
+    dirname : str or None
+        Parent directory for temporary files. If None, the current working
+        directory is used.
+    cleanup : bool
+        If True (default), the temporary directory and all files within it
+        are automatically deleted when this object is garbage collected.
+    """
+
+    def __init__(self, comm, dirname=None, cleanup=True):
+        self.comm = comm
+        self.cleanup = cleanup
+        self._indices = {}
+
+        if comm.rank == 0:
+            if cleanup:
+                self._tmpdir = tempfile.TemporaryDirectory(
+                    prefix="firedrake_adjoint_checkpoint_cc_",
+                    dir=dirname or os.getcwd()
+                )
+                path = self._tmpdir.name
+            else:
+                path = tempfile.mkdtemp(
+                    prefix="firedrake_adjoint_checkpoint_cc_",
+                    dir=dirname or os.getcwd()
+                )
+                self._tmpdir = None
+            self.dirname = comm.bcast(path)
+        else:
+            self._tmpdir = None
+            self.dirname = comm.bcast(None)
+
+    def new_file(self):
+        """Create a new empty HDF5 checkpoint file.
+
+        Returns
+        -------
+        str
+            The path to the newly created file.
+        """
+        if self.comm.rank == 0:
+            fd, filepath = tempfile.mkstemp(
+                dir=self.dirname, suffix=".h5"
+            )
+            os.close(fd)
+            filepath = self.comm.bcast(filepath)
+        else:
+            filepath = self.comm.bcast(None)
+
+        viewer = PETSc.ViewerHDF5()
+        viewer.create(filepath, mode='w', comm=self.comm)
+        viewer.destroy()
+        return filepath
+
+    def save_function(self, filepath, function):
+        """Save a function's data to an HDF5 file via PETSc Vec I/O.
+
+        Parameters
+        ----------
+        filepath : str
+            Path to the HDF5 file (must have been created by :meth:`new_file`).
+        function : Function
+            The function whose data to save.
+
+        Returns
+        -------
+        tuple of (str, int)
+            The (stored_name, stored_index) pair needed for :meth:`load_function`.
+        """
+        if filepath not in self._indices:
+            self._indices[filepath] = {}
+
+        stored_name = _generate_function_space_name(function.function_space())
+        indices = self._indices[filepath]
+        indices.setdefault(stored_name, 0)
+        indices[stored_name] += 1
+        stored_index = indices[stored_name]
+
+        vec_name = f"{stored_name}_{stored_index}"
+
+        with function.dat.vec_ro as v:
+            local_array = v.getArray().copy()
+
+        local_vec = PETSc.Vec().createMPI(
+            (len(local_array), PETSc.DECIDE), comm=self.comm
+        )
+        local_vec.setName(vec_name)
+        local_vec.setArray(local_array)
+
+        viewer = PETSc.ViewerHDF5()
+        viewer.create(filepath, mode='a', comm=self.comm)
+        local_vec.view(viewer)
+        viewer.destroy()
+        local_vec.destroy()
+
+        return stored_name, stored_index
+
+    def load_function(self, filepath, function_space, stored_name, stored_index,
+                      name=None, count=None):
+        """Load a function's data from an HDF5 file via PETSc Vec I/O.
+
+        Parameters
+        ----------
+        filepath : str
+            Path to the HDF5 file.
+        function_space : FunctionSpace
+            The function space for the loaded function.
+        stored_name : str
+            The stored name returned by :meth:`save_function`.
+        stored_index : int
+            The stored index returned by :meth:`save_function`.
+        name : str or None
+            Name for the new function.
+        count : int or None
+            Count identity for the new function.
+
+        Returns
+        -------
+        Function
+            The loaded function.
+        """
+        from firedrake import Function
+
+        vec_name = f"{stored_name}_{stored_index}"
+        f = Function(function_space, name=name, count=count)
+
+        with f.dat.vec_wo as v:
+            local_size = v.getLocalSize()
+            local_vec = PETSc.Vec().createMPI(
+                (local_size, PETSc.DECIDE), comm=self.comm
+            )
+            local_vec.setName(vec_name)
+
+            viewer = PETSc.ViewerHDF5()
+            viewer.create(filepath, mode='r', comm=self.comm)
+            local_vec.load(viewer)
+            viewer.destroy()
+
+            v.setArray(local_vec.getArray())
+            local_vec.destroy()
+
+        return f
+
+    def remove_file(self, filepath):
+        """Remove a checkpoint file.
+
+        Parameters
+        ----------
+        filepath : str
+            Path to the file to remove. Only rank 0 performs the deletion,
+            and only when cleanup is enabled.
+        """
+        if self.cleanup and self.comm.rank == 0 and os.path.exists(filepath):
+            os.remove(filepath)
+
+
 class CheckpointFile(object):
 
     r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
@@ -869,14 +1037,14 @@ class CheckpointFile(object):
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()
         if isinstance(V.topological, impl.MixedFunctionSpace):
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             base_path = self._path_to_mixed_function_space(mesh.name, V_name)
             self.require_group(base_path)
             self.set_attr(base_path, PREFIX + "_num_sub_spaces", V.num_sub_spaces())
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
-                Vsub_name = self._generate_function_space_name(Vsub)
+                Vsub_name = _generate_function_space_name(Vsub)
                 self.set_attr(path, PREFIX + "_function_space", Vsub_name)
                 self._save_function_space(Vsub)
         else:
@@ -888,7 +1056,7 @@ class CheckpointFile(object):
             # -- Save function space --
             tmesh = tV.mesh()
             element = tV.ufl_element()
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             path = self._path_to_function_spaces(tmesh.name, mesh.name)
             if V_name not in self.require_group(path):
                 # Save UFL element
@@ -952,7 +1120,7 @@ class CheckpointFile(object):
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
-        V_name = self._generate_function_space_name(V)
+        V_name = _generate_function_space_name(V)
         if isinstance(V.topological, impl.MixedFunctionSpace):
             base_path = self._path_to_mixed_function(mesh.name, V_name, f.name())
             self.require_group(base_path)
@@ -1431,10 +1599,6 @@ class CheckpointFile(object):
 
     def _generate_mesh_key_from_names(self, mesh_name, distribution_name, permutation_name):
         return (self.filename, self.commkey, mesh_name, distribution_name, permutation_name)
-
-    def _generate_function_space_name(self, V):
-        """Return a unique function space name."""
-        return _generate_function_space_name(V)
 
     def _generate_dm_name(self, nodes_per_entity, real_tensorproduct, block_size):
         return "_".join([PREFIX, "dm"]

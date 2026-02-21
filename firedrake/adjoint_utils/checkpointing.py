@@ -2,7 +2,6 @@
 from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
-from petsc4py import PETSc
 import tempfile
 import os
 import shutil
@@ -148,18 +147,18 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False, checkpoint_comm=None):
+    def __init__(self, name, comm, cleanup=False, checkpoint_comm=None,
+                 temp_ckpt=None):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
         self.checkpoint_comm = checkpoint_comm
+        self.temp_ckpt = temp_ckpt
 
     def __del__(self):
         if self.cleanup and os.path.exists(self.name):
-            if self.checkpoint_comm is not None:
-                # Cleanup coordinated within checkpoint_comm.
-                if self.checkpoint_comm.rank == 0:
-                    os.remove(self.name)
+            if self.temp_ckpt is not None:
+                self.temp_ckpt.remove_file(self.name)
             elif self.comm.rank == 0:
                 os.remove(self.name)
 
@@ -207,18 +206,14 @@ class DiskCheckpointer(TapePackageData):
             # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
 
-        # Checkpoint-comm directory (for function data checkpoints).
+        # Local checkpoint I/O manager (for function data on checkpoint_comm).
         if self.checkpoint_comm is not None:
-            cc = self.checkpoint_comm
-            if cc.rank == 0:
-                self.cc_dirname = cc.bcast(tempfile.mkdtemp(
-                    prefix="firedrake_adjoint_checkpoint_cc_",
-                    dir=checkpoint_dir or os.getcwd()
-                ))
-            else:
-                self.cc_dirname = cc.bcast("")
-            if self.cleanup and cc.rank == 0:
-                atexit.register(shutil.rmtree, self.cc_dirname)
+            from firedrake.checkpointing import TemporaryFunctionCheckpointFile
+            self._temp_ckpt = TemporaryFunctionCheckpointFile(
+                checkpoint_comm, dirname=checkpoint_dir, cleanup=cleanup
+            )
+        else:
+            self._temp_ckpt = None
 
         # A checkpoint file holding the state of block variables set outside
         # the tape (always shared, used by checkpointable_mesh).
@@ -243,21 +238,11 @@ class DiskCheckpointer(TapePackageData):
 
     def _new_checkpoint_comm_file(self):
         """Set up a checkpoint file on the checkpoint communicator."""
-        cc = self.checkpoint_comm
-        if cc.rank == 0:
-            fd, checkpoint_file = tempfile.mkstemp(
-                dir=self.cc_dirname, suffix=".h5"
-            )
-            os.close(fd)
-            checkpoint_file = cc.bcast(checkpoint_file)
-        else:
-            checkpoint_file = cc.bcast("")
-        # Create a valid empty HDF5 file via PETSc.
-        viewer = PETSc.ViewerHDF5()
-        viewer.create(checkpoint_file, mode='w', comm=cc)
-        viewer.destroy()
-        return CheckPointFileReference(checkpoint_file, self.comm,
-                                       self.cleanup, checkpoint_comm=cc)
+        filepath = self._temp_ckpt.new_file()
+        return CheckPointFileReference(filepath, self.comm,
+                                       self.cleanup,
+                                       checkpoint_comm=self.checkpoint_comm,
+                                       temp_ckpt=self._temp_ckpt)
 
     def _new_checkpoint_file(self):
         """Set up a checkpoint file for function data."""
@@ -269,7 +254,9 @@ class DiskCheckpointer(TapePackageData):
     def new_checkpoint_file(self):
         """Set up a disk checkpointing file."""
         warnings.warn(
-            "'new_checkpoint_file' is deprecated, use '_new_checkpoint_file' instead",
+            "'new_checkpoint_file' is deprecated. Checkpoint file management "
+            "is now handled internally and this method will be removed in a "
+            "future release.",
             FutureWarning
         )
         return self._new_checkpoint_file()
@@ -393,21 +380,21 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
         self.count = function.count()
 
-        if self.file.checkpoint_comm is not None:
+        if self.file.temp_ckpt is not None:
             self._function_space = function.function_space()
-            self._save_checkpoint_comm(function)
+            self._save_local_checkpoint(function)
         else:
             self._save_shared(function)
 
     def _save_shared(self, function):
         """Save function data to a shared HDF5 file via CheckpointFile."""
-        from firedrake.checkpointing import CheckpointFile
+        from firedrake.checkpointing import CheckpointFile, _generate_function_space_name
         stored_names = CheckpointFunction._checkpoint_indices
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
         with CheckpointFile(self.file.name, 'a') as outfile:
-            self.stored_name = outfile._generate_function_space_name(
+            self.stored_name = _generate_function_space_name(
                 function.function_space()
             )
             indices = stored_names[self.file.name]
@@ -417,41 +404,16 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
-    def _save_checkpoint_comm(self, function):
-        """Save local Vec data to an HDF5 file via PETSc on checkpoint_comm."""
-        from firedrake.checkpointing import _generate_function_space_name
-        cc = self.file.checkpoint_comm
-        stored_names = CheckpointFunction._checkpoint_indices
-        if self.file.name not in stored_names:
-            stored_names[self.file.name] = {}
-
-        self.stored_name = _generate_function_space_name(function.function_space())
-        indices = stored_names[self.file.name]
-        indices.setdefault(self.stored_name, 0)
-        indices[self.stored_name] += 1
-        self.stored_index = indices[self.stored_name]
-
-        vec_name = f"{self.stored_name}_{self.stored_index}"
-
-        with function.dat.vec_ro as v:
-            local_array = v.getArray().copy()
-
-        local_vec = PETSc.Vec().createMPI(
-            (len(local_array), PETSc.DECIDE), comm=cc
+    def _save_local_checkpoint(self, function):
+        """Save function data via the local checkpoint I/O manager."""
+        self.stored_name, self.stored_index = self.file.temp_ckpt.save_function(
+            self.file.name, function
         )
-        local_vec.setName(vec_name)
-        local_vec.setArray(local_array)
-
-        viewer = PETSc.ViewerHDF5()
-        viewer.create(self.file.name, mode='a', comm=cc)
-        local_vec.view(viewer)
-        viewer.destroy()
-        local_vec.destroy()
 
     def restore(self):
         """Read and return this Function from the checkpoint."""
-        if self.file.checkpoint_comm is not None:
-            return self._restore_checkpoint_comm()
+        if self.file.temp_ckpt is not None:
+            return self._restore_local_checkpoint()
         else:
             return self._restore_shared()
 
@@ -464,31 +426,13 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         return type(function)(function.function_space(),
                               function.dat, name=self.name, count=self.count)
 
-    def _restore_checkpoint_comm(self):
-        """Load local Vec data from an HDF5 file via PETSc on checkpoint_comm."""
-        from firedrake import Function
-        cc = self.file.checkpoint_comm
-
-        vec_name = f"{self.stored_name}_{self.stored_index}"
-
-        f = Function(self._function_space, name=self.name, count=self.count)
-
-        with f.dat.vec_wo as v:
-            local_size = v.getLocalSize()
-            local_vec = PETSc.Vec().createMPI(
-                (local_size, PETSc.DECIDE), comm=cc
-            )
-            local_vec.setName(vec_name)
-
-            viewer = PETSc.ViewerHDF5()
-            viewer.create(self.file.name, mode='r', comm=cc)
-            local_vec.load(viewer)
-            viewer.destroy()
-
-            v.setArray(local_vec.getArray())
-            local_vec.destroy()
-
-        return f
+    def _restore_local_checkpoint(self):
+        """Load function data via the local checkpoint I/O manager."""
+        return self.file.temp_ckpt.load_function(
+            self.file.name, self._function_space,
+            self.stored_name, self.stored_index,
+            name=self.name, count=self.count
+        )
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
