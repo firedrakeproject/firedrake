@@ -125,3 +125,15 @@ def test_split_coefficient_not_argument():
                                    as_vector([TestFunction(V), 0])),
                         w, wr)
     assert J00.signature() == expect.signature()
+
+
+def test_split_zero_block():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    Z = V * V * V * V
+    J = inner(TrialFunction(Z), TestFunction(Z))*dx
+    splitter = ExtractSubBlock()
+
+    J00 = splitter.split(J, (0, 1))
+
+    assert isinstance(J00, ZeroBaseForm)
