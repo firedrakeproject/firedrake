@@ -530,6 +530,11 @@ def _generate_function_space_name(V):
             # these to '(' and ')' causes no confusion.
             elem_name = elem_name.replace('<', '(').replace('>', ')')
         mesh = Vsub.mesh()
+        # Unwrap MeshSequenceGeometry to get the concrete mesh name.
+        # CheckpointFile.save_function calls mesh.unique() before reaching
+        # here, so this is a no-op on that path. But TemporaryFunctionCheckpointFile
+        # calls _generate_function_space_name directly without prior unwrapping,
+        # so we need to handle it here to produce consistent dataset names.
         if isinstance(mesh, MeshSequenceGeometry):
             mesh = mesh[-1]
         V_names.append("_".join([mesh.name, elem_name]))
