@@ -4182,7 +4182,7 @@ def create_dm_coloring(PETSc.DM dm):
         PETSc.PetscIS *iscolors = NULL
         ISColoring coloring = NULL
 
-    CHKERR(DMCreateColoring(dm.dm, PETSC_IS_COLORING_LOCAL, &coloring))
+    CHKERR(DMCreateColoring(dm.dm, IS_COLORING_LOCAL, &coloring))
     CHKERR(ISColoringGetIS(coloring, PETSC_COPY_VALUES, &ncolors, &iscolors))
 
     return tuple(<PETSc.IS?>iscolors[i] for i in range(ncolors))

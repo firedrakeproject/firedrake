@@ -33,8 +33,8 @@ cdef extern from "petscistypes.h" nogil:
 
 cdef extern from "petscis.h" nogil:
     ctypedef enum PetscISColoringType:
-        PETSC_IS_COLORING_LOCAL,
-        PETSC_IS_COLORING_GLOBAL
+        IS_COLORING_LOCAL,
+        IS_COLORING_GLOBAL
 
 cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscMalloc1(PetscInt,void*)
