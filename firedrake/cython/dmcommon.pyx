@@ -4172,3 +4172,17 @@ def get_dm_cell_types(PETSc.DM dm):
     return tuple(
         polytope_type_enum for polytope_type_enum, found in enumerate(found_all) if found
     )
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def create_dm_coloring(PETSc.DM dm):
+    cdef:
+        PetscInt ncolors
+        PETSc.PetscIS *iscolors = NULL
+        ISColoring coloring = NULL
+
+    CHKERR(DMCreateColoring(dm.dm, PETSC_IS_COLORING_LOCAL, &coloring))
+    CHKERR(ISColoringGetIS(coloring, PETSC_COPY_VALUES, &ncolors, &iscolors))
+
+    return tuple(<PETSc.IS?>iscolors[i] for i in range(ncolors))
