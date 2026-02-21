@@ -3,7 +3,7 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 from firedrake.adjoint_utils.checkpointing import disk_checkpointing
-from pyadjoint.tape import set_working_tape, continue_annotation, pause_annotation
+from pyadjoint.tape import set_working_tape, continue_annotation
 from checkpoint_schedules import SingleDiskStorageSchedule
 from mpi4py import MPI
 import numpy as np
