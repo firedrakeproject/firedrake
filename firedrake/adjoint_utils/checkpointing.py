@@ -205,6 +205,14 @@ class DiskCheckpointer(TapePackageData):
             atexit.register(shutil.rmtree, self.dirname)
 
         # Local checkpoint I/O manager (for function data on checkpoint_comm).
+        if self.checkpoint_comm is not None and checkpoint_dir is None:
+            warnings.warn(
+                "checkpoint_comm without checkpoint_dir defaults to cwd, "
+                "which is usually on the shared filesystem. Without a "
+                "node-local path the collective CheckpointFile is more "
+                "suitable. Consider setting checkpoint_dir.",
+                UserWarning
+            )
         if self.checkpoint_comm is not None:
             from firedrake.checkpointing import TemporaryFunctionCheckpointFile
             self._temp_ckpt = TemporaryFunctionCheckpointFile(
