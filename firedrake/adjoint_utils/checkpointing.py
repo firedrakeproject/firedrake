@@ -6,6 +6,7 @@ import tempfile
 import os
 import shutil
 import atexit
+import warnings
 from abc import ABC, abstractmethod
 from numbers import Number
 _enable_disk_checkpoint = False
@@ -49,7 +50,8 @@ class checkpoint_init_data:
         _checkpoint_init_data = self._init
 
 
-def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
+def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True,
+                              checkpoint_comm=None, checkpoint_dir=None):
     """Add a DiskCheckpointer to the current tape.
 
     Disk checkpointing is fully enabled by calling::
@@ -68,12 +70,18 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
     or a combination of both.
 
+    For HPC systems with fast node-local storage, function data can be
+    checkpointed on a sub-communicator to avoid parallel HDF5 overhead::
+
+        enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
+                                  checkpoint_dir="/local/scratch")
+
     Parameters
     ----------
     dirname : str
-        The directory in which the disk checkpoints should be stored. If not
-        specified then the current working directory is used. Checkpoints are
-        stored in a temporary subdirectory of this directory.
+        The directory in which the shared disk checkpoints should be stored.
+        If not specified then the current working directory is used.
+        Checkpoints are stored in a temporary subdirectory of this directory.
     comm : mpi4py.MPI.Intracomm
         The MPI communicator over which the computation to be disk checkpointed
         is defined. This will usually match the communicator on which the
@@ -81,10 +89,29 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
+    checkpoint_comm : mpi4py.MPI.Intracomm or None
+        If specified, function data is checkpointed using PETSc Vec I/O on
+        this communicator instead of using Firedrake's CheckpointFile. This
+        bypasses parallel HDF5 and is ideal for node-local storage on HPC
+        systems. Passing ``MPI.COMM_SELF`` gives each rank its own file,
+        while a shared node communicator groups ranks that share storage.
+        The mesh checkpoint (via ``checkpointable_mesh``) always uses shared
+        storage. Requires the same communicator layout on restore.
+    checkpoint_dir : str or None
+        The directory in which checkpoint_comm files are stored. Only used
+        when ``checkpoint_comm`` is not None. Each group of ranks sharing
+        a checkpoint_comm creates a temporary subdirectory here. This
+        directory must be accessible from all ranks within each
+        checkpoint_comm group. For example, using a node-local path like
+        /tmp is safe when checkpoint_comm groups ranks on the same node,
+        but would fail if checkpoint_comm spans nodes whose filesystems
+        are not shared.
     """
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
-        tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
+        tape._package_data["firedrake"] = DiskCheckpointer(
+            dirname, comm, cleanup, checkpoint_comm, checkpoint_dir
+        )
 
 
 def disk_checkpointing():
@@ -120,14 +147,18 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False):
+    def __init__(self, name, comm, cleanup=False, temp_ckpt=None):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
+        self.temp_ckpt = temp_ckpt
 
     def __del__(self):
-        if self.cleanup and self.comm.rank == 0 and os.path.exists(self.name):
-            os.remove(self.name)
+        if self.cleanup and os.path.exists(self.name):
+            if self.temp_ckpt is not None:
+                self.temp_ckpt.remove_file(self.name)
+            elif self.comm.rank == 0:
+                os.remove(self.name)
 
 
 class DiskCheckpointer(TapePackageData):
@@ -136,9 +167,9 @@ class DiskCheckpointer(TapePackageData):
     Parameters
     ----------
     dirname : str
-        The directory in which the disk checkpoints should be stored. If not
-        specified then the current working directory is used. Checkpoints are
-        stored in a temporary subdirectory of this directory.
+        The directory in which the shared disk checkpoints should be stored.
+        If not specified then the current working directory is used.
+        Checkpoints are stored in a temporary subdirectory of this directory.
     comm : mpi4py.MPI.Intracomm
         The MPI communicator over which the computation to be disk checkpointed
         is defined. This will usually match the communicator on which the
@@ -146,28 +177,57 @@ class DiskCheckpointer(TapePackageData):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
+    checkpoint_comm : mpi4py.MPI.Intracomm or None
+        If specified, function data is checkpointed on this communicator.
+    checkpoint_dir : str or None
+        Directory for checkpoint_comm files. This directory must be
+        accessible from all ranks within each checkpoint_comm group.
+        For example, using a node-local path like /tmp is safe when
+        checkpoint_comm groups ranks on the same node, but would fail
+        if checkpoint_comm spans nodes whose filesystems are not shared.
     """
 
-    def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True):
+    def __init__(self, dirname=None, comm=COMM_WORLD, cleanup=True,
+                 checkpoint_comm=None, checkpoint_dir=None):
+        self.checkpoint_comm = checkpoint_comm
+        self.comm = comm
+        self.cleanup = cleanup
 
+        # Shared directory (for mesh checkpoint and init data).
         if comm.rank == 0:
             self.dirname = comm.bcast(tempfile.mkdtemp(
                 prefix="firedrake_adjoint_checkpoint_", dir=dirname or os.getcwd()
             ))
         else:
             self.dirname = comm.bcast("")
-        self.comm = comm
-        self.cleanup = cleanup
         if self.cleanup and comm.rank == 0:
-            # Delete the checkpoint folder on process exit.
+            # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
-        # # A checkpoint file holding the state of block variables set outside
-        # the tape.
-        self.init_checkpoint_file = self.new_checkpoint_file()
-        self.current_checkpoint_file = self.new_checkpoint_file()
 
-    def new_checkpoint_file(self):
-        """Set up a disk checkpointing file."""
+        # Local checkpoint I/O manager (for function data on checkpoint_comm).
+        if self.checkpoint_comm is not None and checkpoint_dir is None:
+            warnings.warn(
+                "checkpoint_comm without checkpoint_dir defaults to cwd, "
+                "which is usually on the shared filesystem. Without a "
+                "node-local path the collective CheckpointFile is more "
+                "suitable. Consider setting checkpoint_dir.",
+                UserWarning
+            )
+        if self.checkpoint_comm is not None:
+            from firedrake.checkpointing import TemporaryFunctionCheckpointFile
+            self._temp_ckpt = TemporaryFunctionCheckpointFile(
+                checkpoint_comm, dirname=checkpoint_dir, cleanup=cleanup
+            )
+        else:
+            self._temp_ckpt = None
+
+        # A checkpoint file holding the state of block variables set outside
+        # the tape (always shared, used by checkpointable_mesh).
+        self.init_checkpoint_file = self._new_shared_checkpoint_file()
+        self.current_checkpoint_file = self._new_checkpoint_file()
+
+    def _new_shared_checkpoint_file(self):
+        """Set up a shared disk checkpointing file (all ranks use same file)."""
         from firedrake.checkpointing import CheckpointFile
         if self.comm.rank == 0:
             _, checkpoint_file = tempfile.mkstemp(
@@ -181,6 +241,30 @@ class DiskCheckpointer(TapePackageData):
             pass
         return CheckPointFileReference(checkpoint_file, self.comm,
                                        self.cleanup)
+
+    def _new_checkpoint_comm_file(self):
+        """Set up a checkpoint file on the checkpoint communicator."""
+        filepath = self._temp_ckpt.new_file()
+        return CheckPointFileReference(filepath, self.comm,
+                                       self.cleanup,
+                                       temp_ckpt=self._temp_ckpt)
+
+    def _new_checkpoint_file(self):
+        """Set up a checkpoint file for function data."""
+        if self.checkpoint_comm is not None:
+            return self._new_checkpoint_comm_file()
+        else:
+            return self._new_shared_checkpoint_file()
+
+    def new_checkpoint_file(self):
+        """Set up a disk checkpointing file."""
+        warnings.warn(
+            "'new_checkpoint_file' is deprecated. Checkpoint file management "
+            "is now handled internally and this method will be removed in a "
+            "future release.",
+            FutureWarning
+        )
+        return self._new_checkpoint_file()
 
     def clear(self, init=True):
         """Reset the DiskCheckPointer.
@@ -198,8 +282,8 @@ class DiskCheckpointer(TapePackageData):
         if not self.cleanup:
             return
         if init:
-            self.init_checkpoint_file = self.new_checkpoint_file()
-        self.current_checkpoint_file = self.new_checkpoint_file()
+            self.init_checkpoint_file = self._new_shared_checkpoint_file()
+        self.current_checkpoint_file = self._new_checkpoint_file()
 
     def reset(self):
         self.clear(init=False)
@@ -290,7 +374,6 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     _checkpoint_indices = {}
 
     def __init__(self, function):
-        from firedrake.checkpointing import CheckpointFile
         self.name = function.name()
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
@@ -300,13 +383,23 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                 "No current checkpoint file. Call enable_disk_checkpointing()."
             )
 
+        self.count = function.count()
+
+        if self.file.temp_ckpt is not None:
+            self._function_space = function.function_space()
+            self._save_local_checkpoint(function)
+        else:
+            self._save_shared(function)
+
+    def _save_shared(self, function):
+        """Save function data to a shared HDF5 file via CheckpointFile."""
+        from firedrake.checkpointing import CheckpointFile, _generate_function_space_name
         stored_names = CheckpointFunction._checkpoint_indices
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.count = function.count()
         with CheckpointFile(self.file.name, 'a') as outfile:
-            self.stored_name = outfile._generate_function_space_name(
+            self.stored_name = _generate_function_space_name(
                 function.function_space()
             )
             indices = stored_names[self.file.name]
@@ -316,14 +409,35 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
+    def _save_local_checkpoint(self, function):
+        """Save function data via the local checkpoint I/O manager."""
+        self.stored_name, self.stored_index = self.file.temp_ckpt.save_function(
+            self.file.name, function
+        )
+
     def restore(self):
         """Read and return this Function from the checkpoint."""
+        if self.file.temp_ckpt is not None:
+            return self._restore_local_checkpoint()
+        else:
+            return self._restore_shared()
+
+    def _restore_shared(self):
+        """Load function data from a shared HDF5 file via CheckpointFile."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'r') as infile:
             function = infile.load_function(self.mesh, self.stored_name,
                                             idx=self.stored_index)
         return type(function)(function.function_space(),
                               function.dat, name=self.name, count=self.count)
+
+    def _restore_local_checkpoint(self):
+        """Load function data via the local checkpoint I/O manager."""
+        return self.file.temp_ckpt.load_function(
+            self.file.name, self._function_space,
+            self.stored_name, self.stored_index,
+            name=self.name, count=self.count
+        )
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
