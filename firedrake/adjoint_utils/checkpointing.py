@@ -147,12 +147,10 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False, checkpoint_comm=None,
-                 temp_ckpt=None):
+    def __init__(self, name, comm, cleanup=False, temp_ckpt=None):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
-        self.checkpoint_comm = checkpoint_comm
         self.temp_ckpt = temp_ckpt
 
     def __del__(self):
@@ -241,7 +239,6 @@ class DiskCheckpointer(TapePackageData):
         filepath = self._temp_ckpt.new_file()
         return CheckPointFileReference(filepath, self.comm,
                                        self.cleanup,
-                                       checkpoint_comm=self.checkpoint_comm,
                                        temp_ckpt=self._temp_ckpt)
 
     def _new_checkpoint_file(self):
