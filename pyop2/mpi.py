@@ -412,6 +412,11 @@ def dup_comm(comm_in):
     :returns internal_comm: An internal (PyOP2) communicator."""
     assert not is_pyop2_comm(comm_in)
 
+    if not comm_in.name:
+        print(f"In comm {comm_in.py2f()} has no name")
+        import traceback
+        traceback.print_stack()
+
     # Check if communicator has an embedded PyOP2 comm.
     internal_comm = comm_in.Get_attr(innercomm_keyval)
     if internal_comm is None:
