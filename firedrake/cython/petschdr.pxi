@@ -23,8 +23,18 @@ cdef extern from "petsc.h":
         PETSC_COMPLEX,
         PETSC_DATATYPE_UNKNOWN
     ctypedef enum PetscErrorCode:
-        PETSC_SUCCESS
+        PETSC_SUCCESS,
         PETSC_ERR_LIB
+
+
+cdef extern from "petscistypes.h" nogil:
+    struct _n_ISColoring
+    ctypedef _n_ISColoring* ISColoring "ISColoring"
+
+cdef extern from "petscis.h" nogil:
+    ctypedef enum PetscISColoringType:
+        IS_COLORING_LOCAL,
+        IS_COLORING_GLOBAL
 
 cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscMalloc1(PetscInt,void*)
@@ -97,6 +107,7 @@ cdef extern from "petscdmlabel.h" nogil:
     PetscErrorCode DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
 
 cdef extern from "petscdm.h" nogil:
+    PetscErrorCode DMCreateColoring(PETSc.PetscDM,PetscISColoringType,ISColoring*)
     PetscErrorCode DMCreateLabel(PETSc.PetscDM,char[])
     PetscErrorCode DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     PetscErrorCode DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
@@ -129,6 +140,7 @@ cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetConstraintIndices(PETSc.PetscSection,PetscInt, const PetscInt**)
     PetscErrorCode PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
+    PetscErrorCode ISColoringGetIS(ISColoring,PetscCopyMode,PetscInt*,PETSc.PetscIS*[])
     PetscErrorCode ISGetIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS,PetscInt*)
     PetscErrorCode ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
