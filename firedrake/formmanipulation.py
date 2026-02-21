@@ -1,9 +1,8 @@
-
 import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -161,27 +160,58 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
     def matrix(self, o):
+        from firedrake.bcs import DirichletBC, EquationBCSplit
         ises = []
         args = []
+        argument_indices = []
         for a in o.arguments():
             V = a.function_space()
             iset = PETSc.IS()
             if a.number() in self.blocks:
+                fields = self.blocks[a.number()]
                 asplit = self._subspace_argument(a)
-                for f in self.blocks[a.number()]:
+                for f in fields:
                     fset = V.dof_dset.field_ises[f]
                     iset = iset.expand(fset)
             else:
+                fields = tuple(range(len(V)))
                 asplit = a
                 for fset in V.dof_dset.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
             args.append(asplit)
+            argument_indices.append(fields)
+
+        if isinstance(o.a, Form):
+            form = self.split(o.a, argument_indices=argument_indices)
+            if isinstance(form, ZeroBaseForm):
+                return form
+        else:
+            form = None
 
         submat = o.petscmat.createSubMatrix(*ises)
-        bcs = ()
-        return AssembledMatrix(tuple(args), bcs, submat)
+
+        bcs = []
+        spaces = [a.function_space() for a in o.arguments()]
+        for bc in o.bcs:
+            W = bc.function_space()
+            while W.parent is not None:
+                W = W.parent
+
+            number = spaces.index(W)
+            V = args[number].function_space()
+            field = self.blocks[number]
+            if isinstance(bc, DirichletBC):
+                bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
+            elif isinstance(bc, EquationBCSplit):
+                row_field, col_field = argument_indices
+                bc_temp = bc.reconstruct(field=field, V=V, row_field=row_field, col_field=col_field, use_split=True)
+                bc_temp = None
+            if bc_temp is not None:
+                bcs.append(bc_temp)
+
+        return AssembledMatrix(form or tuple(args), tuple(bcs), submat)
 
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))

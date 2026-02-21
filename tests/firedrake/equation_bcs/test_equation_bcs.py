@@ -296,8 +296,8 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
     assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05
 
 
-def test_EquationBC_mixedpoisson_matrix_fieldsplit():
-    mat_type = "aij"
+@pytest.mark.parametrize("mat_type", ("aij", "nest"))
+def test_EquationBC_mixedpoisson_matrix_fieldsplit(mat_type):
     eq_type = "linear"
     porder = 0
     # Mixed poisson with EquationBCs

@@ -170,9 +170,7 @@ class Matrix(MatrixBase):
         self.mat_type = mat_type
 
     def assemble(self):
-        raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
-                                  has been removed.  Use 'assemble(a, bcs=bcs)', which\
-                                  now returns an assembled matrix.")
+        self.M.assemble()
 
 
 class ImplicitMatrix(MatrixBase):
@@ -250,3 +248,9 @@ class AssembledMatrix(MatrixBase):
 
     def mat(self):
         return self.petscmat
+
+    def assemble(self):
+        # Bump petsc matrix state by assembling it.
+        # Ensures that if the matrix changed, the preconditioner is
+        # updated if necessary.
+        self.petscmat.assemble()

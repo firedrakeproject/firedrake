@@ -30,7 +30,7 @@ dependencies = [
   "loopy>2024.1",
   "numpy",
   "packaging",
-  "petsc4py==3.24.0",
+  "petsc4py==3.24.2",
   "petsctools",
   "pkgconfig",
   "progress",
@@ -150,7 +150,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  "petsc4py==3.24.0",
+  "petsc4py==3.24.2",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
