@@ -280,6 +280,7 @@ def test_checkpoint_comm_multi_mesh_parallel():
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
+    # Per-rank tmpdir: same rationale as test_checkpoint_comm_disk_checkpointing_parallel.
     tmpdir = tempfile.mkdtemp(prefix="firedrake_test_checkpoint_comm_multi_")
     try:
         enable_disk_checkpointing(checkpoint_comm=MPI.COMM_SELF,
@@ -317,6 +318,9 @@ def test_checkpoint_comm_multi_mesh_parallel():
 
         Jnew = Jhat(m_new)
         assert np.allclose(J, Jnew)
+
+        h = Function(Va).interpolate(Constant(0.1))
+        assert taylor_test(Jhat, m_new, h) > 1.9
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
