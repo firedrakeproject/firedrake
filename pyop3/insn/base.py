@@ -20,9 +20,10 @@ import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches
-from pyop3.collections import OrderedSet
+from pyop3.collections import OrderedSet, is_ordered_mapping
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
@@ -31,13 +32,7 @@ from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
-    deprecated,
-    as_tuple,
     auto,
-    just_one,
-    merge_dicts,
-    single_valued,
-    is_ordered_mapping,
 )
 
 
@@ -244,7 +239,7 @@ class ContextAwareInstruction(Instruction):
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class PreprocessedOperation:
     root_insn: Instruction
 
@@ -272,7 +267,7 @@ class PreprocessedOperation:
         return get_disk_cache_key(self.root_insn)
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class Loop(Instruction):
 
     # {{{ instance attrs
@@ -285,7 +280,7 @@ class Loop(Instruction):
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
     ) -> None:
-        statements = as_tuple(statements)
+        statements = utils.as_tuple(statements)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
 
@@ -338,8 +333,8 @@ class Loop(Instruction):
                 init()
 
             # replace the parallel axis subset with one for the specific indices here
-            extent = just_one(icore.axes.root.components).count
-            core_kwargs = merge_dicts(
+            extent = utils.just_one(icore.axes.root.components).count
+            core_kwargs = utils.merge_dicts(
                 [kwargs, {icore.name: icore, extent.name: extent}]
             )
 
@@ -352,8 +347,8 @@ class Loop(Instruction):
 
             # roots
             # replace the parallel axis subset with one for the specific indices here
-            root_extent = just_one(iroot.axes.root.components).count
-            root_kwargs = merge_dicts(
+            root_extent = utils.just_one(iroot.axes.root.components).count
+            root_kwargs = utils.merge_dicts(
                 [kwargs, {icore.name: iroot, extent.name: root_extent}]
             )
             with PETSc.Log.Event(f"compute_{self.name}_root"):
@@ -364,8 +359,8 @@ class Loop(Instruction):
                 broadcast()
 
             # leaves
-            leaf_extent = just_one(ileaf.axes.root.components).count
-            leaf_kwargs = merge_dicts(
+            leaf_extent = utils.just_one(ileaf.axes.root.components).count
+            leaf_kwargs = utils.merge_dicts(
                 [kwargs, {icore.name: ileaf, extent.name: leaf_extent}]
             )
             with PETSc.Log.Event(f"compute_{self.name}_leaf"):
@@ -394,7 +389,7 @@ class Loop(Instruction):
         return tuple(args)
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class InstructionList(Instruction):
     """A list of instructions."""
 
@@ -426,7 +421,7 @@ class InstructionList(Instruction):
 
     @cached_property
     def datamap(self):
-        return merge_dicts(insn.datamap for insn in self.instructions)
+        return utils.merge_dicts(insn.datamap for insn in self.instructions)
 
 
 def enlist(insn: Instruction) -> InstructionList:
@@ -451,7 +446,7 @@ def maybe_enlist(instructions) -> Instruction:
     elif len(flattened_insns) > 1:
         return InstructionList(flattened_insns)
     else:
-        return just_one(flattened_insns)
+        return utils.just_one(flattened_insns)
 
 
 def non_null(instruction: Instruction) -> bool:
@@ -493,7 +488,7 @@ class FunctionArgument(abc.ABC):
     """Abstract class for types that may be passed to functions."""
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class Function:
     """A callable function."""
 
@@ -618,7 +613,7 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         return utils.common_comm(self.arguments, "comm", allow_undefined=True) or MPI.COMM_SELF
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
 
     # {{{ instance attrs
@@ -638,8 +633,8 @@ class CalledFunction(AbstractCalledFunction):
 
     # {{{ interface impls
 
-    function: ClassVar[property] = utils.attr("_function")
-    arguments: ClassVar[property] = utils.attr("_arguments")
+    function: ClassVar[property] = pyop3.record.attr("_function")
+    arguments: ClassVar[property] = pyop3.record.attr("_arguments")
 
     # }}}
 
@@ -661,7 +656,7 @@ class CalledFunction(AbstractCalledFunction):
 
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
 
@@ -765,17 +760,17 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
                 ))
             else:
                 return "\n".join((
-                    f"{assignee} {operator} {just_one(expression_strs)}"
+                    f"{assignee} {operator} {utils.just_one(expression_strs)}"
                     for assignee in assignee_strs
                 ))
         else:
             if len(expression_strs) > 1:
                 return "\n".join((
-                    f"{just_one(assignee_strs)} {operator} {expr}"
+                    f"{utils.just_one(assignee_strs)} {operator} {expr}"
                     for expr in expression_strs
                 ))
             else:
-                return f"{just_one(assignee_strs)} {operator} {just_one(expression_strs)}"
+                return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
 
     # }}}
 
@@ -788,37 +783,8 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-# @utils.frozenrecord()
-# class AssignmentShape:
-#     """
-#     This class is necessary to encapsulate more complex assignments. Examples
-#     include:
-#
-#         dat1[i] = dat2[j]
-#         mat[i, j] = dat1[i] + dat2[j]
-#
-#     Ah, this latter case demonstrates that this isn't quite right... the expression
-#     takes bits of the first axis tree and bits of the second.
-#
-#     Also, it would be extremely confusing to have
-#
-#         dat1[i] = dat1[j]
-#
-#     with 2 axis trees. Maybe we need loops in most cases...
-#
-#     """
-#     axis_trees: tuple[AxisTree, ...]
-#     assignee_axis_trees: tuple[AxisTree | None, ...]
-#     expression_axis_trees: tuple[AxisTree | None, ...]
-#
-#     def __post_init__(self) -> None:
-#         assert utils.single_valued(
-#             map(len, [self.axis_trees, self.assignee_axis_trees, self.expression_axis_trees])
-#         )
-
-
 # TODO: not sure need to specify 'array' here
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class ArrayAssignment(AbstractAssignment):
 
     # {{{ instance attrs
@@ -842,9 +808,9 @@ class ArrayAssignment(AbstractAssignment):
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = utils.attr("_assignee")
-    expression: ClassVar[property] = utils.attr("_expression")
-    assignment_type: ClassVar[property] = utils.attr("_assignment_type")
+    assignee: ClassVar[property] = pyop3.record.attr("_assignee")
+    expression: ClassVar[property] = pyop3.record.attr("_expression")
+    assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
 
     @property
     def comm(self) -> MPI.Comm:
@@ -888,7 +854,7 @@ class ArrayAssignment(AbstractAssignment):
 
 
 # FIXME: inconsistent argument ordering vs Concretized
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ instance attrs
@@ -917,16 +883,16 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ interface impls
 
-    assignee = utils.attr("_assignee")
-    expression = utils.attr("_expression")
-    axis_trees = utils.attr("_axis_trees")
-    assignment_type = utils.attr("_assignment_type")
-    comm = utils.attr("_comm")
+    assignee = pyop3.record.attr("_assignee")
+    expression = pyop3.record.attr("_expression")
+    axis_trees = pyop3.record.attr("_axis_trees")
+    assignment_type = pyop3.record.attr("_assignment_type")
+    comm = pyop3.record.attr("_comm")
 
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
     # {{{ Instance attrs
@@ -954,16 +920,16 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
     # {{{ Interface impls
 
-    assignee: ClassVar = utils.attr("_assignee")
-    expression: ClassVar = utils.attr("_expression")
-    assignment_type: ClassVar = utils.attr("_assignment_type")
-    axis_trees: ClassVar = utils.attr("_axis_trees")
-    comm: ClassVar = utils.attr("_comm")
+    assignee: ClassVar = pyop3.record.attr("_assignee")
+    expression: ClassVar = pyop3.record.attr("_expression")
+    assignment_type: ClassVar = pyop3.record.attr("_assignment_type")
+    axis_trees: ClassVar = pyop3.record.attr("_axis_trees")
+    comm: ClassVar = pyop3.record.attr("_comm")
 
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class Exscan(TerminalInstruction):
 
     # {{{ instance attrs

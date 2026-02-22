@@ -10,6 +10,7 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.sf import DistributedObject
 from pyop3.tree.axis_tree import ContextAware
@@ -170,7 +171,7 @@ class CallableTensorTransform(TensorTransform):
     ...
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # {{{ instance attrs
@@ -183,7 +184,7 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # {{{ interface impls
 
-    prev = utils.attr("_prev")
+    prev = pyop3.record.attr("_prev")
 
     # }}}
 
@@ -192,7 +193,7 @@ class IdentityTensorTransform(TensorTransform):
     ...
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class ReshapeTensorTransform(IdentityTensorTransform):
 
     # {{{ instance attrs
@@ -204,6 +205,6 @@ class ReshapeTensorTransform(IdentityTensorTransform):
 
     # {{{ interface impls
 
-    prev = utils.attr("_prev")
+    prev = pyop3.record.attr("_prev")
 
     # }}}

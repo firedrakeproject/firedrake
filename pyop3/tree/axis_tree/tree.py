@@ -27,6 +27,7 @@ from mpi4py import MPI
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.record
 from pyop3.cache import cached_on, CacheMixin
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
 from pyop3.dtypes import IntType
@@ -302,7 +303,7 @@ labels.
 """
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AxisComponentRegion:
 
     # {{{ instance attrs
@@ -429,7 +430,7 @@ def _region_label_matches(region, label) -> bool:
     )
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AxisComponent(LabelledNodeComponent):
 
     # {{{ instance attrs
@@ -482,7 +483,7 @@ class AxisComponent(LabelledNodeComponent):
 
     # {{{ interface impls
 
-    label = utils.attr("_label")
+    label = pyop3.record.attr("_label")
 
     # }}}
 
@@ -788,7 +789,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
             return (as_axis_component(components),)
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AxisTarget:
     """TODO.
 
@@ -1278,7 +1279,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     # {{{ instance attrs
@@ -1292,7 +1293,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     # {{{ interface impls
 
-    node_map = utils.attr("_node_map")
+    node_map = pyop3.record.attr("_node_map")
 
     @property
     def unindexed(self) -> AxisTree:
@@ -1441,7 +1442,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return Dat(self, data=numbering)
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class IndexedAxisTree(AbstractAxisTree):
 
     # {{{ instance attrs
@@ -1481,8 +1482,8 @@ class IndexedAxisTree(AbstractAxisTree):
 
     # {{{ interface impls
 
-    node_map = utils.attr("_node_map")
-    unindexed = utils.attr("_unindexed")
+    node_map = pyop3.record.attr("_node_map")
+    unindexed = pyop3.record.attr("_unindexed")
 
     @cached_property
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
@@ -1543,7 +1544,7 @@ class IndexedAxisTree(AbstractAxisTree):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append(component_index)
+            nest_indices_.append(component_label)
         return tuple(nest_indices_)
 
     def restrict_nest(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
@@ -1816,7 +1817,7 @@ class UnitIndexedAxisTree(DistributedObject):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append(component_index)
+            nest_indices_.append(component_label)
         return tuple(nest_indices_)
 
     def restrict_nest(self, nest_label: ComponentLabelT) -> UnitIndexedAxisTree:

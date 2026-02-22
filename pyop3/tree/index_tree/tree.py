@@ -18,11 +18,12 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 import numpy as np
 from mpi4py import MPI
 import pymbolic as pym
-from pyop3.collections import StrictlyUniqueDict, StrictlyUniqueDefaultDict
+from pyop3.collections import StrictlyUniqueDict, StrictlyUniqueDefaultDict, UniqueList
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 import pytools
 from immutabledict import immutabledict as idict
 
+import pyop3.record
 from pyop3.tree.axis_tree import (
     Axis,
     AxisComponent,
@@ -77,7 +78,7 @@ class Index(MultiComponentLabelledNode):
 # NOTE: index trees are not really labelled trees. The component labels are always
 # nonsense. Instead I think they should just advertise a degree and then attach
 # to matching index (instead of label).
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
     # {{{ instance attrs
@@ -91,7 +92,7 @@ class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
     # {{{ interface impls
 
-    node_map = utils.attr("_node_map")
+    node_map = pyop3.record.attr("_node_map")
 
     @functools.singledispatchmethod
     @classmethod
@@ -118,7 +119,7 @@ class SliceComponent(LabelledNodeComponent, abc.ABC):
         pass
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AffineSliceComponent(SliceComponent):
 
     _component: Any
@@ -187,7 +188,7 @@ class AffineSliceComponent(SliceComponent):
         return start, stop, step
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class SubsetSliceComponent(SliceComponent):
 
     _component: Any
@@ -228,7 +229,7 @@ class SubsetSliceComponent(SliceComponent):
 Subset = SubsetSliceComponent
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class RegionSliceComponent(SliceComponent):
     """A slice component that takes all entries from a particular region.
 
@@ -253,8 +254,8 @@ class RegionSliceComponent(SliceComponent):
 
     # {{{ interface impls
 
-    component = utils.attr("_component")
-    label = utils.attr("_label")
+    component = pyop3.record.attr("_component")
+    label = pyop3.record.attr("_label")
 
     @property
     def is_full(self) -> bool:
@@ -497,7 +498,7 @@ class Slice(Index):
         return merge_dicts([s.datamap for s in self.components])
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class Map:
     """
 
@@ -1441,7 +1442,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
     )
 
     targets: dict[ConcretePathT, tuple[AxisTarget, ...]] \
-        = utils.StrictlyUniqueDefaultDict(tuple, per_index_targets)
+        = StrictlyUniqueDefaultDict(tuple, per_index_targets)
 
     axis_tree = index_axis_tree
     for leaf_path, index_component_label in zip(
@@ -2033,7 +2034,7 @@ def collect_leaf_targets(axes):
 
     """
     return tuple(
-        _collect_leaf_targets_per_leaf(axes, leaf_path, None, utils.UniqueList())
+        _collect_leaf_targets_per_leaf(axes, leaf_path, None, UniqueList())
         for leaf_path in axes.leaf_paths
     )
 
@@ -2061,6 +2062,6 @@ def collect_leaf_target_paths(axes):
 
 
 def _collect_leaf_target_paths_per_leaf(axes, leaf_path):
-    leaf_targets = _collect_leaf_targets_per_leaf(axes, leaf_path, None, utils.UniqueList())
+    leaf_targets = _collect_leaf_targets_per_leaf(axes, leaf_path, None, UniqueList())
     for leaf_target in leaf_targets:
         yield merge_dicts(t.path for t in leaf_target)

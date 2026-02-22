@@ -58,8 +58,8 @@ class Scalar(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[str] = utils.attr("_name")
-    buffer: ClassVar[ArrayBuffer] = utils.attr("_buffer")
+    name: ClassVar[str] = pyop3.record.attr("_name")
+    buffer: ClassVar[ArrayBuffer] = pyop3.record.attr("_buffer")
     dim: ClassVar[int] = 0
     parent: ClassVar[None] = None
 

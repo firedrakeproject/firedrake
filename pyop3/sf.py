@@ -105,7 +105,7 @@ class StarForest(AbstractStarForest):
 
     # {{{ interface impls
 
-    comm = utils.attr("_comm")
+    comm = pyop3.record.attr("_comm")
 
     def __hash__(self) -> int:
         return hash((

@@ -92,8 +92,8 @@ class Mat(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    parent: ClassVar[property] = utils.attr("_parent")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    parent: ClassVar[property] = pyop3.record.attr("_parent")
 
     @property
     def local_max(self) -> numbers.Number:

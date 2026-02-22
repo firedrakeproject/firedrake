@@ -137,9 +137,9 @@ class Dat(Tensor):
 
     # {{{ interface impls
 
-    name = utils.attr("_name")
-    parent = utils.attr("_parent")
-    buffer = utils.attr("_buffer")
+    name = pyop3.record.attr("_name")
+    parent = pyop3.record.attr("_parent")
+    buffer = pyop3.record.attr("_buffer")
     dim = 1
 
     @property

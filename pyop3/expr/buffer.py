@@ -7,6 +7,7 @@ from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import ClassVar
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.node import NodeVisitor
 from pyop3.tree import is_subpath
@@ -57,7 +58,7 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
         return ArrayAssignment(self, other, "inc")
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
@@ -75,7 +76,7 @@ class ScalarBufferExpression(BufferExpression):
 
     child_attrs = ()
 
-    buffer = utils.attr("_buffer")
+    buffer = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -139,7 +140,7 @@ class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -174,7 +175,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     child_attrs = ("layout",)
 
-    buffer: ClassVar = utils.attr("_buffer")
+    buffer: ClassVar = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -199,7 +200,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         return self
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpression):
     """A dat with fixed layouts.
 
@@ -227,7 +228,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     child_attrs = ("layouts",)
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -263,7 +264,7 @@ class MatBufferExpression(BufferExpression):
     pass
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
@@ -295,7 +296,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     child_attrs = ("row_layout", "column_layout")
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -312,7 +313,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
@@ -337,7 +338,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     child_attrs = ("row_layouts", "column_layouts")
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer: ClassVar[property] = pyop3.record.attr("_buffer")
 
     @property
     def local_max(self) -> numbers.Number:

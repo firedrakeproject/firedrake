@@ -24,7 +24,7 @@ import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.functionspaceimpl import mask_lgmap
+from firedrake.functionspaceimpl import ProxyFunctionSpace, mask_lgmap
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
@@ -1415,9 +1415,16 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                     else:
                         sub_mat_type_ = sub_mat_type
 
-                none_to_ellipsis = lambda idx: Ellipsis if idx is None else idx
-
-                subspace_key = tuple(map(none_to_ellipsis, (test_subspace.index, trial_subspace.index)))
+                subspace_key = []
+                if len(test_space) == 1:
+                    subspace_key.append(Ellipsis)
+                else:
+                    subspace_key.append(test_space.field_axis.component_labels[i])
+                if len(trial_space) == 1:
+                    subspace_key.append(Ellipsis)
+                else:
+                    subspace_key.append(trial_space.field_axis.component_labels[j])
+                subspace_key = tuple(subspace_key)
                 submat_specs[i, j] = (subspace_key, op3.NonNestedPetscMatBufferSpec(sub_mat_type_, block_shape))
         mat_spec = op3.PetscMatNestBufferSpec(submat_specs)
     else:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import collections
 
+from immutabledict import immutabledict as idict
+
 from pyop3.exceptions import ValueMismatchException
 
 
@@ -122,3 +124,28 @@ class OrderedFrozenSet(AbstractOrderedSet):
 
     def __hash__(self) -> int:
         return hash((type(self), self._values))
+
+
+_ordered_mapping_types = (dict, collections.OrderedDict, idict)
+
+_dict_keys_type = type({}.keys())
+_dict_values_type = type({}.values())
+_dict_items_type = type({}.items())
+_ordered_sequence_types = (
+    list,
+    tuple,
+    AbstractOrderedSet,
+    _dict_keys_type,
+    _dict_values_type,
+    _dict_items_type,
+)
+
+
+def is_ordered_mapping(obj: Mapping) -> bool:
+    return isinstance(obj, _ordered_mapping_types)
+
+
+def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
+    return isinstance(obj, _ordered_sequence_types)
+
+

@@ -14,7 +14,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
-impoty pyop3.record
+import pyop3.record
 from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
@@ -157,11 +157,11 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ interface impls
 
-    size: ClassVar[property] = utils.attr("_size")
-    name: ClassVar[property] = utils.attr("_name")
-    dtype: ClassVar[property] = utils.attr("_dtype")
-    max_value: ClassVar[property] = utils.attr("_max_value")
-    ordered: ClassVar[property] = utils.attr("_ordered")
+    size: ClassVar[property] = pyop3.record.attr("_size")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    dtype: ClassVar[property] = pyop3.record.attr("_dtype")
+    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     def duplicate(self, *, copy: bool = False) -> NullBuffer:
         name = f"{self.name}_copy"
@@ -265,12 +265,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
-    rank_equal: ClassVar[property] = utils.attr("_rank_equal")  # TODO: make an abstract property
-    state: ClassVar[property] = utils.attr("_state")
-    max_value: ClassVar[property] = utils.attr("_max_value")
-    ordered: ClassVar[property] = utils.attr("_ordered")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+    rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
+    state: ClassVar[property] = pyop3.record.attr("_state")
+    max_value: ClassVar[property] = pyop3.record.attr("_max_value")
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
 
     @property
     def size(self) -> int:
@@ -570,7 +570,6 @@ class LGMap:
     block_shape: tuple[numbers.Integral, ...]
 
     def __post_init__(self) -> None:
-        # check that this is valid
         assert self.indices.dtype == IntType
         assert self.axes.blocked(self.block_shape).local_size == self.indices.size
 
@@ -797,10 +796,10 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
 
     # {{{ interface impls
 
-    mat: ClassVar[property] = utils.attr("_mat")
-    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
+    mat: ClassVar[property] = pyop3.record.attr("_mat")
+    mat_spec: ClassVar[property] = pyop3.record.attr("_mat_spec")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
 
     # }}}
 
@@ -839,10 +838,10 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
 
     # {{{ interface impls
 
-    mat: ClassVar[property] = utils.attr("_mat")
-    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
-    name: ClassVar[property] = utils.attr("_name")
-    constant: ClassVar[property] = utils.attr("_constant")
+    mat: ClassVar[property] = pyop3.record.attr("_mat")
+    mat_spec: ClassVar[property] = pyop3.record.attr("_mat_spec")
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
 
     @property
     def comm(self) -> MPI.Comm:

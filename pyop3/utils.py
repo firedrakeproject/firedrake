@@ -19,7 +19,7 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 
 
-from pyop3.collections import AbstractOrderedSet
+from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
 from pyop3.config import config
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
@@ -339,29 +339,6 @@ def debug_assert(predicate, msg=None):
             assert predicate(), msg
         else:
             assert predicate()
-
-
-_ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
-
-_dict_keys_type = type({}.keys())
-_dict_values_type = type({}.values())
-_dict_items_type = type({}.items())
-_ordered_sequence_types = (
-    list,
-    tuple,
-    AbstractOrderedSet,
-    _dict_keys_type,
-    _dict_values_type,
-    _dict_items_type,
-)
-
-
-def is_ordered_mapping(obj: Mapping) -> bool:
-    return isinstance(obj, _ordered_mapping_types)
-
-
-def is_ordered_sequence(obj: collections.abc.Sequence) -> bool:
-    return isinstance(obj, _ordered_sequence_types)
 
 
 # TODO: case for using typing generics

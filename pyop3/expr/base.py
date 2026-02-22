@@ -10,6 +10,7 @@ from typing import NoReturn
 import numpy as np
 from immutabledict import immutabledict as idict
 
+import pyop3.record
 from pyop3 import utils
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
@@ -165,7 +166,7 @@ class Operator(Expression, metaclass=abc.ABCMeta):
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # {{{ instance attrs
@@ -216,7 +217,7 @@ class Neg(UnaryOperator):
         return -self.a.local_max
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # {{{ instance attrs
@@ -379,7 +380,7 @@ class Or(Comparison):
         return "|"
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class TernaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # {{{ instance attrs
@@ -401,7 +402,7 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
     # }}}
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class Conditional(TernaryOperator):
 
     # {{{ interface impls
@@ -457,7 +458,7 @@ class TerminalExpression(Expression, Terminal, abc.ABC):
     child_attrs = ()
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class AxisVar(TerminalExpression):
 
     # {{{ instance attrs
@@ -490,7 +491,7 @@ class AxisVar(TerminalExpression):
 
 
 # TODO: notanumberexception
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class NaN(TerminalExpression):
 
     # {{{ interface impls
@@ -511,7 +512,7 @@ class NaN(TerminalExpression):
 NAN = NaN()
 
 
-@utils.frozenrecord()
+@pyop3.record.frozenrecord()
 class LoopIndexVar(TerminalExpression):
 
     # {{{ instance attrs
