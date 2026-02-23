@@ -104,11 +104,9 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def initialize(self, snes):
-        from firedrake import (  # ImportError if this is at file level
-            NonlinearVariationalSolver,
-            NonlinearVariationalProblem,
-            Function, TestFunction,
-            Cofunction)
+        from firedrake import (  # circular import if this is at file level
+            NonlinearVariationalSolver, NonlinearVariationalProblem,
+            Function, TestFunction, Cofunction)
         from firedrake.assemble import get_assembler
 
         ctx = get_dm_appctx(snes.dm)
@@ -119,13 +117,14 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         V = self.get_function_space(snes).collapse()
 
-        # auxiliary form G(k+1)
-        test = TestFunction(V)
+        # buffers for current and next iterates
         uk1 = Function(V)
         uk = Function(V)
         self.uk1 = uk1
         self.uk = uk
 
+        # auxiliary form G(k+1)
+        test = TestFunction(V)
         Gk1, bcs = self.form(snes, uk, uk1, test)
 
         # Solve G(k+1) - b = 0
@@ -134,6 +133,8 @@ class AuxiliaryOperatorSNES(SNESBase):
         b = Cofunction(V.dual())
         Gk1 -= b
 
+        # assemble the forcing terms to avoid having to
+        # re-evaluate at every iteration of the inner snes.
         self.assemble_gk = get_assembler(
             Gk, bcs=bcs,
             form_compiler_parameters=ctx.fcp,
@@ -187,12 +188,19 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         The returned form is :math:`G(u^{k+1})` in the Richardson
         iteration. The forcing term :math:`G(u^{k})` is generated from
-        the user provided :math:`G(u^{k})` using UFL manipulation, and
+        the user provided :math:`G(u^{k+1})` using UFL manipulation, and
         the forcing term :math:`F(u^{k})` is provided by the outer SNES.
+
+        Defaults to returning a copy of :math:`F(u)`, i.e.
+        :math:`G(u^{k+1})=F(u^{k+1})`.
+        This means that ``AuxiliaryOperatorSNES`` can be used similarly
+        to :class:`.AssembledPC`, in that it can be used to specify
+        an alternative ``snes_type``, ``mat_type``, ``ksp_type`` etc.
+        for solving the same residual form as the outer ``SNES``.
 
         Parameters
         ----------
-        snes : PETSc.SNES
+        snes : petsc4py.PETSc.SNES
             The PETSc nonlinear solver object.
         uk :
             The current iterate :math:`u^{k}`.
@@ -203,7 +211,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Returns
         -------
-        F : :class:`ufl.Form`
+        F : :class:`ufl.Form` | :class:`ufl.BaseForm`
             The preconditioning residual form.
         bcs : Iterable[:class:`~.firedrake.bcs.DirichletBC`] | None
             The boundary conditions.

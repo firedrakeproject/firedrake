@@ -11,7 +11,7 @@ def f(u, v, w=0.):
     )
 
 
-class AuxiliaryPolySNES(fd.AuxiliaryOperatorSNES):
+class AuxiliaryPolynomialSNES(fd.AuxiliaryOperatorSNES):
     def form(self, snes, state, func, test):
         prefix = (snes.getOptionsPrefix() or "") + f"snes_{self._prefix}"
         w = fd.PETSc.Options().getScalar(prefix + "w")
@@ -19,6 +19,9 @@ class AuxiliaryPolySNES(fd.AuxiliaryOperatorSNES):
 
 
 def test_auxiliary_snes():
+    """Check that AuxiliaryOperatorSNES is equivalent to a
+    hand-rolled preconditioned nonlinear Richardson iteration.
+    """
 
     mesh = fd.UnitIntervalMesh(1)
     V = fd.FunctionSpace(mesh, "R", 0)
@@ -52,7 +55,7 @@ def test_auxiliary_snes():
         "snes_atol": 1e-4,
         "npc_snes_max_its": 1,
         "npc_snes_type": "python",
-        "npc_snes_python_type": f"{__name__}.AuxiliaryPolySNES",
+        "npc_snes_python_type": f"{__name__}.AuxiliaryPolynomialSNES",
         "npc_snes_aux_w": wg,
         "npc_aux": inner_params
     }
@@ -67,6 +70,7 @@ def test_auxiliary_snes():
         solver_parameters=aux_params,
         options_prefix="Faux")
 
+    # Record the residual at each handrolled richardson iteration
     uk1.zero()
     uk.assign(uk1)
     res = []
@@ -78,6 +82,7 @@ def test_auxiliary_snes():
         with fd.assemble(Fk).dat.vec as rvec:
             res.append(rvec.norm())
 
+    # Custom monitor to compare residuals at each aux operator iteration
     def comparison_monitor(snes, its, rnorm):
         assert abs(rnorm - res[its]) < 1e-14
 
