@@ -1392,9 +1392,9 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
 
     if has_real_subspace and mat_type not in ["nest", "rvec", "cvec", "matfree"]:
         raise ValueError("Matrices containing real space arguments must have type 'nest', 'rvec', 'cvec', or 'matfree'")
-    if sub_mat_type not in {"aij", "baij"}:
+    if sub_mat_type not in {"aij", "baij", "is"}:
         raise ValueError(
-            f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')"
+            f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij' or 'is')"
         )
 
     if mat_type == "nest":

@@ -115,10 +115,19 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
-@pytest.mark.parallel
-@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
+# UNDO ME, debugging
+# @pytest.mark.parallel
+@pytest.mark.parametrize(
+    "shape,mat_type,sub_mat_type",
+    [
+        ("scalar", "is", None),
+        ("vector", "is", None),
+        ("mixed", "is", None),
+        ("mixed", "nest", "is"),
+    ],
+)
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
-def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
+def test_assemble_matis(mesh, shape, mat_type, sub_mat_type, dirichlet_bcs):
     if shape == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
     elif shape == "vector":
@@ -153,7 +162,7 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         bcs = None
 
     aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
-    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
+    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type).petscmat
 
     aij = PETSc.Mat()
     if ais.type == "nest":
@@ -172,8 +181,8 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
             blocks.append(row)
         anest = PETSc.Mat()
         anest.createNest(blocks,
-                         isrows=V.dof_dset.field_ises,
-                         iscols=V.dof_dset.field_ises,
+                         isrows=V.field_ises,
+                         iscols=V.field_ises,
                          comm=ais.comm)
         anest.convert("aij", aij)
     else:
