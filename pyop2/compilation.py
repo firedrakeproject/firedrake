@@ -556,7 +556,9 @@ def make_so(compiler, code, extension, comm, filename=None):
     library."""
     # Compilation communicators are reference counted on the PyOP2 comm
     icomm = mpi.internal_comm(comm, compiler)
+    icomm.barrier()
     ccomm = mpi.compilation_comm(icomm, compiler)
+    ccomm.barrier()
 
     # C or C++
     if extension == "cpp":
