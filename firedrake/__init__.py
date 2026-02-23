@@ -69,7 +69,7 @@ from firedrake.constant import Constant  # noqa: F401
 from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
-    VertexOnlyMeshMissingPointsError, DofNotDefinedError
+    VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
 )
 from firedrake.function import (  # noqa: F401
     Function, PointNotInDomainError,
@@ -102,7 +102,8 @@ from firedrake.mg import (  # noqa: F401
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
     NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy,
     prolong, restrict, inject, TransferManager,
-    OpenCascadeMeshHierarchy
+    OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
+    AdaptiveTransferManager
 )
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
