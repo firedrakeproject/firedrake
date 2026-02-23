@@ -581,6 +581,7 @@ def make_so(compiler, code, extension, comm, filename=None):
         else:
             filename.parent.mkdir(exist_ok=True)
 
+        ccomm.barrier()
         cname = filename
         oname = filename.with_suffix(".o")
         soname = filename.with_suffix(".so")
@@ -591,6 +592,7 @@ def make_so(compiler, code, extension, comm, filename=None):
             with open(cname, "w") as fh:
                 fh.write(code)
             os.close(descriptor)
+            ccomm.barrier()
 
             if not compiler.ld:
                 # Compile and link
@@ -603,7 +605,12 @@ def make_so(compiler, code, extension, comm, filename=None):
                 # Extract linker specific "cflags" from ldflags and link
                 ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
                 _run(ld, logfile, errfile, step="Linker", filemode="a")
+        ccomm.barrier()
         debug(f"compile complete for {soname}")
+    else:
+        ccomm.barrier()
+        ccomm.barrier()
+        ccomm.barrier()
 
     ccomm.barrier()
     return ccomm.bcast(soname, root=0)
