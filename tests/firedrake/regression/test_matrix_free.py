@@ -122,10 +122,10 @@ def test_matrixfree_action(a, V, bcs):
     A = assemble(a, bcs=bcs)
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
 
-    with f.vec_ro as x:
-        with expect.vec as y:
+    with f.dat.vec_ro as x:
+        with expect.dat.vec_wo as y:
             A.petscmat.mult(x, y)
-        with actual.vec as y:
+        with actual.dat.vec_wo as y:
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
