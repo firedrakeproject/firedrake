@@ -601,7 +601,9 @@ def make_so(compiler, code, extension, comm, filename=None):
                 # Extract linker specific "cflags" from ldflags and link
                 ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
                 _run(ld, logfile, errfile, step="Linker", filemode="a")
+        debug(f"compile complete for {soname}")
 
+    ccomm.barrier()
     return ccomm.bcast(soname, root=0)
 
 
