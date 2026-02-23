@@ -384,7 +384,6 @@ def incref(comm):
     assert is_pyop2_comm(comm)
     refcount = comm.Get_attr(refcount_keyval)
     refcount[0] += 1
-    print(f"incref {comm.name}, {comm.rank}: setting refcount to {refcount[0]}", flush=True)
 
 
 def decref(comm):
@@ -401,7 +400,6 @@ def decref(comm):
         # Freeing the internal comm is handled by the destruction of the user comm
         if refcount[0] < 1:
             raise PyOP2CommError("Reference count is less than 1, decref called too many times")
-        print(f"decref {comm.name}, {comm.rank}: setting refcount to {refcount[0]}", flush=True)
 
 
 def dup_comm(comm_in):
@@ -414,15 +412,9 @@ def dup_comm(comm_in):
 
     comm_in.barrier()
 
-    if not comm_in.name:
-        print(f"In comm {comm_in.py2f()} has no name")
-        # import traceback
-        # traceback.print_stack()
-
     # Check if communicator has an embedded PyOP2 comm.
     internal_comm = comm_in.Get_attr(innercomm_keyval)
     if internal_comm is None:
-        print(f"{comm_in.name}, {comm_in.rank}: has no internal comm", flush=True)
         # Haven't seen this comm before, duplicate it.
         internal_comm = comm_in.Dup()
         internal_comm.barrier()
@@ -440,7 +432,6 @@ def dup_comm(comm_in):
         _DUPED_COMM_DICT[cidx] = internal_comm
     elif is_pyop2_comm(internal_comm):
         internal_comm.barrier()
-        print(f"{comm_in.name}, {comm_in.rank}: has an internal comm", flush=True)
         # Inner comm is a PyOP2 comm, return it
         incref(internal_comm)
     else:
@@ -517,7 +508,6 @@ def set_compilation_comm(comm, comp_comm):
             "Use pyop2.mpi.dup_comm() to create a PyOP2 comm from an existing comm.")
     else:
         if old_comp_comm is not None:
-            print(f"{comm.rank} cleaning up {old_comp_comm.name}", flush=True)
             # Clean up old_comp_comm before setting new one
             if not is_pyop2_comm(old_comp_comm):
                 raise PyOP2CommError("Compilation communicator is not a PyOP2 comm, something is very broken!")

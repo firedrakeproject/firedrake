@@ -607,6 +607,8 @@ def make_so(compiler, code, extension, comm, filename=None):
                     ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
                     _run(ld, logfile, errfile, step="Linker", filemode="a")
             except Exception as e:
+                print("CODE:")
+                print(code)
                 soname = e
         # ccomm.barrier()
         debug(f"compile complete for {soname}")
@@ -643,7 +645,7 @@ def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
     except subprocess.CalledProcessError as e:
         with open(errfile) as err:
             print("ERROR:")
-            print(err.readlines())
+            print("".join(err.readlines()))
         raise CompilationError(dedent(f"""
             Command "{e.cmd}" return error status {e.returncode}.
             Unable to compile code
