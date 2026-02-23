@@ -2552,8 +2552,9 @@ values from f.)"""
         Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
 
-        None if the geometric dimension is 1, since point location falls
-        back to brute force in that case.
+        None if the geometric dimension is 1.
+        TODO: rstar supports 1D, we just need to add a case for it in the
+        C api.
 
         Notes
         -----
@@ -2567,7 +2568,7 @@ values from f.)"""
 
         gdim = self.geometric_dimension
         if gdim <= 1:
-            info_red("Spatial indexing is skipped for 1-dimensional meshes, falling back on brute force.")
+            info_red("TODO: add 1D case to rstar-capi")
             return None
 
         coord_element = self.ufl_coordinate_element()
@@ -2673,8 +2674,8 @@ values from f.)"""
             return None
         else:
             coords_min, coords_max = self.bounding_box_coords
-        tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
 
+        tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
