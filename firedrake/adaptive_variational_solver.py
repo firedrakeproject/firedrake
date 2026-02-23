@@ -118,7 +118,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
-        solve_uh()
         if self.options.use_adjoint_residual:
             # Now solve in higher space
             high_degree = self.degree + self.options.dual_extra_degree  # Use dual degree
@@ -138,17 +137,19 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.solve()
 
             if self.options.primal_low_method == "solve":
-                pass
+                solve_uh()
             elif self.options.primal_low_method == "project":
                 u.project(u_high)
-            else:
+            elif self.options.primal_low_method == "interpolate":
                 u.interpolate(u_high)
             u_err = u_high - u
         else:
+            solve_uh()
             u_err = None
         return u_err
 
     def solve_dual(self):
+        from firedrake.assemble import assemble
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
@@ -167,6 +168,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver = LinearVariationalSolver(problem, solver_parameters=self.sp_dual)
             solver.set_transfer_manager(self.atm)
             solver.solve()
+            return problem
 
         # Higher-order dual soluton
         dual_degree = self.degree + self.options.dual_extra_degree
@@ -180,7 +182,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
         # Lower-order dual soluton
         self.z_lo = Function(V)
         if self.options.dual_low_method == "solve":
-            solve_zh(self.z_lo)
+            self.z_lo.interpolate(self.z)
+            self.adjoint_problem = solve_zh(self.z_lo)
         elif self.options.dual_low_method == "project":
             self.z_lo.project(self.z)
         else:
@@ -198,14 +201,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
         primal_err = abs(assemble(residual(F, z_err)))
         if self.options.use_adjoint_residual:
-            dF = derivative(F, u)
-            dJ = derivative(J, u)
-            G = action(adjoint(dF), self.z_lo) - dJ
-
+            G = self.adjoint_problem.F
             dual_err = abs(assemble(residual(G, u_err)))
             eta_h = 0.5 * abs(primal_err + dual_err)
         else:
-            eta_h = primal_err
+            eta_h = abs(primal_err)
 
         self.etah_vec.append(eta_h)
 
