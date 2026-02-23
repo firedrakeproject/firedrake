@@ -10,8 +10,9 @@ from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
+from functools import cached_property
+
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.utils import cached_property
 from firedrake.logging import warning
 
 
