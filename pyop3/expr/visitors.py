@@ -449,11 +449,13 @@ def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
             raise NotImplementedError
 
-        row_index = utils.just_one(row_axes.nest_indices)
-        column_index = utils.just_one(column_axes.nest_indices)
+        row_label = utils.just_one(row_axes.nest_indices)
+        row_index = utils.just_one(row_axes.nest_indices2)
+        column_label = utils.just_one(column_axes.nest_indices)
+        column_index = utils.just_one(column_axes.nest_indices2)
         nest_indices = ((row_index, column_index),)
-        row_axes = row_axes.restrict_nest(row_index)
-        column_axes = column_axes.restrict_nest(column_index)
+        row_axes = row_axes.restrict_nest(row_label)
+        column_axes = column_axes.restrict_nest(column_label)
 
     buffer_ref = BufferRef(mat.buffer, nest_indices)
 

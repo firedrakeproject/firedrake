@@ -1547,6 +1547,29 @@ class IndexedAxisTree(AbstractAxisTree):
             nest_indices_.append(component_label)
         return tuple(nest_indices_)
 
+    # return the index instead of the label
+    @cached_property
+    def nest_indices2(self) -> tuple[int, ...]:
+        # Compare the 'fully indexed' bits of the matching target and try to
+        # match to the unindexed tree.
+        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
+
+        nest_indices_ = []
+        path = idict()
+        while consumed_axes:
+            axis = self.unindexed.node_map[path]
+            component_label = consumed_axes.pop(axis.label)
+            component_index = axis.component_labels.index(component_label)
+
+            if axis.components[component_index].size != 1:
+                # indexed bit is not a scalar axis anymore, nest indices
+                # don't make sense here
+                break
+
+            path = path | {axis.label: component_label}
+            nest_indices_.append(component_index)
+        return tuple(nest_indices_)
+
     def restrict_nest(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
         """Given an already indexed thing, discard the prescribed nest shape."""
 
