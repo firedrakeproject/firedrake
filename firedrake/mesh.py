@@ -2475,7 +2475,7 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @utils.cached_property
+    @cached_property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
