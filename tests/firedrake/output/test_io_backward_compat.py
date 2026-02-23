@@ -1,5 +1,4 @@
 import pytest
-import os
 from os.path import abspath, dirname, join, exists
 from firedrake import *
 from firedrake.mesh import make_mesh_from_coordinates
