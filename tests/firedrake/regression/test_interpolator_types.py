@@ -37,12 +37,8 @@ def test_same_mesh_mattype(value_shape, mat_type):
     assert isinstance(get_interpolator(interp), SameMeshInterpolator)
     res = assemble(interp, mat_type=mat_type)
 
-    if value_shape == "scalar":
-        # Always seqaij for scalar
-        assert res.petscmat.type == prefix + "aij"
-    else:
-        # Defaults to seqaij
-        assert res.petscmat.type == prefix + (mat_type if mat_type else "aij")
+    # Defaults to seqaij
+    assert res.petscmat.type == prefix + (mat_type if mat_type else "aij")
 
     with pytest.raises(NotImplementedError):
         # MatNest only implemented for interpolation between MixedFunctionSpaces

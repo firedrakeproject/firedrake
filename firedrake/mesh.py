@@ -1168,9 +1168,9 @@ class AbstractMeshTopology(abc.ABC):
             support_axes = op3.AxisTree.from_iterable([
                 iterset_axis, op3.Axis(size_dat)
             ])
-            support_dat = op3.Dat(support_axes, data=data, prefix="support")
+            support_dat = op3.Dat(support_axes.regionless().materialize(), data=data, prefix="support")
             owned_support_dat = op3.Dat(
-                support_axes.owned.materialize(), data=support_dat.data_ro, prefix="support"
+                support_axes.owned.regionless().materialize(), data=support_dat.data_ro, prefix="support"
             )
 
 

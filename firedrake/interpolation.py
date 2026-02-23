@@ -679,7 +679,7 @@ class SameMeshInterpolator(Interpolator):
             raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
         return f
 
-    def _get_monolithic_sparsity(self, mat_type: Literal["aij", "baij"]) -> op2.Sparsity:
+    def _get_monolithic_sparsity(self, mat_type: Literal["aij", "baij"]) -> op3.Sparsity:
         """Returns op2.Sparsity for the interpolation matrix. Only mat_type 'aij' and 'baij'
         are currently supported.
 
@@ -699,7 +699,9 @@ class SameMeshInterpolator(Interpolator):
         if len(Vrow) > 1 or len(Vcol) > 1:
             raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
         # Pretend that we are assembling the operator to populate the sparsity.
-        sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes)
+        block_shape = (Vrow.block_shape, Vcol.block_shape)
+        buffer_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
+        sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes, buffer_spec=buffer_spec)
         iter_spec = get_iteration_spec(self.target_mesh, "cell")
         op3.loop(
             c := iter_spec.loop_index,
@@ -731,7 +733,7 @@ class SameMeshInterpolator(Interpolator):
         # Arguments in the operand are allowed to be from a MixedFunctionSpace
         # We need to split the target space V and generate separate kernels
         if self.rank == 2:
-            expressions = {(0,): self.ufl_interpolate}
+            expressions = {(None,): self.ufl_interpolate}
         elif isinstance(self.dual_arg, Coargument):
             # Split in the coargument
             expressions = dict(split_form(self.ufl_interpolate))
