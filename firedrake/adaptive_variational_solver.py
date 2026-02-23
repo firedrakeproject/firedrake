@@ -6,7 +6,6 @@ from firedrake.ufl_expr import TestFunction, TrialFunction, derivative, action, 
 from firedrake.variational_solver import (NonlinearVariationalProblem, NonlinearVariationalSolver,
                                           LinearVariationalProblem, LinearVariationalSolver)
 from firedrake.solving import solve
-from firedrake.norms import norm
 
 from firedrake.preconditioners.pmg import PMGPC
 from firedrake.mg import utils
@@ -72,7 +71,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
     to the PDE.
     """
     def __init__(self, problem: NonlinearVariationalProblem, goal_functional, tolerance: float, solver_parameters: dict,
-                 *, primal_solver_parameters=None, dual_solver_parameters=None, exact_solution=None, exact_goal=None, source_term, verbose=True,
+                 *, primal_solver_parameters=None, dual_solver_parameters=None, exact_solution=None, exact_goal=None, source_term=None, verbose=True,
                  nullspace=None):
         # User input vars
         self.problem = problem
@@ -101,7 +100,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.Ndual_vec = []
         self.eta_vec = []
         self.etah_vec = []
-        self.etaTsum_vec = []
+        self.eta_cell_sum_vec = []
         self.eff1_vec = []
         self.eff2_vec = []
         self.eff3_vec = []
@@ -126,8 +125,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
             high_element = PMGPC.reconstruct_degree(self.element, high_degree)
             Vhigh = V.reconstruct(element=high_element)
             u_high = Function(Vhigh).interpolate(u)
-            self.print("u norm:", norm(u))
-            self.print("u_high norm:", norm(u_high))
 
             v_old, = F.arguments()
             v_high = TestFunction(Vhigh)
@@ -233,7 +230,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.options.use_adjoint_residual:
             self.print(f'{"Primal error, |rho(u_h;z-z_h)|:":45s}{"eta_pri:":8s}{primal_err:15.12f}')
             self.print(f'{"Dual error, |rho*(z_h;u-u_h)|:":45s}{"eta_adj:":8s}{dual_err:15.12f}')
-            self.print(f'{"Difference":35s}{"|eta_pri - eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}')
+            self.print(f'{"Difference":35s}{"|eta_pri-eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}')
             self.print(f'{"Predicted error, 0.5|rho+rho*|":45s}{"eta_h:":8s}{eta_h:15.12f}')
         else:
             self.print(f'{"Predicted error, |rho(u_h;z-z_h)|":45s}{"eta_h:":8s}{eta_h:15.12f}')
@@ -325,7 +322,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             with eta_dual.dat.vec as evec:
                 evec.abs()
             # indicators: 0.5 * (primal + dual)
-            etaT = assemble(0.5*(eta_primal + eta_dual))
+            eta_cell = assemble(0.5*(eta_primal + eta_dual))
 
             with eta_primal.dat.vec as evec:
                 self.eta_primal_total = abs(evec.sum())
@@ -334,7 +331,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             self.print(f'{"Sum of primal refinement indicators":45s}{"Σeta_K:":8s}{self.eta_primal_total:15.12f}')
             self.print(f'{"Sum of dual refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}')
         else:
-            etaT = eta_primal
+            eta_cell = eta_primal
 
         # XXX Exact error indicators (experimental - ignore)
         if self.options.exact_indicators:
@@ -348,11 +345,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
             with udiff.dat.vec as uvec:
                 unorm = uvec.norm()
             self.print("L2 error in (dual) refinement indicators: ", unorm)
-        return etaT
+        return eta_cell
 
     def manual_error_indicators(self, u_err, z_err):
         """ Currently only implemented for Poisson, but can be overriden. To adapt to other PDEs, replace the form of
-        etaT = assemble() to the symbolic form of the error indicators. This form is usually obtained by integrating
+        eta_cell = assemble() to the symbolic form of the error indicators. This form is usually obtained by integrating
         the weak form by parts (to recover the strong form) and redistributing facet fluxes.
         """
         from firedrake.assemble import assemble
@@ -362,55 +359,55 @@ class GoalAdaptiveNonlinearVariationalSolver():
         f = self.source_term
         DG0 = FunctionSpace(mesh, "DG", degree=0)
         test = TestFunction(DG0)
-        etaT = assemble(
+        eta_cell = assemble(
             inner(f + div(grad(u)), z_err * test) * dx
             - inner(jump(grad(u), n), z_err * avg(test)) * dS
             - inner(dot(grad(u), n), z_err * test) * ds
         )
-        with etaT.dat.vec as evec:
+        with eta_cell.dat.vec as evec:
             evec.abs()
-        return etaT
+        return eta_cell
 
-    def compute_efficiency(self, etaT, eta_h, eta):
-        with etaT.dat.vec as evec:
-            etaT_total = abs(evec.sum())
+    def compute_efficiency(self, eta_cell, eta_h, eta):
+        with eta_cell.dat.vec as evec:
+            eta_cell_total = abs(evec.sum())
 
-        self.etaTsum_vec.append(etaT_total)
-        self.print(f'{"Sum of refinement indicators":45s}{"Σeta_K:":8s}{etaT_total:15.12f}')
+        self.eta_cell_sum_vec.append(eta_cell_total)
+        self.print(f'{"Sum of refinement indicators":45s}{"Σeta_K:":8s}{eta_cell_total:15.12f}')
 
         if self.u_exact is not None or self.goal_exact is not None:
             # Compute efficiency indices
             eff1 = eta_h / eta
-            eff2 = etaT_total / eta
+            eff2 = eta_cell_total / eta
             self.eff1_vec.append(eff1)
             self.eff2_vec.append(eff2)
             self.print(f'{"Effectivity index 1":45s}{"eta_h/eta:":8s}{eff1:7.4f}')
             self.print(f'{"Effectivity index 2":45s}{"Σeta_K/eta:":8s}{eff2:7.4f}')
         else:
-            eff3 = etaT_total / eta_h
+            eff3 = eta_cell_total / eta_h
             self.eff3_vec.append(eff3)
             self.print(f'{"Effectivity index:":45s}{"Σeta_K/eta_h:":8s}{eff3:7.4f}')
 
-    def set_adaptive_cell_markers(self, etaT):
+    def set_adaptive_cell_markers(self, eta_cell):
         """Mark cells for refinement (Dorfler marking)"""
         mesh = self.amh[-1]
         if mesh.comm.size == 1:
-            with etaT.dat.vec as evec:
-                etaT_total = abs(evec.sum())
-            threshold = self.options.dorfler_alpha * etaT_total
-            sorted_indices = np.argsort(-etaT.dat.data_ro)
-            sorted_etaT = etaT.dat.data[sorted_indices]
-            cumulative_sum = np.cumsum(sorted_etaT)
+            with eta_cell.dat.vec as evec:
+                eta_cell_total = abs(evec.sum())
+            threshold = self.options.dorfler_alpha * eta_cell_total
+            sorted_indices = np.argsort(-eta_cell.dat.data_ro)
+            sorted_eta_cell = eta_cell.dat.data[sorted_indices]
+            cumulative_sum = np.cumsum(sorted_eta_cell)
             M = np.searchsorted(cumulative_sum, threshold) + 1
             marked_cells = sorted_indices[:M]
         else:
             # TODO implement a parallel sort
-            with etaT.dat.vec_ro as evec:
+            with eta_cell.dat.vec_ro as evec:
                 _, eta_max = evec.max()
             threshold = self.options.dorfler_alpha * eta_max
-            marked_cells = etaT.dat.data_ro > threshold
+            marked_cells = eta_cell.dat.data_ro > threshold
 
-        markers = Function(etaT.function_space())
+        markers = Function(eta_cell.function_space())
         markers.dat.data_wo[marked_cells] = 1
         return markers
 
@@ -462,11 +459,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
         else:
             self.print("Computing local refinement indicators eta_K ...")
             if self.options.manual_indicators:
-                etaT = self.manual_error_indicators(u_err, z_err)
+                eta_cell = self.manual_error_indicators(u_err, z_err)
             else:
-                etaT = self.automatic_error_indicators(u_err, z_err)
-            self.compute_efficiency(etaT, eta_h, eta)
-            markers = self.set_adaptive_cell_markers(etaT)
+                eta_cell = self.automatic_error_indicators(u_err, z_err)
+            self.compute_efficiency(eta_cell, eta_h, eta)
+            markers = self.set_adaptive_cell_markers(eta_cell)
 
         if self.options.write_at_iteration:
             self.print("Appending data ...")
@@ -490,7 +487,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             file_path = self.output_dir / "results.csv"
         else:
             file_path = self.output_dir / self.options.results_file_name
-        rows = list(zip(self.N_vec, self.Ndual_vec, self.eta_vec, self.etah_vec, self.etaTsum_vec, self.eff1_vec, self.eff2_vec))
+        rows = list(zip(self.N_vec, self.Ndual_vec, self.eta_vec, self.etah_vec, self.eta_cell_sum_vec, self.eff1_vec, self.eff2_vec))
         headers = ("N", "Ndual", "eta", "eta_h", "sum_eta_T", "eff1", "eff2")
         with open(file_path, "w", newline="") as file:
             w = csv.writer(file)
@@ -509,7 +506,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             headers = ("iteration", "N", "Ndual", "Juh", "eta_h", "sum_eta_T")
             row = (
                 it,
-                self.N_vec[-1], self.Ndual_vec[-1], Juh, self.etah_vec[-1], self.etaTsum_vec[-1]
+                self.N_vec[-1], self.Ndual_vec[-1], Juh, self.etah_vec[-1], self.eta_cell_sum_vec[-1]
             )
         elif self.options.uniform_refinement:
             headers = ("iteration", "N", "Ndual", "Juh", "eta", "eta_h")
@@ -521,7 +518,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             headers = ("iteration", "N", "Ndual", "Juh", "eta", "eta_h", "sum_eta_T", "eff1", "eff2")
             row = (
                 it,
-                self.N_vec[-1], self.Ndual_vec[-1], Juh, self.eta_vec[-1], self.etah_vec[-1], self.etaTsum_vec[-1], self.eff1_vec[-1], self.eff2_vec[-1]
+                self.N_vec[-1], self.Ndual_vec[-1], Juh, self.eta_vec[-1], self.etah_vec[-1], self.eta_cell_sum_vec[-1], self.eff1_vec[-1], self.eff2_vec[-1]
             )
 
         file_path.parent.mkdir(parents=True, exist_ok=True)  # create directories if missing
