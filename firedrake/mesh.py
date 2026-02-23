@@ -2491,7 +2491,7 @@ values from f.)"""
         the coordinate field)."""
         self._rtree = None
 
-    @utils.cached_property
+    @cached_property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates bounding boxes for the mesh rtree.
