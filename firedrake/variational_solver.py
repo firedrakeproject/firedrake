@@ -15,6 +15,7 @@ from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import replace, Form
+from functools import cached_property
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -128,7 +129,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         return self.u_restrict.function_space().dm
 
