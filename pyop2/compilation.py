@@ -641,6 +641,9 @@ def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
                 log.write("\n\n")
                 subprocess.check_call(cc, stderr=err, stdout=log)
     except subprocess.CalledProcessError as e:
+        with open(errfile) as err:
+            print("ERROR:")
+            print(err.readlines())
         raise CompilationError(dedent(f"""
             Command "{e.cmd}" return error status {e.returncode}.
             Unable to compile code
