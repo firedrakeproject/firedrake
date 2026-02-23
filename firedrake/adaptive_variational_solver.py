@@ -434,7 +434,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
     def solve(self):
         for it in range(self.options.max_iterations):
-            if self.step():
+            try:
+                self.step()
+            except StopIteration:
                 break
 
     def step(self):
@@ -447,11 +449,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
         eta_h, eta = self.compute_etah(u_err, z_err)
         if eta_h < self.tolerance:
             self.print("Error estimate below tolerance, finished.")
-            return 1
+            raise StopIteration
 
         if it == self.options.max_iterations - 1:
             self.print(f"Maximum iteration ({self.options.max_iterations}) reached. Exiting.")
-            return 1
+            raise StopIteration
 
         if self.options.uniform_refinement:
             self.print("Refining uniformly")
@@ -473,7 +475,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if not self.options.write_at_iteration:
             self.print("Writing data ...")
             self.write_data()
-        return 0
 
     # Writing functions: --------------------------------------
 
@@ -602,12 +603,6 @@ def as_mixed(exprs):
     return as_vector([e[idx] for e in exprs for idx in np.ndindex(e.ufl_shape)])
 
 
-# Should no longer be needed
-def reconstruct_bc_value(bc, V):
-    if not isinstance(bc._original_arg, Function):
-        return bc._original_arg
-    return Function(V).interpolate(bc._original_arg)
-
 
 def reconstruct_bcs(bcs, V):
     """Reconstruct a list of bcs"""
@@ -616,9 +611,7 @@ def reconstruct_bcs(bcs, V):
         V_ = V
         for index in bc._indices:
             V_ = V_.sub(index)
-        g = reconstruct_bc_value(bc, V_)
-        new_bcs.append(bc.reconstruct(V=V_, g=g))
-
+        new_bcs.append(bc.reconstruct(V=V_))
     return new_bcs
 
 
@@ -645,7 +638,16 @@ def refine_function(expr, self, coefficient_mapping=None):
     if new is None:
         Vf = expr.function_space()
         Vc = self(Vf, self)
-        new = Function(Vc, name=f"coarse_{expr.name()}")
+        name = expr.name()
+        if name is not None:
+            level_increment = -1 if self == coarsen else 1
+            try:
+                name, prev_level = name.split("_level_")
+            except ValueError:
+                prev_level = 0
+            level = int(prev_level) + level_increment
+            name = f"{name}_level_{level}"
+            new = Function(Vc, name=name)
         new.interpolate(expr)
         coefficient_mapping[expr] = new
     return new

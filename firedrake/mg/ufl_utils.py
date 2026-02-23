@@ -122,7 +122,7 @@ def coarsen_formsum(form, self, coefficient_mapping=None):
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
-    val = self(bc.function_arg, self, coefficient_mapping=coefficient_mapping)
+    val = self(bc._original_arg, self, coefficient_mapping=coefficient_mapping)
     subdomain = bc.sub_domain
 
     return type(bc)(V, val, subdomain)
@@ -147,12 +147,19 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse") and self == coarsen:
         return V._coarse
-
     V_fine = V
     # Handle MixedFunctionSpace : V_fine.reconstruct requires MeshSequence.
     fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()
     mesh_coarse = self(fine_mesh, self)
-    name = f"coarse_{V.name}" if V.name else None
+    name = V.name
+    if name is not None:
+        level_increment = -1 if self == coarsen else 1
+        try:
+            name, prev_level = name.split("_level_")
+        except ValueError:
+            prev_level = 0
+        level = prev_level + level_increment
+        name = f"{name}_level_{level}"
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
     V_fine._coarse = V_coarse
@@ -168,7 +175,16 @@ def coarsen_function(expr, self, coefficient_mapping=None):
     if new is None:
         Vf = expr.function_space()
         Vc = self(Vf, self)
-        new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
+        name = expr.name()
+        if name is not None:
+            level_increment = -1 if self == coarsen else 1
+            try:
+                name, prev_level = name.split("_level_")
+            except ValueError:
+                prev_level = 0
+            level = int(prev_level) + level_increment
+            name = f"{name}_level_{level}"
+        new = firedrake.Function(Vc, name=name)
         manager = get_transfer_manager(Vf.dm)
         if is_dual(expr):
             manager.restrict(expr, new)
