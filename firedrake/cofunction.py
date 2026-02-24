@@ -428,19 +428,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def cell_node_map(self):
         return self.function_space().cell_node_map()
 
-    # TODO: Don't need these any more
-    @property
-    def vec_ro(self):
-        return self.dat.vec_ro
-
-    @property
-    def vec_wo(self):
-        return self.dat.vec_wo
-
-    @property
-    def vec_rw(self):
-        return self.dat.vec_rw
-
 
 class RieszMap:
     """Return a map between dual and primal function spaces.

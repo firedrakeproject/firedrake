@@ -163,6 +163,21 @@ class CoordinatelessFunction(ufl.Coefficient):
         data = self.subfunctions if mixed else self._components
         return data[i]
 
+    @property
+    def cell_node_map(self):
+        return self.function_space().cell_node_map
+    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
+
+    @property
+    def interior_facet_node_map(self):
+        return self.function_space().interior_facet_node_map
+    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
+
+    @property
+    def exterior_facet_node_map(self):
+        return self.function_space().exterior_facet_node_map
+    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
+
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
         :class:`.MixedFunctionSpace` on which this :class:`Function`
@@ -856,7 +871,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 

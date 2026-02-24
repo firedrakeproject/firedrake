@@ -30,6 +30,7 @@ from pyop3.utils import (  # noqa: F401
     as_tuple,
     is_sorted,
     unique_name as op3_unique_name,
+    cached_method,
 )
 
 import petsctools

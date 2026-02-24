@@ -37,7 +37,7 @@ from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.cython import extrusion_numbering as extnum
 from firedrake.functionspacedata import create_element
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
@@ -1107,15 +1107,30 @@ class FunctionSpace:
 
     @utils.cached_property
     def cell_node_map(self) -> op3.Map:
-        cells_axis, node_axis = self.cell_node_dat.axes.nodes
+        return self._iterset_to_node_map("cell")
+
+    @utils.cached_property
+    def interior_facet_node_map(self) -> op3.Map:
+        return self._iterset_to_node_map("interior_facet")
+
+    @utils.cached_property
+    def exterior_facet_node_map(self) -> op3.Map:
+        return self._iterset_to_node_map("exterior_facet")
+
+
+    @utils.cached_method()
+    def _iterset_to_node_map(self, iter_type):
+        map_dat = self._iterset_to_node_map_dat(iter_type)
+
+        src_axis, dest_axis = map_dat.axes.nodes
         return op3.Map(
             {
-                idict({cells_axis.label: cells_axis.component.label}): [
-                    [op3.TabulatedMapComponent("nodes", None, self.cell_node_dat)]
+                idict({src_axis.label: src_axis.component.label}): [
+                    [op3.TabulatedMapComponent("nodes", None, map_dat)]
                 ],
             }, 
             # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=node_axis.label
+            name=dest_axis.label
         )
 
     @utils.cached_property
@@ -1123,6 +1138,7 @@ class FunctionSpace:
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self.cell_node_dat.data_ro
 
+    # old
     @cached_property
     def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
@@ -1152,6 +1168,46 @@ class FunctionSpace:
         # now reshape things because we want to have 2 axes: cells and nodes
         node_axis = op3.Axis(expr_shape.size)
         map_axes = op3.AxisTree.from_iterable([self._mesh.cells.owned.root, node_axis])
+        map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
+
+        return map_dat
+
+    @property
+    def interior_facet_node_map_dat(self) -> op3.Dat:
+        return self._iterset_to_node_map_dat("interior_facet")
+
+    @property
+    def exterior_facet_node_map_dat(self) -> op3.Dat:
+        return self._iterset_to_node_map_dat("exterior_facet")
+
+    @utils.cached_method()
+    def _iterset_to_node_map_dat(self, iter_type: Literal["cell", "exterior_facet", "interior_facet"]) -> op3.Dat:
+        from firedrake.pack import pack
+
+        scalar_space = self
+        if self.shape:
+            scalar_space = self.sub(0)
+
+
+        iter_spec = get_iteration_spec(self.mesh(), iter_type)
+
+        indices_array = numpy.arange(scalar_space.axes.local_size, dtype=IntType)
+        indices_dat = op3.Dat(scalar_space.axes, data=indices_array)
+        packed_indices_dat = pack(indices_dat, scalar_space, iter_spec)
+
+        map_axes = iter_spec.iterset.materialize()
+        map_axes = map_axes.add_subtree(None, packed_indices_dat.axes.materialize())
+        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
+
+        op3.loop(
+            p := iter_spec.loop_index,
+            map_dat[p].assign(packed_indices_dat),
+            eager=True,
+        )
+
+        # now reshape things because we want to have 2 axes: iterset and nodes
+        map_axes = iter_spec.iterset.materialize()
+        map_axes = map_axes.add_axis(map_axes.leaf_path, op3.Axis(packed_indices_dat.size))
         map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
 
         return map_dat
@@ -1321,98 +1377,6 @@ class FunctionSpace:
             return self_map(iteration_spec.loop_index)
         else:
             return self_map(composed_map)
-
-    # def cell_node_map(self):
-    #     r"""Return the :class:`pyop2.types.map.Map` from cels to
-    #     function space nodes."""
-    #     sdata = self._shared_data
-    #     return sdata.get_map(self,
-    #                          self.mesh().cell_set,
-    #                          self.finat_element.space_dimension(),
-    #                          "cell_node",
-    #                          self.offset,
-    #                          self.offset_quotient)
-
-    def interior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from interior facets to
-        function space nodes."""
-        sdata = self._shared_data
-        offset = self.cell_node_map().offset
-        if offset is not None:
-            offset = numpy.append(offset, offset)
-        offset_quotient = self.cell_node_map().offset_quotient
-        if offset_quotient is not None:
-            offset_quotient = numpy.append(offset_quotient, offset_quotient)
-        return sdata.get_map(self,
-                             self.mesh().interior_facets.set,
-                             2*self.finat_element.space_dimension(),
-                             "interior_facet_node",
-                             offset,
-                             offset_quotient)
-
-    def exterior_facet_node_map(self):
-        r"""Return the :class:`pyop2.types.map.Map` from exterior facets to
-        function space nodes."""
-        sdata = self._shared_data
-        return sdata.get_map(self,
-                             self.mesh().exterior_facets.set,
-                             self.finat_element.space_dimension(),
-                             "exterior_facet_node",
-                             self.offset,
-                             self.offset_quotient)
-
-    # # is this used?
-    # def boundary_nodes(self, sub_domain):
-    #     r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
-    #
-    #     :arg sub_domain: the mesh marker selecting which subset of facets to consider.
-    #     :returns: A numpy array of the unique function space nodes on
-    #        the selected portion of the boundary.
-    #
-    #     See also :class:`~.DirichletBC` for details of the arguments.
-    #     """
-    #     V = self  # fixme
-    #     if sub_domain in ["bottom", "top"]:
-    #         if not V.extruded:
-    #             raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
-    #                              sub_domain)
-    #         # entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-    #         # key = (entity_dofs_key(entity_dofs), sub_domain, V.boundary_set)
-    #         return self.get_top_bottom_boundary_nodes(V.mesh(), sub_domain)
-    #     else:
-    #         if sub_domain == "on_boundary":
-    #             sdkey = sub_domain
-    #         else:
-    #             sdkey = as_tuple(sub_domain)
-    #         key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, V.boundary_set)
-    #         return selget_facet_closure_nodes(V.mesh(), key, V)
-    #
-    # def get_top_bottom_boundary_nodes(self, mesh, sub_domain):
-    #     """Get top or bottom boundary nodes of an extruded function space.
-    #
-    #     :arg mesh: The mesh to cache on.
-    #     :arg key: A 3-tuple of ``(entity_dofs_key, sub_domain, boundary_set)`` key.
-    #         Where sub_domain indicates top or bottom.
-    #     :arg V: The FunctionSpace to select from.
-    #     :arg entity_dofs: The flattened entity dofs.
-    #     :returnsL: A numpy array of the (unique) boundary nodes.
-    #     """
-    #     breakpoint()
-    #     V = self # fixme
-    #     cell_node_list = V.cell_node_list
-    #     if mesh.extruded_periodic and sub_domain == "top":
-    #         raise ValueError("Invalid subdomain 'top': 'top' boundary is identified as 'bottom' boundary in periodic extrusion")
-    #     idx = {"bottom": -2, "top": -1}[sub_domain]
-    #     section, indices, facet_points = V.cell_boundary_masks
-    #     facet = facet_points[idx]
-    #     dof = section.getDof(facet)
-    #     off = section.getOffset(facet)
-    #     mask = indices[off:off+dof]
-    #     nodes = cell_node_list[..., mask]
-    #     breakpoint()
-    #     if sub_domain == "top":
-    #         nodes = nodes + offset[mask]*(mesh.layers - 2)
-    #     return numpy.unique(nodes)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:

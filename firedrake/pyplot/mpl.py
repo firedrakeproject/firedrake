@@ -21,7 +21,7 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry
+from firedrake.mesh import MeshGeometry, get_iteration_spec
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
@@ -127,7 +127,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values_with_halo
+        cell_node_map = coordinates.function_space().cell_node_list
         idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
         vertices = coords[cell_node_map[:, idx]]
 
@@ -140,28 +140,30 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         axes.add_collection(interior_collection)
         result.append(interior_collection)
 
-    def facet_data(typ):
+    def facet_data(typ, marker):
         if typ == "interior":
-            facets = mesh.interior_facets
-            node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values_with_halo[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
+            node_map = coordinates.function_space().interior_facet_node_map_dat.data_ro
+            _, arity = node_map.shape
+            node_map = node_map[:, :arity//2]
+            local_facet_ids = mesh.interior_facet_local_facet_indices.data_ro_with_halos[:, :1].flatten()
         elif typ == "exterior":
-            facets = mesh.exterior_facets
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
-            node_map = coordinates.exterior_facet_node_map().values_with_halo
+            node_map = coordinates.function_space().exterior_facet_node_map_dat.data_ro
+            local_facet_ids = mesh.exterior_facet_local_facet_indices.data_ro_with_halos[:, :1].flatten()
         else:
             raise ValueError("Unhandled facet type")
         mask = np.zeros(node_map.shape, dtype=bool)
         for facet_index, local_facet_index in enumerate(local_facet_ids):
             mask[facet_index, topology[tdim - 1][local_facet_index]] = True
         faces = node_map[mask].reshape(-1, tdim)
-        return facets, faces
+
+        facet_indices = get_iteration_spec(mesh, f"{typ}_facet", marker).indices.indices
+
+        return facet_indices, faces
 
     # Add colored lines/polygons for the boundary facets
     topology = coordinates.function_space().finat_element.cell.get_topology()
 
-    markers = mesh.exterior_facets.unique_markers
+    markers = mesh.facet_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
@@ -183,8 +185,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     for marker, color in zip(markers, colors):
         vertices = []
         for typ in ["interior", "exterior"]:
-            facets, faces = facet_data(typ)
-            face_indices = facets.subset(int(marker)).indices
+            face_indices, faces = facet_data(typ, int(marker))
             marker_faces = faces[face_indices, :]
             vertices.append(coords[marker_faces])
         vertices = np.concatenate(vertices)
@@ -936,9 +937,7 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        # TODO: What do we do with variable layers?
-        num_layers = 1 if mesh.layers is None else mesh.layers - 1
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 

@@ -563,6 +563,7 @@ class AbstractMeshTopology(abc.ABC):
     def _interior_facet_local_numbers_dat(self):
         return self._local_facet_numbers_dat("interior")
 
+    # FIXME: this is basically the same as the above funcs
     # TODO: Make a standalone function
     def _local_facet_numbers_dat(self, facet_type: Literal["exterior"] | Literal["interior"]) -> op3.Dat:
         if facet_type == "exterior":
@@ -4468,14 +4469,14 @@ values from f.)"""
         # Broadcast curved cell point data
         self.comm.Bcast(physical_space_points, root=0)
         self.comm.Bcast(curved_space_points, root=0)
-        cell_node_map = new_coordinates.cell_node_map()
+        cell_node_map = new_coordinates.cell_node_list
 
         # Select only the points in curved cells
         barycentres = np.average(physical_space_points, axis=1)
         ng_index = [*map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres)]
 
         # Select only the indices of points owned by this rank
-        owned = [(0 <= ii < len(cell_node_map.values)) if ii is not None else False for ii in ng_index]
+        owned = [(0 <= ii < len(cell_node_map)) if ii is not None else False for ii in ng_index]
 
         # Select only the points owned by this rank
         physical_space_points = physical_space_points[owned]
@@ -4486,7 +4487,7 @@ values from f.)"""
         # Get the PyOP2 indices corresponding to the netgen indices
         pyop2_index = []
         for ngidx in ng_index:
-            pyop2_index.extend(cell_node_map.values[ngidx])
+            pyop2_index.extend(cell_node_map[ngidx])
 
         # Find the correct coordinate permutation for each cell
         permutation = find_permutation(
@@ -6474,7 +6475,7 @@ def get_iteration_spec(
         # Get all points labelled with the subdomain ID
         plex_indices = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
         for subdomain_id in subdomain_ids:
-            if subdomain_id == UNMARKED:  # NOTE: This is a constant, but it's very unclear
+            if subdomain_id == UNMARKED:
                 plex_indices_to_exclude = PETSc.IS().createGeneral(np.empty(0, dtype=IntType), MPI.COMM_SELF)
                 # NOTE: This is different to all_integer_subdomain_ids because that comes from the integral
                 all_plex_subdomain_ids = mesh.topology_dm.getLabelIdIS(dmlabel_name).indices

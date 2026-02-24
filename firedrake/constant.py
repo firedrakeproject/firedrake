@@ -133,24 +133,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def subfunctions(self):
         return (self,)
 
-    def cell_node_map(self, bcs=None):
-        """Return a null cell to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
-
-    def interior_facet_node_map(self, bcs=None):
-        """Return a null interior facet to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
-
-    def exterior_facet_node_map(self, bcs=None):
-        """Return a null exterior facet to node map."""
-        if bcs is not None:
-            raise RuntimeError("Can't apply boundary conditions to a Constant")
-        return None
-
     @ConstantMixin._ad_annotate_assign
     def assign(self, value):
         """Set the value of this constant.
