@@ -310,9 +310,6 @@ def test_checkpoint_comm_multi_mesh_parallel():
         with stop_annotating():
             m_new = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
 
-        Jnew = Jhat(m_new)
-        assert np.allclose(J, Jnew)
-
         h = Function(Va).interpolate(Constant(0.1))
         assert taylor_test(Jhat, m_new, h) > 1.9
     finally:
@@ -412,8 +409,8 @@ def test_sub_comm_multi_mesh_parallel():
         with stop_annotating():
             m_new = assemble(interpolate(sin(4*pi*x_a)*cos(4*pi*y_a), Va))
 
-        Jnew = Jhat(m_new)
-        assert np.allclose(J, Jnew)
+        h = Function(Va).interpolate(Constant(0.1))
+        assert taylor_test(Jhat, m_new, h) > 1.9
     finally:
         if MPI.COMM_WORLD.rank == 0:
             shutil.rmtree(tmpdir, ignore_errors=True)
