@@ -2996,7 +2996,8 @@ values from f.)"""
         if netgen_flags is None:
             netgen_flags = {}
         DistParams = self._distribution_parameters
-        els = {2: self.netgen_mesh.Elements2D, 3: self.netgen_mesh.Elements3D}
+        netgen_mesh = self.netgen_mesh.Copy()
+        els = {2: netgen_mesh.Elements2D, 3: netgen_mesh.Elements3D}
         dim = self.geometric_dimension
         refine_faces = netgen_flags.get("refine_faces", False)
         if dim in [2, 3]:
@@ -3019,10 +3020,10 @@ values from f.)"""
                             else:
                                 el.refine = False
                         if not refine_faces and dim == 3:
-                            self.netgen_mesh.Elements2D().NumPy()["refine"] = 0
-                        self.netgen_mesh.Refine(adaptive=True)
+                            netgen_mesh.Elements2D().NumPy()["refine"] = 0
+                        netgen_mesh.Refine(adaptive=True)
                         mark = mark-np.ones(mark.shape)
-                    return fd.Mesh(self.netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
+                    return fd.Mesh(netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
                 return fd.Mesh(netgen.libngpy._meshing.Mesh(dim),
                                distribution_parameters=DistParams, comm=self.comm)
         else:

@@ -119,19 +119,19 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.solve()
 
         if self.options.use_adjoint_residual:
-            # Now solve in higher space
+            # Now solve in higher-order space
             high_degree = self.degree + self.options.dual_extra_degree  # Use dual degree
             high_element = PMGPC.reconstruct_degree(self.element, high_degree)
-            Vhigh = V.reconstruct(element=high_element)
-            u_high = Function(Vhigh).interpolate(u)
+            V_high = V.reconstruct(element=high_element)
+            u_high = Function(V_high).interpolate(u)
 
             v_old, = F.arguments()
-            v_high = TestFunction(Vhigh)
+            v_high = TestFunction(V_high)
             F_high = replace(F, {v_old: v_high, u: u_high})
-            bcs_high = reconstruct_bcs(bcs, Vhigh)
+            bcs_high = [bc.reconstruct(V=V_high, indices=bc._indices) for bc in bcs]
             problem_high = NonlinearVariationalProblem(F_high, u_high, bcs_high)
 
-            self.print(f"Solving primal in higher space for error estimate (degree: {high_degree}, dofs: {Vhigh.dim()}) ...")
+            self.print(f"Solving primal in higher space for error estimate (degree: {high_degree}, dofs: {V_high.dim()}) ...")
             solver = NonlinearVariationalSolver(problem_high, solver_parameters=self.sp_primal)
             solver.set_transfer_manager(self.atm)
             solver.solve()
@@ -149,41 +149,42 @@ class GoalAdaptiveNonlinearVariationalSolver():
         return u_err
 
     def solve_dual(self):
-        from firedrake.assemble import assemble
-        J = self.goal_functional
-        F = self.problem.F
-        u = self.problem.u
-        bcs = self.problem.bcs
-        V = u.function_space()
+        V = self.problem.u.function_space()
 
         def solve_zh(z):
+            bcs = self.problem.bcs
+            J = self.goal_functional
+            F = self.problem.F
+            u = self.problem.u
+
             Z = z.function_space()
             self.print(f"Solving dual (degree: {Z.ufl_element().degree()}, dofs: {Z.dim()}) ...")
-            dF = derivative(F, u, TrialFunction(Z))
+
+            Fz = residual(F, TestFunction(Z))
+            dF = derivative(Fz, u, TrialFunction(Z))
             dJ = derivative(J, u, TestFunction(Z))
-            G = action(adjoint(dF), z) - dJ
-            a = derivative(G, z)
+            a = adjoint(dF)
+
             bcs_dual = [bc.reconstruct(V=Z, indices=bc._indices, g=0) for bc in bcs]
             problem = LinearVariationalProblem(a, dJ, z, bcs_dual)
             solver = LinearVariationalSolver(problem, solver_parameters=self.sp_dual)
             solver.set_transfer_manager(self.atm)
             solver.solve()
-            return problem
 
         # Higher-order dual soluton
         dual_degree = self.degree + self.options.dual_extra_degree
         dual_element = PMGPC.reconstruct_degree(self.element, dual_degree)
-        Vdual = V.reconstruct(element=dual_element)
-        self.z = Function(Vdual)
+        V_dual = V.reconstruct(element=dual_element)
+        self.z = Function(V_dual)
 
-        self.Ndual_vec.append(Vdual.dim())
+        self.Ndual_vec.append(V_dual.dim())
         solve_zh(self.z)
 
         # Lower-order dual soluton
         self.z_lo = Function(V)
         if self.options.dual_low_method == "solve":
             self.z_lo.interpolate(self.z)
-            self.adjoint_problem = solve_zh(self.z_lo)
+            solve_zh(self.z_lo)
         elif self.options.dual_low_method == "project":
             self.z_lo.project(self.z)
         else:
@@ -201,7 +202,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
         primal_err = abs(assemble(residual(F, z_err)))
         if self.options.use_adjoint_residual:
-            G = self.adjoint_problem.F
+            Z = self.z_lo.function_space()
+            dF = derivative(F, u, TrialFunction(Z))
+            dJ = derivative(J, u)
+            G = action(adjoint(dF), self.z_lo) - dJ
+
             dual_err = abs(assemble(residual(G, u_err)))
             eta_h = 0.5 * abs(primal_err + dual_err)
         else:
@@ -390,22 +395,12 @@ class GoalAdaptiveNonlinearVariationalSolver():
 
     def set_adaptive_cell_markers(self, eta_cell):
         """Mark cells for refinement (Dorfler marking)"""
-        mesh = self.amh[-1]
-        if mesh.comm.size == 1:
-            with eta_cell.dat.vec as evec:
-                eta_cell_total = abs(evec.sum())
-            threshold = self.options.dorfler_alpha * eta_cell_total
-            sorted_indices = np.argsort(-eta_cell.dat.data_ro)
-            sorted_eta_cell = eta_cell.dat.data[sorted_indices]
-            cumulative_sum = np.cumsum(sorted_eta_cell)
-            M = np.searchsorted(cumulative_sum, threshold) + 1
-            marked_cells = sorted_indices[:M]
-        else:
-            # TODO implement a parallel sort
-            with eta_cell.dat.vec_ro as evec:
-                _, eta_max = evec.max()
-            threshold = self.options.dorfler_alpha * eta_max
-            marked_cells = eta_cell.dat.data_ro > threshold
+        # NOTE this is not quite Dorfler marking
+        # For Dorfler marking we need to implement a parallel sort
+        with eta_cell.dat.vec_ro as evec:
+            _, eta_max = evec.max()
+        threshold = self.options.dorfler_alpha * eta_max
+        marked_cells = eta_cell.dat.data_ro > threshold
 
         markers = Function(eta_cell.function_space())
         markers.dat.data_wo[marked_cells] = 1
@@ -603,16 +598,10 @@ def as_mixed(exprs):
     return as_vector([e[idx] for e in exprs for idx in np.ndindex(e.ufl_shape)])
 
 
-
 def reconstruct_bcs(bcs, V):
     """Reconstruct a list of bcs"""
-    new_bcs = []
-    for bc in bcs:
-        V_ = V
-        for index in bc._indices:
-            V_ = V_.sub(index)
-        new_bcs.append(bc.reconstruct(V=V_))
-    return new_bcs
+    bcs = [bc.reconstruct(V=V, indices=bc._indices) for bc in bcs]
+    return bcs
 
 
 @singledispatch
