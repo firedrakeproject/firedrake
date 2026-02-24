@@ -4432,9 +4432,10 @@ def _parent_mesh_embedding(
                 )
             input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
             input_ranks_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_ranks_local, (input_ranks_global, ncoords_local_allranks)
-            )
+            with PETSc.Log.Event("pm_embed_inputranks_allgatherv"):
+                icomm.Allgatherv(
+                    input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+                )
     (
         parent_cell_nums,
         reference_coords,
@@ -4454,9 +4455,10 @@ def _parent_mesh_embedding(
     visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
     visible_ranks[parent_mesh.cell_set.size:] = -1
     # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-    )
+    with PETSc.Log.Event("pm_embed_exchange_cell_orientations"):
+        dmcommon.exchange_cell_orientations(
+            parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+        )
     locally_visible = parent_cell_nums != -1
 
     if parent_mesh.extruded:
