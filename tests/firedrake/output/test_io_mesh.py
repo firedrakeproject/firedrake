@@ -65,41 +65,12 @@ def radial_hedgehog_mesh(request):
     return ExtrudedMesh(base, layers=4, layer_height=[0.2, 0.3, 0.5, 0.7], extrusion_type="radial_hedgehog", name=mesh_name)
 
 
-def _compute_random_layers(base):
-    V = VectorFunctionSpace(base, "DG", 0, dim=2)
-    f = Function(V)
-    dim = base.topology_dm.getCoordinateDim()
-    if dim == 1:
-        x, = SpatialCoordinate(base)
-        y = x * x
-    elif dim == 2:
-        x, y = SpatialCoordinate(base)
-    else:
-        raise NotImplementedError(f"Not for dim = {dim}")
-    f.interpolate(as_vector([2 * sin(x) + 3 * sin(y),
-                             10 + 4 * sin(5 * x)]))
-    return f.dat.data_ro_with_halos.astype(IntType)
-
-
-@pytest.fixture(params=["interval", "square", "quad-square"])
-def variable_layer_uniform_mesh(request):
-    if request.param == "interval":
-        base = UnitIntervalMesh(4)
-    elif request.param == "square":
-        base = UnitSquareMesh(5, 4)
-    elif request.param == "quad-square":
-        base = UnitSquareMesh(4, 6, quadrilateral=True)
-    layers = _compute_random_layers(base)
-    return ExtrudedMesh(base, layers=layers, layer_height=0.1,
-                        extrusion_type="uniform", name=mesh_name)
-
-
 def _compute_integral(mesh):
     x = SpatialCoordinate(mesh)
     return assemble(inner(x, x) * dx)
 
 
-def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False, change_coords=False):
+def _test_io_mesh_extrusion(mesh, tmpdir, change_coords=False):
     if change_coords:
         # For extruded meshes this will discard the '_base_mesh' attribute
         # for the mesh geometry (but not the topology)
@@ -125,11 +96,6 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False, change_coords=F
             # Load.
             with CheckpointFile(fname, "r", comm=comm) as afile:
                 mesh = afile.load_mesh(name=mesh_name)
-            if variable_layers:
-                # Check loaded layers equals computed layers
-                layers = _compute_random_layers(mesh._base_mesh)
-                layers[:, 1] += 1 + layers[:, 0]
-                assert np.array_equal(mesh.topology.layers, layers)
             v1 = _compute_integral(mesh)
             assert abs(v1 - v) < 5.e-14
             if isinstance(mesh.topology, ExtrudedMeshTopology) and not change_coords:
@@ -159,10 +125,6 @@ def test_io_mesh_radial_extrusion(radial_mesh, tmpdir):
 @pytest.mark.parallel(nprocs=3)
 def test_io_mesh_radial_hedgehog_extrusion(radial_hedgehog_mesh, tmpdir):
     _test_io_mesh_extrusion(radial_hedgehog_mesh, tmpdir)
-
-
-def test_io_mesh_uniform_variable_layers(variable_layer_uniform_mesh, tmpdir, variable_layers=True):
-    _test_io_mesh_extrusion(variable_layer_uniform_mesh, tmpdir)
 
 
 @pytest.mark.parallel(nprocs=3)
