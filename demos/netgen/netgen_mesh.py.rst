@@ -24,12 +24,12 @@ This demo requires the NGSolve/Netgen suite to be installed. This can be done by
 Constructive Solid Geometry
 ---------------------------
 Using the Constructive Solid Geometry (CSG) features implemented in Netgen, we can construct a geometry starting from basic sets such as rectangles and disks. Let's have a look at an example.
-First we need to import the Netgen library required in order to construct a `SplineGeometry`::
+First we need to import the Netgen library required in order to construct a ``SplineGeometry``::
 
    from netgen.geom2d import SplineGeometry
    geo = SplineGeometry()
 
-Now using the two of the predefined CSG geometries included in Netgen, a rectangle and a circle, we construct a square with an inscribed disk that we will later flag for refinement, using the `SetMaterial` and `SetDomainMaxH` methods: ::
+Now using the two of the predefined CSG geometries included in Netgen, a rectangle and a circle, we construct a square with an inscribed disk that we will later flag for refinement, using the ``SetMaterial`` and ``SetDomainMaxH`` methods: ::
 
    geo = SplineGeometry()
    geo.AddRectangle(p1=(-1, -1),
@@ -48,8 +48,8 @@ Now using the two of the predefined CSG geometries included in Netgen, a rectang
    geo.SetMaterial(2, "inner")
    geo.SetDomainMaxH(2, 0.02)
 
-Notice that the `leftdomain` and `rightdomain` attribute in the `AddRectangle` and `AddCircle` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction.
-We can now construct a mesh for the geometry we have defined and save it to a PVD file for visualisation. We will do so using the `GenerateMesh` method inside of the `SplineGeometry` class: ::
+Notice that the ``leftdomain`` and ``rightdomain`` attribute in the ``AddRectangle`` and ``AddCircle`` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction.
+We can now construct a mesh for the geometry we have defined and save it to a PVD file for visualisation. We will do so using the ``GenerateMesh`` method inside of the ``SplineGeometry`` class: ::
 
    ngmsh = geo.GenerateMesh(maxh=0.1)
    # Generating a Firedrake mesh from the NetGen mesh
@@ -62,8 +62,8 @@ We can now construct a mesh for the geometry we have defined and save it to a PV
    :alt: Example of Constructive Solid Geometry (CSG), with a finer mesh on a portion of the domain.
 
 We can also "hardwire" a geometry in Netgen, specifying the points and the splines making the boundary of the domain.
-In particular we add points to an instance of the `SplineGeometry` class using the method `AppendPoint`, while a spline can be added using the `Append` method.
-When using the `Append` method we can specify the type of Spline and its boundary label (in this particular case we use the "bnd" tag for all the curves making up the boundary).
+In particular we add points to an instance of the ``SplineGeometry`` class using the method ``AppendPoint``, while a spline can be added using the ``Append`` method.
+When using the ``Append`` method we can specify the type of Spline and its boundary label (in this particular case we use the "bnd" tag for all the curves making up the boundary).
 Here is showed how to construct a "Pacman"-like domain::
 
    geo = SplineGeometry()
@@ -89,7 +89,7 @@ Example: Poisson Problem
 -------------------------
 Let's now have a look at some features that can be useful when solving a variational problem using a Netgen mesh.
 We will consider as example the Poisson problem with constant source data and homogeneous boundary conditions on the boundary of the PacMan.
-The only method new to the reader should be the `GetRegionNames` which allows to find the IDs of the boundary we have labeled in Netgen. As usual we begin defining the `FunctionSpace` that will be used in our discretisation, defining trial and test functions and the source data::
+The only method new to the reader should be the ``GetRegionNames`` which allows to find the IDs of the boundary we have labeled in Netgen. As usual we begin defining the ``FunctionSpace`` that will be used in our discretisation, defining trial and test functions and the source data::
 
    V = FunctionSpace(msh, "CG", 1)
    u = TrialFunction(V)
@@ -110,7 +110,7 @@ In code this becomes: ::
    a = inner(grad(u), grad(v))*dx
    L = inner(f, v) * dx
 
-Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a `DirichletBC` object and we use the `GetRegionNames` method from the Netgen mesh in order to map the label we have given when describing the geometry to the PETSc `DMPLEX` IDs. In particular if we look for the IDs of boundary element labeled either "line" or "curve" we would get::
+Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a ``DirichletBC`` object and we use the ``GetRegionNames`` method from the Netgen mesh in order to map the label we have given when describing the geometry to the PETSc ``DMPLEX`` IDs. In particular if we look for the IDs of boundary element labeled either "line" or "curve" we would get::
 
    labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name in ["line","curve"]]
    bc = DirichletBC(V, 0, labels)
@@ -143,8 +143,8 @@ We begin by defining some quantities of interest such as the desired tolerance, 
    max_iterations = 10
    exact = 3.375610652693620492628**2
 
-We create a function to solve the eigenvalue problem using SLEPc. We begin initialising the `FunctionSpace`, the bilinear forms and linear functionals needed in the variational problem.
-Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use a shift and invert (`SINVERT`) spectral transformation where the preconditioner factorisation is computed using MUMPS::
+We create a function to solve the eigenvalue problem using SLEPc. We begin initialising the ``FunctionSpace``, the bilinear forms and linear functionals needed in the variational problem.
+Then a SLEPc Eigenvalue Problem Solver (``EPS``) is initialised and set up to use a shift and invert (``SINVERT``) spectral transformation where the preconditioner factorisation is computed using MUMPS::
 
    def Solve(msh, labels):
         V = FunctionSpace(msh, "CG", 2)
@@ -240,8 +240,8 @@ Note that the mesh conforms to the CAD geometry as it is adaptively refined.
 
 Constructive Solid Geometry in 3D
 ---------------------------------
-In this section we will focus our attention on three dimensional constructive solid geometry. In particular we will look at the operators `+,-,*~`, which have been overridden to have a special meaning when applied to two instances of the class `CSGeometry`.
-It is important to notice that the same operators can be used also when working with a `SplineGeometry` and their action will have the same meaning that is presented here.
+In this section we will focus our attention on three dimensional constructive solid geometry. In particular we will look at the operators `+,-,*~`, which have been overridden to have a special meaning when applied to two instances of the class ``CSGeometry``.
+It is important to notice that the same operators can be used also when working with a ``SplineGeometry`` and their action will have the same meaning that is presented here.
 The `+,-,*` operators have respectively the meaning of union, set difference, and intersection. We will build a cube using the planes intersection and remove from it a portion of sphere::
 
    from netgen.csg import *
@@ -265,7 +265,7 @@ Open Cascade Technology
 -----------------------
 Last we will have a look at the Netgen Open Cascade Technology interface, which has been recently included. We will follow the tutorial presented in the `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__, which itself comes from the OCCT tutorial `here <https://dev.opencascade.org/doc/overview/html/occt__tutorial.html>`__.
 The idea is to draw a "flask" using the OCCT interface and solve the linear elasticity equations to compute the stress tensor on the flask subject to gravity.
-We begin importing the Netgen Open Cascade interface and constructing the bottom of the flask using many different method such as `Axes, Face, Pnt, Segment, ...` (all the details this methods can be found in `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__
+We begin importing the Netgen Open Cascade interface and constructing the bottom of the flask using many different method such as ``Axes, Face, Pnt, Segment, ...`` (all the details this methods can be found in `NetGen docs <https://docu.ngsolve.org/nightly/i-tutorials/unit-4.4-occ/bottle.html>`__
 
 ::
 
@@ -332,8 +332,8 @@ As usual, we generate a mesh for the described geometry and use the Firedrake-Ne
 High-order Meshes
 ------------------
 It is possible to construct high-order meshes for a geometry constructed in Netgen.
-In order to do so we need to use the `curve_field` method of a Firedrake `Mesh` object generated from a Netgen mesh.
-In particular, we need to pass the degree of the polynomial field we want to use to parametrise the coordinates of the domain to the `curve_field` method, which will return a `Function` constructed on a DG space for this purpose. ::
+In order to do so we need to use the ``curve_field`` method of a Firedrake ``Mesh`` object generated from a Netgen mesh.
+In particular, we need to pass the degree of the polynomial field we want to use to parametrise the coordinates of the domain to the ``curve_field`` method, which will return a ``Function`` constructed on a DG space for this purpose. ::
 
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
@@ -390,7 +390,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    :align: center
    :alt: The solution of the Poisson problem solved on a mesh of order 3 for the unit sphere.
 
-It is also possible to construct high-order meshes using the `SplineGeometry`, `CSG2d` and `CSG` classes. ::
+It is also possible to construct high-order meshes using the ``SplineGeometry``, ``CSG2d`` and ``CSG`` classes. ::
 
    from netgen.geom2d import CSG2d, Circle, Rectangle
    import netgen
