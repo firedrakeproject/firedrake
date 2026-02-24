@@ -552,7 +552,7 @@ class TemporaryFunctionCheckpointFile:
     ----------
     comm : mpi4py.MPI.Intracomm
         The communicator on which checkpoint files are collectively created
-        and accessed.
+        and accessed. Note that this does not have to be the same communicator that the function is defined over.
     dirname : str or None
         Parent directory for temporary files. If None, the current working
         directory is used.
@@ -701,10 +701,9 @@ class TemporaryFunctionCheckpointFile:
         Parameters
         ----------
         filepath : str
-            Path to the file to remove. Only rank 0 performs the deletion,
-            and only when cleanup is enabled.
+            Path to the file to remove. Only rank 0 performs the deletion.
         """
-        if self.cleanup and self.comm.rank == 0 and os.path.exists(filepath):
+        if self.comm.rank == 0 and os.path.exists(filepath):
             os.remove(filepath)
 
 

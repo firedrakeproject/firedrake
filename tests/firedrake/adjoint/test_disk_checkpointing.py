@@ -218,10 +218,7 @@ def test_bcs():
 @pytest.mark.skipcomplex
 @pytest.mark.parallel(nprocs=3)
 def test_checkpoint_comm_disk_checkpointing_parallel():
-    set_working_tape(Tape())
     tape = get_working_tape()
-    tape.clear_tape()
-    continue_annotation()
     # Each rank creates its own tmpdir independently. This is intentional:
     # with COMM_SELF each rank is its own communicator, so there is no need
     # to agree on a shared directory. We can't use pytest's tmp_path here
@@ -276,10 +273,7 @@ def test_checkpoint_comm_multi_mesh_parallel():
     are controlled by the same control variable to exercise the
     checkpoint save/restore across meshes.
     """
-    set_working_tape(Tape())
     tape = get_working_tape()
-    tape.clear_tape()
-    continue_annotation()
     # Per-rank tmpdir: same rationale as test_checkpoint_comm_disk_checkpointing_parallel.
     tmpdir = tempfile.mkdtemp(prefix="firedrake_test_checkpoint_comm_multi_")
     try:
@@ -339,7 +333,13 @@ def _sub_comm():
 
 
 def _broadcast_tmpdir(comm):
-    """Create a tmpdir on rank 0 and broadcast the path to all ranks."""
+    """Create a tmpdir on rank 0 and broadcast the path to all ranks.
+
+    Broadcast on COMM_WORLD so all sub-comms share the same parent
+    directory. Each sub-comm's TemporaryFunctionCheckpointFile creates
+    its own subdirectory inside it, so isolation is automatic. A single
+    parent also means rank 0 of COMM_WORLD can clean everything up.
+    """
     if comm.rank == 0:
         d = tempfile.mkdtemp(prefix="firedrake_test_sub_comm_")
     else:
@@ -352,10 +352,7 @@ def _broadcast_tmpdir(comm):
 def test_sub_comm_disk_checkpointing_parallel():
     """Test disk checkpointing with a multi-rank sub-communicator."""
     sub_comm = _sub_comm()
-    set_working_tape(Tape())
     tape = get_working_tape()
-    tape.clear_tape()
-    continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
     try:
         enable_disk_checkpointing(checkpoint_comm=sub_comm,
@@ -379,10 +376,7 @@ def test_sub_comm_disk_checkpointing_parallel():
 def test_sub_comm_multi_mesh_parallel():
     """Test sub-comm checkpointing with two independently partitioned meshes."""
     sub_comm = _sub_comm()
-    set_working_tape(Tape())
     tape = get_working_tape()
-    tape.clear_tape()
-    continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
     try:
         enable_disk_checkpointing(checkpoint_comm=sub_comm,
@@ -430,10 +424,7 @@ def test_sub_comm_multi_mesh_parallel():
 def test_sub_comm_adjoint_dependencies_parallel():
     """Test sub-comm checkpointing with timestepper and taylor_test."""
     sub_comm = _sub_comm()
-    set_working_tape(Tape())
     tape = get_working_tape()
-    tape.clear_tape()
-    continue_annotation()
     tmpdir = _broadcast_tmpdir(MPI.COMM_WORLD)
     try:
         enable_disk_checkpointing(checkpoint_comm=sub_comm,
