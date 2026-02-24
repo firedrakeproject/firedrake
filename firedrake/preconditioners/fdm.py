@@ -2414,6 +2414,7 @@ def extrude_interior_facet_maps(V):
         local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
         nfacets: the total number of interior facets owned by this process
     """
+    raise NotImplementedError
     if isinstance(V, (Function, Cofunction)):
         V = V.function_space()
     mesh = V.mesh()

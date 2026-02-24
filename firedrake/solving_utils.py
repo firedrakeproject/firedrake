@@ -326,7 +326,7 @@ class _SNESContext(object):
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
-        with self._F.vec_wo as v:
+        with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
@@ -440,7 +440,7 @@ class _SNESContext(object):
         ctx = dmhooks.get_appctx(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.vec_wo as v:
+        with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
         if ctx._pre_function_callback is not None:
@@ -454,12 +454,12 @@ class _SNESContext(object):
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
         if ctx._post_function_callback is not None:
-            with ctx._F.vec_wo as F_:
+            with ctx._F.dat.vec_wo as F_:
                 ctx._post_function_callback(X, F_)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._F.vec_ro as v:
+        with ctx._F.dat.vec_ro as v:
             v.copy(F)
 
     @staticmethod
@@ -484,7 +484,7 @@ class _SNESContext(object):
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.vec_wo as v:
+        with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
         if ctx._pre_jacobian_callback is not None:
