@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 from petsc4py import PETSc
 from immutabledict import immutabledict as idict
+from loopy.tools import LoopyKeyBuilder
 
 import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
@@ -719,9 +720,10 @@ class DiskCacheKeyGetter(NodeVisitor):
     def _(self, func: insn_types.StandaloneCalledFunction) -> Hashable:
         from pyop3.expr.visitors import get_disk_cache_key as get_expr_disk_cache_key
 
+        loopy_key = LoopyKeyBuilder()(func.function)
         return (
             type(func),
-            func.function,
+            loopy_key,
             *(get_expr_disk_cache_key(arg, self._renamer) for arg in func.arguments),
         )
 

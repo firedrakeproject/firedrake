@@ -13,6 +13,7 @@ import functools
 import gc
 import hashlib
 import os
+import re
 import sys
 import pickle
 import weakref
@@ -369,6 +370,9 @@ class _CacheMiss:
 CACHE_MISS = _CacheMiss()
 
 
+_obj_address_regex = re.compile(r"<.+ object at 0x[0-9a-f]+>")
+
+
 @functools.cache
 def as_hexdigest(*args) -> str:
     """Return ``args`` as a hash string.
@@ -379,12 +383,12 @@ def as_hexdigest(*args) -> str:
     calling it wherever possible.
 
     """
-    hash_ = hashlib.md5()
-    for a in args:
-        if isinstance(a, MPI.Comm):
-            raise TypeError("Communicators cannot be hashed, caching will be broken!")
-        hash_.update(str(a).encode())
-    return hash_.hexdigest()
+    fodder = str(args)
+    utils.debug_assert(
+        lambda: re.search(_obj_address_regex, fodder) is None,
+        f"Key '{fodder}' contains a memory address so cannot be cached to disk",
+    )
+    return hashlib.md5(fodder.encode()).hexdigest()
 
 
 class DictLikeDiskAccess(MutableMapping):

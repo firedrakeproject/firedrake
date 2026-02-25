@@ -13,11 +13,6 @@ from immutabledict import immutabledict as idict
 from pyop3.constants import _nothing
 
 
-def paramclass(cls: type) -> type:
-    """Decorator that turns a class into a dataclass for storing parameters."""
-    return dataclasses.dataclass(kw_only=True, unsafe_hash=True)(cls)
-
-
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
 
 
@@ -183,8 +178,18 @@ class Pyop3Configuration:
             setattr(self, option_name, kwargs.pop(option_name))
         assert not kwargs
 
+    def __eq__(self, other, /) -> bool:
+        return type(other) is type(self) and other.as_dict() == self.as_dict()
+
+    def __hash__(self, /) -> int:
+        return hash((type(self), idict(self.as_dict())))
+
     def __str__(self) -> str:
         return str(self.as_dict())
+
+    def __repr__(self) -> str:
+        keyvals = ", ".join(f"{k}={v}" for k, v in self.as_dict().items())
+        return f"{type(self).__name__}({keyvals})"
 
     def as_dict(self) -> dict:
         return {option_name: getattr(self, option_name) for option_name in self.OPTIONS}
