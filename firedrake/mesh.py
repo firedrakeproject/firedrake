@@ -4257,45 +4257,6 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
     return base_parent_cell_nums, extrusion_heights
 
 
-def _mpi_array_lexicographic_min(x, y, datatype):
-    """MPI operator for lexicographic minimum of arrays.
-
-    This compares two arrays of shape (N, 2) lexicographically, i.e. first
-    comparing the two arrays by their first column, returning the element-wise
-    minimum, with ties broken by comparing the second column element wise.
-
-    Parameters
-    ----------
-    x : ``np.ndarray``
-        The first array to compare of shape (N, 2).
-    y : ``np.ndarray``
-        The second array to compare of shape (N, 2).
-    datatype : ``MPI.Datatype``
-        The datatype of the arrays.
-
-    Returns
-    -------
-    ``np.ndarray``
-        The lexicographically lowest array of shape (N, 2).
-
-    """
-    # Check the first column
-    min_idxs = np.where(x[:, 0] < y[:, 0])[0]
-    result = np.copy(y)
-    result[min_idxs, :] = x[min_idxs, :]
-
-    # if necessary, check the second column
-    eq_idxs = np.where(x[:, 0] == y[:, 0])[0]
-    if len(eq_idxs):
-        # We only check where we have equal values to avoid unnecessary work
-        min_idxs = np.where(x[eq_idxs, 1] < y[eq_idxs, 1])[0]
-        result[eq_idxs[min_idxs], :] = x[eq_idxs[min_idxs], :]
-    return result
-
-
-array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
-
-
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
     parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
