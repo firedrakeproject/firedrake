@@ -294,7 +294,8 @@ def test_checkpoint_comm_multi_mesh_parallel():
         u_a = Function(Va, name="u_a")
         v_a = TestFunction(Va)
         F_a = inner(grad(u_a), grad(v_a)) * dx - m * v_a * dx
-        solve(F_a == 0, u_a)
+        bcs_a = [DirichletBC(Va, 0.0, "on_boundary")]
+        solve(F_a == 0, u_a, bcs=bcs_a)
 
         # Independent solve on mesh_b
         x_b, y_b = SpatialCoordinate(mesh_b)
@@ -393,7 +394,8 @@ def test_sub_comm_multi_mesh_parallel():
         u_a = Function(Va, name="u_a")
         v_a = TestFunction(Va)
         F_a = inner(grad(u_a), grad(v_a)) * dx - m * v_a * dx
-        solve(F_a == 0, u_a)
+        bcs_a = [DirichletBC(Va, 0.0, "on_boundary")]
+        solve(F_a == 0, u_a, bcs=bcs_a)
 
         # Independent solve on mesh_b
         x_b, y_b = SpatialCoordinate(mesh_b)
