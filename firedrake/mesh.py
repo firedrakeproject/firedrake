@@ -4499,9 +4499,10 @@ def _parent_mesh_embedding(
     # This turns out to be a lexicographic row-wise minimum of the
     # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
     # break ties by choosing the lowest rank.
-    owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
-        ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
-    )
+    with PETSc.Log.Event("pm_embed_ref_cell_dists_allreduce"):
+        owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
+            ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
+        )
 
     # switch ranks back to positive
     owned_ref_cell_dists_l1_and_ranks[:, 1] = np.abs(
@@ -4526,79 +4527,85 @@ def _parent_mesh_embedding(
     # the distance is the same then we have found the correct cell. If we
     # cannot make a match to owned_rank and distance then we can't see the
     # point.
-    changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
-    if any(changed_ranks_tied):
-        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
-        while any(changed_ranks_tied):
-            (
-                parent_cell_nums[changed_ranks_tied],
-                new_reference_coords,
-                ref_cell_dists_l1[changed_ranks_tied],
-            ) = parent_mesh.locate_cells_ref_coords_and_dists(
-                coords_global[changed_ranks_tied],
-                tolerance,
-                cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
-            )
-            # delete extra dimension if necessary
-            if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
-            reference_coords[changed_ranks_tied, :] = new_reference_coords
-            # remove newly lost points
-            locally_visible[changed_ranks_tied] = (
-                parent_cell_nums[changed_ranks_tied] != -1
-            )
-            changed_ranks_tied &= locally_visible
-            # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
-            # disregard the point.
-            locally_visible[changed_ranks_tied] &= (
-                ref_cell_dists_l1[changed_ranks_tied]
-                <= owned_ref_cell_dists_l1[changed_ranks_tied]
-            )
-            changed_ranks_tied &= locally_visible
-            # update the identified rank
-            if parent_mesh.extruded:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
-            else:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
-            ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
-            # if the rank now matches then we have found the correct cell
-            locally_visible[changed_ranks_tied] &= (
-                owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
-            )
-            # remove these rank matches from changed_ranks_tied
-            changed_ranks_tied &= ~locally_visible
-            # add more cells to ignore
-            cells_ignore_T = np.vstack((
-                cells_ignore_T,
-                parent_cell_nums)
-            )
+    with PETSc.Log.Event("pm_embed_tied_ranks"):
+        changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
+        if any(changed_ranks_tied):
+            cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
+            while any(changed_ranks_tied):
+                with PETSc.Log.Event("pm_embed_tied_rank_locate_cells"):
+                    (
+                        parent_cell_nums[changed_ranks_tied],
+                        new_reference_coords,
+                        ref_cell_dists_l1[changed_ranks_tied],
+                    ) = parent_mesh.locate_cells_ref_coords_and_dists(
+                        coords_global[changed_ranks_tied],
+                        tolerance,
+                        cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
+                    )
+                # delete extra dimension if necessary
+                if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+                    new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
+                reference_coords[changed_ranks_tied, :] = new_reference_coords
+                # remove newly lost points
+                locally_visible[changed_ranks_tied] = (
+                    parent_cell_nums[changed_ranks_tied] != -1
+                )
+                changed_ranks_tied &= locally_visible
+                # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
+                # disregard the point.
+                locally_visible[changed_ranks_tied] &= (
+                    ref_cell_dists_l1[changed_ranks_tied]
+                    <= owned_ref_cell_dists_l1[changed_ranks_tied]
+                )
+                changed_ranks_tied &= locally_visible
+                # update the identified rank
+                if parent_mesh.extruded:
+                    _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
+                else:
+                    _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
+                ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
+                # if the rank now matches then we have found the correct cell
+                locally_visible[changed_ranks_tied] &= (
+                    owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
+                )
+                # remove these rank matches from changed_ranks_tied
+                changed_ranks_tied &= ~locally_visible
+                # add more cells to ignore
+                cells_ignore_T = np.vstack((
+                    cells_ignore_T,
+                    parent_cell_nums)
+                )
 
     # Any ranks which are still np.inf are not in the mesh
-    missing_global_idxs = np.where(owned_ranks == np.inf)[0]
+    with PETSc.Log.Event("pm_embed_missing_global_idxs_where"):
+        missing_global_idxs = np.where(owned_ranks == np.inf)[0]
 
-    if not remove_missing_points:
-        missing_coords_idxs_on_rank = np.where(
-            (owned_ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
-        )[0]
-        locally_visible[missing_coords_idxs_on_rank] = True
-        parent_cell_nums[missing_coords_idxs_on_rank] = -1
-        reference_coords[missing_coords_idxs_on_rank, :] = np.nan
-        owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
+    with PETSc.Log.Event("pm_embed_not_remove_missing_points"):
+        if not remove_missing_points:
+            missing_coords_idxs_on_rank = np.where(
+                (owned_ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+            )[0]
+            locally_visible[missing_coords_idxs_on_rank] = True
+            parent_cell_nums[missing_coords_idxs_on_rank] = -1
+            reference_coords[missing_coords_idxs_on_rank, :] = np.nan
+            owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
 
-    if exclude_halos and parent_mesh.comm.size > 1:
-        off_rank_coords_idxs = np.where(
-            (owned_ranks != parent_mesh.comm.rank)
-            & (owned_ranks != parent_mesh.comm.size + 1)
-        )[0]
-        locally_visible[off_rank_coords_idxs] = False
+    with PETSc.Log.Event("pm_embed_exclude_halos_parallel"):
+        if exclude_halos and parent_mesh.comm.size > 1:
+            off_rank_coords_idxs = np.where(
+                (owned_ranks != parent_mesh.comm.rank)
+                & (owned_ranks != parent_mesh.comm.size + 1)
+            )[0]
+            locally_visible[off_rank_coords_idxs] = False
 
-    coords_embedded = np.compress(locally_visible, coords_global, axis=0)
-    global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
-    reference_coords = np.compress(locally_visible, reference_coords, axis=0)
-    parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
-    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
-    input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
-    input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
+    with PETSc.Log.Event("pm_embed_compress_arrays"):
+        coords_embedded = np.compress(locally_visible, coords_global, axis=0)
+        global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
+        reference_coords = np.compress(locally_visible, reference_coords, axis=0)
+        parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
+        owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
+        input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
+        input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
 
     return (
         coords_embedded,
