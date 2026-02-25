@@ -67,7 +67,7 @@ def test_write_read(mesh, fs, degree, dumpfile):
         h5.read(f2, "/solution", timestamp=math.pi)
         h5.read(g2, "/solution", timestamp=0.1)
 
-        with g2.vec_ro as x, f2.vec_ro as y:
+        with g2.dat.vec_ro as x, f2.dat.vec_ro as y:
             assert x.max() > y.max()
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)

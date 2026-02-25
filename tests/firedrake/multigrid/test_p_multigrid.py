@@ -387,7 +387,7 @@ def test_p_fas_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.vec_ro as Fvec:
+    with rhs.dat.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -464,7 +464,7 @@ def test_p_fas_nonlinear_scalar():
     # Due to the convoluted nature of the nested iteration
     # it is better to specify absolute tolerances only
     rhs = assemble(F, bcs=bcs)
-    with rhs.vec_ro as Fvec:
+    with rhs.dat.vec_ro as Fvec:
         Fnorm = Fvec.norm()
 
     rtol = 1E-8
@@ -586,7 +586,7 @@ def test_pmg_transfer_piola(piola_mesh, family, degree, mixed, mat_type):
 
     uc = Function(Vc)
     uf = Function(Vf)
-    with uc.vec_wo as xc:
+    with uc.dat.vec_wo as xc:
         xc.setRandom()
     for bc in Vc_bcs:
         bc.zero(uc)
