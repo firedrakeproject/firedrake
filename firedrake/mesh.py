@@ -2256,6 +2256,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             )
 
     @staticmethod
+    @PETSc.Log.EventDecorator()
     def _make_input_ordering_sf(swarm, nroots, ilocal):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
@@ -4120,7 +4121,8 @@ def _dmswarm_create(
     _, coordsdim = coords.shape
 
     # Create a DMSWARM
-    swarm = FiredrakeDMSwarm().create(comm=comm)
+    with PETSc.Log.Event("FiredrakeDMSwarmCreate"):
+        swarm = FiredrakeDMSwarm().create(comm=comm)
 
     # save the fields on the swarm
     swarm.fields = default_fields + default_extra_fields + other_fields
@@ -4173,33 +4175,34 @@ def _dmswarm_create(
     # topological dimension of the base mesh.
 
     # NOTE ensure that swarm.restoreField is called for each field too!
-    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    cell_id_name = swarm.getCellDMActive().getCellID()
-    swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-    field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
-    field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
-    field_global_index = swarm.getField("globalindex").ravel()
-    field_rank = swarm.getField("DMSwarm_rank").ravel()
-    field_input_rank = swarm.getField("inputrank").ravel()
-    field_input_index = swarm.getField("inputindex").ravel()
-    swarm_coords[...] = coords
-    swarm_parent_cell_nums[...] = plex_parent_cell_nums
-    field_parent_cell_nums[...] = parent_cell_nums
-    field_reference_coords[...] = reference_coords
-    field_global_index[...] = coords_idxs
-    field_rank[...] = ranks
-    field_input_rank[...] = input_ranks
-    field_input_index[...] = input_coords_idxs
+    with PETSc.Log.Event("FiredrakeDMSwarmSetFields"):
+        swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+        cell_id_name = swarm.getCellDMActive().getCellID()
+        swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
+        field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
+        field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+        field_global_index = swarm.getField("globalindex").ravel()
+        field_rank = swarm.getField("DMSwarm_rank").ravel()
+        field_input_rank = swarm.getField("inputrank").ravel()
+        field_input_index = swarm.getField("inputindex").ravel()
+        swarm_coords[...] = coords
+        swarm_parent_cell_nums[...] = plex_parent_cell_nums
+        field_parent_cell_nums[...] = parent_cell_nums
+        field_reference_coords[...] = reference_coords
+        field_global_index[...] = coords_idxs
+        field_rank[...] = ranks
+        field_input_rank[...] = input_ranks
+        field_input_index[...] = input_coords_idxs
 
-    # have to restore fields once accessed to allow access again
-    swarm.restoreField("inputindex")
-    swarm.restoreField("inputrank")
-    swarm.restoreField("DMSwarm_rank")
-    swarm.restoreField("globalindex")
-    swarm.restoreField("refcoord")
-    swarm.restoreField("parentcellnum")
-    swarm.restoreField("DMSwarmPIC_coor")
-    swarm.restoreField(cell_id_name)
+        # have to restore fields once accessed to allow access again
+        swarm.restoreField("inputindex")
+        swarm.restoreField("inputrank")
+        swarm.restoreField("DMSwarm_rank")
+        swarm.restoreField("globalindex")
+        swarm.restoreField("refcoord")
+        swarm.restoreField("parentcellnum")
+        swarm.restoreField("DMSwarmPIC_coor")
+        swarm.restoreField(cell_id_name)
 
     if extruded:
         field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
@@ -4632,50 +4635,60 @@ def _swarm_original_ordering_preserve(
 
     # Gather everything except original_ordering_coords_local from all mpi
     # ranks
-    ncoords_local_allranks = comm.allgather(ncoords_local)
+    with PETSc.Log.Event("original_ordering_allgather_ncoords_local"):
+        ncoords_local_allranks = comm.allgather(ncoords_local)
     ncoords_global = sum(ncoords_local_allranks)
 
     parent_cell_nums_global = np.empty(
         ncoords_global, dtype=parent_cell_nums_local.dtype
     )
-    comm.Allgatherv(
-        parent_cell_nums_local, (parent_cell_nums_global, ncoords_local_allranks)
-    )
+    with PETSc.Log.Event("original_ordering_allgatherv_parent_cell_nums"):
+        comm.Allgatherv(
+            parent_cell_nums_local, (parent_cell_nums_global, ncoords_local_allranks)
+        )
 
     plex_parent_cell_nums_global = np.empty(
         ncoords_global, dtype=plex_parent_cell_nums_local.dtype
     )
-    comm.Allgatherv(
-        plex_parent_cell_nums_local,
-        (plex_parent_cell_nums_global, ncoords_local_allranks),
-    )
+    with PETSc.Log.Event("original_ordering_allgatherv_plex_parent_cell_nums"):
+        comm.Allgatherv(
+            plex_parent_cell_nums_local,
+            (plex_parent_cell_nums_global, ncoords_local_allranks),
+        )
 
     reference_coords_local_size = np.array(reference_coords_local.size)
     reference_coords_local_sizes = np.empty(comm.size, dtype=int)
-    comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
+    with PETSc.Log.Event("original_ordering_allgatherv_reference_coords_sizes"):
+        comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
     reference_coords_global = np.empty(
         (ncoords_global, reference_coords_local.shape[1]),
         dtype=reference_coords_local.dtype,
     )
-    comm.Allgatherv(
-        reference_coords_local, (reference_coords_global, reference_coords_local_sizes)
-    )
+    with PETSc.Log.Event("original_ordering_allgatherv_reference_coords"):
+        comm.Allgatherv(
+            reference_coords_local, (reference_coords_global, reference_coords_local_sizes)
+        )
 
     global_idxs_global = np.empty(ncoords_global, dtype=global_idxs_local.dtype)
-    comm.Allgatherv(global_idxs_local, (global_idxs_global, ncoords_local_allranks))
+    with PETSc.Log.Event("original_ordering_allgatherv_global_idxs"):
+        comm.Allgatherv(global_idxs_local, (global_idxs_global, ncoords_local_allranks))
 
     ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
-    comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
+    with PETSc.Log.Event("original_ordering_allgatherv_ranks"):
+        comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
 
     input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
-    comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
+    with PETSc.Log.Event("original_ordering_allgatherv_input_ranks"):
+        comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
 
     input_idxs_global = np.empty(ncoords_global, dtype=input_idxs_local.dtype)
-    comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
+    with PETSc.Log.Event("original_ordering_allgatherv_input_idxs"):
+        comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
 
     # Sort by global index, which will be in rank order (they probably already
     # are but we can't rely on that)
-    global_idxs_global_order = np.argsort(global_idxs_global)
+    with PETSc.Log.Event("original_ordering_sort_by_global_idx"):
+        global_idxs_global_order = np.argsort(global_idxs_global)
     sorted_parent_cell_nums_global = parent_cell_nums_global[global_idxs_global_order]
     sorted_plex_parent_cell_nums_global = plex_parent_cell_nums_global[
         global_idxs_global_order
@@ -4689,13 +4702,15 @@ def _swarm_original_ordering_preserve(
     sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
     # Check order is correct - we can probably remove this eventually since it's
     # quite expensive
-    if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
-        raise ValueError("Global indexing has not ordered the ranks as expected")
+    with PETSc.Log.Event("original_ordering_check_global_idx_order"):
+        if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
+            raise ValueError("Global indexing has not ordered the ranks as expected")
 
     # get rid of any duplicated global indices (i.e. points in halos)
-    unique_global_idxs, unique_idxs = np.unique(
-        sorted_global_idxs_global, return_index=True
-    )
+    with PETSc.Log.Event("original_ordering_remove_duplicate_global_idxs"):
+        unique_global_idxs, unique_idxs = np.unique(
+            sorted_global_idxs_global, return_index=True
+        )
     unique_parent_cell_nums_global = sorted_parent_cell_nums_global[unique_idxs]
     unique_plex_parent_cell_nums_global = sorted_plex_parent_cell_nums_global[
         unique_idxs
@@ -4727,47 +4742,48 @@ def _swarm_original_ordering_preserve(
 
     # check if the input indices are in order from zero - this can also probably
     # be removed eventually because, again, it's expensive.
-    if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
-        raise ValueError(
-            "Global indexing has not ordered the input indices as expected."
-        )
-    if len(output_global_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_reference_coords) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if extruded:
-        if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
+    with PETSc.Log.Event("original_ordering_check_input_idx_order"):
+        if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
             raise ValueError(
-                "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+                "Global indexing has not ordered the input indices as expected."
             )
-        if len(output_extrusion_heights) != len(original_ordering_coords_local):
+        if len(output_global_idxs) != len(original_ordering_coords_local):
             raise ValueError(
-                "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
+                "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
             )
+        if len(output_parent_cell_nums) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_reference_coords) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_ranks) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_input_ranks) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_input_idxs) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if extruded:
+            if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
+                raise ValueError(
+                    "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+                )
+            if len(output_extrusion_heights) != len(original_ordering_coords_local):
+                raise ValueError(
+                    "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
+                )
 
     return _dmswarm_create(
         [],
