@@ -4487,35 +4487,28 @@ def _parent_mesh_embedding(
         # own a point then the one with the highest rank will be chosen.
         on_this_rank = ranks == parent_mesh.comm.rank
         ranks[on_this_rank] = -parent_mesh.comm.rank
-        ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
 
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
-    # We now have the reference cell l1 distance and ranks being np.inf for any
-    # point which is not locally visible. By collectively taking the minimum
-    # of the reference cell l1 distance, which is tied to the rank via
-    # ref_cell_dists_l1_and_ranks, we both check which cell the coordinate is
-    # closest to and find out which rank owns that cell.
-    # In cases where the reference cell l1 distance is the same for a
-    # particular coordinate, we break the tie by choosing the lowest rank.
-    # This turns out to be a lexicographic row-wise minimum of the
-    # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
-    # break ties by choosing the lowest rank.
+    # We first find the global minimum reference cell distance for each point
+    # Then, among only the ranks that achieved the minimum distance, we find 
+    # the winning rank with a second MPI.MIN allreduce.
     with PETSc.Log.Event("pm_embed_ref_cell_dists_allreduce"):
-        owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
-            ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
-        )
+        owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
+        parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
+
+    with PETSc.Log.Event("pm_embed_owned_ranks_allreduce"):
+        # Only ranks that achieved the global minimum distance are candidates for
+        # ownership. Ranks that didn't achieve the minimum are set to inf so they
+        # don't interfere with the MIN reduction over rank values.
+        rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, np.inf)
+        owned_ranks_raw = np.empty_like(rank_candidates)
+        parent_mesh.comm.Allreduce(rank_candidates, owned_ranks_raw, op=MPI.MIN)
 
     with PETSc.Log.Event("pm_embed_process_ownership"):
         # switch ranks back to positive
-        owned_ref_cell_dists_l1_and_ranks[:, 1] = np.abs(
-            owned_ref_cell_dists_l1_and_ranks[:, 1]
-        )
-        ref_cell_dists_l1_and_ranks[:, 1] = np.abs(ref_cell_dists_l1_and_ranks[:, 1])
         ranks = np.abs(ranks)
-
-        owned_ref_cell_dists_l1 = owned_ref_cell_dists_l1_and_ranks[:, 0]
-        owned_ranks = owned_ref_cell_dists_l1_and_ranks[:, 1]
+        owned_ranks = np.abs(owned_ranks_raw)
 
         changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
         changed_ranks = owned_ranks != ranks
