@@ -110,7 +110,6 @@ class AuxiliaryOperatorSNES(SNESBase):
         from firedrake.assemble import get_assembler
 
         ctx = get_dm_appctx(snes.dm)
-        appctx = self.get_appctx(snes)
 
         parent_prefix = snes.getOptionsPrefix() or ""
         prefix = parent_prefix + self._prefix
@@ -152,7 +151,7 @@ class AuxiliaryOperatorSNES(SNESBase):
             nullspace=ctx._nullspace,
             transpose_nullspace=ctx._nullspace_T,
             near_nullspace=ctx._near_nullspace,
-            appctx=appctx, options_prefix=prefix)
+            appctx=ctx.appctx, options_prefix=prefix)
 
         # indent monitor outputs
         outer_snes = snes
@@ -169,14 +168,18 @@ class AuxiliaryOperatorSNES(SNESBase):
         with self.uk.dat.vec_wo as vec:
             x.copy(vec)
 
+        # b = G(u^{k})
         self.assemble_gk(tensor=self.b)
 
+        # b = G(u^{k}) - F(u^{k})
         with self.b.dat.vec as vec:
             vec -= f
 
+        # G(u^{k+1}) - b = 0
         self.uk1.assign(self.uk)
         self.solver.solve()
 
+        # y = d = u^{k+1} - u^{k}
         with self.uk1.dat.vec_ro as vec:
             vec.copy(y)
             y.aypx(-1, x)
@@ -237,5 +240,5 @@ class AuxiliaryOperatorSNES(SNESBase):
     def view(self, snes, viewer=None):
         super().view(snes, viewer)
         if hasattr(self, "solver"):
-            viewer.printfASCII("SNES to apply auxiliary inverse\n")
+            viewer.printfASCII("SNES to apply a preconditioned Richardson iteration.\n")
             self.solver.snes.view(viewer)
