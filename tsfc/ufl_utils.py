@@ -382,10 +382,13 @@ def apply_mapping(expression, element, domain):
         kj = (*k, j)
         rexpression = as_tensor(J[j, i] * expression[kj], (*k, i))
     elif mapping == "l2 piola":
-        detJ = JacobianDeterminant(mesh)
+        detJ = Abs(JacobianDeterminant(mesh))
+        #detJ = JacobianDeterminant(mesh)
         rexpression = expression * detJ
     elif mapping == "contravariant piola":
         K = JacobianInverse(mesh)
+        # TODO work out why putting this in breaks things
+        #detJ = Abs(JacobianDeterminant(mesh))
         detJ = JacobianDeterminant(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)
         kj = (*k, j)
