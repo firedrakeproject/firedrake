@@ -4664,49 +4664,51 @@ def _swarm_original_ordering_preserve(
     input_idxs_global = np.empty(ncoords_global, dtype=input_idxs_local.dtype)
     comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
 
-    # Sort by global index, which will be in rank order (they probably already
-    # are but we can't rely on that)
-    global_idxs_global_order = np.argsort(global_idxs_global)
-    sorted_parent_cell_nums_global = parent_cell_nums_global[global_idxs_global_order]
-    sorted_plex_parent_cell_nums_global = plex_parent_cell_nums_global[
-        global_idxs_global_order
-    ]
-    sorted_reference_coords_global = reference_coords_global[
-        global_idxs_global_order, :
-    ]
-    sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
-    sorted_ranks_global = ranks_global[global_idxs_global_order]
-    sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
-    sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
-    # Check order is correct - we can probably remove this eventually since it's
-    # quite expensive
-    if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
-        raise ValueError("Global indexing has not ordered the ranks as expected")
+    n_unique = int(global_idxs_global.max()) + 1 if ncoords_global > 0 else 0
+    n_local_output = len(original_ordering_coords_local)
 
-    # get rid of any duplicated global indices (i.e. points in halos)
-    unique_global_idxs, unique_idxs = np.unique(
-        sorted_global_idxs_global, return_index=True
+    # Identify the non-halo (owned) copy of each gathered entry.  Each entry
+    # in the Allgathered data was contributed by some source rank; source_ranks
+    # records which one.  A point is "owned" when ranks_global says the same rank
+    # as the one that contributed it to the gather.
+    source_ranks = np.repeat(
+        np.arange(comm.size, dtype=ranks_global.dtype), ncoords_local_allranks
     )
-    unique_parent_cell_nums_global = sorted_parent_cell_nums_global[unique_idxs]
-    unique_plex_parent_cell_nums_global = sorted_plex_parent_cell_nums_global[
-        unique_idxs
-    ]
-    unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
-    unique_ranks_global = sorted_ranks_global[unique_idxs]
-    unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
-    unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
+    owned_mask = ranks_global == source_ranks
 
-    # save the points on this rank which match the input rank ready for output
-    input_ranks_match = unique_input_ranks_global == comm.rank
-    output_global_idxs = unique_global_idxs[input_ranks_match]
-    output_parent_cell_nums = unique_parent_cell_nums_global[input_ranks_match]
-    output_plex_parent_cell_nums = unique_plex_parent_cell_nums_global[
-        input_ranks_match
-    ]
-    output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
-    output_ranks = unique_ranks_global[input_ranks_match]
-    output_input_ranks = unique_input_ranks_global[input_ranks_match]
-    output_input_idxs = unique_input_idxs_global[input_ranks_match]
+    # Pre-allocate output arrays
+    out_parent_cell_nums = np.empty(n_unique, dtype=parent_cell_nums_global.dtype)
+    out_plex_parent_cell_nums = np.empty(n_unique, dtype=plex_parent_cell_nums_global.dtype)
+    out_reference_coords = np.empty((n_unique, tdim), dtype=reference_coords_global.dtype)
+    out_ranks = np.empty(n_unique, dtype=ranks_global.dtype)
+    out_input_ranks = np.empty(n_unique, dtype=input_ranks_global.dtype)
+    out_input_idxs = np.empty(n_unique, dtype=input_idxs_global.dtype)
+
+    idx = global_idxs_global
+    out_reference_coords[idx] = reference_coords_global
+    out_ranks[idx] = ranks_global
+    out_input_ranks[idx] = input_ranks_global
+    out_input_idxs[idx] = input_idxs_global
+    out_parent_cell_nums[idx] = parent_cell_nums_global
+    out_plex_parent_cell_nums[idx] = plex_parent_cell_nums_global
+    owned_idx = idx[owned_mask]
+    out_parent_cell_nums[owned_idx] = parent_cell_nums_global[owned_mask]
+    out_plex_parent_cell_nums[owned_idx] = plex_parent_cell_nums_global[owned_mask]
+
+    # Extract this rank's output slice.  Global indices are assigned in rank
+    # order so out_input_ranks is monotonically non-decreasing; this rank's
+    # slice is therefore contiguous and its start can be found with searchsorted.
+    my_start = int(np.searchsorted(out_input_ranks, comm.rank, side='left'))
+    my_end = my_start + n_local_output
+
+    output_global_idxs = np.arange(my_start, my_end, dtype=idx.dtype)
+    output_parent_cell_nums = out_parent_cell_nums[my_start:my_end]
+    output_plex_parent_cell_nums = out_plex_parent_cell_nums[my_start:my_end]
+    output_reference_coords = out_reference_coords[my_start:my_end]
+    output_ranks = out_ranks[my_start:my_end]
+    output_input_ranks = out_input_ranks[my_start:my_end]
+    output_input_idxs = out_input_idxs[my_start:my_end]
+
     if extruded:
         (
             output_base_parent_cell_nums,
@@ -4716,49 +4718,14 @@ def _swarm_original_ordering_preserve(
         output_base_parent_cell_nums = None
         output_extrusion_heights = None
 
-    # check if the input indices are in order from zero - this can also probably
-    # be removed eventually because, again, it's expensive.
-    if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
-        raise ValueError(
-            "Global indexing has not ordered the input indices as expected."
-        )
-    if len(output_global_idxs) != len(original_ordering_coords_local):
+    if len(output_global_idxs) != n_local_output:
         raise ValueError(
             "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
         )
-    if len(output_parent_cell_nums) != len(original_ordering_coords_local):
+    if not np.array_equal(output_input_idxs, np.arange(n_local_output)):
         raise ValueError(
-            "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            "Global indexing has not ordered the input indices as expected."
         )
-    if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_reference_coords) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if extruded:
-        if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
-            raise ValueError(
-                "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-            )
-        if len(output_extrusion_heights) != len(original_ordering_coords_local):
-            raise ValueError(
-                "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
-            )
 
     return _dmswarm_create(
         [],
