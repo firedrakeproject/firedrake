@@ -140,6 +140,68 @@ class ASMPatchPC(PCBase):
             self.asmpc.destroy()
 
 
+def get_entity_dofs(V, V_local_ises_indices, points):
+    """Extract degrees of freedom associated to mesh entities (points of the DMPlex)."""
+    indices = []
+    for (i, W) in enumerate(V):
+        section = W.dm.getDefaultSection()
+        for p in points:
+            dof = section.getDof(p)
+            if dof <= 0:
+                continue
+            off = section.getOffset(p)
+            # Local indices within W
+            W_slice = slice(off*W.block_size, W.block_size * (off + dof))
+            indices.extend(V_local_ises_indices[i][W_slice])
+    return indices
+
+
+def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
+    """Build index sets for star patches."""
+    points = []
+    for seed in seed_points:
+        # Only build patches over owned DoFs
+        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            continue
+        # Create point list from mesh DM
+        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+        star = order_points(mesh_dm, star, ordering, prefix)
+        points.extend(star)
+
+    indices = get_entity_dofs(V, V_local_ises_indices, points)
+    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+    return iset
+
+
+def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
+    """Build index sets for Vanka patches."""
+    V_points = []
+    Q_points = []
+    for seed in seed_points:
+        # Only build patches over owned DoFs
+        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            continue
+        # Create point list from mesh DM
+        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+        star = order_points(mesh_dm, star, ordering, prefix)
+        if include_star:
+            Q_points.extend(star)
+        else:
+            Q_points.append(seed)
+
+        closure = []
+        for s in reversed(star):
+            cs, _ = mesh_dm.getTransitiveClosure(s, useCone=True)
+            closure.extend(cs)
+        # Grab unique points with stable ordering
+        V_points.extend(reversed(dict.fromkeys(closure)))
+
+    indices = get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points)
+    indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
+    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+    return iset
+
+
 class ASMStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
@@ -162,8 +224,10 @@ class ASMStarPC(ASMPatchPC):
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
-        opts = PETSc.Options(self.prefix)
+        prefix = self.prefix
+        opts = PETSc.Options(prefix)
         depth = opts.getInt("construct_dim", default=0)
+        coloring = opts.getBool("coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
         validate_overlap(mesh_unique, depth, "star")
 
@@ -171,33 +235,15 @@ class ASMStarPC(ASMPatchPC):
         # so we need to cache these for efficiency
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
-        # Build index sets for the patches
-        ises = []
         (start, end) = mesh_dm.getDepthStratum(depth)
-        for seed in range(start, end):
-            # Only build patches over owned DoFs
-            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-                continue
-
-            # Create point list from mesh DM
-            pt_array, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            pt_array = order_points(mesh_dm, pt_array, ordering, self.prefix)
-
-            # Get DoF indices for patch
-            indices = []
-            for (i, W) in enumerate(V):
-                section = W.dm.getDefaultSection()
-                for p in pt_array.tolist():
-                    dof = section.getDof(p)
-                    if dof <= 0:
-                        continue
-                    off = section.getOffset(p)
-                    # Local indices within W
-                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
-                    indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-            ises.append(iset)
-
+        if coloring:
+            colors = mesh_dm.createColoring(depth=depth, distance=1)
+            shift = start - min(iset.indices.min() for iset in colors if iset.indices.size > 0)
+            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color.indices+shift)
+                    for color in colors]
+        else:
+            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, (seed,))
+                    for seed in range(start, end)]
         return ises
 
 
@@ -223,6 +269,7 @@ class ASMVankaPC(ASMPatchPC):
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
+        prefix = self.prefix
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=-1)
         height = opts.getInt("construct_codim", default=-1)
@@ -230,18 +277,25 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"Must set exactly one of {self.prefix}construct_dim or {self.prefix}construct_codim")
 
         exclude_subspaces = list(map(int, opts.getString("exclude_subspaces", default="-1").split(",")))
+        include_subspaces = [i for i in range(len(V)) if i not in exclude_subspaces]
         include_type = opts.getString("include_type", default="star").lower()
         if include_type not in ["star", "entity"]:
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
         include_star = include_type == "star"
 
+        coloring = opts.getBool("coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
+
+        def splitting(V):
+            return (tuple(V[i] for i in include_subspaces), tuple(V[i] for i in exclude_subspaces))
+
+        Z = splitting(V)
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
-        ises = []
         if depth != -1:
             (start, end) = mesh_dm.getDepthStratum(depth)
             patch_dim = depth
@@ -250,40 +304,15 @@ class ASMVankaPC(ASMPatchPC):
             patch_dim = mesh_dm.getDimension() - height
         validate_overlap(mesh_unique, patch_dim, "vanka")
 
-        for seed in range(start, end):
-            # Only build patches over owned DoFs
-            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-                continue
-
-            # Create point list from mesh DM
-            star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-            star = order_points(mesh_dm, star, ordering, self.prefix)
-            pt_array = []
-            for pt in reversed(star):
-                closure, _ = mesh_dm.getTransitiveClosure(pt, useCone=True)
-                pt_array.extend(closure)
-            # Grab unique points with stable ordering
-            pt_array = list(reversed(dict.fromkeys(pt_array)))
-
-            # Get DoF indices for patch
-            indices = []
-            for (i, W) in enumerate(V):
-                section = W.dm.getDefaultSection()
-                if i in exclude_subspaces:
-                    loop_list = star if include_star else [seed]
-                else:
-                    loop_list = pt_array
-                for p in loop_list:
-                    dof = section.getDof(p)
-                    if dof <= 0:
-                        continue
-                    off = section.getOffset(p)
-                    # Local indices within W
-                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
-                    indices.extend(V_local_ises_indices[i][W_indices])
-            iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-            ises.append(iset)
-
+        if coloring:
+            colors = mesh_dm.createColoring(depth=patch_dim, distance=2)
+            shift = start - min(iset.indices.min() for iset in colors if iset.indices.size > 0)
+            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
+                                        include_star, color.indices+shift)
+                    for color in colors]
+        else:
+            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, (seed,))
+                    for seed in range(start, end)]
         return ises
 
 
