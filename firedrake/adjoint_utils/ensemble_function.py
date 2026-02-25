@@ -76,9 +76,9 @@ class EnsembleFunctionMixin(OverloadedType):
             "Disk checkpointing not implemented for EnsembleFunctions")
 
     def _ad_from_petsc(self, vec):
-        with self.vec_wo as self_v:
+        with self.dat.vec_wo as self_v:
             vec.copy(self_v)
 
     def _ad_to_petsc(self, vec=None):
-        with self.vec_ro as self_v:
+        with self.dat.vec_ro as self_v:
             return self_v.copy(vec or self._vec.duplicate())

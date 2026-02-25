@@ -712,19 +712,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
-    # TODO: dont need these any more
-    @property
-    def vec_ro(self):
-        return self.dat.vec_ro
-
-    @property
-    def vec_wo(self):
-        return self.dat.vec_wo
-
-    @property
-    def vec_rw(self):
-        return self.dat.vec_rw
-
 
 class PointNotInDomainError(Exception):
     r"""Raised when attempting to evaluate a function outside its domain,

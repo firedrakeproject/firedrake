@@ -799,9 +799,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 assert isinstance(f, Cofunction)
 
                 def callable() -> Cofunction:
-                    with self.dual_arg.vec_ro as source_vec:
+                    with self.dual_arg.dat.vec_ro as source_vec:
                         coeff = self.mat.expr_as_coeff(source_vec)
-                        with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
+                        with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
                             self.mat.handle.multHermitian(coeff_vec, target_vec)
                     return f
             else:
@@ -809,7 +809,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
                 def callable() -> Function:
                     coeff = self.mat.expr_as_coeff()
-                    with coeff.vec_ro as coeff_vec, f.vec_wo as target_vec:
+                    with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
                         self.mat.handle.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
@@ -920,11 +920,11 @@ def _build_interpolation_callables(
             weight.dat[target_mesh.closure(c)].iassign(1),
             eager=True,
         )
-        with weight.vec_rw as w:
+        with weight.dat.vec_rw as w:
             w.reciprocal()
 
         # Create a callable to apply the weight
-        with weight.vec_ro as w, v.vec_wo as y:
+        with weight.dat.vec_ro as w, v.dat.vec_wo as y:
             copyin += (lambda: y.pointwiseMult(y, w),)
 
     kernel = compile_expression(target_mesh.comm, expr, target_element,
@@ -1371,7 +1371,7 @@ class VomOntoVomMat:
         # Need to convert the expression into a coefficient
         # so that we can broadcast/reduce it
         coeff = self.expr_as_coeff(source_vec)
-        with coeff.vec_ro as coeff_vec:
+        with coeff.dat.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
             else:

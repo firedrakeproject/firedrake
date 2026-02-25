@@ -282,7 +282,7 @@ class PMGBase(PCSNESBase):
             inject = cdm.createInjection(fdm)
 
             def inject_state():
-                with cu.vec_wo as xc, fu.vec_ro as xf:
+                with cu.dat.vec_wo as xc, fu.dat.vec_ro as xf:
                     inject.mult(xf, xc)
 
             add_hook(parent, setup=inject_state, call_setup=True)
@@ -352,7 +352,7 @@ class PMGBase(PCSNESBase):
                 coarse_vecs = []
                 for xf in fine_nullspace._petsc_vecs:
                     wc = firedrake.Function(cV)
-                    with wc.vec_wo as xc:
+                    with wc.dat.vec_wo as xc:
                         # the nullspace basis is in the dual of V
                         interpolate.multTranspose(xf, xc)
                     coarse_vecs.append(wc)
@@ -1220,7 +1220,7 @@ class StandaloneInterpolationMatrix(object):
             weight.dat[mesh.closure(c)].iassign(1),
             eager=True,
         )
-        with weight.vec_rw as w:
+        with weight.dat.vec_rw as w:
             w.reciprocal()
         return weight
 
@@ -1276,12 +1276,12 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        with self.uf.vec_wo as uf:
+        with self.uf.dat.vec_wo as uf:
             uf.set(0.0E0)
         self._kernels[0]()
 
     def _restrict(self):
-        with self.uc.vec_wo as uc:
+        with self.uc.dat.vec_wo as uc:
             uc.set(0.0E0)
         self._kernels[1]()
 
@@ -1498,7 +1498,7 @@ return;
         """
         Implement restriction: restrict residual on fine grid rf to coarse grid rc.
         """
-        with self.uf.vec_wo as uf:
+        with self.uf.dat.vec_wo as uf:
             rf.copy(uf)
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
@@ -1507,14 +1507,14 @@ return;
 
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
-        with self.uc.vec_ro as uc:
+        with self.uc.dat.vec_ro as uc:
             uc.copy(rc)
 
     def mult(self, mat, xc, xf, inc=False):
         """
         Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
         """
-        with self.uc.vec_wo as uc:
+        with self.uc.dat.vec_wo as uc:
             xc.copy(uc)
         for bc in self.Vc_bcs:
             bc.zero(self.uc)
@@ -1524,10 +1524,10 @@ return;
         for bc in self.Vf_bcs:
             bc.zero(self.uf)
         if inc:
-            with self.uf.vec_ro as uf:
+            with self.uf.dat.vec_ro as uf:
                 xf.axpy(1.0, uf)
         else:
-            with self.uf.vec_ro as uf:
+            with self.uf.dat.vec_ro as uf:
                 uf.copy(xf)
 
     def multAdd(self, mat, x, y, w):

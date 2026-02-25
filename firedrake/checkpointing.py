@@ -262,7 +262,7 @@ class DumbCheckpoint(object):
         name = name or function.name()
         group = self._get_data_group()
         self._write_timestep_attr(group)
-        with function.vec_ro as v:
+        with function.dat.vec_ro as v:
             self.vwr.pushGroup(group)
             oname = v.getName()
             v.setName(name)
@@ -285,7 +285,7 @@ class DumbCheckpoint(object):
             raise ValueError("Can only load functions")
         name = name or function.name()
         group = self._get_data_group()
-        with function.vec_wo as v:
+        with function.dat.vec_wo as v:
             self.vwr.pushGroup(group)
             # PETSc replaces the array in the Vec, which screws things
             # up for us, so read into temporary Vec.
@@ -457,7 +457,7 @@ class HDF5File(object):
             suffix = "/%.15e" % timestamp
             path = path + suffix
 
-        with function.vec_ro as v:
+        with function.dat.vec_ro as v:
             dset = self._h5file.create_dataset(path, shape=(v.getSize(),), dtype=function.dat.dtype)
 
             # Another MPI/non-MPI difference
@@ -485,7 +485,7 @@ class HDF5File(object):
             suffix = "/%.15e" % timestamp
             path = path + suffix
 
-        with function.vec_wo as v:
+        with function.dat.vec_wo as v:
             dset = self._h5file[path]
             v.array[:] = dset[slice(*v.getOwnershipRange())]
 
