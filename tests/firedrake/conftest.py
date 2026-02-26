@@ -13,6 +13,17 @@ from firedrake.petsc import PETSc
 from petsctools import get_external_packages
 
 
+# Use a non-interactive backend for matplotlib if DISPLAY is undefined. This
+# prevents test failures when developing remotely.
+try:
+    import matplotlib
+except ImportError:
+    pass
+else:
+    if os.environ.get("DISPLAY", "") == "":
+        matplotlib.use("Agg")
+
+
 @functools.cache
 def _skip_test_dependency(dependency):
     """
@@ -184,6 +195,15 @@ def check_empty_tape(request):
             assert len(tape.get_blocks()) == 0
 
     request.addfinalizer(fin)
+
+
+@pytest.fixture
+def clear_pyplot_figures():
+    """Destroy all pyplot figures to prevent leaks."""
+    import matplotlib.pyplot as plt
+
+    yield
+    plt.close("all")
 
 
 class _petsc_raises:
