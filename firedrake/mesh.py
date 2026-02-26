@@ -4434,9 +4434,7 @@ def _parent_mesh_embedding(
 
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
-    # We first find the global minimum reference cell distance for each point
-    # Then, among only the ranks that achieved the minimum distance, we find 
-    # the winning rank with a second native MPI.MIN allreduce.
+    # We first find the global minimum reference cell distance for each point.
     owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
     parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
 
