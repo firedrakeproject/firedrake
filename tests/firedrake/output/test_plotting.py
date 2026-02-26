@@ -360,7 +360,7 @@ def test_tripcolor_movie():
     def animate(time):
         t.assign(time)
         q.interpolate(expr)
-        colors.set_array(fn_plotter(q))
+        colors.set_array(fn_plotter(q).real)
 
     duration = 6
     fps = 24
