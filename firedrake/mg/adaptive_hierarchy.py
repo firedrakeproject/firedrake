@@ -21,7 +21,7 @@ class AdaptiveMeshHierarchy(HierarchyBase):
     """
     def __init__(self, base_mesh: MeshGeometry, nested: bool = True):
         self.meshes = []
-        self._meshes = []
+        self._meshes = self.meshes
         self.nested = nested
         self.add_mesh(base_mesh)
 
@@ -35,9 +35,14 @@ class AdaptiveMeshHierarchy(HierarchyBase):
             The mesh to be added to the finest level.
         """
         level = len(self.meshes)
-        self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
+
+    def pop_mesh(self):
+        """
+        Removes the finest mesh from the hierarchy.
+        """
+        self.meshes.pop()
 
     def adapt(self, eta: Function | Cofunction, theta: float):
         """

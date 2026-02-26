@@ -1,3 +1,4 @@
+from firedrake import dmhooks
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -91,7 +92,19 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.degree = self.element.degree()
         self.nullspace = nullspace
         self.atm = AdaptiveTransferManager()
-        self.amh = AdaptiveMeshHierarchy(V.mesh())
+
+        mesh = V.mesh().unique()
+        amh, level = utils.get_level(mesh)
+        if amh is None:
+            amh = AdaptiveMeshHierarchy(mesh)
+        if not isinstance(amh, AdaptiveMeshHierarchy):
+            raise ValueError("Problem needs to be defined on an AdaptiveMeshHierarchy")
+
+        # FIXME we should construct a subset of the original hierarchy instead
+        amh, level = utils.get_level(mesh)
+        while len(amh) > level+1:
+            amh.pop_mesh()
+        self.amh = amh
 
         # Data storage and writing
         self.output_dir = Path(self.options.output_dir)

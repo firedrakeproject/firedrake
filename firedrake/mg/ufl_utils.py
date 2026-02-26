@@ -145,8 +145,9 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
-    if hasattr(V, "_coarse") and self == coarsen:
-        return V._coarse
+    # FIXME support multiple hierarchies
+    # if hasattr(V, "_coarse") and self == coarsen:
+    #     return V._coarse
     V_fine = V
     # Handle MixedFunctionSpace : V_fine.reconstruct requires MeshSequence.
     fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()

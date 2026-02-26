@@ -246,8 +246,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     logger.info(f"\tOrder of the hierarchy: {order}")
     if isinstance(order, int):
         order = [order]*(levs+1)
-    permutation_tol = flags.get("permutation_tol", 1e-8)
-    location_tol = flags.get("location_tol", 1e-8)
     refType = flags.get("refinement_type", "uniform")
     logger.info(f"\tRefinement type: {refType}")
     optMoves = flags.get("optimisation_moves", False)
@@ -270,7 +268,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         temp_flags = dict(flags)
         temp_flags['degree'] = order[0]
         temp = fd.Mesh(mesh.netgen_mesh, distribution_parameters=parameters,
-                      netgen_flags=temp_flags, comm=comm)
+                       netgen_flags=temp_flags, comm=comm)
         mesh = temp
     # Make a plex (cdm) without overlap.
     dm_cell_type, = mesh.dm_cell_types
@@ -321,6 +319,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                     netgen_flags=temp_flags,
                     comm=comm)
             elif snap == "coarse":
+                ho_field = meshes[0].coordinates
                 mesh = snapToCoarse(ho_field, mesh, order[l+1], snap_smoothing, cg)
             toc = time.time()
             logger.info(f"\t\t\tMeshed curved. Time taken: {toc-tic}")
