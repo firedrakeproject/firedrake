@@ -4420,34 +4420,26 @@ def _parent_mesh_embedding(
     else:
         locally_visible_cell_nums = parent_cell_nums[locally_visible]
 
-    ranks = np.full(ncoords_global, np.inf)   # See below for why np.inf is used here.
-    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
-
-    # see below for why np.inf is used here.
-    ref_cell_dists_l1[~locally_visible] = np.inf
-
-    # ensure that points which a rank thinks it owns are always chosen in a tie
-    # break by setting the rank to be negative. If multiple ranks think they
-    # own a point then the one with the highest rank will be chosen.
-    on_this_rank = ranks == parent_mesh.comm.rank
-    ranks[on_this_rank] = -parent_mesh.comm.rank
-
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
-    # We first find the global minimum reference cell distance for each point.
+    # We first set the owning cell to be the one with the minimum L1 distance to the point.
+    # In the case of ties, we pick the highest rank number.
+
+    # Set non-visible L1 distance to np.inf so they don't interfere with the MPI.MIN reduction.
+    ref_cell_dists_l1[~locally_visible] = np.inf
     owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
+    # The owning cell is the one with the minimum L1 distance to the point.
     parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
 
     # Only ranks that achieved the global minimum distance are candidates for
-    # ownership. Ranks that didn't achieve the minimum are set to inf so they
-    # don't interfere with the MIN reduction over rank values.
-    rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, np.inf)
-    owned_ranks_raw = np.empty_like(rank_candidates)
-    parent_mesh.comm.Allreduce(rank_candidates, owned_ranks_raw, op=MPI.MIN)
-
-    # switch ranks back to positive
-    ranks = np.abs(ranks)
-    owned_ranks = np.abs(owned_ranks_raw)
+    # ownership. Among tied candidates (same minimum distance) we pick the
+    # highest rank number using MPI.MAX. Non-visible points are set to -np.inf
+    # so they don't interfere with the MAX reduction.
+    ranks = np.full(ncoords_global, -np.inf)
+    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
+    rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
+    owned_ranks = np.empty_like(rank_candidates)
+    parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
 
     changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
     changed_ranks = owned_ranks != ranks
@@ -4509,12 +4501,12 @@ def _parent_mesh_embedding(
                 parent_cell_nums)
             )
 
-    # Any ranks which are still np.inf are not in the mesh
-    missing_global_idxs = np.where(owned_ranks == np.inf)[0]
+    # Any ranks which are still -np.inf are not in the mesh
+    missing_global_idxs = np.where(owned_ranks == -np.inf)[0]
 
     if not remove_missing_points:
         missing_coords_idxs_on_rank = np.where(
-            (owned_ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+            (owned_ranks == -np.inf) & (input_ranks_global == parent_mesh.comm.rank)
         )[0]
         locally_visible[missing_coords_idxs_on_rank] = True
         parent_cell_nums[missing_coords_idxs_on_rank] = -1
