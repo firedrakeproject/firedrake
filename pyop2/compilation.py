@@ -632,7 +632,7 @@ def make_so(compiler, code, extension, comm):
         result = None
 
     result = ccomm.bcast(result)
-    if isinstance(result, Exception):
+    if isinstance(result, BaseException):
         raise result
     else:
         return result
