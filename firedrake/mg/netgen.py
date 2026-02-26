@@ -266,15 +266,11 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         parameters.update(mesh._distribution_parameters)
     parameters["partition"] = False
     # Curve the mesh
-    if order[0] > 1:
-        ho_field = mesh.curve_field(
-            order=order[0],
-            permutation_tol=permutation_tol,
-            cg_field=cg
-        )
-        temp = fd.Mesh(ho_field, distribution_parameters=parameters, comm=comm)
-        temp.netgen_mesh = mesh.netgen_mesh
-        temp._tolerance = mesh.tolerance
+    if order[0] != mesh.coordinates.function_space().ufl_element().degree():
+        temp_flags = dict(flags)
+        temp_flags['degree'] = order[0]
+        temp = fd.Mesh(mesh.netgen_mesh, distribution_parameters=parameters,
+                      netgen_flags=temp_flags, comm=comm)
         mesh = temp
     # Make a plex (cdm) without overlap.
     dm_cell_type, = mesh.dm_cell_types
@@ -313,15 +309,16 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                 raise ValueError("Only 2D and 3D meshes can be optimised.")
         mesh.netgen_mesh = ngmesh
         # Curve the mesh
-        if order[l+1] > 1:
+        if order[l+1] != mesh.coordinates.function_space().ufl_element().degree():
             logger.info("\t\t\tCurving the mesh ...")
             tic = time.time()
             if snap == "geometry":
+                temp_flags = dict(flags)
+                temp_flags['degree'] = order[l+1]
                 mesh = fd.Mesh(
-                    mesh.curve_field(order=order[l+1],
-                                     location_tol=location_tol,
-                                     permutation_tol=permutation_tol),
+                    mesh.netgen_mesh,
                     distribution_parameters=parameters,
+                    netgen_flags=temp_flags,
                     comm=comm)
             elif snap == "coarse":
                 mesh = snapToCoarse(ho_field, mesh, order[l+1], snap_smoothing, cg)
