@@ -868,7 +868,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1, int const dat1_offset)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
         {{
           {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
           {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
@@ -878,7 +878,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
               t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
           for (int32_t i = 0; i < {func_shape}; ++i)
             for (int32_t j = 0; j < {func_bsize}; ++j) {{
-              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j + dat1_offset];
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j];
             }}
           evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
         }}"""
