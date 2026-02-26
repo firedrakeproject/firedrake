@@ -346,7 +346,7 @@ class LinuxGnuCompiler(Compiler):
     _cxxflags = ("-fPIC", "-Wall")
     _ldflags = ("-shared",)
 
-    _optflags = ("-march=native", "-O3")
+    _optflags = ("-march=native", "-O3", "-ffast-math")
     _debugflags = ("-O0", "-g")
 
     @property
