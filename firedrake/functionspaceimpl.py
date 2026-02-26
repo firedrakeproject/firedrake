@@ -677,8 +677,6 @@ class FunctionSpace:
         :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
         respectively."""
 
-        if name is None:
-            name = utils.op3_unique_name("function_space")
         self.name = name
         r"""The (optional) descriptive name for this space."""
         self.comm = mesh.comm
@@ -1534,31 +1532,22 @@ class MixedFunctionSpace:
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, mesh, name=None, *, layout=None):
+    def __init__(self, spaces, mesh, name=None, *, layout=None, _labels=None):
         super(MixedFunctionSpace, self).__init__()
         if not isinstance(mesh, MeshSequenceTopology):
             raise TypeError(f"mesh must be MeshSequenceTopology: got {mesh}")
         if len(mesh) != len(spaces):
             raise RuntimeError(f"len(mesh) ({len(mesh)}) != len(spaces) ({len(spaces)})")
 
-        # Make sure all of the spaces have a unique name
-        new_spaces = []
-        subspace_names = set()
-        for subspace in spaces:
-            subspace_name = subspace.name
-            counter = 1
-            while subspace_name in subspace_names:
-                subspace_name = f"{subspace.name}_copy{counter}"
-                counter += 1
-            subspace_names.add(subspace_name)
-            if isinstance(subspace, RestrictedFunctionSpace):
-                new_subspace = type(subspace)(subspace.function_space, subspace.boundary_set,
-                                              name=subspace_name)
-            else:
-                new_subspace = type(subspace)(subspace.mesh(), subspace.element,
-                                              name=subspace_name, layout=subspace.layout)
-            new_spaces.append(new_subspace)
-        spaces = new_spaces
+        if _labels is None:
+            _labels = tuple(
+                subspace.name or f"functionspace{i}"
+                for i, subspace in enumerate(spaces)
+            )
+        else:
+            _labels = tuple(_labels)
+        if not utils.has_unique_entries(_labels):
+            raise ValueError("_labels must be unique")
 
         # If 'layout' isn't provided then build from the subspaces
         if layout is None:
@@ -1574,6 +1563,7 @@ class MixedFunctionSpace:
         for s in spaces:
             label += "(" + s._label + ")_"
         self._label = label
+        self._labels = _labels
         self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
@@ -1650,7 +1640,7 @@ class MixedFunctionSpace:
     @cached_property
     def field_axis(self) -> op3.Axis:
         return op3.Axis(
-            [op3.AxisComponent(1, space.name) for space in self._spaces],
+            [op3.AxisComponent(1, label) for label in self._labels],
             "field",
         )
 

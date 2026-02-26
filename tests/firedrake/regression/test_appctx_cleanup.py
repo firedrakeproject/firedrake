@@ -47,6 +47,7 @@ def test_appctx_cleanup():
         },
         "mg_coarse_mat_type": "aij",
         "mg_coarse_pc_type": "lu",
+        "ksp_monitor": None,
     })
 
     while hasattr(V, "_coarse"):

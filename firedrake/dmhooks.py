@@ -355,7 +355,7 @@ def create_field_decomposition(dm, *args, **kwargs):
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
                      call_setup=True)
-    return names, W._ises, dms
+    return names, W.field_ises, dms
 
 
 @PETSc.Log.EventDecorator()
