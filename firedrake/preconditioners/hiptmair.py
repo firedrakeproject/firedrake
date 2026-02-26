@@ -79,7 +79,7 @@ class TwoLevelPC(PCBase):
         coarse_space = coarse_operator.arguments()[-1].function_space()
         coarse_dm = coarse_space.dm
         coarse_solver.setDM(coarse_dm)
-        coarse_solver.setDMActive(False)
+        coarse_solver.setDMActive(PETSc.KSP.DMActive.ALL, False)
         pcmg.setDM(pc.getDM())
         pcmg.setFromOptions()
         self.pc = pcmg
