@@ -823,6 +823,7 @@ def test_writing_large_so():
     print("XXX", COMM_WORLD.rank, "C")
 
     COMM_WORLD.Barrier()
+    print("XXX", COMM_WORLD.rank, "Cmid")
     with open("big.c", "r") as fh:
         program = fh.read()
 
