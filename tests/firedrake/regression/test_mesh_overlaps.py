@@ -98,3 +98,24 @@ def test_override_distribution_parameters(overlap):
         assert mesh.num_cells() == 2
 
     assert fine_mesh.num_cells() == 4
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_distribution_parameters(overlap):
+    partition = True
+    params = {"partition": partition,
+              "overlap_type": overlap}
+    mesh = UnitSquareMesh(2, 2, reorder=False,
+                          distribution_parameters=params)
+    orig_params = mesh._distribution_parameters
+
+    x, *_ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG0).interpolate(conditional(lt(x, 0.5), 1, 0))
+    label = 111
+    rmesh = RelabeledMesh(mesh, [ind], [label])
+    assert rmesh._distribution_parameters == orig_params
+
+    dim = mesh.topological_dimension
+    submesh = Submesh(rmesh, dim, label)
+    assert submesh._distribution_parameters == orig_params
