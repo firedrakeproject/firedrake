@@ -808,6 +808,7 @@ def test_function_over_different_comms(request, state, decorator, uncached_funct
 def test_writing_large_so():
     # This test exercises the compilation caching when handling larger files
     if COMM_WORLD.rank == 0:
+        print("XXX", COMM_WORLD.rank, "A")
         preamble = dedent("""\
             #include <stdio.h>\n
             void big(double *result){
@@ -817,15 +818,22 @@ def test_writing_large_so():
         program = "\n".join(chain.from_iterable(((preamble, ), lines, ("}\n", ))))
         with open("big.c", "w") as fh:
             fh.write(program)
+        print("XXX", COMM_WORLD.rank, "B")
+
+    print("XXX", COMM_WORLD.rank, "C")
 
     COMM_WORLD.Barrier()
     with open("big.c", "r") as fh:
         program = fh.read()
 
+    print("XXX", COMM_WORLD.rank, "D")
+
     if COMM_WORLD.rank == 1:
         os.remove("big.c")
+    print("XXX", COMM_WORLD.rank, "E")
 
     dll = load(program, "c", comm=COMM_WORLD)
+    print("XXX", COMM_WORLD.rank, "F")
     fn = getattr(dll, "big")
     assert fn is not None
 

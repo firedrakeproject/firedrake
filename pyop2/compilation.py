@@ -447,6 +447,7 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
+    print("ZZZ", comm.rank, "C1")
     if _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
@@ -460,10 +461,13 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
 
     debug = configuration["debug"]
     compiler_instance = compiler(cppargs, ldargs, debug=debug)
+    print("ZZZ", comm.rank, "C2")
     if configuration['check_src_hashes'] or configuration['debug']:
         check_source_hashes(compiler_instance, code, extension, comm)
+    print("ZZZ", comm.rank, "C3")
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)
+    print("ZZZ", comm.rank, "C4")
     # This call might be cached in memory by the OS (system dependent)
     return ctypes.CDLL(so_name)
 
@@ -553,6 +557,7 @@ def make_so(compiler, code, extension, comm):
     :arg comm: Communicator over which to perform compilation.
     Returns a :class:`ctypes.CDLL` object of the resulting shared
     library."""
+    print("YYY", comm.rank, "EE")
     # Compilation communicators are reference counted on the PyOP2 comm
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
@@ -632,6 +637,7 @@ def make_so(compiler, code, extension, comm):
     else:
         result = None
 
+    print("YYY", comm.rank, "FF")
     result = ccomm.bcast(result)
     if isinstance(result, BaseException):
         raise result
