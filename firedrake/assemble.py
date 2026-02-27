@@ -604,6 +604,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching FormSum shapes")
         elif isinstance(expr, ufl.ExternalOperator):
             opts = {'form_compiler_parameters': self._form_compiler_params,
+                    'pyop3_compiler_parameters': self._pyop3_compiler_parameters,
                     'mat_type': self._mat_type, 'sub_mat_type': self._sub_mat_type,
                     'appctx': self._appctx, 'options_prefix': self._options_prefix,
                     'diagonal': self._diagonal}
@@ -637,7 +638,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             interpolator = get_interpolator(expr)
-            return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
+            return interpolator.assemble(
+                tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+                pyop3_compiler_parameters=self._pyop3_compiler_parameters,
+            )
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):

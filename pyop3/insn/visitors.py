@@ -517,6 +517,42 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
                     trimmed_arg_candidates.append((arg_candidate, cost, materialize_idxs))
             trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
 
+        # Optimise the search tree by only considering disjoint subsets of
+        # candidates. For example, if we have candidates
+        #
+        #     {a: [A, B, C, D], b: [X, Y]}
+        #
+        # we can speed things up by only investigating 4+2 options instead
+        # of 4*2.
+        # If 'compress' is false we skip this as it introduces unnecessary cost.
+        disjoint_subsets: list[tuple[dict, set]] = [
+            (
+                {arg_id: arg_candidates},
+                set(ac for ac, _, _ in arg_candidates),
+            )
+            for arg_id, arg_candidates in trimmed_expr_candidates.items()
+        ]
+        if compress:
+            # Have to do this repeatedly to ensure subsets are fully disjoint
+            while True:
+                new_disjoint_subsets = []
+                for arg_id, arg_candidates in trimmed_expr_candidates.items():
+                    arg_candidate_set = set(ac for ac, _, _ in arg_candidates)
+                    for existing_subset_dict, existing_subset_candidate_set in new_disjoint_subsets:
+                        if arg_candidate_set.intersection(existing_subset_candidate_set):
+                            existing_subset_dict[arg_id] = arg_candidates
+                            existing_subset_candidate_set.update(arg_candidate_set)
+                            break
+                    else:
+                        # not found in an existing subset, create a new one
+                        subset = ({arg_id: arg_candidates}, arg_candidate_set)
+                        new_disjoint_subsets.append(subset)
+
+                if new_disjoint_subsets == disjoint_subsets:
+                    break
+
+                disjoint_subsets = new_disjoint_subsets
+
         # Now select the combination with the lowest combined cost. We can make savings here
         # by sharing indirection maps between different arguments. For example, if we have
         #
@@ -531,18 +567,30 @@ def materialize_indirections(insn: insn_types.Instruction, *, compress: bool = F
         #
         #     dat1[mapABC[i]]
         #     dat2[mapBC[i]]
-        min_cost = max_cost
-        for shared_candidate in utils.expand_collection_of_iterables(trimmed_expr_candidates):
-            cost = 0
-            seen_exprs = set()
-            for expr, expr_cost, _ in shared_candidate.values():
-                if expr not in seen_exprs:
-                    cost += expr_cost
-                    seen_exprs.add(expr)
+        best_candidate = {}
+        for candidate_subset, _ in disjoint_subsets:
+            # same as above but per subset
+            best_subset_candidate = {}
+            max_subset_cost = 0
+            for arg_id, arg_candidates in candidate_subset.items():
+                expr, expr_cost, materialize_idxs = min(arg_candidates, key=lambda item: item[1])
+                best_subset_candidate[arg_id] = (expr, expr_cost, materialize_idxs)
+                max_subset_cost += expr_cost
 
-            if cost < min_cost:
-                best_candidate = shared_candidate
-                min_cost = cost
+            min_subset_cost = max_subset_cost
+            for shared_candidate in utils.expand_collection_of_iterables(candidate_subset):
+                cost = 0
+                seen_exprs = set()
+                for expr, expr_cost, _ in shared_candidate.values():
+                    if expr not in seen_exprs:
+                        cost += expr_cost
+                        seen_exprs.add(expr)
+
+                if cost < min_subset_cost:
+                    best_subset_candidate = shared_candidate
+                    min_subset_cost = cost
+            assert best_subset_candidate is not None
+            best_candidate |= best_subset_candidate
 
         # Identify and broadcast the materialisation indices
         materialize_idxss = {key: idxs for key, (_, _, idxs) in best_candidate.items()}

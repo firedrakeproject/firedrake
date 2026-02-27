@@ -283,6 +283,7 @@ class Interpolator(abc.ABC):
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
+        pyop3_compiler_parameters = None,
     ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
         """Return a callable to perform interpolation.
 
@@ -321,12 +322,14 @@ class Interpolator(abc.ABC):
         """
         pass
 
+    # TODO: compiler params not universally handled
     def assemble(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
+        pyop3_compiler_parameters = None,
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
@@ -367,7 +370,7 @@ class Interpolator(abc.ABC):
         """
         self._check_mat_type(mat_type)
 
-        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
+        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type, pyop3_compiler_parameters=pyop3_compiler_parameters)()
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
@@ -524,7 +527,10 @@ class CrossMeshInterpolator(Interpolator):
         point_eval_input_ordering = interpolate(arg, P0DG_vom_input_ordering)
         return point_eval, point_eval_input_ordering
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(
+            self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+        pyop3_compiler_parameters = None,
+    ):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
@@ -710,7 +716,9 @@ class SameMeshInterpolator(Interpolator):
         )
         return sparsity
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+        pyop3_compiler_parameters = None,
+    ):
         mat_type = mat_type or "aij"
         if (
             isinstance(tensor, Cofunction)
@@ -753,7 +761,8 @@ class SameMeshInterpolator(Interpolator):
         for indices, sub_expr in expressions.items():
             indices = tuple(self.target_space.field_axis.component_labels[idx] if idx is not None else Ellipsis for idx in indices)
             sub_op2_tensor = op2_tensor[indices[0]] if self.rank == 1 else op2_tensor
-            loops.extend(_build_interpolation_callables(sub_expr, sub_op2_tensor, self.access, self.subset, bcs))
+            loops.extend(_build_interpolation_callables(
+                sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
 
         if bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
@@ -782,7 +791,9 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+        pyop3_compiler_parameters = None,
+    ):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
         mat_type = mat_type or "matfree"
@@ -832,7 +843,8 @@ def _build_interpolation_callables(
     tensor: op2.Dat | op2.Mat | op2.Global,
     access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC],
     subset: op2.Subset | None = None,
-    bcs: Iterable[DirichletBC] | None = None
+    bcs: Iterable[DirichletBC] | None = None,
+    pyop3_compiler_parameters=None,
 ) -> tuple[Callable, ...]:
     """Return a tuple of callables which calculate the interpolation.
 
@@ -1016,8 +1028,11 @@ def _build_interpolation_callables(
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
+
+    pyop3_compiler_parameters = {"optimize": True}.update(pyop3_compiler_parameters)
+
     def parloop_callable():
-        parloop(compiler_parameters={"optimize": True})
+        parloop(compiler_parameters=pyop3_compiler_parameters)
 
     if isinstance(tensor, op3.Mat):
         return parloop_callable, tensor.assemble
@@ -1578,7 +1593,10 @@ class MixedInterpolator(Interpolator):
         matnest = self._build_matnest(Isub, sub_mat_type="aij")
         return matnest.convert("aij")
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(
+        self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+        pyop3_compiler_parameters = None,
+    ):
         mat_type = mat_type or "aij"
         sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)
