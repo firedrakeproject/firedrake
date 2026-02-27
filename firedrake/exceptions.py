@@ -17,6 +17,12 @@ class DofNotDefinedError(FiredrakeException):
     """
 
 
+class DofTypeError(FiredrakeException):
+    """Raised when an operation is attempted on a degree of freedom (DoF)
+    type which is not supported.
+    """
+
+
 class VertexOnlyMeshMissingPointsError(FiredrakeException):
     """Exception raised when 1 or more points are not found by a
     :func:`~.VertexOnlyMesh` in its parent mesh.

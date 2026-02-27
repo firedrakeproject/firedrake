@@ -9,22 +9,8 @@ import os
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
+def autouse_test_taping(set_test_tape):
     yield
-    tape = get_working_tape()
-    tape.clear_tape()
-    tape._package_data = {}
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
-
     if disk_checkpointing():
         pause_disk_checkpointing()
 

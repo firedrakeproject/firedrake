@@ -142,17 +142,15 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         """
         from firedrake.variational_solver import LinearVariationalProblem
         from firedrake.function import Function
-        from firedrake.solving_utils import _SNESContext
 
-        dm = pc.getDM()
-        old_appctx = get_appctx(dm).appctx
         u = Function(Jp.arguments()[-1].function_space())
         L = 0
         if bcs:
             bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=True) for bc in bcs)
 
         nprob = LinearVariationalProblem(Jp, L, u, bcs=bcs, form_compiler_parameters=fcp)
-        return _SNESContext(nprob, mat_type, mat_type, appctx=old_appctx, **kwargs)
+        octx = get_appctx(pc.getDM())
+        return octx.reconstruct(problem=nprob, mat_type=mat_type, pmat_type=mat_type, **kwargs)
 
 
 class PCBase(PCSNESBase):

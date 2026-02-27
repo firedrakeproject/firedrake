@@ -11,6 +11,7 @@ from pyop2 import (
     mpi,
     utils
 )
+from functools import cached_property
 
 
 class Set:
@@ -58,7 +59,7 @@ class Set:
     _kernel_args_ = ()
     _argtypes_ = ()
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return (type(self), )
 
@@ -85,45 +86,45 @@ class Set:
         """Returns iterator."""
         return range(self.total_size)
 
-    @utils.cached_property
+    @cached_property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
         return self._sizes[Set._CORE_SIZE]
 
-    @utils.cached_property
+    @cached_property
     def constrained_size(self):
         return self._constrained_size
 
-    @utils.cached_property
+    @cached_property
     def size(self):
         """Set size, owned elements."""
         return self._sizes[Set._OWNED_SIZE]
 
-    @utils.cached_property
+    @cached_property
     def total_size(self):
         """Set size including ghost elements.
         """
         return self._sizes[Set._GHOST_SIZE]
 
-    @utils.cached_property
+    @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
         return self._sizes
 
-    @utils.cached_property
+    @cached_property
     def core_part(self):
         return SetPartition(self, 0, self.core_size)
 
-    @utils.cached_property
+    @cached_property
     def owned_part(self):
         return SetPartition(self, self.core_size, self.size - self.core_size)
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined label"""
         return self._name
 
-    @utils.cached_property
+    @cached_property
     def halo(self):
         """:class:`Halo` associated with this Set"""
         return self._halo
@@ -191,7 +192,7 @@ class Set:
         from pyop2.types import DataSet
         return DataSet(self, dim=e)
 
-    @utils.cached_property
+    @cached_property
     def layers(self):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
@@ -241,30 +242,30 @@ class GlobalSet(Set):
         self.comm = comm
         self._cache = {}
 
-    @utils.cached_property
+    @cached_property
     def core_size(self):
         return 0
 
-    @utils.cached_property
+    @cached_property
     def size(self):
         return 1 if self.comm.rank == 0 else 0
 
-    @utils.cached_property
+    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return 1 if self.comm.rank == 0 else 0
 
-    @utils.cached_property
+    @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
         return (self.core_size, self.size, self.total_size)
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined label"""
         return "GlobalSet"
 
-    @utils.cached_property
+    @cached_property
     def halo(self):
         """:class:`Halo` associated with this Set"""
         return None
@@ -346,15 +347,15 @@ class ExtrudedSet(Set):
         self._extruded = True
         self._extruded_periodic = extruded_periodic
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return (self.layers_array.ctypes.data, )
 
-    @utils.cached_property
+    @cached_property
     def _argtypes_(self):
         return (ctypes.c_voidp, )
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         return self.parent._wrapper_cache_key_ + (self.constant_layers, )
 
@@ -373,11 +374,11 @@ class ExtrudedSet(Set):
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
 
-    @utils.cached_property
+    @cached_property
     def parent(self):
         return self._parent
 
-    @utils.cached_property
+    @cached_property
     def layers(self):
         """The layers of this extruded set."""
         if self.constant_layers:
@@ -386,7 +387,7 @@ class ExtrudedSet(Set):
         else:
             raise ValueError("No single layer, use layers_array attribute")
 
-    @utils.cached_property
+    @cached_property
     def layers_array(self):
         return self._layers
 
@@ -429,11 +430,11 @@ class Subset(ExtrudedSet):
         self._extruded = superset._extruded
         self._extruded_periodic = superset._extruded_periodic
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         return self._superset._kernel_args_ + (self._indices.ctypes.data, )
 
-    @utils.cached_property
+    @cached_property
     def _argtypes_(self):
         return self._superset._argtypes_ + (ctypes.c_voidp, )
 
@@ -467,24 +468,24 @@ class Subset(ExtrudedSet):
                 indices = [indices]
         return Subset(self, indices)
 
-    @utils.cached_property
+    @cached_property
     def superset(self):
         """Returns the superset Set"""
         return self._superset
 
-    @utils.cached_property
+    @cached_property
     def indices(self):
         """Returns the indices pointing in the superset."""
         return self._indices
 
-    @utils.cached_property
+    @cached_property
     def owned_indices(self):
         """Return the indices that correspond to the owned entities of the
         superset.
         """
         return self.indices[self.indices < self.superset.size]
 
-    @utils.cached_property
+    @cached_property
     def layers_array(self):
         if self._superset.constant_layers:
             return self._superset.layers_array
@@ -551,15 +552,15 @@ class MixedSet(Set, caching.ObjectCached):
         self.comm = pytools.single_valued(s.comm for s in sets if s is not None)
         self._initialized = True
 
-    @utils.cached_property
+    @cached_property
     def _kernel_args_(self):
         raise NotImplementedError
 
-    @utils.cached_property
+    @cached_property
     def _argtypes_(self):
         raise NotImplementedError
 
-    @utils.cached_property
+    @cached_property
     def _wrapper_cache_key_(self):
         raise NotImplementedError
 
@@ -581,56 +582,56 @@ class MixedSet(Set, caching.ObjectCached):
         """Return :class:`Set` with index ``idx`` or a given slice of sets."""
         return self._sets[idx]
 
-    @utils.cached_property
+    @cached_property
     def split(self):
         r"""The underlying tuple of :class:`Set`\s."""
         return self._sets
 
-    @utils.cached_property
+    @cached_property
     def core_size(self):
         """Core set size. Owned elements not touching halo elements."""
         return sum(s.core_size for s in self._sets)
 
-    @utils.cached_property
+    @cached_property
     def constrained_size(self):
         """Set size, owned constrained elements."""
         return sum(s.constrained_size for s in self._sets)
 
-    @utils.cached_property
+    @cached_property
     def size(self):
         """Set size, owned elements."""
         return sum(0 if s is None else s.size for s in self._sets)
 
-    @utils.cached_property
+    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return sum(s.total_size for s in self._sets)
 
-    @utils.cached_property
+    @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
         return (self.core_size, self.size, self.total_size)
 
-    @utils.cached_property
+    @cached_property
     def name(self):
         """User-defined labels."""
         return tuple(s.name for s in self._sets)
 
-    @utils.cached_property
+    @cached_property
     def halo(self):
         r""":class:`Halo`\s associated with these :class:`Set`\s."""
         halos = tuple(s.halo for s in self._sets)
         return halos if any(halos) else None
 
-    @utils.cached_property
+    @cached_property
     def _extruded(self):
         return isinstance(self._sets[0], ExtrudedSet)
 
-    @utils.cached_property
+    @cached_property
     def _extruded_periodic(self):
         raise NotImplementedError("_extruded_periodic not implemented in MixedSet")
 
-    @utils.cached_property
+    @cached_property
     def layers(self):
         """Numbers of layers in the extruded mesh (or None if this MixedSet is not extruded)."""
         return self._sets[0].layers

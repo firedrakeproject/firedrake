@@ -18,6 +18,11 @@
 
 # -- General configuration -----------------------------------------------
 
+# Disable warnings for missing options when running sphinx as PETSc does
+# not know what to do with the sphinx arguments.
+import os
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
@@ -172,6 +177,7 @@ linkcheck_ignore = [
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
+    r'https://buy.crosscountrytrains.co.uk'
 ]
 linkcheck_timeout = 30
 

@@ -156,4 +156,4 @@ def test_interior_facet_integration(circle_in_square_mesh):
     assert np.allclose(assemble(f*dS(2)), 2*pi, rtol=1e-2)
 
     assert np.allclose(assemble(f*dS),
-                       assemble(f*dS(2)) + assemble(f*dS(unmarked)))
+                       assemble(f*dS(2)) + assemble(f*dS(UNMARKED)))

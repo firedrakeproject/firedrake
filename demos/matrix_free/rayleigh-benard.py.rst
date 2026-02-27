@@ -148,7 +148,7 @@ nested <nested_options_blocks>`, rather than flat, dictionaries.  The
 solver parameters dictionary can either be a flat dictionary of
 key-value pairs, where both the keys and the values are strings, or it
 can be nested.  In the latter case, the value should be a dictionary,
-of options and the key is `prepended` to all keys in the dictionary
+of options and the key is ``prepended`` to all keys in the dictionary
 before passing to the solver. ::
 
   parameters = {"mat_type": "matfree",

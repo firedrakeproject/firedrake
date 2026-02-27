@@ -1,7 +1,7 @@
 import itertools
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
-from functools import reduce
+from functools import cached_property, reduce
 
 import numpy
 from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
@@ -18,7 +18,6 @@ from pyop2.codegen.representation import (Accumulate, Argument, Comparison, Cond
 from pyop2.datatypes import IntType, OpaqueType
 from pyop2.op2 import (ALL, INC, MAX, MIN, ON_BOTTOM, ON_INTERIOR_FACETS,
                        ON_TOP, READ, RW, WRITE)
-from pyop2.utils import cached_property
 
 
 MatType = OpaqueType("Mat")
