@@ -243,6 +243,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     #           1                 2     3
     #
     # c2f : {1: [2, 3]}
+    # f2c : {2: 1, 3: 1}
     #
     # If we extrude it
     #
@@ -257,11 +258,19 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     #     x-----------x        x-----x-----x
     #
     # c2f : {2: [8, 9, 12, 13], 3: [10, 11, 14, 15]}
+    # f2c : {8: 2, 9: 2, 10: 3, 11:3, 12:2, 13:2, 14: 3, 15: 3}
+
+    # fine_to_coarse has an extra 'None' prepended to it
+    f2c_keys = list(base_hierarchy.fine_to_coarse_cells.keys())
+
     coarse_to_fine_cells = {}
-    for coarse_mesh, fine_mesh, (key, base_coarse_to_fine_cells_per_layer) in zip(
+    fine_to_coarse_cells = {f2c_keys[0]: None}
+    for coarse_mesh, fine_mesh, c2f_key, f2c_key, base_coarse_to_fine_cells_per_layer in zip(
         meshes[:-1],
         meshes[1:],
-        base_hierarchy.coarse_to_fine_cells.items(),
+        base_hierarchy.coarse_to_fine_cells.keys(),
+        f2c_keys[1:],
+        base_hierarchy.coarse_to_fine_cells.values(),
         strict=True,
     ):
         num_coarse_layers = coarse_mesh.layers - 1
@@ -270,6 +279,11 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         num_base_cells, num_fine_cells_per_coarse_cell_horiz = \
             base_coarse_to_fine_cells_per_layer.shape
         num_coarse_cells = num_base_cells * num_coarse_layers
+        num_fine_cells = (
+            num_coarse_cells
+            * num_fine_cells_per_coarse_cell_horiz
+            * num_fine_cells_per_coarse_cell_vert
+        )
 
         coarse_to_fine_cells_per_refinement = np.empty(
             (
@@ -279,6 +293,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
             ),
             dtype=IntType,
         )
+        fine_to_coarse_cells_per_refinement = np.empty(num_fine_cells, dtype=IntType)
         # e.g. ..., (1, [2, 3]), ...
         for coarse_base_cell, fine_base_cells in enumerate(base_coarse_to_fine_cells_per_layer):
             for i in range(num_coarse_layers):  # e.g. 0..2
@@ -290,13 +305,16 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
                     start = fine_base_cell*num_fine_layers + i*num_fine_cells_per_coarse_cell_vert
                     fine_cells_vert = range(start, start+num_fine_cells_per_coarse_cell_vert)
                     coarse_to_fine_cells_per_refinement[coarse_cell, j, :] = fine_cells_vert
+                    fine_to_coarse_cells_per_refinement[fine_cells_vert] = coarse_cell
 
-        coarse_to_fine_cells[key] = \
+        coarse_to_fine_cells[c2f_key] = \
             coarse_to_fine_cells_per_refinement.reshape((num_coarse_cells, -1))
+        fine_to_coarse_cells[f2c_key] = \
+            fine_to_coarse_cells_per_refinement.reshape((-1, 1))
 
     return HierarchyBase(meshes,
                          coarse_to_fine_cells,
-                         "fine_to_coarse_cells TODO",
+                         fine_to_coarse_cells,
                          refinements_per_level=base_hierarchy.refinements_per_level,
                          nested=base_hierarchy.nested)
 

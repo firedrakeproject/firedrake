@@ -485,7 +485,7 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.NonEmptyArrayAssi
     return insn_types.NonEmptyArrayAssignment(assignee, expression, assignment.shape, assignment.assignment_type, comm=assignment.comm)
 
 
-MAX_COST_CONSIDERATION_FACTOR = 5
+MAX_COST_CONSIDERATION_FACTOR = 3
 """Maximum factor an expression cost can exceed the minimum and still be considered."""
 
 
