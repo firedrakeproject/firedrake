@@ -831,10 +831,11 @@ def test_writing_large_so():
     except BaseException as e:
         exc = e
 
-    COMM_WORLD.bcast(exc)
+    excs = COMM_WORLD.allgather(exc)
 
-    if isinstance(exc, BaseException):
-        raise exc
+    for exc in excs:
+        if exc is not None
+            raise exc
 
     print("XXX", COMM_WORLD.rank, "D")
 
