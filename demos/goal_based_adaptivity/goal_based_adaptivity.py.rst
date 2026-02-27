@@ -31,26 +31,30 @@ Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <
     square = WorkPlane().Rectangle(1, 1).Face().bc("all")
     square.edges.Max(Y).name = "top"
     geo = OCCGeometry(square, dim=2)
-    ngmesh = geo.GenerateMesh(maxh=0.2)
+    ngmesh = geo.GenerateMesh(maxh=0.1)
     mesh = Mesh(ngmesh)
 
     V = FunctionSpace(mesh, "CG", 3)
     (x, y) = SpatialCoordinate(mesh)
 
     p = Constant(5)
-    u_exact = x*(1-x)*y*(1-y)*(x**2 + y**2 - x*y)*sin(2*pi*x)*exp(cos(pi*y))
+    u_exact = x*(1-x)*y*(1-y)*exp(2*pi*x)*exp(cos(pi*y))
     f = -div(inner(grad(u_exact), grad(u_exact))**((p-2)/2) * grad(u_exact))
 
     u = Function(V, name="Solution")
-    u.interpolate(0.9*u_exact)
+    u.interpolate(0.99*u_exact)
     v = TestFunction(V)
 
+    dx = dx(degree=20)
+    ds = ds(degree=20)
     F = (
           inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v))*dx
         - inner(f, v)*dx
         )
     bcs = DirichletBC(V, 0, "on_boundary")
     solver_parameters = {"snes_monitor": None,
+                 "snes_atol": 1e-6,
+                 "snes_rtol": 1e-12,
                  "snes_linesearch_monitor": None,
                  "snes_linesearch_type": "l2",
                  "snes_linesearch_maxlambda": 1}
@@ -62,7 +66,7 @@ To apply goal-based adaptivity, we need a goal functional. For this we will empl
     J = inner(grad(u), n)*ds(top)
 
 We now specify options for how the goal-based adaptivity should proceed. We choose to use an expensive/robust approach,
-where the adjoint solution is approximated in a higher-degree function space. This tends to give excellent error estimates. 
+where the adjoint solution is approximated in a higher-degree function space. This tends to give better error estimates. 
 It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
 
     dwr_parameters = {
@@ -71,6 +75,7 @@ It is possible to employ cheaper approximations by setting the parameters for th
         "run_name": "p-laplace",
         "use_adjoint_residual": True,
         "dual_low_method": "solve",
+        "primal_low_method": "solve",
         "dorfler_alpha": 0.5,
         "dual_extra_degree": 1,
     }
