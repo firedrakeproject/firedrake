@@ -567,6 +567,7 @@ def make_so(compiler, code, extension, comm):
 
     # Compile on compilation communicator (ccomm) rank 0
     if ccomm.rank == 0:
+        # Track exceptions as values so that they may be raised collectively
         try:
             # Adding random 2-digit hexnum avoids using excessive filesystem inodes
             tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
