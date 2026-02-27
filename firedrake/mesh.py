@@ -4862,7 +4862,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         dmlabel = plex1.getLabel(dmlabel_name)
         section = f.topological.function_space().dm.getSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
-    reorder_noop = False
+    reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                           perm_is=tmesh._dm_renumbering,
@@ -4872,6 +4872,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     rmesh = make_mesh_from_mesh_topology(tmesh1, name1)
     # Tag the relabeled mesh with the original distribution parameters
     rmesh._distribution_parameters = mesh._distribution_parameters
+    rmesh._did_reordering = mesh._did_reordering
     return rmesh
 
 
@@ -4923,7 +4924,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     ignore_halo : bool
         Whether to exclude the halo from the submesh.
     reorder : bool | None
-        Whether to reorder the mesh entities.
+        Whether to reorder the mesh entities. By default,
+        the submesh will be reordered if the parent mesh was reordered.
     comm : PETSc.Comm | None
         An optional sub-communicator to define the submesh.
         By default, the submesh is defined on `mesh.comm`.
@@ -4985,6 +4987,10 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
+    if reorder is None:
+        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        reorder = mesh._did_reordering
+
     submesh = Mesh(
         subplex,
         submesh_parent=mesh,
