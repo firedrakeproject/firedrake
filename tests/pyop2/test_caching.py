@@ -824,8 +824,17 @@ def test_writing_large_so():
 
     COMM_WORLD.Barrier()
     print("XXX", COMM_WORLD.rank, "Cmid")
-    with open("big.c", "r") as fh:
-        program = fh.read()
+    exc = None
+    try:
+        with open("big.c", "r") as fh:
+            program = fh.read()
+    except BaseException as e:
+        exc = e
+
+    COMM_WORLD.bcast(exc)
+
+    if isinstance(exc, BaseException):
+        raise exc
 
     print("XXX", COMM_WORLD.rank, "D")
 
