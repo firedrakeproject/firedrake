@@ -834,7 +834,7 @@ def test_writing_large_so():
     excs = COMM_WORLD.allgather(exc)
 
     for exc in excs:
-        if exc is not None
+        if exc is not None:
             raise exc
 
     print("XXX", COMM_WORLD.rank, "D")
