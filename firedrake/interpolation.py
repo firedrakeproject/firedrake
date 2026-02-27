@@ -592,10 +592,10 @@ class CrossMeshInterpolator(Interpolator):
                 if self.into_quadrature_space:
                     source_space = self.ufl_interpolate.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
+                        I = Matrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
                         return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
-                        I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        I = Matrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
                         return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
