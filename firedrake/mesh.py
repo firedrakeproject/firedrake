@@ -3446,11 +3446,17 @@ def Mesh(meshfile, **kwargs):
                 permutation_tol=permutation_tol,
                 cg_field=cg
             )
-            temp = Mesh(ho_field, distribution_parameters=mesh._distribution_parameters,
+            # Do not redistribute the mesh
+            distribution_parameters_noop = {"partition": False,
+                                            "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+            reorder_noop = None
+            temp = Mesh(ho_field,
+                        reorder=reorder_noop,
+                        distribution_parameters=distribution_parameters_noop,
                         comm=mesh.comm)
             temp.netgen_mesh = mesh.netgen_mesh
             temp.netgen_flags = netgen_flags
-            temp._tolerance = mesh.tolerance
+            temp._distribution_parameters = mesh._distribution_parameters
             mesh = temp
 
     mesh.submesh_parent = submesh_parent

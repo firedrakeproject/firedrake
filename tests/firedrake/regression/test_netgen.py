@@ -3,6 +3,27 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.skipnetgen
+def test_create_netgen_mesh_high_order():
+    from netgen.geom2d import Circle, CSG2d
+    geo = CSG2d()
+
+    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
+    geo.Add(circle)
+
+    ngmesh = geo.GenerateMesh(maxh=0.75)
+
+    # Test that setting the degree in netgen_flags produces a high-order mesh
+    mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
+    assert mesh.coordinates.function_space().ufl_element().degree() == 3
+
+    # Test that refining a high-order mesh gives a high-order mesh
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    markers = Function(DG0).assign(1)
+    mesh2 = mesh.refine_marked_elements(markers)
+    assert mesh2.coordinates.function_space().ufl_element().degree() == 3
+
+
 def square_geometry(h):
     from netgen.geom2d import SplineGeometry
     geo = SplineGeometry()
