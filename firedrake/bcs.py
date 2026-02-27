@@ -14,7 +14,6 @@ from pyop2 import exceptions
 from pyop2.utils import as_tuple
 
 import firedrake
-import firedrake.utils as utils
 from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
