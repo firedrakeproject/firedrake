@@ -4947,31 +4947,6 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     ridges to be contained in the quad mesh are shared by at most two
     facets to make the quad mesh orientation algorithm work.
 
-    Examples
-    --------
-
-    .. code-block:: python3
-
-        dim = 2
-        mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
-        x, y = SpatialCoordinate(mesh)
-        DQ0 = FunctionSpace(mesh, "DQ", 0)
-        indicator_function = Function(DQ0).interpolate(conditional(x > 1., 1, 0))
-        mesh.mark_entities(indicator_function, 999)
-        mesh = RelabeledMesh(mesh, [indicator_function], [999])
-        subm = Submesh(mesh, dim, 999)
-        V0 = FunctionSpace(mesh, "CG", 1)
-        V1 = FunctionSpace(subm, "CG", 1)
-        V = V0 * V1
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        u0, u1 = split(u)
-        v0, v1 = split(v)
-        dx0 = Measure("dx", domain=mesh)
-        dx1 = Measure("dx", domain=subm)
-        a = inner(u1, v0) * dx0(999) + inner(u0, v1) * dx1
-        A = assemble(a)
-
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
