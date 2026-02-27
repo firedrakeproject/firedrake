@@ -4865,7 +4865,9 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
-    return make_mesh_from_mesh_topology(tmesh1, name1)
+    rmesh = make_mesh_from_mesh_topology(tmesh1, name1)
+    rmesh._distribution_parameters = mesh._distribution_parameters
+    return rmesh
 
 
 @PETSc.Log.EventDecorator()
@@ -5014,6 +5016,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
             "overlap_type": (DistributedMeshOverlapType.NONE, 0),
         },
     )
+    submesh._distribution_parameters = mesh._distribution_parameters
     return submesh
 
 
