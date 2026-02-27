@@ -33,7 +33,7 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshG
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
+from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix, AssembledMatrix
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
@@ -592,10 +592,10 @@ class CrossMeshInterpolator(Interpolator):
                 if self.into_quadrature_space:
                     source_space = self.ufl_interpolate.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = Matrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
+                        I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), res)
                         return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
-                        I = Matrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), res)
                         return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
