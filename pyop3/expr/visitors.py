@@ -850,16 +850,8 @@ def _(dat, /) -> OrderedFrozenSet:
     return OrderedFrozenSet([dat])
 
 
-mycount = 0
-debug = {}
-
 @memory_cache(heavy=True)
 def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.Comm) -> expr_types.LinearDatBufferExpression:
-    # debugging
-    global mycount
-    mycount += 1
-    # print(f"MISS {mycount}", flush=True)
-
     axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)

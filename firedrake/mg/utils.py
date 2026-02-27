@@ -82,6 +82,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
+        # breakpoint()
 
         src_axis = Vc.nodal_axes.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
@@ -152,9 +153,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
             name=target_axis.label
         )
-        # return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-        #                                      arity=arity*level_ratio, values=coarse_to_fine_nodes,
-        #                                      offset=offset))
         return cache.setdefault(key, node_map)
 
 

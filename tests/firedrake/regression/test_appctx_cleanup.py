@@ -17,6 +17,9 @@ class NonePC(PCBase):
     def apply(self, pc, x, y):
         x.copy(y)
         self.solver.solve()
+        import math
+        if math.isclose(x.array_r[0], 0.00362588):
+            breakpoint()
         assert numpy.allclose(self.uh.dat.data_ro, 2.0)
 
     def applyTranspose(self, pc, x, y):
@@ -28,6 +31,8 @@ def test_appctx_cleanup():
     mh = MeshHierarchy(mesh, 2)
     mesh = mh[-1]
     V = FunctionSpace(mesh, "CG", 1)
+
+    breakpoint()
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -42,8 +47,12 @@ def test_appctx_cleanup():
         "ksp_type": "cg",
         "pc_type": "mg",
         "mg_levels": {
-            "pc_type": "python",
-            "pc_python_type": "test_appctx_cleanup.NonePC",
+            # "pc_type": "python",
+            # "pc_python_type": "test_appctx_cleanup.NonePC",
+            "ksp_type": "chebyshev",
+            "ksp_max_it": 2,
+            "pc_type": "jacobi",
+            "ksp_monitor": None,
         },
         "mg_coarse_mat_type": "aij",
         "mg_coarse_pc_type": "lu",

@@ -155,18 +155,12 @@ def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
-    if Vc.mesh().extruded:
-        assert Vf.mesh().extruded
-        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
-    else:
-        level_ratio = 1
     if levelf > levelc:
         # prolong
         ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     else:
         # inject
         ncandidate = hierarchy.coarse_to_fine_cells[levelf].shape[1]
-        ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
            + (Vf.block_size,)
@@ -192,6 +186,7 @@ def prolong_kernel(expression, Vf):
         double bestdist = 1e10;
         for (int i = 0; i < %(ncandidate)d; i++) {
             const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+
             double celldist = 2*bestdist;
             to_reference_coords_kernel(Xref, X, Xci);
             if (%(inside_cell)s) {
@@ -258,7 +253,7 @@ def prolong_kernel(expression, Vf):
         target=tsfc.parameters.target,
         lang_version=op3.LOOPY_LANG_VERSION,
         )
-    func = op3.Function(loopy_kernel, [op3.INC, op3.READ, op3.READ, op3.READ])
+    func = op3.Function(loopy_kernel, [op3.WRITE, op3.READ, op3.READ, op3.READ])
 
     return cache.setdefault(key, func)
 
@@ -385,7 +380,7 @@ def inject_kernel(Vf, Vc):
         try:
             return cache[key]
         except KeyError:
-            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
+            ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
     else:
         expression = ufl.Coefficient(Vf)

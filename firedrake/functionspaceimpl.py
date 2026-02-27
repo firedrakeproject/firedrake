@@ -1009,11 +1009,11 @@ class FunctionSpace:
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = PETSc.DMShell().create(comm=self.comm)
-        dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF())
+                             sf=self.mesh().topology_dm.getPointSF(),
+                             section=self.local_section)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm

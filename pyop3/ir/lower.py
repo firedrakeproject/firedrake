@@ -357,7 +357,7 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "uniform" in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "kernel_prolong" in str(self):
         #     breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         # if len(self.buffer_map) == 5:

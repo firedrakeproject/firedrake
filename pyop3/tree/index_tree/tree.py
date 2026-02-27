@@ -1394,11 +1394,6 @@ def index_axes(
             orig_axes.unindexed,
             targets=composed_targets,
         )
-        # if "closure" in str(retval.subst_layouts()):
-        #     breakpoint()
-
-    # debugging
-    retval._matching_target
     return retval
 
 

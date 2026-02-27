@@ -237,9 +237,66 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
                            gdim=gdim)
               for (m, layer) in zip(base_hierarchy._meshes, layers)]
 
+    # Consider the following case (assume a zero cell too)
+    #
+    #     x-----------x   ->   x-----x-----x
+    #           1                 2     3
+    #
+    # c2f : {1: [2, 3]}
+    #
+    # If we extrude it
+    #
+    #     x-----------x        x-----x-----x
+    #     |           |        | 11  | 15  |
+    #     |     3     |        x-----x-----x
+    #     |           |        | 10  | 14  |
+    #     x-----------x   ->   x-----x-----x
+    #     |           |        |  9  | 13  |
+    #     |     2     |        x-----x-----x
+    #     |           |        |  8  | 12  |
+    #     x-----------x        x-----x-----x
+    #
+    # c2f : {2: [8, 9, 12, 13], 3: [10, 11, 14, 15]}
+    coarse_to_fine_cells = {}
+    for coarse_mesh, fine_mesh, (key, base_coarse_to_fine_cells_per_layer) in zip(
+        meshes[:-1],
+        meshes[1:],
+        base_hierarchy.coarse_to_fine_cells.items(),
+        strict=True,
+    ):
+        num_coarse_layers = coarse_mesh.layers - 1
+        num_fine_layers = fine_mesh.layers - 1
+        num_fine_cells_per_coarse_cell_vert = num_fine_layers // num_coarse_layers
+        num_base_cells, num_fine_cells_per_coarse_cell_horiz = \
+            base_coarse_to_fine_cells_per_layer.shape
+        num_coarse_cells = num_base_cells * num_coarse_layers
+
+        coarse_to_fine_cells_per_refinement = np.empty(
+            (
+                num_coarse_cells,
+                num_fine_cells_per_coarse_cell_horiz,
+                num_fine_cells_per_coarse_cell_vert,
+            ),
+            dtype=IntType,
+        )
+        # e.g. ..., (1, [2, 3]), ...
+        for coarse_base_cell, fine_base_cells in enumerate(base_coarse_to_fine_cells_per_layer):
+            for i in range(num_coarse_layers):  # e.g. 0..2
+                # e.g. 2 (i=0) or 3 (i=1)
+                coarse_cell = coarse_base_cell * num_coarse_layers + i
+                # e.g. 2 (i=0) or 3 (i=1)
+                for j, fine_base_cell in enumerate(fine_base_cells):
+                    # e.g. 2*4+0*2 or 2*4+1*2 or 3*4+0*2 or 3*4+1*2
+                    start = fine_base_cell*num_fine_layers + i*num_fine_cells_per_coarse_cell_vert
+                    fine_cells_vert = range(start, start+num_fine_cells_per_coarse_cell_vert)
+                    coarse_to_fine_cells_per_refinement[coarse_cell, j, :] = fine_cells_vert
+
+        coarse_to_fine_cells[key] = \
+            coarse_to_fine_cells_per_refinement.reshape((num_coarse_cells, -1))
+
     return HierarchyBase(meshes,
-                         base_hierarchy.coarse_to_fine_cells,
-                         base_hierarchy.fine_to_coarse_cells,
+                         coarse_to_fine_cells,
+                         "fine_to_coarse_cells TODO",
                          refinements_per_level=base_hierarchy.refinements_per_level,
                          nested=base_hierarchy.nested)
 
@@ -274,6 +331,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     See also :func:`~.ExtrudedMeshHierarchy` if you want to extruded a
     hierarchy of unstructured meshes.
     """
+    raise NotImplementedError
     if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
         raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
     if base_mesh.extruded:
