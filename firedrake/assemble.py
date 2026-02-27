@@ -30,8 +30,9 @@ from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKe
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
+from functools import cached_property
+
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
-from pyop2.utils import cached_property
 
 
 __all__ = "assemble",
