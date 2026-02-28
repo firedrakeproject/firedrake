@@ -8,8 +8,7 @@ Goal-based adaptivity for stationary boundary value problems
     is the solution of a partial differential equation. Deriving the DWR method for
     a specific problem usually involves substantial expertise, in deriving the appropriate
     adjoint equation, residual formulation, etc. In this demo we show how the DWR method
-    can be automatically implemented using the :code:`GoalAdaptiveNonlinearVariationalSolver`
-    class in Firedrake.
+    can be automatically implemented in Firedrake for stationary boundary value problems.
 
     The demo was contributed by `Patrick Farrell
     <mailto:patrick.farrell@maths.ox.ac.uk>`__, based on the MSc project of Joseph Flood.
@@ -116,7 +115,7 @@ are very close to one throughout:
 | 7                     | 1.0213                        |
 +-----------------------+-------------------------------+
 
-Changing the tolerance to :math:`10^{-8}` takes 38 refinements. The resulting mesh is plotted below.
+Changing the tolerance to :math:`10^{-8}` takes 38 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
 
 .. image:: mesh_38.png
     :align: center
