@@ -1,5 +1,5 @@
-Goal-based adaptivity for computing functionals of the solution
-===============================================================
+Goal-based adaptivity for stationary boundary value problems
+============================================================
 
 .. rst-class:: emphasis
 
@@ -70,7 +70,7 @@ where the adjoint solution is approximated in a higher-degree function space. Th
 It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
 
     dwr_parameters = {
-        "max_iterations": 30,
+        "max_iterations": 100,
         "output_dir": "output/p-laplace",
         "run_name": "p-laplace",
         "use_adjoint_residual": True,
@@ -88,7 +88,7 @@ the DWR automation can compute the effectivity indices (ratio of the estimated e
     GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
                                            exact_solution=u_exact, primal_solver_parameters=solver_parameters).solve()
 
-The solver terminates after seven refinements. The error estimates :math:`\eta` are very accurate. The effectivity indices
+The solver terminates with the goal functional computed to :math:`10^{-4}` after 7 refinements. The error estimates :math:`\eta` are very accurate. The effectivity indices
 
 .. math::
 
@@ -97,7 +97,7 @@ The solver terminates after seven refinements. The error estimates :math:`\eta` 
 are very close to one throughout:
 
 +-----------------------+-------------------------------+
-| Number of refinements | Effectivity index :math:`I`  |
+| Number of refinements | Effectivity index :math:`I`   |
 +=======================+===============================+
 | 0                     | 0.9703                        |
 +-----------------------+-------------------------------+
@@ -116,9 +116,14 @@ are very close to one throughout:
 | 7                     | 1.0213                        |
 +-----------------------+-------------------------------+
 
+Changing the tolerance to :math:`10^{-8}` takes 38 refinements. The resulting mesh is plotted below.
+
+.. image:: mesh_38.png
+    :align: center
+    :width: 60%
 
 :demo:`A Python script version of this demo can be found here
-<goal_based_adaptivity.py>`.
+<goal_based_adaptivity_bvp.py>`.
 
 .. rubric:: References
 
