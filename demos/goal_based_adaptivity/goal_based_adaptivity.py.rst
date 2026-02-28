@@ -38,7 +38,7 @@ Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <
     (x, y) = SpatialCoordinate(mesh)
 
     p = Constant(5)
-    u_exact = x*(1-x)*y*(1-y)*exp(2*pi*x)*exp(cos(pi*y))
+    u_exact = x*(1-x)*y*(1-y)*exp(2*pi*x)*cos(pi*y)
     f = -div(inner(grad(u_exact), grad(u_exact))**((p-2)/2) * grad(u_exact))
 
     u = Function(V, name="Solution")
@@ -66,7 +66,7 @@ To apply goal-based adaptivity, we need a goal functional. For this we will empl
     J = inner(grad(u), n)*ds(top)
 
 We now specify options for how the goal-based adaptivity should proceed. We choose to use an expensive/robust approach,
-where the adjoint solution is approximated in a higher-degree function space. This tends to give better error estimates. 
+where the adjoint solution is approximated in a higher-degree function space. This tends to give better error estimates.
 It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
 
     dwr_parameters = {
@@ -83,11 +83,39 @@ It is possible to employ cheaper approximations by setting the parameters for th
 We then solve the problem, passing the goal functional :math:`J` and our specified tolerance. We also pass the exact solution, so that
 the DWR automation can compute the effectivity indices (ratio of the estimated error in the goal functional to the true error): ::
 
-
     tolerance = 1e-4
     problem = NonlinearVariationalProblem(F, u, bcs)
     GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
                                            exact_solution=u_exact, primal_solver_parameters=solver_parameters).solve()
+
+The solver terminates after seven refinements. The error estimates :math:`\eta` are very accurate. The effectivity indices
+
+.. math::
+
+    I = \frac{\eta}{J(u) - J(u_h)}
+
+are very close to one throughout:
+
++-----------------------+-------------------------------+
+| Number of refinements | Effectivity index :math:`I`  |
++=======================+===============================+
+| 0                     | 0.9703                        |
++-----------------------+-------------------------------+
+| 1                     | 1.0283                        |
++-----------------------+-------------------------------+
+| 2                     | 1.0893                        |
++-----------------------+-------------------------------+
+| 3                     | 1.0305                        |
++-----------------------+-------------------------------+
+| 4                     | 1.0794                        |
++-----------------------+-------------------------------+
+| 5                     | 1.0252                        |
++-----------------------+-------------------------------+
+| 6                     | 1.0213                        |
++-----------------------+-------------------------------+
+| 7                     | 1.0213                        |
++-----------------------+-------------------------------+
+
 
 :demo:`A Python script version of this demo can be found here
 <goal_based_adaptivity.py>`.
