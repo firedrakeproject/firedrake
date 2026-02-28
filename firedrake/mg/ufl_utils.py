@@ -159,7 +159,7 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
             name, prev_level = name.split("_level_")
         except ValueError:
             prev_level = 0
-        level = prev_level + level_increment
+        level = int(prev_level) + level_increment
         name = f"{name}_level_{level}"
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
