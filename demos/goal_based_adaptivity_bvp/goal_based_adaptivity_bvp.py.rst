@@ -65,8 +65,10 @@ To apply goal-based adaptivity, we need a goal functional. For this we will empl
     J = inner(grad(u), n)*ds(top)
 
 We now specify options for how the goal-based adaptivity should proceed. We choose to use an expensive/robust approach,
-where the adjoint solution is approximated in a higher-degree function space. This tends to give better error estimates.
-It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
+where the adjoint solution is approximated in a higher-degree function space, and where both the adjoint and primal residuals
+are employed for the error estimate. This tends to give better error estimates, but requires four solves on every grid (primal
+and adjoint solutions with degree :math:`p` and :math:`p+1`). It is possible to employ cheaper approximations by setting
+the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
 
     dwr_parameters = {
         "max_iterations": 100,
@@ -80,14 +82,14 @@ It is possible to employ cheaper approximations by setting the parameters for th
     }
 
 We then solve the problem, passing the goal functional :math:`J` and our specified tolerance. We also pass the exact solution, so that
-the DWR automation can compute the effectivity indices (ratio of the estimated error in the goal functional to the true error): ::
+the DWR automation can compute effectivity indices, but this is not generally required: ::
 
     tolerance = 1e-4
     problem = NonlinearVariationalProblem(F, u, bcs)
     GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
                                            exact_solution=u_exact, primal_solver_parameters=solver_parameters).solve()
 
-The solver terminates with the goal functional computed to :math:`10^{-4}` after 7 refinements. The error estimates :math:`\eta` are very accurate. The effectivity indices
+The solver terminates with the goal functional computed to :math:`10^{-4}` after 7 refinements. The error estimates :math:`\eta` are very accurate: their effectivity indices
 
 .. math::
 
