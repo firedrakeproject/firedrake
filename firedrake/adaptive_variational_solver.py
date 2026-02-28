@@ -1,4 +1,3 @@
-from firedrake import dmhooks
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
