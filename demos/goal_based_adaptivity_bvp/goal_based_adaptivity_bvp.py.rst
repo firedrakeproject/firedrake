@@ -15,7 +15,7 @@ Goal-based adaptivity for stationary boundary value problems
 
 The dual-weighted residual (DWR) method :cite:`Becker2001` is a technique for designing global and local error estimators for the error in a goal functional :math:`J(u)`. While implementing DWR by hand involves substantial expertise, the high-level symbolic UFL representation of the problem to solve permits the *automation* of DWR :cite:`Rognes2010`.
 
-In this demo we demonstrate how to automatically apply DWR to a nonlinear stationary boundary-value problem, the 𝑝-Laplacian:
+In this demo we demonstrate how to automatically apply DWR to a nonlinear stationary boundary-value problem, the :math:`p`-Laplacian:
 
 .. math::
     :name: eq:plaplace
