@@ -236,9 +236,13 @@ class ASMStarPC(ASMPatchPC):
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
         (start, end) = mesh_dm.getDepthStratum(depth)
-        if coloring:
+        if coloring and end > start:
             colors = mesh_dm.createColoring(depth=depth, distance=1)
-            shift = start - min(iset.indices.min() for iset in colors if iset.indices.size > 0)
+            colors = [color for color in colors if color.getLocalSize() > 0]
+            if len(colors) == 0:
+                shift = 0
+            else:
+                shift = start - min(color.indices.min() for color in colors)
             ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color.indices+shift)
                     for color in colors]
         else:
@@ -304,9 +308,15 @@ class ASMVankaPC(ASMPatchPC):
             patch_dim = mesh_dm.getDimension() - height
         validate_overlap(mesh_unique, patch_dim, "vanka")
 
-        if coloring:
+        if start == end:
+            ises = []
+        elif coloring:
             colors = mesh_dm.createColoring(depth=patch_dim, distance=2)
-            shift = start - min(iset.indices.min() for iset in colors if iset.indices.size > 0)
+            colors = [color for color in colors if color.getLocalSize() > 0]
+            if len(colors) == 0:
+                shift = start
+            else:
+                shift = start - min(color.indices.min() for color in colors)
             ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
                                         include_star, color.indices+shift)
                     for color in colors]
