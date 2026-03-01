@@ -1,7 +1,7 @@
 SetFactory("OpenCASCADE");
 //+
 Rectangle(1) = {0, 0, 0, 0.6, 0.5, 0};
-MeshSize {:} = 0.15;
+MeshSize {:} = 0.05;
 
 // Curve 1: bottom (y=0), Curve 2: right (x=0.6)
 // Curve 3: top (y=0.5), Curve 4: left (x=0)
