@@ -19,10 +19,11 @@ from ufl.duals import is_dual, is_primal
 from pyop2 import op2
 from pyop2.utils import as_tuple
 
-from firedrake import dmhooks, utils
+from firedrake import dmhooks
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
+from functools import cached_property
 
 
 def check_element(element, top=True):
@@ -165,7 +166,7 @@ class WithGeometryBase(object):
     def topological(self, val):
         self.cargo.topological = val
 
-    @utils.cached_property
+    @cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         if isinstance(self.topological, MixedFunctionSpace):
@@ -175,13 +176,6 @@ class WithGeometryBase(object):
             )
         else:
             return (self, )
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -197,7 +191,7 @@ class WithGeometryBase(object):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.mesh().ufl_cell()
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         return tuple(type(self).create(self.topological.sub(i), self.mesh(), parent=self)
                      for i in range(self.block_size))
@@ -208,7 +202,7 @@ class WithGeometryBase(object):
         data = self.subspaces if mixed else self._components
         return data[i]
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
@@ -665,11 +659,11 @@ class FunctionSpace(object):
     def __hash__(self):
         return hash((self.mesh(), self.dof_dset, self.ufl_element()))
 
-    @utils.cached_property
+    @cached_property
     def _ad_parent_space(self):
         return self.parent
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
@@ -687,16 +681,16 @@ class FunctionSpace(object):
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @utils.cached_property
+    @cached_property
     def _ises(self):
         return self.dof_dset.field_ises
 
-    @utils.cached_property
+    @cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self._shared_data.entity_node_lists[self.mesh().cell_set]
 
-    @utils.cached_property
+    @cached_property
     def topological(self):
         r"""Function space on a mesh topology."""
         return self
@@ -730,17 +724,10 @@ class FunctionSpace(object):
     def __str__(self):
         return self.__repr__()
 
-    @utils.cached_property
+    @cached_property
     def subspaces(self):
         """Split into a tuple of constituent spaces."""
         return (self,)
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -748,7 +735,7 @@ class FunctionSpace(object):
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.rank == 0:
             return self.subspaces
@@ -765,7 +752,7 @@ class FunctionSpace(object):
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @utils.cached_property
+    @cached_property
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
@@ -776,7 +763,7 @@ class FunctionSpace(object):
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
         return self.node_set.total_size - len(constrained_node_set)
 
-    @utils.cached_property
+    @cached_property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
@@ -1134,18 +1121,11 @@ class MixedFunctionSpace(object):
     def __hash__(self):
         return hash(tuple(self))
 
-    @utils.cached_property
+    @cached_property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
@@ -1177,21 +1157,21 @@ class MixedFunctionSpace(object):
     def __str__(self):
         return "MixedFunctionSpace(%s)" % ", ".join(str(s) for s in self)
 
-    @utils.cached_property
+    @cached_property
     def value_size(self):
         r"""Return the sum of the :attr:`FunctionSpace.value_size`\s of the
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of."""
         return sum(fs.value_size for fs in self._spaces)
 
-    @utils.cached_property
+    @cached_property
     def node_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.node_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         return tuple(fs.node_count for fs in self._spaces)
 
-    @utils.cached_property
+    @cached_property
     def dof_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -1204,7 +1184,7 @@ class MixedFunctionSpace(object):
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.dof_dset.layout_vec.getSize()
 
-    @utils.cached_property
+    @cached_property
     def node_set(self):
         r"""A :class:`pyop2.types.set.MixedSet` containing the nodes of this
         :class:`MixedFunctionSpace`. This is composed of the
@@ -1214,7 +1194,7 @@ class MixedFunctionSpace(object):
         are stored at each node."""
         return op2.MixedSet(s.node_set for s in self._spaces)
 
-    @utils.cached_property
+    @cached_property
     def dof_dset(self):
         r"""A :class:`pyop2.types.dataset.MixedDataSet` containing the degrees of freedom of
         this :class:`MixedFunctionSpace`. This is composed of the
@@ -1281,7 +1261,7 @@ class MixedFunctionSpace(object):
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i))
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for fieldsplit solvers."""
         dm = self._dm()
@@ -1297,7 +1277,7 @@ class MixedFunctionSpace(object):
         dmhooks.attach_hooks(dm, level=level)
         return dm
 
-    @utils.cached_property
+    @cached_property
     def _ises(self):
         return self.dof_dset.field_ises
 

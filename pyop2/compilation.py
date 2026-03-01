@@ -543,7 +543,7 @@ def check_source_hashes(compiler, code, extension, comm):
     make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
 )
 @PETSc.Log.EventDecorator()
-def make_so(compiler, code, extension, comm, filename=None):
+def make_so(compiler, code, extension, comm):
     """Build a shared library and load it
 
     :arg compiler: The compiler to use to create the shared library.
@@ -551,7 +551,6 @@ def make_so(compiler, code, extension, comm, filename=None):
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
-    :arg filename: Optional
     Returns a :class:`ctypes.CDLL` object of the resulting shared
     library."""
     # Compilation communicators are reference counted on the PyOP2 comm
@@ -567,69 +566,96 @@ def make_so(compiler, code, extension, comm, filename=None):
         compiler_flags = compiler.cflags
 
     # Compile on compilation communicator (ccomm) rank 0
-    soname = None
     if ccomm.rank == 0:
-        if filename is None:
+        # Track exceptions as values so that they may be raised collectively
+        try:
             # Adding random 2-digit hexnum avoids using excessive filesystem inodes
             tempdir = MEM_TMP_DIR.joinpath(f"{randint(0, 255):02x}")
             tempdir.mkdir(parents=True, exist_ok=True)
             # This path + filename should be unique
             descriptor, filename = mkstemp(suffix=f".{extension}", dir=tempdir, text=True)
             filename = Path(filename)
+
+            cname = filename
+            oname = filename.with_suffix(".o")
+            soname = filename.with_suffix(".so")
+            logfile = filename.with_suffix(".log")
+            errfile = filename.with_suffix(".err")
+        except BaseException as e:
+            result = e
         else:
-            filename.parent.mkdir(exist_ok=True)
+            try:
+                with progress(INFO, 'Compiling wrapper'):
+                    # Write source code to disk
+                    with open(cname, "w") as fh:
+                        fh.write(code)
+                    os.close(descriptor)
 
-        cname = filename
-        oname = filename.with_suffix(".o")
-        soname = filename.with_suffix(".so")
-        logfile = filename.with_suffix(".log")
-        errfile = filename.with_suffix(".err")
-        with progress(INFO, 'Compiling wrapper'):
-            # Write source code to disk
-            with open(cname, "w") as fh:
-                fh.write(code)
-            os.close(descriptor)
+                    if not compiler.ld:
+                        # Compile and link
+                        cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
+                        _run(cc, logfile, errfile)
+                    else:
+                        # Compile
+                        cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
+                        _run(cc, logfile, errfile)
+                        # Extract linker specific "cflags" from ldflags and link
+                        ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
+                        _run(ld, logfile, errfile, step="Linker", filemode="a")
 
-            if not compiler.ld:
-                # Compile and link
-                cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
-                _run(cc, logfile, errfile)
-            else:
-                # Compile
-                cc = (exe,) + compiler_flags + ('-c', '-o', str(oname), str(cname))
-                _run(cc, logfile, errfile)
-                # Extract linker specific "cflags" from ldflags and link
-                ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
-                _run(ld, logfile, errfile, step="Linker", filemode="a")
+                result = soname
+            except subprocess.CalledProcessError as e:
+                msg = dedent(f"""
+                    Command "{e.cmd}" return error status {e.returncode}.
+                    Unable to compile code
+                """)
+                if os.environ.get("FIREDRAKE_CI", False):
+                    msg += dedent(f"""
+                        Code is:
+                        {code}
+                    """)
+                    with open(errfile) as err:
+                        msg += dedent(f"""
+                            Compiler output is:
+                            {''.join(err.readlines())}
+                        """)
+                else:
+                    msg += dedent(f"""
+                        Compile log in {logfile!s}
+                        Compile errors in {errfile!s}
+                    """)
+                result = CompilationError(msg)
+                result.__cause__ = e  # equivalent to 'raise XXX from e'
+            except BaseException as e:
+                # catch and broadcast all exceptions to prevent deadlocks
+                result = e
+    else:
+        result = None
 
-    return ccomm.bcast(soname, root=0)
+    result = ccomm.bcast(result)
+    if isinstance(result, BaseException):
+        raise result
+    else:
+        return result
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
     """ Run a compilation command and handle logging + errors.
     """
     debug(f"{step} command: {' '.join(cc)}")
-    try:
-        if configuration['no_fork_available']:
-            redirect = ">" if filemode == "w" else ">>"
-            cc += (f"2{redirect}", str(errfile), redirect, str(logfile))
-            cmd = " ".join(cc)
-            status = os.system(cmd)
-            if status != 0:
-                raise subprocess.CalledProcessError(status, cmd)
-        else:
-            with open(logfile, filemode) as log, open(errfile, filemode) as err:
-                log.write(f"{step} command:\n")
-                log.write(" ".join(cc))
-                log.write("\n\n")
-                subprocess.check_call(cc, stderr=err, stdout=log)
-    except subprocess.CalledProcessError as e:
-        raise CompilationError(dedent(f"""
-            Command "{e.cmd}" return error status {e.returncode}.
-            Unable to compile code
-            Compile log in {logfile!s}
-            Compile errors in {errfile!s}
-            """))
+    if configuration['no_fork_available']:
+        redirect = ">" if filemode == "w" else ">>"
+        cc += (f"2{redirect}", str(errfile), redirect, str(logfile))
+        cmd = " ".join(cc)
+        status = os.system(cmd)
+        if status != 0:
+            raise subprocess.CalledProcessError(status, cmd)
+    else:
+        with open(logfile, filemode) as log, open(errfile, filemode) as err:
+            log.write(f"{step} command:\n")
+            log.write(" ".join(cc))
+            log.write("\n\n")
+            subprocess.check_call(cc, stderr=err, stdout=log)
 
 
 def add_profiling_events(dll, events):
