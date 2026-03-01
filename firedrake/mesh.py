@@ -3202,8 +3202,8 @@ def _fully_localize_coordinates(dm: PETSc.DM) -> None:
 
     Parameters
     ----------
-    dm :
-        The `PETSc.DM` whose cell coordinates should be fully localized.
+    dm : PETSc.DM
+        The DM whose cell coordinates should be fully localized.
     """
     if not dm.getCoordinatesLocalized():
         return
