@@ -20,7 +20,6 @@ import firedrake.utils as utils
 import firedrake
 import numpy as np
 import os
-import tempfile
 import h5py
 
 
