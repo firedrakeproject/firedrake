@@ -19,19 +19,13 @@ def periodic_2d_mesh(request):
     return Mesh(join(cwd, "geom", f"{request.param}.msh"))
 
 
-@pytest.fixture
-def periodic_3d_mesh():
-    return Mesh(join(cwd, "geom", "p3d.msh"))
-
-
 def test_periodic_2d_coordinates(periodic_2d_mesh):
     """Mesh uses a DG coordinate element after loading."""
     elem = periodic_2d_mesh.ufl_coordinate_element()
     assert "DG" in str(elem)
 
 
-def test_periodic_2d_x_solve():
-    """Poisson on x-periodic rectangle; solution matches across x boundary."""
+def _run_periodic_2d_x():
     mesh = Mesh(join(cwd, "geom", "p2d.msh"))
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
@@ -56,8 +50,17 @@ def test_periodic_2d_x_solve():
         )
 
 
-def test_periodic_2d_xy_solve():
-    """Poisson on doubly-periodic rectangle; solution matches across both boundaries."""
+def test_periodic_2d_x_solve():
+    """Poisson on x-periodic rectangle; solution matches across x boundary."""
+    _run_periodic_2d_x()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_periodic_2d_x_solve_parallel():
+    _run_periodic_2d_x()
+
+
+def _run_periodic_2d_xy():
     mesh = Mesh(join(cwd, "geom", "p2d_xy.msh"))
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
@@ -91,9 +94,18 @@ def test_periodic_2d_xy_solve():
         )
 
 
-def test_periodic_3d_solve(periodic_3d_mesh):
-    """Poisson on x-periodic box; solution matches across x boundary."""
-    mesh = periodic_3d_mesh
+def test_periodic_2d_xy_solve():
+    """Poisson on doubly-periodic rectangle; solution matches across both boundaries."""
+    _run_periodic_2d_xy()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_periodic_2d_xy_solve_parallel():
+    _run_periodic_2d_xy()
+
+
+def _run_periodic_3d():
+    mesh = Mesh(join(cwd, "geom", "p3d.msh"))
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
@@ -115,3 +127,13 @@ def test_periodic_3d_solve(periodic_3d_mesh):
             f"u{tuple(probe_points[ia])}={vals[ia]}  !=  "
             f"u{tuple(probe_points[ib])}={vals[ib]}"
         )
+
+
+def test_periodic_3d_solve():
+    """Poisson on x-periodic box; solution matches across x boundary."""
+    _run_periodic_3d()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_periodic_3d_solve_parallel():
+    _run_periodic_3d()
