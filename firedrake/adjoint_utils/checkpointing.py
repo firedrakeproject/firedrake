@@ -147,18 +147,32 @@ class stop_disk_checkpointing:
 
 class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
-    def __init__(self, name, comm, cleanup=False, temp_ckpt=None):
+    def __init__(self, name, comm, cleanup=False, checkpoint_comm=None):
         self.name = name
         self.comm = comm
         self.cleanup = cleanup
-        self.temp_ckpt = temp_ckpt
+        self.checkpoint_comm = checkpoint_comm
 
     def __del__(self):
         if self.cleanup and os.path.exists(self.name):
-            if self.temp_ckpt is not None:
-                self.temp_ckpt.remove_file(self.name)
-            elif self.comm.rank == 0:
+            # Local files are owned by checkpoint_comm rank 0; shared files
+            # by comm (COMM_WORLD) rank 0.
+            cleanup_comm = self.checkpoint_comm if self.checkpoint_comm is not None else self.comm
+            if cleanup_comm.rank == 0:
                 os.remove(self.name)
+        # Prune the index-tracking entry for this file from CheckpointFunction.
+        # This is safe for the following reasons:
+        # (1) CheckpointFunction holds self.file as a direct strong reference,
+        #     so __del__ here can only fire after every CheckpointFunction that
+        #     wrote to this filepath has already been garbage-collected.
+        # (2) restore() never reads _checkpoint_indices — it uses stored_name
+        #     and stored_index baked into the CheckpointFunction at save time.
+        # (3) Under revolve schedules the tape checkpoint store holds the
+        #     CheckPointFileReference alive until forward re-execution is done,
+        #     so there is no risk of premature pruning.
+        # (4) pop is a no-op for init files where no CheckpointFunction ever
+        #     wrote an entry (e.g. checkpointable_mesh files).
+        CheckpointFunction._checkpoint_indices.pop(self.name, None)
 
 
 class DiskCheckpointer(TapePackageData):
@@ -193,7 +207,8 @@ class DiskCheckpointer(TapePackageData):
         self.comm = comm
         self.cleanup = cleanup
 
-        # Shared directory (for mesh checkpoint and init data).
+        # Shared directory (for mesh checkpoint and init data). The bcast
+        # uses comm (COMM_WORLD) so every rank knows the shared path.
         if comm.rank == 0:
             self.dirname = comm.bcast(tempfile.mkdtemp(
                 prefix="firedrake_adjoint_checkpoint_", dir=dirname or os.getcwd()
@@ -204,22 +219,40 @@ class DiskCheckpointer(TapePackageData):
             # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
 
-        # Local checkpoint I/O manager (for function data on checkpoint_comm).
-        if self.checkpoint_comm is not None and checkpoint_dir is None:
-            warnings.warn(
-                "checkpoint_comm without checkpoint_dir defaults to cwd, "
-                "which is usually on the shared filesystem. Without a "
-                "node-local path the collective CheckpointFile is more "
-                "suitable. Consider setting checkpoint_dir.",
-                UserWarning
-            )
+        # Local directory (for function data on checkpoint_comm). The bcast
+        # uses checkpoint_comm, not comm: only ranks within the same
+        # checkpoint_comm group share a local filesystem, so we must not
+        # perform a COMM_WORLD collective here.
         if self.checkpoint_comm is not None:
-            from firedrake.checkpointing import TemporaryFunctionCheckpointFile
-            self._temp_ckpt = TemporaryFunctionCheckpointFile(
-                checkpoint_comm, dirname=checkpoint_dir, cleanup=cleanup
-            )
+            if checkpoint_dir is None:
+                warnings.warn(
+                    "checkpoint_comm without checkpoint_dir defaults to cwd, "
+                    "which is usually on the shared filesystem. Without a "
+                    "node-local path the collective CheckpointFile is more "
+                    "suitable. Consider setting checkpoint_dir.",
+                    UserWarning
+                )
+            base_dir = checkpoint_dir or os.getcwd()
+            if checkpoint_comm.rank == 0:
+                if cleanup:
+                    self._local_tmpdir = tempfile.TemporaryDirectory(
+                        prefix="firedrake_adjoint_checkpoint_cc_",
+                        dir=base_dir
+                    )
+                    local_path = self._local_tmpdir.name
+                else:
+                    self._local_tmpdir = None
+                    local_path = tempfile.mkdtemp(
+                        prefix="firedrake_adjoint_checkpoint_cc_",
+                        dir=base_dir
+                    )
+                self._local_dirname = checkpoint_comm.bcast(local_path)
+            else:
+                self._local_tmpdir = None
+                self._local_dirname = checkpoint_comm.bcast(None)
         else:
-            self._temp_ckpt = None
+            self._local_tmpdir = None
+            self._local_dirname = None
 
         # A checkpoint file holding the state of block variables set outside
         # the tape (always shared, used by checkpointable_mesh).
@@ -244,10 +277,22 @@ class DiskCheckpointer(TapePackageData):
 
     def _new_checkpoint_comm_file(self):
         """Set up a checkpoint file on the checkpoint communicator."""
-        filepath = self._temp_ckpt.new_file()
-        return CheckPointFileReference(filepath, self.comm,
-                                       self.cleanup,
-                                       temp_ckpt=self._temp_ckpt)
+        from firedrake.checkpointing import TemporaryFunctionCheckpointFile
+        if self.checkpoint_comm.rank == 0:
+            fd, filepath = tempfile.mkstemp(
+                dir=self._local_dirname, suffix=".h5"
+            )
+            os.close(fd)
+            filepath = self.checkpoint_comm.bcast(filepath)
+        else:
+            filepath = self.checkpoint_comm.bcast(None)
+        # Initialise an empty HDF5 file. Opened in 'w' mode and immediately
+        # closed so that subsequent 'a' opens from save_function find a valid
+        # file.
+        with TemporaryFunctionCheckpointFile(self.checkpoint_comm, filepath, 'w'):
+            pass
+        return CheckPointFileReference(filepath, self.comm, self.cleanup,
+                                       checkpoint_comm=self.checkpoint_comm)
 
     def _new_checkpoint_file(self):
         """Set up a checkpoint file for function data."""
@@ -385,7 +430,22 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
         self.count = function.count()
 
-        if self.file.temp_ckpt is not None:
+        # Compute stored_name and stored_index once, shared by both checkpoint
+        # paths. stored_name encodes the function space (mesh name + element
+        # family/degree) so that functions on different meshes or spaces never
+        # collide. stored_index disambiguates successive saves of the same
+        # space to the same file.
+        from firedrake.checkpointing import _generate_function_space_name
+        stored_names = CheckpointFunction._checkpoint_indices
+        if self.file.name not in stored_names:
+            stored_names[self.file.name] = {}
+        self.stored_name = _generate_function_space_name(function.function_space())
+        indices = stored_names[self.file.name]
+        indices.setdefault(self.stored_name, 0)
+        indices[self.stored_name] += 1
+        self.stored_index = indices[self.stored_name]
+
+        if self.file.checkpoint_comm is not None:
             self._function_space = function.function_space()
             self._save_local_checkpoint(function)
         else:
@@ -393,31 +453,22 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
     def _save_shared(self, function):
         """Save function data to a shared HDF5 file via CheckpointFile."""
-        from firedrake.checkpointing import CheckpointFile, _generate_function_space_name
-        stored_names = CheckpointFunction._checkpoint_indices
-        if self.file.name not in stored_names:
-            stored_names[self.file.name] = {}
-
+        from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'a') as outfile:
-            self.stored_name = _generate_function_space_name(
-                function.function_space()
-            )
-            indices = stored_names[self.file.name]
-            indices.setdefault(self.stored_name, 0)
-            indices[self.stored_name] += 1
-            self.stored_index = indices[self.stored_name]
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
     def _save_local_checkpoint(self, function):
-        """Save function data via the local checkpoint I/O manager."""
-        self.stored_name, self.stored_index = self.file.temp_ckpt.save_function(
-            self.file.name, function
-        )
+        """Save function data to a local HDF5 file via PETSc Vec I/O."""
+        from firedrake.checkpointing import TemporaryFunctionCheckpointFile
+        with TemporaryFunctionCheckpointFile(
+            self.file.checkpoint_comm, self.file.name, 'a'
+        ) as outfile:
+            outfile.save_function(function, self.stored_name, self.stored_index)
 
     def restore(self):
         """Read and return this Function from the checkpoint."""
-        if self.file.temp_ckpt is not None:
+        if self.file.checkpoint_comm is not None:
             return self._restore_local_checkpoint()
         else:
             return self._restore_shared()
@@ -432,12 +483,16 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                               function.dat, name=self.name, count=self.count)
 
     def _restore_local_checkpoint(self):
-        """Load function data via the local checkpoint I/O manager."""
-        return self.file.temp_ckpt.load_function(
-            self.file.name, self._function_space,
-            self.stored_name, self.stored_index,
-            name=self.name, count=self.count
-        )
+        """Load function data from a local HDF5 file via PETSc Vec I/O."""
+        from firedrake.checkpointing import TemporaryFunctionCheckpointFile
+        with TemporaryFunctionCheckpointFile(
+            self.file.checkpoint_comm, self.file.name, 'r'
+        ) as infile:
+            function = infile.load_function(
+                self._function_space, self.stored_name, self.stored_index
+            )
+        return type(function)(function.function_space(),
+                              function.dat, name=self.name, count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()

@@ -461,3 +461,58 @@ def test_sub_comm_adjoint_dependencies_parallel():
     finally:
         if MPI.COMM_WORLD.rank == 0:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# --- _checkpoint_indices pruning test ---
+
+
+@pytest.mark.skipcomplex
+def test_checkpoint_indices_pruning(tmp_path):
+    """_checkpoint_indices entries are pruned when the checkpoint file is released.
+
+    CheckpointFunction objects are created during tape replay (inside Jhat),
+    not during the initial forward pass. Two reference chains keep a
+    CheckPointFileReference alive: (1) DiskCheckpointer.current_checkpoint_file
+    and (2) CheckpointFunction.self.file held via the tape blocks and Jhat's
+    controls. Once both are dropped, CheckPointFileReference.__del__ fires and
+    pops the entry from _checkpoint_indices. This keeps memory bounded over
+    long adjoint runs without risking premature removal: restore() never reads
+    _checkpoint_indices, it uses stored_name and stored_index baked into the
+    CheckpointFunction at save time.
+    """
+    import gc
+    from firedrake.adjoint_utils.checkpointing import CheckpointFunction
+
+    tape = get_working_tape()
+    tape.clear_tape()
+    enable_disk_checkpointing(dirname=str(tmp_path))
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+    mesh = checkpointable_mesh(UnitSquareMesh(1, 1))
+    cg_space = FunctionSpace(mesh, "CG", 1)
+    u = Function(cg_space, name='u')
+    v = Function(cg_space, name='v')
+    u.assign(1.)
+    v.assign(v + 2.*u)
+    J = assemble(v*dx)
+    Jhat = ReducedFunctional(J, Control(u))
+    _ = Jhat(Function(cg_space).interpolate(1.))
+
+    checkpointer = tape._package_data["firedrake"]
+    # Filter to files created by this test (replay writes to a new file chosen
+    # by reset(), so we match by directory rather than the initial file name).
+    our_files = {f for f in CheckpointFunction._checkpoint_indices
+                 if str(tmp_path) in f}
+    assert len(our_files) > 0
+
+    # Drop both reference chains to trigger __del__ on CheckPointFileReference:
+    # (1) DiskCheckpointer replaces current_checkpoint_file via reset().
+    checkpointer.reset()
+    # (2) tape.clear_tape() removes blocks (CheckpointFunction objects held as
+    #     saved_output), and del Jhat releases the Control → BlockVariable →
+    #     saved_output chain that Jhat's controls keep alive.
+    tape.clear_tape()
+    del Jhat
+    gc.collect()
+
+    for f in our_files:
+        assert f not in CheckpointFunction._checkpoint_indices

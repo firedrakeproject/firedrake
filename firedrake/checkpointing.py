@@ -542,95 +542,65 @@ def _generate_function_space_name(V):
 
 
 class TemporaryFunctionCheckpointFile:
-    """Manages temporary HDF5 files for saving/loading function data via PETSc Vec I/O.
+    """An HDF5 file for saving and loading :class:`~.Function` data on a sub-communicator.
 
-    This class encapsulates the low-level PETSc Vec I/O that enables function
-    checkpointing on a sub-communicator (e.g. per-rank or per-node), bypassing
-    the parallel HDF5 overhead of :class:`CheckpointFile`.
+    This class has a deliberately narrow contract that differs from
+    :class:`CheckpointFile` in several important ways:
+
+    - It operates on any communicator, typically a sub-communicator of
+      COMM_WORLD (e.g. ``COMM_SELF`` for per-rank files, or a node-local
+      communicator for per-node files). All I/O is collective only on that
+      communicator — no COMM_WORLD operations are performed.
+    - It stores and retrieves :class:`~.Function` *data* (the local Vec
+      array) only. It has no knowledge of mesh topology, DM sections, or
+      PETSc SF. This is why :meth:`load_function` takes a
+      :class:`~.FunctionSpace` rather than a mesh: the caller already holds
+      the function space and we simply fill in the values.
+    - It is ephemeral: files are not intended to survive between programme
+      runs. The communicator layout (partition) must be identical on save
+      and restore.
+    - The caller is responsible for assigning unique ``name``/``idx`` pairs
+      on save and for restoring the correct ``name`` and ``count`` on the
+      returned :class:`~.Function` after load.
+
+    These constraints are intentional. Using :class:`CheckpointFile` with a
+    sub-communicator deadlocks on load because the mesh DM operations
+    (``sectionLoad``, ``globalVectorLoad``) are collective on COMM_WORLD.
+    This class deliberately bypasses that path.
 
     Parameters
     ----------
     comm : mpi4py.MPI.Intracomm
-        The communicator on which checkpoint files are collectively created
-        and accessed. Note that this does not have to be the same communicator that the function is defined over.
-    dirname : str or None
-        Parent directory for temporary files. If None, the current working
-        directory is used.
-    cleanup : bool
-        If True (default), the temporary directory and all files within it
-        are automatically deleted when this object is garbage collected.
+        The communicator on which I/O is collective. All ranks in this
+        communicator must enter save/load together.
+    filepath : str
+        Path to the HDF5 file to open.
+    mode : str
+        File access mode: ``'r'`` for reading, ``'w'`` to create/truncate,
+        ``'a'`` to append.
     """
 
-    def __init__(self, comm, dirname=None, cleanup=True):
+    def __init__(self, comm, filepath, mode):
         self.comm = comm
-        self.cleanup = cleanup
-        self._indices = {}
+        self.filepath = filepath
+        self._viewer = PETSc.ViewerHDF5()
+        self._viewer.create(filepath, mode=mode, comm=comm)
 
-        if comm.rank == 0:
-            if cleanup:
-                self._tmpdir = tempfile.TemporaryDirectory(
-                    prefix="firedrake_adjoint_checkpoint_cc_",
-                    dir=dirname or os.getcwd()
-                )
-                path = self._tmpdir.name
-            else:
-                path = tempfile.mkdtemp(
-                    prefix="firedrake_adjoint_checkpoint_cc_",
-                    dir=dirname or os.getcwd()
-                )
-                self._tmpdir = None
-            self.dirname = comm.bcast(path)
-        else:
-            self._tmpdir = None
-            self.dirname = comm.bcast(None)
-
-    def new_file(self):
-        """Create a new empty HDF5 checkpoint file.
-
-        Returns
-        -------
-        str
-            The path to the newly created file.
-        """
-        if self.comm.rank == 0:
-            fd, filepath = tempfile.mkstemp(
-                dir=self.dirname, suffix=".h5"
-            )
-            os.close(fd)
-            filepath = self.comm.bcast(filepath)
-        else:
-            filepath = self.comm.bcast(None)
-
-        viewer = PETSc.ViewerHDF5()
-        viewer.create(filepath, mode='w', comm=self.comm)
-        viewer.destroy()
-        return filepath
-
-    def save_function(self, filepath, function):
-        """Save a function's data to an HDF5 file via PETSc Vec I/O.
+    def save_function(self, function, name, idx):
+        """Save a Function's local data to this file.
 
         Parameters
         ----------
-        filepath : str
-            Path to the HDF5 file (must have been created by :meth:`new_file`).
         function : Function
             The function whose data to save.
-
-        Returns
-        -------
-        tuple of (str, int)
-            The (stored_name, stored_index) pair needed for :meth:`load_function`.
+        name : str
+            Dataset name. The caller is responsible for uniqueness across
+            saves to this file (see :class:`CheckpointFunction`).
+        idx : int
+            Dataset index. Together with ``name`` this uniquely identifies
+            the stored dataset.
         """
-        if filepath not in self._indices:
-            self._indices[filepath] = {}
-
-        stored_name = _generate_function_space_name(function.function_space())
-        indices = self._indices[filepath]
-        indices.setdefault(stored_name, 0)
-        indices[stored_name] += 1
-        stored_index = indices[stored_name]
-
-        vec_name = f"{stored_name}_{stored_index}"
+        vec_name = f"{name}_{idx}"
 
         with function.dat.vec_ro as v:
             local_array = v.getArray().copy()
@@ -640,43 +610,32 @@ class TemporaryFunctionCheckpointFile:
         )
         local_vec.setName(vec_name)
         local_vec.setArray(local_array)
-
-        viewer = PETSc.ViewerHDF5()
-        viewer.create(filepath, mode='a', comm=self.comm)
-        local_vec.view(viewer)
-        viewer.destroy()
+        local_vec.view(self._viewer)
         local_vec.destroy()
 
-        return stored_name, stored_index
-
-    def load_function(self, filepath, function_space, stored_name, stored_index,
-                      name=None, count=None):
-        """Load a function's data from an HDF5 file via PETSc Vec I/O.
+    def load_function(self, function_space, name, idx):
+        """Load a Function's data from this file.
 
         Parameters
         ----------
-        filepath : str
-            Path to the HDF5 file.
         function_space : FunctionSpace
-            The function space for the loaded function.
-        stored_name : str
-            The stored name returned by :meth:`save_function`.
-        stored_index : int
-            The stored index returned by :meth:`save_function`.
-        name : str or None
-            Name for the new function.
-        count : int or None
-            Count identity for the new function.
+            The function space for the returned Function.
+        name : str
+            Dataset name as passed to :meth:`save_function`.
+        idx : int
+            Dataset index as passed to :meth:`save_function`.
 
         Returns
         -------
         Function
-            The loaded function.
+            A new Function with data loaded from disk. The caller is
+            responsible for restoring the correct ``name`` and ``count``
+            on the returned Function.
         """
         from firedrake import Function
 
-        vec_name = f"{stored_name}_{stored_index}"
-        f = Function(function_space, name=name, count=count)
+        vec_name = f"{name}_{idx}"
+        f = Function(function_space)
 
         with f.dat.vec_wo as v:
             local_size = v.getLocalSize()
@@ -684,27 +643,26 @@ class TemporaryFunctionCheckpointFile:
                 (local_size, PETSc.DECIDE), comm=self.comm
             )
             local_vec.setName(vec_name)
-
-            viewer = PETSc.ViewerHDF5()
-            viewer.create(filepath, mode='r', comm=self.comm)
-            local_vec.load(viewer)
-            viewer.destroy()
-
+            local_vec.load(self._viewer)
             v.setArray(local_vec.getArray())
             local_vec.destroy()
 
         return f
 
-    def remove_file(self, filepath):
-        """Remove a checkpoint file.
+    def close(self):
+        """Close the underlying HDF5 viewer."""
+        if hasattr(self, '_viewer'):
+            self._viewer.destroy()
+            del self._viewer
 
-        Parameters
-        ----------
-        filepath : str
-            Path to the file to remove. Only rank 0 performs the deletion.
-        """
-        if self.comm.rank == 0 and os.path.exists(filepath):
-            os.remove(filepath)
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        self.close()
 
 
 class CheckpointFile(object):
