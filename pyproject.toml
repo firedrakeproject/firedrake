@@ -30,7 +30,7 @@ dependencies = [
   "loopy>2024.1",
   "numpy",
   "packaging",
-  "petsc4py==3.24.0",
+  "petsc4py==3.24.5",
   "petsctools",
   "pkgconfig",
   "progress",
@@ -93,7 +93,7 @@ netgen = [
   "ngsPETSc>=0.1.1",
 ]
 slepc = [
-  "slepc4py==3.24.0",
+  "slepc4py==3.24.2",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -118,7 +118,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.24.0",
+  "slepc4py==3.24.2",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -135,7 +135,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.24.0",
+  "slepc4py==3.24.2",
   "vtk",
 ]
 
@@ -150,7 +150,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  "petsc4py==3.24.0",
+  "petsc4py==3.24.5",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
