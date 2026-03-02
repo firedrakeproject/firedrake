@@ -115,7 +115,7 @@ def _run_periodic_helmholtz_3d():
     V = FunctionSpace(mesh, "CG", 4)
     x = SpatialCoordinate(mesh)
 
-    u_exact_expr = x[1] * (1 - x[1]) * x[2] * (1 - x[2])
+    u_exact_expr = 42 + x[1] * (1 - x[1]) * x[2] * (1 - x[2])
     f_expr = (2 * x[2] * (1 - x[2])
               + 2 * x[1] * (1 - x[1])
               + u_exact_expr)
