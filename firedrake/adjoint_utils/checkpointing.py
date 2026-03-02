@@ -149,16 +149,15 @@ class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
     def __init__(self, name, comm, cleanup=False, checkpoint_comm=None):
         self.name = name
-        self.comm = comm
         self.cleanup = cleanup
         self.checkpoint_comm = checkpoint_comm
+        # Resolve the right comm for file deletion once at construction time so
+        # __del__ does not need to branch on checkpoint_comm.
+        self._cleanup_comm = checkpoint_comm if checkpoint_comm is not None else comm
 
     def __del__(self):
         if self.cleanup and os.path.exists(self.name):
-            # Local files are owned by checkpoint_comm rank 0; shared files
-            # by comm (COMM_WORLD) rank 0.
-            cleanup_comm = self.checkpoint_comm if self.checkpoint_comm is not None else self.comm
-            if cleanup_comm.rank == 0:
+            if self._cleanup_comm.rank == 0:
                 os.remove(self.name)
         # Prune the index-tracking entry for this file from CheckpointFunction.
         # This is safe for the following reasons:
