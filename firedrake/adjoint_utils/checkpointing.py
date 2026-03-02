@@ -440,9 +440,9 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             self._function_space = function.function_space()
             self._save_local_checkpoint(function)
         else:
-            self._save_shared(function)
+            self._save_shared_checkpoint(function)
 
-    def _save_shared(self, function):
+    def _save_shared_checkpoint(self, function):
         """Save function data to a shared HDF5 file via CheckpointFile."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'a') as outfile:
@@ -462,10 +462,10 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         if self.file.checkpoint_comm is not None:
             return self._restore_local_checkpoint()
         else:
-            return self._restore_shared()
+            return self._restore_shared_checkpoint()
 
-    def _restore_shared(self):
-        """Load function data from a shared HDF5 file via CheckpointFile."""
+    def _restore_shared_checkpoint(self):
+        """Load function data from a shared HDF5 file via :class:`.CheckpointFile`."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'r') as infile:
             function = infile.load_function(self.mesh, self.stored_name,
@@ -474,7 +474,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
                               function.dat, name=self.name, count=self.count)
 
     def _restore_local_checkpoint(self):
-        """Load function data from a local HDF5 file via PETSc Vec I/O."""
+        """Load function data via :class:`TemporaryFunctionCheckpointFile`."""
         from firedrake.checkpointing import TemporaryFunctionCheckpointFile
         with TemporaryFunctionCheckpointFile(
             self.file.checkpoint_comm, self.file.name, 'r'
