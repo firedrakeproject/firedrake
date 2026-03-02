@@ -585,7 +585,7 @@ class TemporaryFunctionCheckpointFile:
         self._viewer = PETSc.ViewerHDF5()
         self._viewer.create(filepath, mode=mode, comm=comm)
 
-    def save_function(self, function, name, idx):
+    def save_function(self, function, name=None, idx=None):
         """Save a Function's local data to this file.
 
         Parameters
@@ -612,7 +612,7 @@ class TemporaryFunctionCheckpointFile:
         local_vec.view(self._viewer)
         local_vec.destroy()
 
-    def load_function(self, function_space, name, idx):
+    def load_function(self, function_space, name, idx=None):
         """Load a Function's data from this file.
 
         Parameters
