@@ -123,7 +123,7 @@ def _run_periodic_helmholtz_3d():
     u = TrialFunction(V)
     v = TestFunction(V)
     a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
-    L = inner(f_expr, v) * dx
+    L = a(v, u_exact)
 
     uh = Function(V)
     bc = DirichletBC(V, Constant(0), [3, 4, 5, 6])
