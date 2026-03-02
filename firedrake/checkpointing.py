@@ -604,11 +604,10 @@ class TemporaryFunctionCheckpointFile:
         with function.dat.vec_ro as v:
             local_array = v.getArray().copy()
 
-        local_vec = PETSc.Vec().createMPI(
-            (len(local_array), PETSc.DECIDE), comm=self.comm
+        local_vec = PETSc.Vec().createWithArray(
+            local_array, size=(len(local_array), PETSc.DECIDE), comm=self.comm
         )
         local_vec.setName(vec_name)
-        local_vec.setArray(local_array)
         local_vec.view(self._viewer)
         local_vec.destroy()
 
