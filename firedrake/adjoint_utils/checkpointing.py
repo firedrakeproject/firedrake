@@ -208,12 +208,10 @@ class DiskCheckpointer(TapePackageData):
 
         # Shared directory (for mesh checkpoint and init data). The bcast
         # uses comm (COMM_WORLD) so every rank knows the shared path.
-        if comm.rank == 0:
-            self.dirname = comm.bcast(tempfile.mkdtemp(
-                prefix="firedrake_adjoint_checkpoint_", dir=dirname or os.getcwd()
-            ))
-        else:
-            self.dirname = comm.bcast("")
+        path = tempfile.mkdtemp(
+            prefix="firedrake_adjoint_checkpoint_", dir=dirname or os.getcwd()
+        ) if comm.rank == 0 else None
+        self.dirname = comm.bcast(path)
         if self.cleanup and comm.rank == 0:
             # Delete the shared checkpoint folder on process exit.
             atexit.register(shutil.rmtree, self.dirname)
@@ -259,12 +257,10 @@ class DiskCheckpointer(TapePackageData):
         """Set up a shared disk checkpointing file (all ranks use same file)."""
         from firedrake.checkpointing import CheckpointFile
         if self.comm.rank == 0:
-            _, checkpoint_file = tempfile.mkstemp(
-                dir=self.dirname, suffix=".h5"
-            )
-            checkpoint_file = self.comm.bcast(checkpoint_file)
+            _, checkpoint_file = tempfile.mkstemp(dir=self.dirname, suffix=".h5")
         else:
-            checkpoint_file = self.comm.bcast("")
+            checkpoint_file = None
+        checkpoint_file = self.comm.bcast(checkpoint_file)
         # Let h5py create a file at this location just to be sure.
         with CheckpointFile(checkpoint_file, 'w'):
             pass
@@ -275,13 +271,11 @@ class DiskCheckpointer(TapePackageData):
         """Set up a checkpoint file on the checkpoint communicator."""
         from firedrake.checkpointing import TemporaryFunctionCheckpointFile
         if self.checkpoint_comm.rank == 0:
-            fd, filepath = tempfile.mkstemp(
-                dir=self._local_dirname, suffix=".h5"
-            )
+            fd, filepath = tempfile.mkstemp(dir=self._local_dirname, suffix=".h5")
             os.close(fd)
-            filepath = self.checkpoint_comm.bcast(filepath)
         else:
-            filepath = self.checkpoint_comm.bcast(None)
+            filepath = None
+        filepath = self.checkpoint_comm.bcast(filepath)
         # Initialise an empty HDF5 file. Opened in 'w' mode and immediately
         # closed so that subsequent 'a' opens from save_function find a valid
         # file.
