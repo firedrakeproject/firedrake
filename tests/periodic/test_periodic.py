@@ -112,7 +112,7 @@ def _run_periodic_helmholtz_3d():
     Trivially periodic in x, zero on y/z boundaries.
     """
     mesh = Mesh(join(cwd, "geom", "p3d.msh"))
-    V = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 4)
     x = SpatialCoordinate(mesh)
 
     u_exact_expr = x[1] * (1 - x[1]) * x[2] * (1 - x[2])
