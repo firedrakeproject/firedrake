@@ -460,18 +460,18 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     def restore(self):
         """Read and return this Function from the checkpoint."""
         if self.file.checkpoint_comm is not None:
-            return self._restore_local_checkpoint()
+            function = self._restore_local_checkpoint()
         else:
-            return self._restore_shared_checkpoint()
+            function = self._restore_shared_checkpoint()
+        return type(function)(function.function_space(),
+                              function.dat, name=self.name, count=self.count)
 
     def _restore_shared_checkpoint(self):
         """Load function data from a shared HDF5 file via :class:`.CheckpointFile`."""
         from firedrake.checkpointing import CheckpointFile
         with CheckpointFile(self.file.name, 'r') as infile:
-            function = infile.load_function(self.mesh, self.stored_name,
-                                            idx=self.stored_index)
-        return type(function)(function.function_space(),
-                              function.dat, name=self.name, count=self.count)
+            return infile.load_function(self.mesh, self.stored_name,
+                                        idx=self.stored_index)
 
     def _restore_local_checkpoint(self):
         """Load function data via :class:`TemporaryFunctionCheckpointFile`."""
@@ -479,11 +479,9 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         with TemporaryFunctionCheckpointFile(
             self.file.checkpoint_comm, self.file.name, 'r'
         ) as infile:
-            function = infile.load_function(
+            return infile.load_function(
                 self._function_space, self.stored_name, self.stored_index
             )
-        return type(function)(function.function_space(),
-                              function.dat, name=self.name, count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
