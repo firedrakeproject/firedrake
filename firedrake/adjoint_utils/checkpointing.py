@@ -233,22 +233,19 @@ class DiskCheckpointer(TapePackageData):
                 )
             base_dir = checkpoint_dir or os.getcwd()
             if checkpoint_comm.rank == 0:
-                if cleanup:
-                    self._local_tmpdir = tempfile.TemporaryDirectory(
-                        prefix="firedrake_adjoint_checkpoint_cc_",
-                        dir=base_dir
-                    )
-                    local_path = self._local_tmpdir.name
-                else:
-                    self._local_tmpdir = None
-                    local_path = tempfile.mkdtemp(
-                        prefix="firedrake_adjoint_checkpoint_cc_",
-                        dir=base_dir
-                    )
-                self._local_dirname = checkpoint_comm.bcast(local_path)
+                # ignore_cleanup_errors avoids tracebacks if the finalizer fires
+                # during interpreter shutdown after MPI has already finalized.
+                self._local_tmpdir = tempfile.TemporaryDirectory(
+                    prefix="firedrake_adjoint_checkpoint_cc_",
+                    dir=base_dir,
+                    delete=cleanup,
+                    ignore_cleanup_errors=True,
+                )
+                local_path = self._local_tmpdir.name
             else:
                 self._local_tmpdir = None
-                self._local_dirname = checkpoint_comm.bcast(None)
+                local_path = None
+            self._local_dirname = checkpoint_comm.bcast(local_path)
         else:
             self._local_tmpdir = None
             self._local_dirname = None
