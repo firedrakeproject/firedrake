@@ -115,7 +115,7 @@ def _run_periodic_helmholtz_3d():
     V = FunctionSpace(mesh, "CG", 4)
     x = SpatialCoordinate(mesh)
 
-    u_exact_expr = x[1] * (1 - x[1]) * x[2] * (1 - x[2])
+    u_exact_expr = 42 + x[1] * (1 - x[1]) * x[2] * (1 - x[2])
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -123,7 +123,7 @@ def _run_periodic_helmholtz_3d():
     L = a(v, u_exact_expr)
 
     uh = Function(V)
-    bc = DirichletBC(V, Constant(0), [3, 4, 5, 6])
+    bc = DirichletBC(V, Constant(42), [3, 4, 5, 6])
     solve(a == L, uh, bcs=bc, solver_parameters={"ksp_type": "cg"})
 
     assert errornorm(u_exact_expr, uh, "L2") < 1E-12
