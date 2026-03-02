@@ -115,15 +115,12 @@ def _run_periodic_helmholtz_3d():
     V = FunctionSpace(mesh, "CG", 4)
     x = SpatialCoordinate(mesh)
 
-    u_exact_expr = 42 + x[1] * (1 - x[1]) * x[2] * (1 - x[2])
-    f_expr = (2 * x[2] * (1 - x[2])
-              + 2 * x[1] * (1 - x[1])
-              + u_exact_expr)
+    u_exact_expr = x[1] * (1 - x[1]) * x[2] * (1 - x[2])
 
     u = TrialFunction(V)
     v = TestFunction(V)
     a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
-    L = a(v, u_exact)
+    L = a(v, u_exact_expr)
 
     uh = Function(V)
     bc = DirichletBC(V, Constant(0), [3, 4, 5, 6])
