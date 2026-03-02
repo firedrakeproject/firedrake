@@ -294,9 +294,10 @@ class DiskCheckpointer(TapePackageData):
     def new_checkpoint_file(self):
         """Set up a disk checkpointing file."""
         warnings.warn(
-            "'new_checkpoint_file' is deprecated. Checkpoint file management "
-            "is now handled internally and this method will be removed in a "
-            "future release.",
+            "'new_checkpoint_file' is deprecated and will be removed in a "
+            "future release. Checkpoint file management is now handled "
+            "internally; to advance to a new checkpoint file call "
+            "'reset()' on the DiskCheckpointer instead.",
             FutureWarning
         )
         return self._new_checkpoint_file()
