@@ -129,7 +129,7 @@ def _run_periodic_helmholtz_3d():
     bc = DirichletBC(V, Constant(0), [3, 4, 5, 6])
     solve(a == L, uh, bcs=bc, solver_parameters={"ksp_type": "cg"})
 
-    assert errornorm(u_exact_expr, uh, "L2") < 0.01
+    assert errornorm(u_exact_expr, uh, "L2") < 1E-12
 
 
 def test_periodic_3d_solve():
