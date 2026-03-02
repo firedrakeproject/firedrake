@@ -821,6 +821,7 @@ def test_writing_large_so():
     COMM_WORLD.Barrier()
     with open("big.c", "r") as fh:
         program = fh.read()
+    COMM_WORLD.Barrier()
 
     if COMM_WORLD.rank == 1:
         os.remove("big.c")
