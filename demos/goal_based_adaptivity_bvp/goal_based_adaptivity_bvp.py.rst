@@ -33,25 +33,26 @@ Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <
     ngmesh = geo.GenerateMesh(maxh=0.1)
     mesh = Mesh(ngmesh)
 
-    V = FunctionSpace(mesh, "CG", 3)
+    degree = 3
+    V = FunctionSpace(mesh, "CG", degree)
     (x, y) = SpatialCoordinate(mesh)
 
     p = Constant(5)
     u_exact = x*(1-x)*y*(1-y)*exp(2*pi*x)*cos(pi*y)
     f = -div(inner(grad(u_exact), grad(u_exact))**((p-2)/2) * grad(u_exact))
 
+    # Since the problem is highly nonlinear, for the purposes of this demo we will
+    # cheat and pick our initial guess really close to the exact solution.
     u = Function(V, name="Solution")
     u.interpolate(0.99*u_exact)
-    v = TestFunction(V)
 
-    dx = dx(degree=20)
-    ds = ds(degree=20)
-    F = (
-          inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v))*dx
-        - inner(f, v)*dx
-        )
-    bcs = DirichletBC(V, 0, "on_boundary")
-    solver_parameters = {"snes_monitor": None,
+    v = TestFunction(V)
+    F = (inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v)) * dx
+         - inner(f, v) * dx(degree=degree+10)
+    )
+    bcs = DirichletBC(V, u_exact, "on_boundary")
+    solver_parameters = {
+                 "snes_monitor": None,
                  "snes_atol": 1e-6,
                  "snes_rtol": 1e-12,
                  "snes_linesearch_monitor": None,
@@ -71,14 +72,14 @@ and adjoint solutions with degree :math:`p` and :math:`p+1`). It is possible to 
 the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
 
     dwr_parameters = {
-        "max_iterations": 100,
-        "output_dir": "output/p-laplace",
-        "run_name": "p-laplace",
+        "max_iterations": 40,
         "use_adjoint_residual": True,
         "dual_low_method": "solve",
         "primal_low_method": "solve",
         "dorfler_alpha": 0.5,
         "dual_extra_degree": 1,
+        "run_name": "p-laplace",
+        "output_dir": "output/p-laplace",
     }
 
 We then solve the problem, passing the goal functional :math:`J` and our specified tolerance. We also pass the exact solution, so that
@@ -86,8 +87,11 @@ the DWR automation can compute effectivity indices, but this is not generally re
 
     tolerance = 1e-4
     problem = NonlinearVariationalProblem(F, u, bcs)
-    GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
-                                           exact_solution=u_exact, primal_solver_parameters=solver_parameters).solve()
+
+    adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
+                                                             exact_solution=u_exact,
+                                                             primal_solver_parameters=solver_parameters)
+    adaptive_solver.solve()
 
 The solver terminates with the goal functional computed to :math:`10^{-4}` after 7 refinements. The error estimates :math:`\eta` are very accurate: their effectivity indices
 
