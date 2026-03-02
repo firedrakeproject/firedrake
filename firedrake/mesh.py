@@ -3193,12 +3193,28 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
 def _fully_localize_coordinates(dm: PETSc.DM) -> None:
     """Expand partially localized coordinates to cover all cells.
 
-    PETSc's ``DMLocalizeCoordinates`` only creates cell-local (DG)
-    coordinates for cells that straddle the periodic boundary.  The
-    Firedrake DG coordinate path in ``reordered_coords`` expects every
-    cell to have an entry in the cell coordinate vector.  This helper
-    fills in the missing entries using the CG vertex coordinates
-    obtained via ``vecGetClosure``.
+    By default PETSc's ``DMLocalizeCoordinates`` only creates
+    cell-local (DG) coordinates for cells that straddle the periodic
+    boundary (``sparseLocalize = True``).  Full localization of every
+    cell is possible by calling ``DMSetSparseLocalize(dm, False)``
+    before ``DMLocalizeCoordinates``, and ``createBoxMesh`` already
+    accepts a ``sparseLocalize`` flag for this purpose.
+
+    For file-based periodic meshes (e.g. Gmsh) the localization
+    happens inside ``setFromOptions`` with ``sparseLocalize = True``
+    and ``DMSetSparseLocalize`` is not yet exposed in petsc4py, so
+    this helper fills in the missing cell entries using the CG vertex
+    coordinates obtained via ``vecGetClosure``.
+
+    The Firedrake DG coordinate path in ``reordered_coords`` expects
+    every cell to have an entry in the cell coordinate vector.
+
+    .. todo::
+
+        Remove this function once petsc4py exposes
+        ``DMSetSparseLocalize``; at that point we can set
+        ``sparseLocalize = False`` before ``setFromOptions`` and let
+        PETSc handle full localization natively.
 
     Parameters
     ----------
