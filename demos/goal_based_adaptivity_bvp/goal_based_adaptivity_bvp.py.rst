@@ -18,8 +18,6 @@ The dual-weighted residual (DWR) method :cite:`Becker2001` is a technique for de
 In this demo we demonstrate how to automatically apply DWR to a nonlinear stationary boundary-value problem, the :math:`p`-Laplacian:
 
 .. math::
-    :name: eq:plaplace
-
     -\nabla \cdot \left( |\nabla u|^{p-2} \nabla u \right) = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
 We solve the problem on a unit square with known analytical solution, so that we can compute effectivity indices of our error estimates.
