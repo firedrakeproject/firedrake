@@ -262,7 +262,7 @@ class DiskCheckpointer(TapePackageData):
             checkpoint_file = None
         checkpoint_file = self.comm.bcast(checkpoint_file)
         # Let h5py create a file at this location just to be sure.
-        with CheckpointFile(checkpoint_file, 'w'):
+        with CheckpointFile(checkpoint_file, 'w', comm=self.comm):
             pass
         return CheckPointFileReference(checkpoint_file, self.comm,
                                        self.cleanup)
@@ -445,7 +445,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     def _save_shared_checkpoint(self, function):
         """Save function data to a shared HDF5 file via CheckpointFile."""
         from firedrake.checkpointing import CheckpointFile
-        with CheckpointFile(self.file.name, 'a') as outfile:
+        with CheckpointFile(self.file.name, 'a', self.file.comm) as outfile:
             outfile.save_function(function, name=self.stored_name,
                                   idx=self.stored_index)
 
@@ -469,7 +469,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     def _restore_shared_checkpoint(self):
         """Load function data from a shared HDF5 file via :class:`.CheckpointFile`."""
         from firedrake.checkpointing import CheckpointFile
-        with CheckpointFile(self.file.name, 'r') as infile:
+        with CheckpointFile(self.file.name, 'r', comm=self.file.comm) as infile:
             return infile.load_function(self.mesh, self.stored_name,
                                         idx=self.stored_index)
 
