@@ -398,12 +398,12 @@ class GoalAdaptiveNonlinearVariationalSolver():
             eff2 = eta_cell_total / eta
             self.eff1_vec.append(eff1)
             self.eff2_vec.append(eff2)
-            self.print(f'{"Effectivity index 1":45s}{"eta_h/eta:":8s}{eff1:7.4f}')
-            self.print(f'{"Effectivity index 2":45s}{"Σeta_K/eta:":8s}{eff2:7.4f}')
+            self.print(f'{"Effectivity index":45s}{"eta_h/eta:":8s}{eff1:7.4f}')
+            self.print(f'{"Localisation efficiency":45s}{"Σeta_K/eta:":8s}{eff2:7.4f}')
         else:
             eff3 = eta_cell_total / eta_h
             self.eff3_vec.append(eff3)
-            self.print(f'{"Effectivity index:":45s}{"Σeta_K/eta_h:":8s}{eff3:7.4f}')
+            self.print(f'{"Localisation efficiency:":45s}{"Σeta_K/eta_h:":8s}{eff3:7.4f}')
 
     def set_adaptive_cell_markers(self, eta_cell):
         """Mark cells for refinement (Dorfler marking)"""
