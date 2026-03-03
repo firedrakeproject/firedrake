@@ -28,7 +28,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.record
-from pyop3.cache import cached_on, CacheMixin, memory_cache
+from pyop3.cache import cached_on, memory_cache
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
@@ -214,7 +214,7 @@ class UnrecognisedAxisException(ValueError):
 
 
 # TODO: This is going to need some (trivial) tree manipulation routines
-class _UnitAxisTree(CacheMixin):
+class _UnitAxisTree:
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
@@ -593,7 +593,7 @@ class AxisComponent(LabelledNodeComponent):
             return self
 
 
-class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
+class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
     fields = MultiComponentLabelledNode.fields | {"components"}
 
     def __init__(
@@ -612,7 +612,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
 
         self.components = components
         super().__init__(label=label)
-        CacheMixin.__init__(self)
 
     def __eq__(self, other):
         return (

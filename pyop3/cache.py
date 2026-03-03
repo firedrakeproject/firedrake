@@ -151,18 +151,6 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-class CacheMixin:
-    """Mixin class for objects that may be treated as a cache."""
-    def __init__(self):
-        self._cache = {}
-
-    def cache_get(self, key):
-        return self._cache[key]
-
-    def cache_set(self, key, value):
-        self._cache[key] = value
-
-
 def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
     """ Filter PyOP2 caches based on communicator, function or cache type.
     """
