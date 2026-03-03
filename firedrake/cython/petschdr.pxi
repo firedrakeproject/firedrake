@@ -103,6 +103,8 @@ cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     PetscErrorCode DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
 
+    PetscErrorCode DMGetPeriodicity(PETSc.PetscDM,PetscReal *[], PetscReal *[], PetscReal *[])
+
 cdef extern from "petscdmswarm.h" nogil:
     PetscErrorCode DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
     PetscErrorCode DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
