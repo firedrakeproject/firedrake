@@ -1067,6 +1067,7 @@ class FunctionSpace:
         is_.setBlockSize(self.block_size)
         return (is_,)
 
+    @cached_on(lambda self: self.mesh().unique().topology)
     def _make_local_section(self):
         dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)

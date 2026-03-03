@@ -16,7 +16,7 @@ import loopy
 import numpy as np
 import pyop3 as op3
 import ufl
-from pyop3.cache import serial_cache
+from pyop3.cache import heavy_caches, serial_cache
 from pyop3 import READ, WRITE, RW, INC, MIN_WRITE as MIN, MAX_WRITE as MAX
 from pyop3.expr.visitors import evaluate as eval_expr
 from pyop3.utils import readonly
@@ -302,23 +302,24 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         domain, = domains
         mesh = domain
 
-    kernel_domains, instructions = kernel
-    function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
-
-    if measure is direct:
-        raise NotImplementedError("Need to loop over nodes...")
-    else:
-        iter_spec = get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
-
-    packed_args = []
-    for arg, _ in args.values():
-        if isinstance(arg, Indexed):
-            raise NotImplementedError("TODO")
+    with heavy_caches({mesh.topology}):
+        kernel_domains, instructions = kernel
+        function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 
         if measure is direct:
-            packed_arg = arg[iter_spec.loop_index]
+            raise NotImplementedError("Need to loop over nodes...")
         else:
-            packed_arg = pack(arg, iter_spec)
-        packed_args.append(packed_arg)
+            iter_spec = get_iteration_spec(mesh, measure.integral_type(), measure.subdomain_id())
 
-    op3.loop(iter_spec.loop_index, function(*packed_args), eager=True)
+        packed_args = []
+        for arg, _ in args.values():
+            if isinstance(arg, Indexed):
+                raise NotImplementedError("TODO")
+
+            if measure is direct:
+                packed_arg = arg[iter_spec.loop_index]
+            else:
+                packed_arg = pack(arg, iter_spec)
+            packed_args.append(packed_arg)
+
+        op3.loop(iter_spec.loop_index, function(*packed_args), eager=True)
