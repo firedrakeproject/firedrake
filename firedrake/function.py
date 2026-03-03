@@ -21,6 +21,7 @@ from typing import Tuple
 from mpi4py import MPI
 
 import pyop3 as op3
+from pyop3.cache import with_heavy_caches
 from pyop3.mpi import internal_comm
 
 from finat.ufl import MixedElement
@@ -48,6 +49,9 @@ class _CFunction(ctypes.Structure):
                 ("f_map", POINTER(as_ctypes(IntType))),
                 ("f_offset", c_int),
                 ("sidx", c_void_p)]
+
+
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.function_space().mesh().unique().topology)
 
 
 class CoordinatelessFunction(ufl.Coefficient):
@@ -423,6 +427,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
+    @_with_mesh_heavy_cache
     def assign(self, expr, subset=None, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 

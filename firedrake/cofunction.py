@@ -6,6 +6,7 @@ import ufl
 import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from pyop3 import mpi
+from pyop3.cache import with_heavy_caches
 from ufl.form import BaseForm
 from finat.ufl import MixedElement
 
@@ -20,6 +21,9 @@ from firedrake.petsc import PETSc
 
 
 __all__ = ["Cofunction", "RieszMap"]
+
+
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.function_space().mesh().unique().topology)
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):
@@ -185,6 +189,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
+    @_with_mesh_heavy_cache
     def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 

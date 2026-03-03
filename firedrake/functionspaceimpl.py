@@ -100,6 +100,9 @@ def _mesh_cached(func):
     return cached_on(lambda self: self.mesh().topology)(func)
 
 
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.mesh().unique().topology)
+
+
 @functools.lru_cache()
 def _num_entity_dofs(element):
     ndofs = {}
@@ -1025,7 +1028,8 @@ class FunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @utils.cached_property
+    @cached_property
+    @_with_mesh_heavy_cache
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this set of axes."""
         vec = PETSc.Vec().create(comm=self.comm)
@@ -1143,8 +1147,9 @@ class FunctionSpace:
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self.cell_node_dat.data_ro
 
-    # old
+    # old, there is a general answer
     @cached_property
+    @_with_mesh_heavy_cache
     def cell_node_dat(self) -> op3.Dat:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
@@ -1316,6 +1321,7 @@ class FunctionSpace:
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count` ."""
         return self.template_vec.getSize()
 
+    @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
         if val is not None:
@@ -1803,6 +1809,7 @@ class MixedFunctionSpace:
         return tuple(ises)
 
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
+    @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
@@ -1896,6 +1903,7 @@ class ProxyFunctionSpace(FunctionSpace):
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
 
+    @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
 
@@ -1945,6 +1953,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
 
+    @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
 

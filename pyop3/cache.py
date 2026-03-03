@@ -552,6 +552,9 @@ def parallel_cache(
         def wrapper(*args, **kwargs):
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
                 if heavy and len(_heavy_caches) == 0:
+                    LOGGER.debug(
+                        f"{func.__qualname__} is heavy cached but no heavy cache has been set"
+                    )
                     caches = (AlwaysEmptyDict(),)
                     cache_type = AlwaysEmptyDict
                     value = CACHE_MISS
@@ -725,3 +728,7 @@ def with_heavy_caches(get_obj: Callable) -> Callable:
                 return func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: {self})
+"""Method decorator that sets ``self`` as a heavy cache."""

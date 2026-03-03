@@ -5,7 +5,7 @@ import islpy as isl
 
 import finat
 import pyop3 as op3
-from pyop3.cache import serial_cache
+from pyop3.cache import serial_cache, with_heavy_caches
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from finat.element_factory import create_element
@@ -16,6 +16,7 @@ from ufl.domain import extract_unique_domain
 
 
 @PETSc.Log.EventDecorator()
+@with_heavy_caches(lambda extr_top, *a, **kw: {extr_top})
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                          layer_height, extrusion_type='uniform', kernel=None):
     """

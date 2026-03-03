@@ -1196,21 +1196,20 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         pass
 
-    # TODO: globally cache this
-    @property
+    @cached_property
     @memory_cache(heavy=True, get_comm=lambda self: self.comm)
     def _subst_layouts_default(self):
-        global mycount, myreprs
-
-        mycount+= 1
-
-        if (type(self), str(self)) in myreprs and self not in seen:
-            breakpoint()
-        myreprs.add((type(self), str(self)))
-        seen.add(self)
-
-        if mycount > 100:
-            breakpoint()
+        # global mycount, myreprs
+        #
+        # mycount+= 1
+        #
+        # if (type(self), str(self)) in myreprs and self not in seen:
+        #     breakpoint()
+        # myreprs.add((type(self), str(self)))
+        # seen.add(self)
+        #
+        # if mycount > 100:
+        #     breakpoint()
         return subst_layouts(self, self._matching_target, self.layouts)
 
     @property

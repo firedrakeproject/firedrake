@@ -32,7 +32,7 @@ from cachetools import cachedmethod
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
-from pyop3.cache import memory_cache, with_heavy_caches
+from pyop3.cache import memory_cache, with_self_heavy_cache
 from pyop3.pyop2_utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
@@ -939,7 +939,7 @@ class AbstractMeshTopology(abc.ABC):
         return self._closure_map(ClosureOrdering.FIAT)
 
     # TODO: remove _fiat_closure and _plex_closure and just cache this method
-    @with_heavy_caches(lambda self: self)
+    @with_self_heavy_cache
     def _closure_map(self, ordering):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)
@@ -2002,16 +2002,19 @@ class MeshTopology(AbstractMeshTopology):
         return 0
 
     @cached_property
+    @with_self_heavy_cache
     def cells(self) -> op3.IndexedAxisTree:
         # TODO: Implement and use 'FullComponentSlice' (or similar)
         cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)], label=self.name)
         return self.points[cell_slice]
 
     @cached_property
+    @with_self_heavy_cache
     def facets(self):
         return self.points[self.facet_label]
 
     @cached_property
+    @with_self_heavy_cache
     def vertices(self):
         return self.points[self.vertex_label]
 
