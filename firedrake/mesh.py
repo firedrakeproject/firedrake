@@ -2332,7 +2332,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         utils._init()
 
         element = coordinates.ufl_element()
-        uid = utils._new_uid(internal_comm(coordinates.comm, self))
+        uid = utils._new_uid(coordinates.comm)
         super().__init__(element, ufl_id=uid)
 
         topology = coordinates.function_space().mesh()
