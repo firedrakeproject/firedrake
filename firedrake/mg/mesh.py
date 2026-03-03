@@ -7,8 +7,9 @@ from pyop2.datatypes import IntType
 import petsctools
 import firedrake
 import firedrake.cython.dmcommon as dmcommon
+from functools import cached_property
+
 from firedrake import utils
-from firedrake.utils import cached_property
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
 
