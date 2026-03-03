@@ -149,15 +149,13 @@ class CheckPointFileReference:
     """A filename which deletes the associated file when it is destroyed."""
     def __init__(self, name, comm, cleanup=False, checkpoint_comm=None):
         self.name = name
+        self.comm = comm
         self.cleanup = cleanup
         self.checkpoint_comm = checkpoint_comm
-        # Resolve the right comm for file deletion once at construction time so
-        # __del__ does not need to branch on checkpoint_comm.
-        self._cleanup_comm = checkpoint_comm if checkpoint_comm is not None else comm
 
     def __del__(self):
         if self.cleanup and os.path.exists(self.name):
-            if self._cleanup_comm.rank == 0:
+            if self.comm.rank == 0:
                 os.remove(self.name)
         # Prune the index-tracking entry for this file from CheckpointFunction.
         # This is safe for the following reasons:
@@ -281,7 +279,7 @@ class DiskCheckpointer(TapePackageData):
         # file.
         with TemporaryFunctionCheckpointFile(self.checkpoint_comm, filepath, 'w'):
             pass
-        return CheckPointFileReference(filepath, self.comm, self.cleanup,
+        return CheckPointFileReference(filepath, self.checkpoint_comm, self.cleanup,
                                        checkpoint_comm=self.checkpoint_comm)
 
     def _new_checkpoint_file(self):
@@ -374,9 +372,9 @@ def checkpointable_mesh(mesh):
             "No current checkpoint file. Call enable_disk_checkpointing()."
         )
 
-    with CheckpointFile(checkpoint_file.name, 'a') as outfile:
+    with CheckpointFile(checkpoint_file.name, 'a', comm=checkpoint_file.comm) as outfile:
         outfile.save_mesh(mesh)
-    with CheckpointFile(checkpoint_file.name, 'r') as outfile:
+    with CheckpointFile(checkpoint_file.name, 'r', comm=checkpoint_file.comm) as outfile:
         return outfile.load_mesh(mesh.name)
 
 
