@@ -25,7 +25,7 @@ import pyop3 as op3
 import ufl
 from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
-from pyop3.cache import cached_on
+from pyop3.cache import cached_on, with_heavy_caches
 from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
@@ -94,6 +94,10 @@ def check_element(element, top=True):
         inner = ()
     for e in inner:
         check_element(e, top=False)
+
+
+def _mesh_cached(func):
+    return cached_on(lambda self: self.mesh().topology)(func)
 
 
 @functools.lru_cache()
@@ -779,6 +783,8 @@ class FunctionSpace:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
+    @_mesh_cached
+    @with_heavy_caches(lambda self: self.mesh().unique().topology)
     def axis_constraints(self) -> tuple[AxisConstraint]:
         from firedrake.cython import dmcommon
 
@@ -855,6 +861,7 @@ class FunctionSpace:
         return tuple(constraints)
 
     @cached_property
+    @with_heavy_caches(lambda self: self.mesh().unique().topology)
     def axes(self) -> op3.AxisForest:
         return op3.AxisForest([self.plex_axes, self.nodal_axes])
 

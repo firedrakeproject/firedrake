@@ -32,7 +32,7 @@ from cachetools import cachedmethod
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
-from pyop3.cache import memory_cache
+from pyop3.cache import memory_cache, with_heavy_caches
 from pyop3.pyop2_utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
@@ -939,6 +939,7 @@ class AbstractMeshTopology(abc.ABC):
         return self._closure_map(ClosureOrdering.FIAT)
 
     # TODO: remove _fiat_closure and _plex_closure and just cache this method
+    @with_heavy_caches(lambda self: self)
     def _closure_map(self, ordering):
         # if ordering is a string (e.g. "fiat") then convert to an enum
         ordering = ClosureOrdering(ordering)

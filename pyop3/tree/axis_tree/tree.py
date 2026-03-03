@@ -28,7 +28,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.record
-from pyop3.cache import cached_on, CacheMixin
+from pyop3.cache import cached_on, CacheMixin, memory_cache
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
@@ -67,6 +67,12 @@ from pyop3.utils import (
 if typing.TYPE_CHECKING:
     from pyop3.expr import LinearDatBufferExpression
     from pyop3.types import *
+
+
+# debugging
+mycount = 0
+myreprs = set()
+seen = set()
 
 
 
@@ -957,30 +963,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         return get_block_shape(self)
 
-    @cached_property
-    def source_path(self):
-        assert False, "old code?"
-        # return self.paths[-1]
-        return self._match_path_and_exprs(self)[0]
-
-    @cached_property
-    def target_path(self):
-        assert False, "old code?"
-        # return self.paths[0]
-        return self._match_path_and_exprs(self.unindexed)[0]
-
-    @property
-    def source_exprs(self):
-        assert False, "old code?"
-        # return self.index_exprs[-1]
-        return self._match_path_and_exprs(self)[1]
-
-    @property
-    def target_exprs(self):
-        assert False, "old code?"
-        # return self.index_exprs[0]
-        return self._match_path_and_exprs(self.unindexed)[1]
-
     @property
     @abc.abstractmethod
     def layouts(self):
@@ -1214,8 +1196,21 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
         pass
 
-    @cached_property
+    # TODO: globally cache this
+    @property
+    @memory_cache(heavy=True, get_comm=lambda self: self.comm)
     def _subst_layouts_default(self):
+        global mycount, myreprs
+
+        mycount+= 1
+
+        if (type(self), str(self)) in myreprs and self not in seen:
+            breakpoint()
+        myreprs.add((type(self), str(self)))
+        seen.add(self)
+
+        if mycount > 100:
+            breakpoint()
         return subst_layouts(self, self._matching_target, self.layouts)
 
     @property
