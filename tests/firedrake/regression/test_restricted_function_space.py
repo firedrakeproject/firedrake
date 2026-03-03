@@ -279,10 +279,10 @@ def test_restricted_function_space_extrusion_basics():
         lgmap_expected = [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
     assert np.allclose(lgmap.indices, lgmap_expected)
     # Check vec.
-    n = V_res.dof_dset.size
+    n = V_res.axes.owned.local_size
     lgmap_owned = lgmap.indices[:n]
     local_global_filter = lgmap_owned >= 0
-    local_array = 1.0 * np.arange(V_res.dof_dset.total_size)
+    local_array = 1.0 * np.arange(V_res.axes.local_size)
     f = Function(V_res)
     f.dat.data_wo_with_halos[:] = local_array
     with f.dat.vec_rw as v:

@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 
 def assert_local_equality(A, Asub, V, Vsub):
     u = Function(V)
-    u.dat.data[:] = np.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+    u.dat.data[:] = np.arange(*V.template_vec.getOwnershipRange())
     usub = Function(Vsub).assign(u)
     indices = usub.dat.data_ro.astype(PETSc.IntType)
     rmap = PETSc.LGMap().create(indices, comm=A.getComm())

@@ -69,13 +69,13 @@ class ASMPatchPC(PCBase):
                 ordering = opts.getString("mat_ordering_type", default=sentinel)
                 asmpc.setASMSortIndices(ordering is sentinel)
 
-            lgmap = V.dof_dset.lgmap
+            lgmap = V._lgmap
             # Translate to global numbers
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
             asmpc.setASMLocalSubdomains(len(ises), ises)
         elif backend == "tinyasm":
             _, P = asmpc.getOperators()
-            lgmap = V.dof_dset.lgmap
+            lgmap = V._lgmap
             P.setLGMap(rmap=lgmap, cmap=lgmap)
 
             asmpc.setType("tinyasm")
@@ -84,7 +84,7 @@ class ASMPatchPC(PCBase):
                 asmpc, ises,
                 [W.dm.getDefaultSF() for W in V],
                 [W.block_size for W in V],
-                sum(W.block_size * W.dof_dset.total_size for W in V))
+                sum(W.block_size * W.axes.local_size for W in V))
             asmpc.setUp()
         else:
             raise ValueError(f"Unknown backend type {backend}")

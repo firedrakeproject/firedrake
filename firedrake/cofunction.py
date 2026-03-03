@@ -387,21 +387,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 
-    @property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
-        :class:`Cofunction`. One or (for rank-1 and 2
-        :class:`.FunctionSpace`\s) more degrees of freedom are stored
-        at each node.
-        """
-        return self.function_space().node_set
-
-    @property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Cofunction`."""
-        return self.function_space().dof_dset
-
     def ufl_id(self):
         return self.uid
 

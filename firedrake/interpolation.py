@@ -870,6 +870,9 @@ def _build_interpolation_callables(
     tuple[Callable, ...]
         Tuple of callables which perform the interpolation.
     """
+    if pyop3_compiler_parameters is None:
+        pyop3_compiler_parameters = {}
+
     if isinstance(expr, ZeroBaseForm):
         # Zero simplification, avoid code-generation
         if access is op3.INC:

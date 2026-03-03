@@ -273,7 +273,7 @@ class FDMPC(PCBase):
                 own = Vrow.template_vec.getLocalSize()
                 bdofs = numpy.flatnonzero(self.lgmaps[Vrow].indices[:own] < 0).astype(PETSc.IntType)[:, None]
                 if assemble_sparsity:
-                    Vrow.dof_dset.lgmap.apply(bdofs, result=bdofs)
+                    Vrow._lgmap.apply(bdofs, result=bdofs)
                     assembly_callables.append(P.assemble)
                     assembly_callables.append(partial(P.zeroRows, bdofs, 1.0))
                 else:
@@ -396,7 +396,7 @@ class FDMPC(PCBase):
             J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
         elif len(V) == 2:
             J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
-            ises = V.dof_dset.field_ises
+            ises = V.field_ises
             Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
             Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
             unindexed = {Vsub: Vsub.collapse() for Vsub in V}
@@ -517,7 +517,7 @@ class FDMPC(PCBase):
             from firedrake.assemble import assemble
             bdiags = []
             M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
-            for iset in Z.dof_dset.field_ises:
+            for iset in Z.field_ises:
                 sub = M.petscmat.createSubMatrix(iset, iset)
                 ctx = sub.getPythonContext()
                 bdiags.append(ctx._block_diagonal)
@@ -686,8 +686,8 @@ class FDMPC(PCBase):
     @cached_property
     def assembly_lgmaps(self):
         if self.mat_type != "is":
-            return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        return {Vsub: unghosted_lgmap(Vsub, Vsub.dof_dset.lgmap, self.allow_repeated) for Vsub in self.V}
+            return {Vsub: Vsub._lgmap for Vsub in self.V}
+        return {Vsub: unghosted_lgmap(Vsub, Vsub._lgmap, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
         """Preallocate the auxiliary sparse operator."""

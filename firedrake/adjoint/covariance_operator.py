@@ -1065,7 +1065,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
-    sizes = covariance.function_space().dof_dset.layout_vec.getSizes()
+    sizes = covariance.function_space().template_vec.getSizes()
 
     mat = PETSc.Mat().createPython(
         (sizes, sizes), ctx, comm=ctx.comm)
