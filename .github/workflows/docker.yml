@@ -41,18 +41,11 @@ jobs:
       matrix:
         os: [Linux, macOS]
         arch: [default, complex]
-        platform: [linux/amd64, linux/arm64]
-        # Cannot use inputs in exclude clauses, so add a dummy matrix dim
-        build_dev:
-          - ${{ inputs.build_dev }}
-        # exclude incompatible os+platform, and only build linux dev containers
-        exclude:
-          - os: Linux
-            platform: linux/arm64
-          - os: macOS
-            platform: linux/amd64
-          - os: macOS
-            build_dev: true
+        include:
+        - os: Linux
+          platform: linux/amd64
+        - os: macOS
+          platform: linux/arm64
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
@@ -82,13 +75,17 @@ jobs:
     if: ${{ ! inputs.build_dev }}
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
-    # Only build the 'firedrake' container for 'linux/amd64' because
-    # VTK (https://gitlab.kitware.com/vtk/vtk/-/issues/18772) and
-    # netgen-mesher do not have ARM wheels so many Firedrake apps cannot
-    # be installed.
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+        - os: Linux
+          platform: linux/amd64
+        - os: macOS
+          platform: linux/arm64
     with:
-      os: Linux
-      platform: linux/amd64
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
       target: firedrake
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
@@ -100,29 +97,6 @@ jobs:
     needs: docker_build_firedrake
     with:
       target: firedrake
-      tag: ${{ inputs.tag }}
-      tag_latest: ${{ ! inputs.build_dev }}
-    secrets: inherit
-
-  # Firedrake with Jupyter notebooks
-  docker_build_jupyter:
-    if: ${{ ! inputs.build_dev }}
-    needs: docker_merge_firedrake
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: Linux
-      platform: linux/amd64
-      target: firedrake-jupyter
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.jupyter
-    secrets: inherit
-
-  docker_merge_jupyter:
-    if: ${{ ! inputs.build_dev }}
-    uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_jupyter
-    with:
-      target: firedrake-jupyter
       tag: ${{ inputs.tag }}
       tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit

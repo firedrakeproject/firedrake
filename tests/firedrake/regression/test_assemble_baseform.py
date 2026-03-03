@@ -112,25 +112,43 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
-def test_scalar_formsum(f):
+@pytest.mark.parametrize("scale", ["float", "numpy", "ufl", "Constant", "Real"])
+def test_scalar_formsum(f, scale):
     c = Cofunction(f.function_space().dual())
     c.assign(1)
 
     q = action(c, f)
     expected = 2 * assemble(q)
 
-    formsum = 1.5 * q + 0.5 * q
+    s1 = 1.5
+    s2 = 0.5
+    if scale == "numpy":
+        s1 = np.asarray(s1)
+        s2 = np.asarray(s2)
+    elif scale == "ufl":
+        s1 = as_ufl(s1)
+        s2 = as_ufl(s2)
+    elif scale == "Constant":
+        s1 = Constant(s1)
+        s2 = Constant(s2)
+    elif scale == "Real":
+        mesh = f.function_space().mesh()
+        R = FunctionSpace(mesh.unique(), "R", 0)
+        s1 = Function(R, val=s1)
+        s2 = Function(R, val=s2)
+
+    formsum = s1 * q + s2 * q
     assert isinstance(formsum, ufl.form.FormSum)
     res2 = assemble(formsum)
     assert res2 == expected
 
-    mesh = f.function_space().mesh()
+    mesh = f.function_space().mesh().unique()
     R = FunctionSpace(mesh, "R", 0)
     tensor = Cofunction(R.dual())
 
-    out = assemble(formsum, tensor=tensor)
-    assert out is tensor
-    assert tensor.dat.data[0] == expected
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+    assert result.dat.data_ro.item() == expected
 
 
 def test_vector_formsum(a):
@@ -139,7 +157,7 @@ def test_vector_formsum(a):
     formsum = res + a
     res2 = assemble(formsum)
 
-    assert isinstance(formsum, ufl.form.FormSum)
+    assert isinstance(formsum, ufl.FormSum)
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
     for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
@@ -163,6 +181,37 @@ def test_matrix_formsum(M):
     out = assemble(formsum, tensor=res2)
     assert out is res2
     assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+
+def test_formsum_vector_self(a):
+    operand = assemble(a)
+    tensor = assemble(a)
+
+    w = (42, 3.1416, 666)
+    formsum = w[0] * tensor + w[1] * operand + w[2] * tensor
+    assert isinstance(formsum, ufl.FormSum)
+
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+
+    expected = assemble(Constant(sum(w)) * a)
+    for f, f2 in zip(expected.subfunctions, result.subfunctions):
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
+
+
+def test_formsum_matrix_self(M):
+    operand = assemble(M)
+    tensor = assemble(M)
+
+    w = (42, 3.1416, 666)
+    formsum = w[0] * tensor + w[1] * operand + w[2] * tensor
+    assert isinstance(formsum, ufl.FormSum)
+
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+
+    expected = assemble(Constant(sum(w)) * M)
+    assert np.allclose(expected.petscmat[:, :], result.petscmat[:, :], rtol=1E-14)
 
 
 def test_zero_form(M, f, one):

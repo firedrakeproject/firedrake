@@ -7,11 +7,10 @@ from ufl import (Mesh, FunctionSpace, Coefficient,
 from finat.ufl import FiniteElement, VectorElement, TensorElement
 
 from tsfc import compile_expression_dual_evaluation
-from finat.element_factory import create_element
 
 
 @pytest.fixture(params=[interval, quadrilateral, hexahedron],
-                ids=lambda x: x.cellname())
+                ids=lambda x: x.cellname)
 def mesh(request):
     return Mesh(VectorElement("P", request.param, 1))
 
@@ -29,9 +28,8 @@ def element(request, mesh):
 def flop_count(mesh, source, target):
     Vtarget = FunctionSpace(mesh, target)
     Vsource = FunctionSpace(mesh, source)
-    to_element = create_element(Vtarget.ufl_element())
     expr = Coefficient(Vsource)
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vtarget.ufl_element())
+    kernel = compile_expression_dual_evaluation(expr, Vtarget.ufl_element())
     return kernel.flop_count
 
 
@@ -44,7 +42,7 @@ def test_sum_factorisation(mesh, element):
         flops.append(flop_count(mesh, element(int(lo)), element(int(hi))))
     flops = numpy.asarray(flops)
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
-    assert (rates < (mesh.topological_dimension()+1)).all()
+    assert (rates < (mesh.topological_dimension+1)).all()
 
 
 def test_sum_factorisation_scalar_tensor(mesh, element):

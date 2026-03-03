@@ -158,7 +158,7 @@ def test_macro_multigrid_poisson(hierarchy, degree, variant, petsc_raises):
         solver.solve()
 
     expected = 10
-    if mesh.geometric_dimension() == 3 and variant == "alfeld":
+    if mesh.geometric_dimension == 3 and variant == "alfeld":
         expected = 14
     assert solver.snes.ksp.getIterationNumber() <= expected
 

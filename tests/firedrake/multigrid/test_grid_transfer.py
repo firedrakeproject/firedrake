@@ -59,18 +59,14 @@ def hierarchy(cell, refinements_per_level):
     return hierarchy
 
 
-@pytest.fixture(params=[False, True],
-                ids=["scalar", "vector"])
-def vector(request):
+@pytest.fixture(params=["scalar", "vector"])
+def shape(request):
     return request.param
 
 
 @pytest.fixture(params=["injection", "restriction", "prolongation"])
 def transfer_type(request, hierarchy):
-    if not hierarchy.nested and request.param == "injection":
-        return pytest.mark.xfail(reason="Supermesh projections not implemented yet")(request.param)
-    else:
-        return request.param
+    return request.param
 
 
 @pytest.fixture
@@ -81,58 +77,65 @@ def degrees(space):
         return (0, 1, 2)
 
 
-def element(space, cell, degree, vector):
-    if vector:
-        return VectorElement(space, cell, degree)
+def element(family, cell, degree, shape):
+    if shape == "symmetric-tensor":
+        return TensorElement(family, cell=cell, degree=degree, symmetry=True)
+    elif shape == "vector":
+        return VectorElement(family, cell=cell, degree=degree)
+    elif shape == "scalar":
+        return FiniteElement(family, cell=cell, degree=degree)
     else:
-        return FiniteElement(space, cell, degree)
+        raise ValueError(f"Unrecognized shape {shape}")
 
 
-def exact_primal(mesh, vector, degree):
+def exact_primal(mesh, shape, degree):
     x = SpatialCoordinate(mesh)
+    dim = len(x)
     expr = sum(pow(X, degree) for X in x)
-    if vector:
-        expr = as_vector([(-1)**i * expr for i in range(len(x))])
+    if shape == "vector":
+        expr = as_vector([(-1)**i * expr for i in range(dim)])
+    elif shape == "symmetric-tensor":
+        expr = as_tensor([[(-1)**(i+j) * expr for j in range(dim)] for i in range(dim)])
     return expr
 
 
-def run_injection(hierarchy, vector, space, degrees, exact=exact_primal):
+def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
 
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
 
-        actual = assemble(interpolate(exact(mesh, vector, degree), V))
+        actual = assemble(interpolate(exact(mesh, shape, degree), V))
 
         for mesh in reversed(hierarchy[:-1]):
             V = FunctionSpace(mesh, Ve)
-            expect = assemble(interpolate(exact(mesh, vector, degree), V))
+            expect = assemble(interpolate(exact(mesh, shape, degree), V))
             tmp = Function(V)
             inject(actual, tmp)
             actual = tmp
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_prolongation(hierarchy, vector, space, degrees, exact=exact_primal):
+def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
 
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
 
-        actual = assemble(interpolate(exact(mesh, vector, degree), V))
+        actual = assemble(interpolate(exact(mesh, shape, degree), V))
 
         for mesh in hierarchy[1:]:
             V = FunctionSpace(mesh, Ve)
-            expect = assemble(interpolate(exact(mesh, vector, degree), V))
+            expect = assemble(interpolate(exact(mesh, shape, degree), V))
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_restriction(hierarchy, vector, space, degrees):
+def run_restriction(hierarchy, shape, space, degrees):
     def victim(V):
         return Function(V).assign(1)
 
@@ -144,7 +147,7 @@ def run_restriction(hierarchy, vector, space, degrees):
         return assemble(action(dual, victim))
 
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, vector)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
         for cmesh, fmesh in zip(hierarchy[:-1], hierarchy[1:]):
             Vc = FunctionSpace(cmesh, Ve)
             Vf = FunctionSpace(fmesh, Ve)
@@ -161,38 +164,58 @@ def run_restriction(hierarchy, vector, space, degrees):
             assert numpy.allclose(fine_functional, coarse_functional)
 
 
-def test_grid_transfer(hierarchy, vector, space, degrees, transfer_type):
-    if not hierarchy.nested and transfer_type == "injection":
+def run_transfer(mh, shp, family, deg, transfer_op):
+    if not mh.nested and mh.refinements_per_level > 1:
         pytest.skip("Not implemented")
-    if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
+    if transfer_op == "injection":
+        if not mh.nested:
+            pytest.skip("Supermesh projections not implemented yet")
+        if family in {"DG", "DQ"} and complex_mode:
             with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, vector, space, degrees)
+                run_injection(mh, shp, family, deg)
         else:
-            run_injection(hierarchy, vector, space, degrees)
-    elif transfer_type == "restriction":
-        run_restriction(hierarchy, vector, space, degrees)
-    elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, vector, space, degrees)
+            run_injection(mh, shp, family, deg)
+    elif transfer_op == "restriction":
+        run_restriction(mh, shp, family, deg)
+    elif transfer_op == "prolongation":
+        run_prolongation(mh, shp, family, deg)
+    else:
+        raise ValueError(f"Invalid transfer {transfer_op}")
+
+
+def test_grid_transfer(hierarchy, shape, space, degrees, transfer_type):
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
 
 
 @pytest.mark.parallel(nprocs=2)
 def test_grid_transfer_parallel(hierarchy, transfer_type):
     space = "CG"
     degrees = (1, 2, 3)
-    vector = False
-    if not hierarchy.nested and hierarchy.refinements_per_level > 1:
-        pytest.skip("Not implemented")
-    if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, vector, space, degrees)
-        else:
-            run_injection(hierarchy, vector, space, degrees)
-    elif transfer_type == "restriction":
-        run_restriction(hierarchy, vector, space, degrees)
-    elif transfer_type == "prolongation":
-        run_prolongation(hierarchy, vector, space, degrees)
+    shape = "scalar"
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("transfer_type", ["prolongation", "restriction", "injection"])
+def test_grid_transfer_symmetric(transfer_type):
+    base = UnitSquareMesh(3, 3)
+    hierarchy = MeshHierarchy(base, 1)
+
+    space = "Lagrange"
+    degrees = (1,)
+    shape = "symmetric-tensor"
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parametrize("transfer_type", ["prolongation", "restriction", "injection"])
+def test_grid_transfer_KMV(transfer_type):
+    base = UnitSquareMesh(3, 3)
+    hierarchy = MeshHierarchy(base, 1)
+
+    space = "KMV"
+    degrees = (2, 5)
+    shape = "scalar"
+    run_transfer(hierarchy, shape, space, degrees, transfer_type)
 
 
 @pytest.fixture(params=["interval-interval",
@@ -253,19 +276,10 @@ def deformed_transfer_type(request, deformed_hierarchy):
 def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
     space = "Lagrange"
     degrees = (1, 2)
-    vector = False
+    shape = "scalar"
     if not deformed_hierarchy.nested and deformed_transfer_type == "injection":
         pytest.skip("Not implemented")
-    if deformed_transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(deformed_hierarchy, vector, space, degrees[:1])
-        else:
-            run_injection(deformed_hierarchy, vector, space, degrees[:1])
-    elif deformed_transfer_type == "restriction":
-        run_restriction(deformed_hierarchy, vector, space, degrees)
-    elif deformed_transfer_type == "prolongation":
-        run_prolongation(deformed_hierarchy, vector, space, degrees)
+    run_transfer(deformed_hierarchy, shape, space, degrees[:1], deformed_transfer_type)
 
 
 @pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"], scope="module")
@@ -296,30 +310,33 @@ def periodic_space(request, periodic_cell):
         return request.param
 
 
-def exact_primal_periodic(mesh, vector, degree):
+def exact_primal_periodic(mesh, shape, degree):
     x = SpatialCoordinate(mesh)
-    if len(x) == 1:
+    dim = len(x)
+    if dim == 1:
         expr = (1 - x[0]) * x[0]
-    elif len(x) == 2:
+    elif dim == 2:
         expr = (1 - x[0]) * x[0] + \
                (1 - x[1]) * x[1] * x[1]
-    elif len(x) == 3:
+    elif dim == 3:
         expr = (1 - x[0]) * x[0] + \
                (1 - x[1]) * x[1] * x[1] + \
                (1 - x[2]) * x[2] * x[2] * x[2]
-    if vector:
-        expr = as_vector([(-1)**i * expr for i in range(len(x))])
+    if shape == "vector":
+        expr = as_vector([(-1)**i * expr for i in range(dim)])
+    elif shape == "symmetric-tensor":
+        expr = as_tensor([[(-1)**(i+j) * expr for j in range(dim)] for j in range(dim)])
     return expr
 
 
 @pytest.mark.parallel(nprocs=3)
 def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
     degrees = [4]
-    vector = False
+    shape = "scalar"
     if periodic_space in {"DG", "DQ"} and complex_mode:
         with pytest.raises(NotImplementedError):
-            run_injection(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
+            run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
     else:
-        run_injection(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
-    run_prolongation(periodic_hierarchy, vector, periodic_space, degrees, exact=exact_primal_periodic)
-    run_restriction(periodic_hierarchy, vector, periodic_space, degrees)
+        run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
+    run_prolongation(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
+    run_restriction(periodic_hierarchy, shape, periodic_space, degrees)

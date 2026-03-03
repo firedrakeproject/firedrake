@@ -304,7 +304,7 @@ supports a more general syntax:
 
     V = FunctionSpace(mesh, element)
 
-where ``element`` is a UFL :py:class:`~ufl.finiteelement.finiteelement.FiniteElement` object. This
+where ``element`` is a UFL :py:class:`~finat.ufl.finiteelement.FiniteElement` object. This
 requires generation and manipulation of ``FiniteElement`` objects.
 
 Geometrically, an extruded mesh cell is the *product* of a base, "horizontal",
@@ -319,7 +319,7 @@ The ``TensorProductElement`` operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To create an element compatible with an extruded mesh, one should use
-the :py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
+the :py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
 operator. For example,
 
 .. code-block:: python3
@@ -359,7 +359,7 @@ but is piecewise constant horizontally.
 
 A more complicated element, like a Mini horizontal element with linear
 variation in the vertical direction, may be built using the
-:py:class:`~ufl.finiteelement.enrichedelement.EnrichedElement` functionality
+:py:class:`~finat.ufl.enrichedelement.EnrichedElement` functionality
 in either of the following ways:
 
 .. code-block:: python3
@@ -392,7 +392,7 @@ The ``HDivElement`` and ``HCurlElement`` operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
-:py:class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
+:py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of
@@ -417,7 +417,7 @@ However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HDivElement` operator:
+:py:class:`~finat.ufl.hdivcurl.HDivElement` operator:
 
 .. code-block:: python3
 
@@ -433,7 +433,7 @@ between elements. To obtain the Raviart-Thomas element, we must use the
   :align: center
 
   The RT quadrilateral element, requiring the use
-  of :py:class:`~ufl.finiteelement.hdivcurl.HDivElement`
+  of :py:class:`~finat.ufl.hdivcurl.HDivElement`
 
 Another reason to use these operators is when expanding a vector into a
 higher dimensional space. Consider the lowest-order Nedelec element of the
@@ -453,7 +453,7 @@ the product of this with a continuous element on an interval:
 
 This element still only has two components. To expand this into a
 three-dimensional curl-conforming element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HCurlElement` operator; the syntax is:
+:py:class:`~finat.ufl.hdivcurl.HCurlElement` operator; the syntax is:
 
 .. code-block:: python3
 

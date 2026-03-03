@@ -111,7 +111,7 @@ a Function, w. ::
 
   n = FacetNormal(mesh)
 
-  I = Identity(mesh.geometric_dimension())
+  I = Identity(mesh.geometric_dimension)
 
   L = inner(sigma, tau)*dx
   L += (inner(div(tau), grad(u))*dx

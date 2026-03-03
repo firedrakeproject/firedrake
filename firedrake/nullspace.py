@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop2.mpi import COMM_WORLD
 
 from firedrake import function
 from firedrake.logging import warning
@@ -57,7 +57,6 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -70,7 +69,7 @@ class VectorSpaceBasis(object):
             warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
         return self._nullspace
 
     @PETSc.Log.EventDecorator()
@@ -223,7 +222,6 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm, self)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -275,7 +273,7 @@ class MixedVectorSpaceBasis(object):
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
 
     def _apply_monolithic(self, matrix, transpose=False, near=False):
         r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a

@@ -21,6 +21,7 @@ import warnings
 from functools import partial
 from typing import Union, Optional, Callable
 
+import petsctools
 import ufl
 from firedrake.external_operators import MLOperator
 from firedrake import utils
@@ -189,8 +190,7 @@ def ml_operator(model: Callable, function_space: WithGeometryBase, inputs_format
     typing.Callable
         The partially initialised :class:`~.JaxOperator` class.
     """
-    from firedrake_citations import Citations
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

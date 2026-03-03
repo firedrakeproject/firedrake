@@ -2,16 +2,18 @@ import numpy as np
 import rtree
 import sys
 import ufl
+import warnings
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
+from pyadjoint import annotate_tape
 import cachetools
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 
 from pyop2 import op2, mpi
@@ -27,6 +29,7 @@ from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
@@ -70,15 +73,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         # User comm
         self.comm = function_space.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -108,7 +109,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -116,7 +117,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -305,7 +306,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -313,7 +314,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -357,43 +358,31 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self._function_space
 
     @PETSc.Log.EventDecorator()
-    def interpolate(
-        self,
-        expression,
-        subset=None,
-        allow_missing_dofs=False,
-        default_missing_val=None,
-        ad_block_tag=None
-    ):
-        r"""Interpolate an expression onto this :class:`Function`.
+    def interpolate(self,
+                    expression: ufl.classes.Expr,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
+        """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: a UFL expression to interpolate
-        :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-            interpolation over. Cannot, at present, be used when interpolating
-            across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-        :kwarg allow_missing_dofs: For interpolation across meshes: allow
-            degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-            defined on the source mesh. For example, where nodes are point
-            evaluations, points in the target mesh that are not in the source mesh.
-            When ``False`` this raises a ``ValueError`` should this occur. When
-            ``True`` the corresponding values are set to zero or to the value
-            ``default_missing_val`` if given. Ignored if interpolating within the
-            same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-            :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-            it is created).
-        :kwarg default_missing_val: For interpolation across meshes: the optional
-            value to assign to DoFs in the target mesh that are outside the source
-            mesh. If this is not set then zero is used. Ignored if interpolating
-            within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
-            the Pyadjoint tape.
-        :returns: this :class:`Function` object"""
-        from firedrake import interpolation, assemble
+        Parameters
+        ----------
+        expression
+            A UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate function.
+            For details see :func:`firedrake.interpolation.interpolate`.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`
+        """
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V,
-                                           subset=subset,
-                                           allow_missing_dofs=allow_missing_dofs,
-                                           default_missing_val=default_missing_val)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -412,33 +401,47 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         # Use assign here so we can reuse _ad_annotate_assign instead of needing
         # to write an _ad_annotate_zero function
-        return self.assign(0, subset=subset)
+        return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            Expression to be assigned.
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        allow_missing_dofs : bool
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Function` s on the same :class:`.WithGeometry` as the
+        assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
         both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+        expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+        should be used.
 
-        .. note::
-
-            Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
-            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
-            should be used.
         """
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
@@ -449,7 +452,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
@@ -511,7 +514,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -536,6 +540,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
@@ -558,10 +563,22 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        return self.at(coord)
+        coord = np.asarray(coord, dtype=utils.ScalarType)
+        evaluator = PointEvaluator(self.function_space().mesh(), coord)
+        result = evaluator.evaluate(self)
+        if len(coord.shape) == 1:
+            result = result.squeeze(axis=0)
+        return result
+
+    def at(self, arg, *args, **kwargs):
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
+        return self._at(arg, *args, **kwargs)
 
     @PETSc.Log.EventDecorator()
-    def at(self, arg, *args, **kwargs):
+    def _at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
         :arg arg: The point to locate.
@@ -594,20 +611,24 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         tolerance = kwargs.get('tolerance', None)
         mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
         else:
-            mesh.tolerance = tolerance
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        if tolerance is None:
+            tolerance = mesh_unique.tolerance
+        else:
+            mesh_unique.tolerance = tolerance
 
-        # Handle f.at(0.3)
+        # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        if mesh.variable_layers:
+        if mesh_unique.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -616,9 +637,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = self._comm.bcast(arg, root=0)
-        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            root_arg = icomm.bcast(arg, root=0)
+            same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+            diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -643,7 +665,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         for i, p in enumerate(points):
             try:
                 if mixed:
-                    l_result.append((i, tuple(f.at(p) for f in subfunctions)))
+                    l_result.append((i, tuple(f._at(p) for f in subfunctions)))
                 else:
                     p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
@@ -698,7 +720,7 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -729,7 +751,7 @@ class PointEvaluator:
         self.points = np.asarray(points, dtype=utils.ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
             raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
         self.points = self.points.reshape(-1, gdim)
@@ -772,10 +794,14 @@ class PointEvaluator:
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got {type(function).__name__}")
+        if annotate_tape():
+            raise RuntimeError("PointEvaluator.evaluate cannot be used when annotating. "
+                               "If you want to use point evaluation with the adjoint, "
+                               "create a VertexOnlyMesh as described in the manual.")
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh()
+        function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
@@ -800,13 +826,13 @@ class PointEvaluator:
             fs = partial(VectorFunctionSpace, dim=shape[0])
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
+
         P0DG = fs(self.vom, "DG", 0)
         P0DG_io = fs(self.vom.input_ordering, "DG", 0)
-
         f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
-        result = f_at_points_io.dat.data_ro
+        result = f_at_points_io.dat.data_ro.copy()
 
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:

@@ -54,7 +54,7 @@ def parentmesh(request):
 
 @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
 def vertexcoords(request, parentmesh):
-    size = (request.param, parentmesh.geometric_dimension())
+    size = (request.param, parentmesh.geometric_dimension)
     return pseudo_random_coords(size)
 
 
@@ -81,10 +81,10 @@ def vfs(request, parentmesh):
     family = request.param[0]
     # skip where the element doesn't support the cell type
     if family != "CG":
-        if parentmesh.ufl_cell().cellname() == "quadrilateral":
+        if parentmesh.ufl_cell().cellname == "quadrilateral":
             if not (family == "RTCE" or family == "RTCF"):
                 pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
-        elif parentmesh.ufl_cell().cellname() == "triangle" or parentmesh.ufl_cell().cellname() == "tetrahedron":
+        elif parentmesh.ufl_cell().cellname == "triangle" or parentmesh.ufl_cell().cellname == "tetrahedron":
             if (not (family == "N1curl" or family == "N2curl"
                      or family == "N1div" or family == "N2div")):
                 pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
@@ -106,8 +106,8 @@ def vfs(request, parentmesh):
 def tfs(request, parentmesh):
     family = request.param[0]
     # skip where the element doesn't support the cell type
-    if (family != "CG" and parentmesh.ufl_cell().cellname() != "triangle"
-            and parentmesh.ufl_cell().cellname() != "tetrahedron"):
+    if (family != "CG" and parentmesh.ufl_cell().cellname != "triangle"
+            and parentmesh.ufl_cell().cellname != "tetrahedron"):
         pytest.skip(f"{family} does not support {parentmesh.ufl_cell()} cells")
     if parentmesh.name == "immersedsphere":
         # See https://github.com/firedrakeproject/firedrake/issues/3089
@@ -162,7 +162,7 @@ def test_scalar_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     # Reshaping because for all meshes, we want (-1, gdim) but
     # when gdim == 1 PyOP2 doesn't distinguish between dats with shape
     # () and shape (1,).
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
     W = FunctionSpace(vm, "DG", 0)
     expr = reduce(add, SpatialCoordinate(parentmesh))
     w_expr = assemble(interpolate(expr, W))
@@ -173,7 +173,7 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     if parentmesh.name == "immersedsphere":
         vertexcoords = immersed_sphere_vertexcoords(parentmesh, vertexcoords)
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
     fs_fam, fs_deg, fs_typ = fs
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
@@ -227,7 +227,7 @@ def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
     vertexcoords = vm.coordinates.dat.data_ro
     W = TensorFunctionSpace(vm, "DG", 0)
     x = SpatialCoordinate(parentmesh)
-    gdim = parentmesh.geometric_dimension()
+    gdim = parentmesh.geometric_dimension
     expr = 2 * as_tensor([x]*gdim)
     assert W.shape == expr.ufl_shape
     w_expr = assemble(interpolate(expr, W))
@@ -257,7 +257,7 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
     v = Function(V).interpolate(expr)
     result = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result) == 0:
-        result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
+        result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension,))
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
 
@@ -268,7 +268,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     tfs_fam, tfs_deg, tfs_typ = tfs
 
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension())
+    vertexcoords = vm.coordinates.dat.data_ro.reshape(-1, parentmesh.geometric_dimension)
     if (
         parentmesh.coordinates.function_space().ufl_element().family()
         == "Discontinuous Lagrange"
@@ -291,7 +291,7 @@ def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
     v1.interpolate(expr1)
     result1 = np.asarray([np.outer(vertexcoords[i], vertexcoords[i]) for i in range(len(vertexcoords))])
     if len(result1) == 0:
-        result1 = result1.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
+        result1 = result1.reshape(vertexcoords.shape + (parentmesh.geometric_dimension,))
     # Get Function in V2
     expr2 = reduce(add, SpatialCoordinate(parentmesh))
     v2.interpolate(expr2)
@@ -352,8 +352,10 @@ def test_extruded_cell_parent_cell_list():
 
     # expected values at coordinates from tests/regression/test_locate_cell.py
     expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    assert np.allclose(fs.at(coords), expected)
-    assert np.allclose(fx.at(coords), expected)
+    ms_eval = PointEvaluator(ms, coords)
+    mx_eval = PointEvaluator(mx, coords)
+    assert np.allclose(ms_eval.evaluate(fs), expected)
+    assert np.allclose(mx_eval.evaluate(fx), expected)
     assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
     assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
 

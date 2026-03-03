@@ -366,3 +366,45 @@ def test_matrix_free_fieldsplit_with_real():
             }}
     stokes_solver = LinearVariationalSolver(stokes_problem, solver_parameters=opts)
     stokes_solver.solve()
+
+
+@pytest.mark.parametrize("shape", ["scalar", "mixed"])
+def test_sub_matrix_not_subfield(shape):
+    mesh = UnitSquareMesh(2, 2)
+    if shape == "mixed":
+        V = VectorFunctionSpace(mesh, "CG", 2)
+        Q = FunctionSpace(mesh, "CG", 1)
+        Z = V * Q
+        u, p = TrialFunctions(Z)
+        v, q = TestFunctions(Z)
+        a = inner(grad(u), grad(v)) * dx - inner(p, div(v))*dx - inner(div(u), q)*dx
+        bcs = DirichletBC(Z.sub(0), 0, (1, 3))
+
+    elif shape == "scalar":
+        V = FunctionSpace(mesh, "CG", 1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(grad(u), grad(v)) * dx
+        bcs = DirichletBC(V, 0, (1, 3))
+
+    args = a.arguments()
+    rows = PETSc.IS().createGeneral(range(0, args[0].function_space().dim(), 2))
+    cols = PETSc.IS().createGeneral(range(1, args[1].function_space().dim(), 2))
+
+    A = assemble(a, bcs=bcs, mat_type="matfree")
+    Amat = A.petscmat
+    Asub = Amat.createSubMatrix(rows, cols)
+    x, y = Asub.createVecs()
+
+    m, n = Asub.getSize()
+    Asub_dense = np.zeros((m, n))
+    for i in range(n):
+        x.set(0.0)
+        x[i] = 1.0
+        Asub.mult(x, y)
+        Asub_dense[:, i] = y[:]
+
+    A = assemble(a, bcs=bcs, mat_type="aij")
+    Amat = A.petscmat
+    Asub_aij = Amat.createSubMatrix(rows, cols)
+    assert np.allclose(Asub_aij[:, :], Asub_dense)

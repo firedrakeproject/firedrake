@@ -19,6 +19,7 @@ Manual
    duals
    interpolation
    point-evaluation
+   quadrature
    external_operators
    adjoint
    visualisation

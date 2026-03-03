@@ -18,6 +18,11 @@
 
 # -- General configuration -----------------------------------------------
 
+# Disable warnings for missing options when running sphinx as PETSc does
+# not know what to do with the sphinx arguments.
+import os
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
@@ -36,6 +41,7 @@ extensions = [
     'sphinxcontrib.inkscapeconverter',
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
+    'sphinx_copybutton',
 ]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
@@ -135,7 +141,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    (r'py:.*', r'petsctools\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
@@ -164,14 +169,15 @@ linkcheck_ignore = [
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
     r'https://.*\.baylor\.edu.*',
-    r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
-    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
-    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
+    r'https://www.radissonhotels.com/*',
+    r'https://all.accor.com/hotel/*',
+    r'https://fluids.leeds.ac.uk/',
+    r'https://buy.crosscountrytrains.co.uk'
 ]
 linkcheck_timeout = 30
 
@@ -413,10 +419,9 @@ texinfo_documents = [(
 
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
-    'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
-    'FInAT': ('https://finat.github.io/FInAT/', None),
+    'FIAT': ('https://firedrakeproject.org/fiat', None),
+    'petsctools': ('https://firedrakeproject.org/petsctools/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
@@ -451,3 +456,8 @@ else:
 redirects = {
     "download": "install.html",  # map download.html -> install.html
 }
+
+#  -- Options for sphinx_copybutton ------------------------------------
+
+# Do not copy the '$ ' at the start of shell instructions
+copybutton_prompt_text = "$ "

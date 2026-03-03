@@ -1,13 +1,17 @@
 import loopy as lp
 from firedrake.utils import IntType, as_cstr
 
-from ufl import TensorProductCell
-from finat.ufl import MixedElement
+from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import MixedElement, FiniteElement, TensorElement
+
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import gem
+import ufl
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -16,6 +20,39 @@ from tsfc.parameters import default_parameters
 
 from firedrake import utils
 from firedrake.petsc import PETSc
+
+
+def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
+    """Construct a Quadrature FiniteElement for interpolation onto a
+    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
+    (1, tdim) where tdim is the topological dimension of domain.ufl_cell(). The
+    weight is [1.0], since the single local dof in the VertexOnlyMesh function
+    space corresponds to a point evaluation at the vertex.
+
+    Parameters
+    ----------
+    domain : ufl.AbstractDomain
+        The source domain.
+    ufl_element : finat.ufl.finiteelement.FiniteElement
+        The UFL element of the target FunctionSpace.
+    rt_var_name : str
+        String beginning with ``'rt_'`` which is used as the name of the
+        gem.Variable used to represent the UnknownPointSet. The ``'rt_'`` prefix
+        forces TSFC to do runtime tabulation.
+    """
+    assert rt_var_name.startswith("rt_")
+
+    cell = domain.ufl_cell()
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+
+    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
+    rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if shape:
+        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
+        rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
+    return rt_element
 
 
 @PETSc.Log.EventDecorator()
@@ -54,6 +91,8 @@ def compile_element(expression, coordinates, parameters=None):
 
     # Initialise kernel builder
     builder = firedrake_interface.KernelBuilderBase(utils.ScalarType)
+    builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     builder.domain_coordinate[domain] = coordinates
     builder._coefficient(coordinates, "x")
     x_arg = builder.generate_arg_from_expression(builder.coefficient_map[coordinates])
@@ -65,13 +104,12 @@ def compile_element(expression, coordinates, parameters=None):
 
     # Translate to GEM
     cell = domain.ufl_cell()
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
     point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
-                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
@@ -113,10 +151,10 @@ def compile_element(expression, coordinates, parameters=None):
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
-    extruded = isinstance(cell, TensorProductCell)
+    extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {
-        "geometric_dimension": domain.geometric_dimension(),
+        "geometric_dimension": domain.geometric_dimension,
         "layers_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",

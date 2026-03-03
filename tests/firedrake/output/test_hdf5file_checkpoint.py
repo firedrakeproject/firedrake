@@ -1,5 +1,4 @@
 import pytest
-import os
 from firedrake import *
 import numpy as np
 from mpi4py import MPI
@@ -23,11 +22,6 @@ def fs(request):
     return request.param
 
 
-@pytest.fixture
-def dumpfile(dumpdir):
-    return os.path.join(dumpdir, "dump")
-
-
 @pytest.fixture(scope="module")
 def f():
     m = UnitSquareMesh(2, 2)
@@ -38,7 +32,8 @@ def f():
     return f
 
 
-def run_write_read(mesh, fs, degree, dumpfile):
+@pytest.mark.parallel([1, 2])
+def test_write_read(mesh, fs, degree, dumpfile):
 
     V = FunctionSpace(mesh, fs, degree)
 
@@ -77,15 +72,6 @@ def test_checkpoint_fails_for_non_function(dumpfile):
     with HDF5File(dumpfile, "w", comm=MPI.COMM_WORLD) as h5:
         with pytest.raises(ValueError):
             h5.write(np.arange(10), "/solution")
-
-
-def test_write_read(mesh, fs, degree, dumpfile):
-    run_write_read(mesh, fs, degree, dumpfile)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_write_read_parallel(mesh, fs, degree, dumpfile):
-    run_write_read(mesh, fs, degree, dumpfile)
 
 
 def test_checkpoint_read_not_exist_ioerror(dumpfile):

@@ -96,9 +96,5 @@ different simulations on the two halves we would write.
 To access the communicator a mesh was created on, we can use the
 ``mesh.comm`` property, or the function ``mesh.mpi_comm``.
 
-.. warning::
-  Do not use the internal ``mesh._comm`` attribute for communication.
-  This communicator is for internal Firedrake MPI communication only.
-
 .. _MPI: http://mpi-forum.org/
 .. _STREAMS: http://www.cs.virginia.edu/stream/

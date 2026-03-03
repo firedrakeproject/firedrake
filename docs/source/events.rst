@@ -15,10 +15,17 @@ The eleventh Firedrake user and developer workshop will be held
 jointly with the PETSc annual user meeting near London between
 1-5 June 2026. For more information see :doc:`the workshop page <firedrake_26>`.
 
+Firedrake tutorial March 2026
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A tutorial on basic and advanced usage of Firedrake will be held
+between 18-20 March 2026 at the University of Oxford. For more
+information see :doc:`the tutorial page <tutorial_mar_26>`.
+
 Firedrake '25
 ~~~~~~~~~~~~~
 
-The tenth Firedrake user and developer workshop will be held
+The tenth Firedrake user and developer workshop was held
 between 15-17 September 2025 at the University of Leeds. For more
 information see :doc:`the workshop page <firedrake_25>`.
 

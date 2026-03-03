@@ -41,9 +41,9 @@ def test_mark_entities_mark_points_with_function_array():
     assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
     v = assemble(Constant(1) * dS(my_facet_label, domain=mesh))
     assert abs(v - (1 * .5 + 1 * .5 * sqrt(2))) < 1.e-10
-    v = assemble(Constant(1) * dS(unmarked, domain=mesh))
+    v = assemble(Constant(1) * dS(UNMARKED, domain=mesh))
     assert abs(v - (3 * .5 + 3 * .5 * sqrt(2))) < 1.e-10
-    v = assemble(Constant(1) * dS((my_facet_label, unmarked), domain=mesh))
+    v = assemble(Constant(1) * dS((my_facet_label, UNMARKED), domain=mesh))
     assert abs(v - (4 * .5 + 4 * .5 * sqrt(2))) < 1.e-10
 
 
@@ -66,7 +66,7 @@ def test_mark_entities_overlapping_facet_subdomains():
     assert abs(v - 1.5) < 1.e-10
     v = assemble(Constant(1) * ds(removed_label, domain=mesh))
     assert abs(v - 0.0) < 1.e-10
-    v = assemble(Constant(1) * ds(unmarked, domain=mesh))
+    v = assemble(Constant(1) * ds(UNMARKED, domain=mesh))
     assert abs(v - 1.0) < 1.e-10
 
 

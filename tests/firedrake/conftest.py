@@ -1,5 +1,6 @@
 """Global test configuration."""
 
+import functools
 import os
 import sys
 
@@ -8,10 +9,27 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc
 from petsctools import get_external_packages
+from pyadjoint.tape import (
+    annotate_tape, get_working_tape, set_working_tape,
+    continue_annotation, pause_annotation
+)
+
+from firedrake.petsc import PETSc
 
 
+# Use a non-interactive backend for matplotlib if DISPLAY is undefined. This
+# prevents test failures when developing remotely.
+try:
+    import matplotlib
+except ImportError:
+    pass
+else:
+    if os.environ.get("DISPLAY", "") == "":
+        matplotlib.use("Agg")
+
+
+@functools.cache
 def _skip_test_dependency(dependency):
     """
     Returns whether to skip tests with a certain dependency.
@@ -70,8 +88,8 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "vtk":
         try:
-            from firedrake.output import VTKFile  # noqa: F401
-            del VTKFile
+            import vtk  # noqa: F401
+            del vtk
             return not skip
         except ImportError:
             return skip
@@ -91,7 +109,7 @@ dependency_skip_markers_and_reasons = (
     ("jax", "skipjax", "JAX is not installed"),
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
-    ("vtk", "skipvtk", "VTK is not installed")
+    ("vtk", "skipvtk", "VTK is not installed"),
 )
 
 
@@ -163,16 +181,15 @@ def pytest_collection_modifyitems(session, config, items):
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
-            if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:
+            if item.get_closest_marker(marker) is not None and _skip_test_dependency(dep):
                 item.add_marker(pytest.mark.skip(reason))
 
 
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
-    """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import annotate_tape, get_working_tape
-
-    def fin():
+    """Check that the tape is empty at the end of each module.
+    """
+    def finalizer():
         # make sure taping is switched off
         assert not annotate_tape()
 
@@ -181,7 +198,26 @@ def check_empty_tape(request):
         if tape is not None:
             assert len(tape.get_blocks()) == 0
 
-    request.addfinalizer(fin)
+    request.addfinalizer(finalizer)
+
+
+@pytest.fixture
+def set_test_tape():
+    """Set a new working tape specifically for this test.
+    """
+    continue_annotation()
+    with set_working_tape():
+        yield
+    pause_annotation()
+
+
+@pytest.fixture
+def clear_pyplot_figures():
+    """Destroy all pyplot figures to prevent leaks."""
+    import matplotlib.pyplot as plt
+
+    yield
+    plt.close("all")
 
 
 class _petsc_raises:

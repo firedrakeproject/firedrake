@@ -39,7 +39,7 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
-SUPPORTED_PETSC_VERSION = "v3.23.4"
+SUPPORTED_PETSC_VERSION = "v3.24.0"
 
 
 def main():
@@ -487,8 +487,6 @@ def prepare_environment_vars(
     arch: FiredrakeArch,
 ) -> tuple[str, ...]:
     vars = {
-        "CC": "mpicc",
-        "CXX": "mpicxx",
         "PETSC_DIR": f"{os.getcwd()}/petsc",
         "PETSC_ARCH": f"arch-firedrake-{arch.value}",
         "HDF5_MPI": "ON",

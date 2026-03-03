@@ -4,26 +4,14 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
+@pytest.fixture(autouse=True)
+def autouse_set_test_tape(set_test_tape):
+    pass
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=1234))
-
-
-@pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
 
 
 @pytest.mark.skipcomplex
@@ -42,7 +30,7 @@ def test_project_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V).assign(1)
+    h = Function(V).assign(1.)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -62,7 +50,7 @@ def test_project_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V).assign(1)
+    h = Function(V).assign(1.)
     f.tlm_value = h
 
     tape = get_working_tape()
@@ -89,7 +77,7 @@ def test_project_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V).assign(1)
+    h = Function(V).assign(1.)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 

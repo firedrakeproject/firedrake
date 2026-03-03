@@ -2,6 +2,7 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from firedrake.supermeshing import *
 from itertools import product
+from functools import partial
 import numpy
 import pytest
 
@@ -14,7 +15,7 @@ def mesh(request):
         return UnitCubeMesh(3, 2, 1)
 
 
-@pytest.fixture(params=["scalar", "vector", pytest.param("tensor", marks=pytest.mark.skip(reason="Prolongation fails for tensors"))])
+@pytest.fixture(params=["scalar", "vector", "tensor", "symmetric"])
 def shapify(request):
     if request.param == "scalar":
         return lambda x: x
@@ -22,6 +23,8 @@ def shapify(request):
         return VectorElement
     elif request.param == "tensor":
         return TensorElement
+    elif request.param == "symmetric":
+        return partial(TensorElement, symmetry=True)
     else:
         raise RuntimeError
 

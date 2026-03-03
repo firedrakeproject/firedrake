@@ -163,6 +163,13 @@ class GenericSolveBlock(Block):
     def adj_sol(self):
         return self.adj_state
 
+    @adj_sol.setter
+    def adj_sol(self, value):
+        if self.adj_state is None:
+            self.adj_state = value.copy(deepcopy=True)
+        else:
+            self.adj_state.assign(value)
+
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
         fwd_block_variable = self.get_outputs()[0]
         u = fwd_block_variable.output
@@ -187,7 +194,7 @@ class GenericSolveBlock(Block):
         adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
             dFdu_form, dJdu, compute_bdy
         )
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -408,7 +415,7 @@ class GenericSolveBlock(Block):
             firedrake.derivative(dFdu_form, fwd_block_variable.saved_output,
                                  tlm_output))
 
-        adj_sol = self.adj_state
+        adj_sol = self.adj_sol
         if adj_sol is None:
             raise RuntimeError("Hessian computation was run before adjoint.")
         bdy = self._should_compute_boundary_adjoint(relevant_dependencies)
@@ -726,7 +733,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:

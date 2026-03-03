@@ -16,11 +16,17 @@ of the patch but not pressures.
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
 We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
 is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
-operators are extracted from the globally assembled stiffness matrix.::
+operators are extracted from the globally assembled stiffness matrix.
+
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the meshes must have an overlapping
+parallel domain decomposition that supports the Vanka patches. This is set
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
 
   from firedrake import *
 
-  base = UnitSquareMesh(4, 4)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
+  base = UnitSquareMesh(4, 4, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
@@ -98,17 +104,17 @@ matrix to be assembled.  These are quite similar to the options used in
       mat_type="matfree")
 
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix.::
+patch operators for each patch from the already-assembled global stiffness matrix. ::
 
   asm_relax = mg_params(
       {"pc_type": "python",
        "pc_python_type": "firedrake.ASMVankaPC",
        "pc_vanka_construct_dim": 0,
        "pc_vanka_exclude_subspaces": 1,
-       "pc_vanka_backend_type": "tinyasm"
+       "pc_vanka_backend": "tinyasm"
        })
 
-The `tinyasm` backend uses LAPACK to invert all the patch operators.  If this option
+The ``tinyasm`` backend uses LAPACK to invert all the patch operators.  If this option
 is not specified, PETSc's ASM framework will set up a small KSP for each patch.
 This can be useful when the patches become larger and one wants to use a sparse
 direct or Krylov method on each one.
@@ -116,7 +122,7 @@ direct or Krylov method on each one.
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
-latter options do the same operations, just via different code paths.::
+latter options do the same operations, just via different code paths. ::
 
   names = {"ASM Vanka": asm_relax,
            "Patch Vanka": patch_relax}

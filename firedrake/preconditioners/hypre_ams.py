@@ -1,13 +1,14 @@
+import petsctools
 from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.petsc import PETSc
 from firedrake.function import Function
-from firedrake.ufl_expr import TestFunction
+from firedrake.ufl_expr import TrialFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
 from ufl import grad, SpatialCoordinate
-from firedrake_citations import Citations
-from finat.ufl import VectorElement
+from finat.ufl import FiniteElement, TensorElement, VectorElement
 from pyop2.utils import as_tuple
 
 __all__ = ("HypreAMS",)
@@ -35,7 +36,7 @@ class HypreAMS(PCBase):
         if complex_mode:
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
-        Citations().register("Kolev2009")
+        petsctools.cite("Kolev2009")
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
@@ -48,10 +49,21 @@ class HypreAMS(PCBase):
         if formdegree != 1 or degree != 1:
             raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
 
-        P1 = V.reconstruct(family="Lagrange", degree=1)
+        # Get the auxiliary Lagrange space and the coordinate space
+        P1_element = FiniteElement("Lagrange", degree=1)
+        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension)
+        if V.shape:
+            P1_element = TensorElement(P1_element, shape=V.shape)
+        P1 = V.reconstruct(element=P1_element)
+        VectorP1 = V.reconstruct(element=coords_element)
+
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
+            try:
+                G = chop(assemble(interpolate(grad(TrialFunction(P1)), V)).petscmat)
+            except NotImplementedError:
+                # dual evaluation not yet implemented see https://github.com/firedrakeproject/fiat/issues/109
+                G = tabulate_exterior_derivative(P1, V)
         else:
             G = G_callback(P1, V)
 
@@ -68,7 +80,6 @@ class HypreAMS(PCBase):
         if zero_beta:
             pc.setHYPRESetBetaPoissonMatrix(None)
 
-        VectorP1 = P1.reconstruct(element=VectorElement(P1.ufl_element()))
         coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
         pc.setCoordinates(coords.dat.data_ro.copy())
         pc.setFromOptions()

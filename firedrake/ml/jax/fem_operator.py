@@ -21,11 +21,11 @@ import numpy as np
 from functools import partial
 from typing import Union, Optional
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -114,7 +114,7 @@ def fem_operator(F: ReducedFunctional) -> FiredrakeJaxOperator:
     firedrake.ml.jax.fem_operator.FiredrakeJaxOperator
         A JAX custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
@@ -170,10 +170,11 @@ def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched
     if isinstance(x, (Function, Cofunction)):
         if gather:
             # Gather data from all processes
-            x_P = jnp.array(x.dat.global_data, **kwargs)
+            x_P = jnp.array(np.ravel(x.dat.global_data), **kwargs)
         else:
             # Use local data
-            x_P = jnp.array(x.dat.data_ro, **kwargs)
+            with x.dat.vec_ro as vec:
+                x_P = jnp.array(np.ravel(vec.buffer_r), **kwargs)
         if batched:
             # Default behaviour: add batch dimension after converting to JAX
             return x_P[None, :]
@@ -222,5 +223,7 @@ def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function
             val = val[0]
         return Constant(val)
     else:
-        x_F = Function(V, val=np.asarray(x))
+        x_F = Function(V)
+        with x_F.dat.vec_wo as vec:
+            vec.array_w = np.asarray(x)
         return x_F
