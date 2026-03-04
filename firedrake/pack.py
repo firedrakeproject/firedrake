@@ -413,8 +413,6 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = utils.single_valued(space.finat_element.entity_permutations[dim_label].values())
-    if dim_label == 2:
-        print(perms)
     # TODO: can optimise the dtype here to be as small as possible
     perms_array = np.concatenate(list(perms.values()))
     perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)
@@ -530,11 +528,11 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
         closure_size_acc += dim
         indent -= 1
 
-    #string += "default: break; }\n"
-    #string += indent*"\t" + "if (i == 0 && dim == 2 && o_val == 4) {\n"
+    string += "default: break; }\n"
+    #string += indent*"\t" + "if ((i == 0 || i == 3) && dim == 2)  {\n"
     #indent += 1
-    #string += indent*"\t" + f"printf(\"o : '%d', d: '%d'\\n\", o_val, d); \n"
-    #dof_range = range(22, 25)
+    #string += indent*"\t" + f"printf(\"o : '%d', d: '%d', i : '%d'\\n\", o_val, d, i); \n"
+    #dof_range = list(range(12, 14)) + list(range(18, 20))
     #for i in dof_range:
     #    string += indent*"\t" + f"printf(\"a{idx} row {i}: {" ".join('%f' for i in dof_range)}\\n\", {", ".join(f"a{idx}[{i*n + j}]" for j in dof_range)}); \n"
     #string += indent*"\t" + f"printf(\"should be \\n\"); \n"
@@ -544,7 +542,7 @@ def construct_switch_statement(self, mats: dict, n: int, idx: int, args: list, v
     #string += indent*"\t" + f"printf(\"a row 2: {" ".join('%f' for i in range(n))}\\n\", {", ".join(f"a[{2*n + i}]" for i in range(n))}); \n"
     #string += indent*"\t" + "printf(\"a rows ...\\n\"); \n"
     #string += indent*"\t" + "printf(\"\\n\");\n"
-    string += indent*"\t" + "}\n"
+    #string += indent*"\t" + "}\n"
     return string, args, var_list
 
 def get_utility_kernels(ns: tuple[int]) -> tuple:
@@ -581,11 +579,11 @@ def get_utility_kernels(ns: tuple[int]) -> tuple:
           f"""
               res[i,j] =  res[i,j] + a[i, k]*b[k,j]
           """, name=f"matmul0", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
-        # computes res = BA^T
+        # computes res = B revA
         matmuls += [lp.make_function(
           f"{{[i,j,k]:0 <= i < {ns[0]} and 0 <= j,k < {ns[1]}}}",
           f"""
-              res[i,j] =  res[i,j] + b[i, k]*a[j, k]
+              res[i,j] =  res[i,j] + b[i, k]*a[k, j]
           """, name=f"matmul1", lang_version=LOOPY_LANG_VERSION, target=lp.CWithGNULibcTarget())]
 
     set_args = [lp.GlobalArg("b", dtype=utils.ScalarType, shape=ns, is_input=True, is_output=True),
@@ -625,14 +623,14 @@ def fuse_orientations(spaces: list[WithGeometry]):
         ns = tuple()
         for i, space in enumerate(spaces):
             fs = space
-            mats += [space.ufl_element().triple.matrices]
-            reversed_mats += [space.ufl_element().triple.reversed_matrices]
-            #if i == 0:
-            #    mats += [space.ufl_element().triple.matrices]
-            #    reversed_mats += [space.ufl_element().triple.reversed_matrices]
-            #elif i == 1:
-            #    mats += [space.ufl_element().triple.reversed_matrices]
-            #    reversed_mats += [space.ufl_element().triple.matrices]
+            #mats += [space.ufl_element().triple.matrices]
+            #reversed_mats += [space.ufl_element().triple.reversed_matrices]
+            if i == 0:
+                mats += [space.ufl_element().triple.matrices]
+                reversed_mats += [space.ufl_element().triple.reversed_matrices]
+            elif i == 1:
+                mats += [space.ufl_element().triple.reversed_matrices]
+                reversed_mats += [space.ufl_element().triple.matrices]
             t_dim = space.ufl_element().cell._tdim
             os = mats[-1][t_dim][0]
             ns += (os[next(iter(os.keys()))].shape[0],)
@@ -689,18 +687,28 @@ def fuse_orientations(spaces: list[WithGeometry]):
                 lang_version=LOOPY_LANG_VERSION, 
                 target=lp.CWithGNULibcTarget())
         # printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});"
-        print_insn = lp.CInstruction(tuple(),
-                    f"""printf(\"initial b: {" ".join('%f' for i in range(22, 25))}\\n\", {', '.join(f"b[{j}]" for j in range(22,25))});
-                        printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});
-                        """, assignees=(), read_variables=frozenset([]), id="print")
+        if len(ns) > 1:
+             print_insn = lp.CInstruction(tuple(),
+                         f"""printf(\"initial b: {" ".join('%f' for i in range(0, 16))}\\n\", {', '.join(f"b[{i*ns[0] + j}]" for j in range(12, 16) for i in range(12,16))});
+                             """, assignees=(), read_variables=frozenset([]), id="print")
+        else:
+            print_insn = lp.CInstruction(tuple(),
+                        f"""printf(\"initial b: {" ".join('%f' for i in range(12, ns[0]))}\\n\", {', '.join(f"b[{j}]" for j in range(12, ns[0]))});
+                            printf(\"o: {" ".join('%d' for i in range(sum(closures)))}\\n\", {', '.join(f"o0[{j}]" for j in range(sum(closures)))});
+                            """, assignees=(), read_variables=frozenset([]), id="print")
 
-        print_insn1 = lp.CInstruction(tuple(),
-                      f"""printf(\"final res: {" ".join('%f' for i in range(22, 25))}\\n\", {', '.join(f"res[{j}]" for j in range(22,25))});
-                      """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        if len(ns) > 1:
+            print_insn1 = lp.CInstruction(tuple(),
+                          f"""printf(\"final res: {" ".join('%f' for i in range(0, 16))}\\n\", {', '.join(f"res[{i*ns[0] + j}]"  for j in range(12, 16) for i in range(12, 16))});
+                          """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        else:
+            print_insn1 = lp.CInstruction(tuple(),
+                          f"""printf(\"final res: {" ".join('%f' for i in range(12, ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(12, ns[0]))});
+                          """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
-        print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+        #print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
 
-        print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        #print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         
         def overall(direction, all_elems):
             return lp.make_kernel(
@@ -722,6 +730,7 @@ def fuse_orientations(spaces: list[WithGeometry]):
         transform_out = op3.Function(out_knl, [op3.READ for n in ns] + [op3.WRITE for n in ns] + [op3.READ, op3.RW])
         return transform_in, transform_out
     elif fuse_defined_spaces and sum(fuse_matrix_spaces) == 0:
+        print("not matrix space")
         return None, None
     elif fuse_defined_spaces and sum(fuse_defined_spaces) != sum(fuse_matrix_spaces):
         raise ValueError("If a fuse space is used, all spaces must be fuse spaces")

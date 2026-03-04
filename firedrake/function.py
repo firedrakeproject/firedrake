@@ -857,7 +857,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
-    gdim = mesh.geometric_dimension()
+    gdim = mesh.geometric_dimension
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 
