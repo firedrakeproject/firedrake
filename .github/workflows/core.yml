@@ -215,6 +215,7 @@ jobs:
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
           pip install -I git+https://github.com/firedrakeproject/ufl.git@firedrakeproject:pbrubeck/hypergeometric
+          pip install -I git@github.com:pbrubeck/loopy.git@pbrubeck:pbrubeck/hypergeometric 
           firedrake-clean
           pip list
 
