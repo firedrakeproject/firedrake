@@ -144,9 +144,13 @@ class Pyop3NoiseBackend(NoiseBackendBase):
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
         super().__init__(V, rng=rng, seed=seed)
+        self._z = Function(self.broken_space)
+        self._b = Cofunction(self.function_space.dual())
 
-        u = TrialFunction(V)
-        v = TestFunction(V)
+    @cached_property
+    def cholesky_kernel(self) -> op3.Function:
+        u = TrialFunction(self._V)
+        v = TestFunction(self._V)
         mass = inner(u, v)*dx
 
         # Create mass expression, assemble and extract kernel
@@ -227,7 +231,7 @@ class Pyop3NoiseBackend(NoiseBackendBase):
             target=tsfc.parameters.target,
             lang_version=op3.LOOPY_LANG_VERSION,
         )
-        self.cholesky_kernel = op3.Function(
+        return op3.Function(
             cholesky_loopy_kernel, [op3.READ, op3.INC, op3.READ]
         )
 
@@ -236,20 +240,10 @@ class Pyop3NoiseBackend(NoiseBackendBase):
                apply_riesz: bool = False):
         rng = rng or self.rng
 
-        z = rng.standard_normal(self.broken_space)
-        b = Cofunction(self.function_space.dual())
-
-        mesh = self.function_space.mesh()
-        iter_info = get_iteration_spec(mesh, "cell")
-        op3.loop(
-            iter_info.loop_index,
-            self.cholesky_kernel(
-                pack(z, iter_info),
-                pack(b, iter_info),
-                pack(mesh.coordinates, iter_info),
-            ),
-            eager=True
-        )
+        self._z.assign(rng.standard_normal(self.broken_space))
+        self._b.zero()
+        self._loop()
+        b = self._b
 
         if apply_riesz:
             b = b.riesz_representation(self.riesz_map)
@@ -260,6 +254,19 @@ class Pyop3NoiseBackend(NoiseBackendBase):
             tensor = b
 
         return tensor
+
+    @cached_property
+    def _loop(self) -> op3.Loop:
+        mesh = self.function_space.mesh()
+        iter_info = get_iteration_spec(mesh, "cell")
+        return op3.loop(
+            iter_info.loop_index,
+            self.cholesky_kernel(
+                pack(self._z, iter_info),
+                pack(self._b, iter_info),
+                pack(mesh.coordinates, iter_info),
+            ),
+        )
 
 
 class PetscNoiseBackend(NoiseBackendBase):
