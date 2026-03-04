@@ -706,9 +706,9 @@ def fuse_orientations(spaces: list[WithGeometry]):
                           f"""printf(\"final res: {" ".join('%f' for i in range(12, ns[0]))}\\n\", {', '.join(f"res[{j}]" for j in range(12, ns[0]))});
                           """, assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
 
-        #print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
+        print_insn = lp.CInstruction(tuple(), "", assignees=(), read_variables=frozenset([]), id="print")
 
-        #print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
+        print_insn1 = lp.CInstruction(tuple(),"", assignees=(), read_variables=frozenset(["res"]), depends_on="replace")
         
         def overall(direction, all_elems):
             return lp.make_kernel(
