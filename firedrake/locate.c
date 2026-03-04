@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <rstar_capi.h>
+#include <rstar-capi.h>
 #include <float.h>
 #include <evaluate.h>
 
@@ -34,10 +34,9 @@ int locate_cell(struct Function *f,
     if (f->sidx) {
         size_t *ids = NULL;
         size_t nids = 0;
-        err = RTree_LocateAllAtPoint((const struct RStar_RTree *)f->sidx, x, &ids, &nids);
-        if (err != Ok) {
+        err = rtree_locate_all_at_point((const struct RTreeH *)f->sidx, x, &ids, &nids);
+        if (err != Success) {
             fputs("ERROR: RTree_LocateAllAtPoint failed in rstar-capi!\n", stderr);
-            PrintRTreeError(err);
             return -1;
         }
         if (f->extruded == 0) {
@@ -107,7 +106,7 @@ int locate_cell(struct Function *f,
                 }
             }
         }
-        free(ids);
+        rtree_free_ids(ids, nids);
     } else {
         if (f->extruded == 0) {
             for (int c = 0; c < f->n_cols; c++) {
