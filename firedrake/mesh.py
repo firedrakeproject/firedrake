@@ -1,3 +1,4 @@
+import dataclasses
 import numpy as np
 import ctypes
 import os
@@ -2313,6 +2314,20 @@ class CellOrientationsRuntimeError(RuntimeError):
     pass
 
 
+@dataclasses.dataclass(frozen=True)
+class _MultiCellTypeDummyCoordinates:
+    """Placeholder object for the coordinates of a mesh with >1 cell types."""
+    topology: AbstractMeshTopology
+    _ufl_element: finat.ufl.FiniteElementBase
+
+    def ufl_element(self) -> finat.ufl.FiniteElementBase:
+        return self._ufl_element
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.topology.comm
+
+
 class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
@@ -2335,7 +2350,10 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         uid = utils._new_uid(coordinates.comm)
         super().__init__(element, ufl_id=uid)
 
-        topology = coordinates.function_space().mesh()
+        if isinstance(coordinates, _MultiCellTypeDummyCoordinates):
+            topology = coordinates.topology
+        else:
+            topology = coordinates.function_space().mesh()
 
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
@@ -2344,6 +2362,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
+
+        # A lot of the infrastructure of MeshGeometry does not work for meshes
+        # with multiple cell types
+        if isinstance(coordinates, _MultiCellTypeDummyCoordinates):
+            return
 
         # submesh
         self.submesh_parent = None
@@ -4916,8 +4939,10 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
-    gdim = len(element.sub_elements)
+    if len(topology.dm_cell_types) > 1:
+        return _MultiCellTypeDummyCoordinates(topology, element)
 
+    (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)
     coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                  (topology.num_vertices(), gdim))

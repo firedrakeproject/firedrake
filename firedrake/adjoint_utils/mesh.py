@@ -14,15 +14,17 @@ class MeshGeometryMixin(OverloadedType):
             init(self, *args, **kwargs)
             self._ad_coordinate_space = None
 
-            # attach information to the mesh coordinates
-            f = self._coordinates_function
-            f.block_class = MeshInputBlock
-            f._ad_floating_active = True
-            f._ad_args = [self]
+            # attach information to the mesh coordinates, this does not work for
+            # meshes with multiple cell types
+            if len(self.topology.dm_cell_types) == 1:
+                f = self._coordinates_function
+                f.block_class = MeshInputBlock
+                f._ad_floating_active = True
+                f._ad_args = [self]
 
-            f._ad_output_args = [self]
-            f.output_block_class = MeshOutputBlock
-            f._ad_outputs = [self]
+                f._ad_output_args = [self]
+                f.output_block_class = MeshOutputBlock
+                f._ad_outputs = [self]
         return wrapper
 
     @no_annotations
