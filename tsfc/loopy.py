@@ -449,13 +449,8 @@ def _expression_power(expr, ctx):
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, ctx):
-    if expr.name == "hyp2f1":
-        assert isinstance(ctx.target, lp.target.c.CWithGNULibcTarget)
-        # Generate right functions calls to gnulibc hypergeometric function
-        name = "hyperg_2F1"
-        return p.Variable(name)(*(expression(c, ctx) for c in expr.children))
 
-    elif expr.name.startswith('cyl_bessel_'):
+    if expr.name.startswith('cyl_bessel_'):
         # Bessel functions
         if is_complex(ctx.scalar_type):
             raise NotImplementedError("Bessel functions for complex numbers: "
@@ -486,7 +481,11 @@ def _expression_mathfunction(expr, ctx):
                 else:
                     return p.Variable(f"{name}n")(nu_, arg_)
     else:
-        if expr.name == "ln":
+        if expr.name == "hyp2f1":
+            assert isinstance(ctx.target, lp.target.c.CWithGNULibcTarget)
+            # Generate right functions calls to gsl hypergeometric function
+            name = "hyperg_2F1"
+        elif expr.name == "ln":
             name = "log"
         else:
             name = expr.name
