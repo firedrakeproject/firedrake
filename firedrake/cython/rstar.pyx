@@ -12,17 +12,17 @@ include "rstarinc.pxi"
 cdef class RStarTree(object):
     """Python class for holding a native spatial index object."""
 
-    cdef RStar_RTree* tree
+    cdef RTreeH* tree
 
     def __cinit__(self, uintptr_t tree_handle):
-        self.tree = <RStar_RTree*>0
+        self.tree = <RTreeH*>0
         if tree_handle == 0:
             raise RuntimeError("invalid tree handle")
-        self.tree = <RStar_RTree*>tree_handle
+        self.tree = <RTreeH*>tree_handle
 
     def __dealloc__(self):
-        if self.tree != <RStar_RTree*>0:
-            RTree_Free(self.tree)
+        if self.tree != <RTreeH*>0:
+            rtree_free(self.tree)
 
     @property
     def ctypes(self):
@@ -43,7 +43,7 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     cdef:
         RStarTree rstar_tree
         np.ndarray[np.npy_uintp, ndim=1, mode="c"] ids
-        RStar_RTree* rtree
+        RTreeH* rtree
         size_t n
         size_t dim
         RTreeError err 
@@ -54,16 +54,15 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     dim = <size_t>regions_lo.shape[1]
     ids = np.arange(n, dtype=np.uintp)
 
-    err = RTree_FromArray(
+    err = rtree_bulk_load(
+        &rtree,
         <const double*>regions_lo.data,
         <const double*>regions_hi.data,
         <const size_t*>ids.data,
         n,
-        dim,
-        &rtree
+        dim
     )
-    if err != Ok:
-        PrintRTreeError(err)
+    if err != Success:
         raise RuntimeError("RTree_FromArray failed")
     rstar_tree = RStarTree(<uintptr_t>rtree)
     return rstar_tree
