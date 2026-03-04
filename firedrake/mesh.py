@@ -4939,7 +4939,7 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
-    if len(topology.dm_cell_types) > 1:
+    if not isinstance(topology, ExtrudedMeshTopology) and len(topology.dm_cell_types) > 1:
         return _MultiCellTypeDummyCoordinates(topology, element)
 
     (gdim,) = element.reference_value_shape

@@ -8,6 +8,7 @@ class MeshGeometryMixin(OverloadedType):
     def _ad_annotate_init(init):
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            from firedrake.mesh import ExtrudedMeshTopology
             from .blocks import MeshInputBlock, MeshOutputBlock
 
             OverloadedType.__init__(self, *args, **kwargs)
@@ -16,7 +17,7 @@ class MeshGeometryMixin(OverloadedType):
 
             # attach information to the mesh coordinates, this does not work for
             # meshes with multiple cell types
-            if len(self.topology.dm_cell_types) == 1:
+            if not isinstance(self.topology, ExtrudedMeshTopology) and len(self.topology.dm_cell_types) == 1:
                 f = self._coordinates_function
                 f.block_class = MeshInputBlock
                 f._ad_floating_active = True
