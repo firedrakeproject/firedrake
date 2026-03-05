@@ -22,6 +22,8 @@ def test_netgen_mg_circle():
     mesh = Mesh(ngmesh)
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
+    for m in nh:
+        assert m.coordinates.function_space().ufl_element().degree() == 3
 
     V = FunctionSpace(mesh, "CG", 3)
 

@@ -2994,9 +2994,10 @@ values from f.)"""
         utils.check_netgen_installed()
 
         if netgen_flags is None:
-            netgen_flags = {}
+            netgen_flags = self.netgen_flags
         DistParams = self._distribution_parameters
-        els = {2: self.netgen_mesh.Elements2D, 3: self.netgen_mesh.Elements3D}
+        netgen_mesh = self.netgen_mesh.Copy()
+        els = {2: netgen_mesh.Elements2D, 3: netgen_mesh.Elements3D}
         dim = self.geometric_dimension
         refine_faces = netgen_flags.get("refine_faces", False)
         if dim in [2, 3]:
@@ -3019,12 +3020,14 @@ values from f.)"""
                             else:
                                 el.refine = False
                         if not refine_faces and dim == 3:
-                            self.netgen_mesh.Elements2D().NumPy()["refine"] = 0
-                        self.netgen_mesh.Refine(adaptive=True)
+                            netgen_mesh.Elements2D().NumPy()["refine"] = 0
+                        netgen_mesh.Refine(adaptive=True)
                         mark = mark-np.ones(mark.shape)
-                    return fd.Mesh(self.netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
+                    return fd.Mesh(netgen_mesh, distribution_parameters=DistParams,
+                                   netgen_flags=netgen_flags, comm=self.comm)
                 return fd.Mesh(netgen.libngpy._meshing.Mesh(dim),
-                               distribution_parameters=DistParams, comm=self.comm)
+                               distribution_parameters=DistParams,
+                               netgen_flags=netgen_flags, comm=self.comm)
         else:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
 
@@ -3431,6 +3434,30 @@ def Mesh(meshfile, **kwargs):
 
     if from_netgen:
         mesh.netgen_mesh = netgen_firedrake_mesh.meshMap.ngMesh
+        mesh.netgen_flags = netgen_flags
+
+        # Curve the mesh, if requested
+        degree = netgen_flags.get("degree", 1)
+        if degree != 1:
+            permutation_tol = netgen_flags.get("permutation_tol", 1e-8)
+            cg = netgen_flags.get("cg", False)
+            ho_field = mesh.curve_field(
+                order=degree,
+                permutation_tol=permutation_tol,
+                cg_field=cg
+            )
+            # Do not redistribute the mesh
+            distribution_parameters_noop = {"partition": False,
+                                            "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+            reorder_noop = None
+            temp = Mesh(ho_field,
+                        reorder=reorder_noop,
+                        distribution_parameters=distribution_parameters_noop,
+                        comm=mesh.comm)
+            temp.netgen_mesh = mesh.netgen_mesh
+            temp.netgen_flags = netgen_flags
+            temp._distribution_parameters = mesh._distribution_parameters
+            mesh = temp
 
     mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
