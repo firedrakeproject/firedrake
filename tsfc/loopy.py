@@ -449,7 +449,6 @@ def _expression_power(expr, ctx):
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, ctx):
-
     if expr.name.startswith('cyl_bessel_'):
         # Bessel functions
         if is_complex(ctx.scalar_type):
