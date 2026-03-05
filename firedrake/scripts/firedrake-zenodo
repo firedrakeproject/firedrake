@@ -12,6 +12,7 @@ import os
 import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import json
+import textwrap
 import time
 import requests
 import base64
@@ -791,13 +792,25 @@ def generate_unique_release_tag() -> str:
 def check_ref_exists(component):
     if "version" in shas[component]:
         # component is versioned, a GitHub release should already exist
-        if not release_already_exists(component, shas[component]["version"]):
-            log.error(
-                f"A release of {component} is referenced but no corresponding "
-                "release on GitHub can be found. For repositories we do not own "
-                "(e.g. PETSc) it will be necessary to push the release tags to "
-                "the Firedrake fork before making a release."
+        version = shas[component]["version"]
+        if not release_already_exists(component, version):
+            msg = textwrap.dedent(
+                f"""\
+                Release {shas[component]['version']} of {component} is
+                referenced but no corresponding release on GitHub can be
+                found. To fix this you have to update the fork and create the
+                release. Assuming that you have added the upstream repository
+                as a remote called 'upstream' the steps you have to follow are:
+
+                1. git fetch upstream
+                2. git push --tags
+                3. gh release create {version} --latest=false --prerelease --title {version} --repo firedrakeproject/{component}
+
+                Where 'gh' is the GitHub CLI tool.
+
+                """
             )
+            log.error(msg)
             sys.exit(1)
     else:
         repo = get_component_repository(component)
@@ -832,7 +845,7 @@ def make_github_release_or_tag_existing(component: str) -> None:
     if tag_existing_release:
         log.info(f"Commit '{commit_id}' found in a pre-existing release for "
                  f"'{component}', adding tag '{release_tag}' to it")
-        date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+        date = datetime.datetime.now(datetime.UTC).replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
         tagger = {"name": "firedrake-zenodo",
                   "email": "firedrake@imperial.ac.uk",
                   "date": date}
@@ -850,13 +863,38 @@ def make_github_release_or_tag_existing(component: str) -> None:
             "or any of its dependencies. Instead, refer to "
             "https://www.firedrakeproject.org/citing.html"
         )
-        repo.create_release(
-            tag_name=release_tag,
-            target_commitish=commit_id,
-            name=DESCRIPTIONS[component],
-            body=body,
-            draft=False,
-            prerelease=True)
+        try:
+            repo.create_release(
+                tag_name=release_tag,
+                target_commitish=commit_id,
+                name=DESCRIPTIONS[component],
+                body=body,
+                draft=False,
+                prerelease=True)
+        except github3.exceptions.NotFoundError:
+            # The GitHub API is buggy and this will occasionally fail
+            msg = textwrap.dedent(f"""\
+                Failed to create a release for {component}, this will have to
+                be done manually:
+
+                1. Tag the relevant commit:
+
+                    a. git clone git@github.com:firedrakeproject/{component}.git
+                    b. cd {component}
+                    c. git tag {release_tag} {commit_id}
+                    d. git push --tags
+
+                2. Make a prerelease on GitHub using this tag. The release name
+                   should be:
+
+                     '{DESCRIPTIONS[component]}'
+
+                   and the text should be:
+
+                   {body}
+
+                """)
+            log.error(msg)
 
 
 def make_releases() -> None:
