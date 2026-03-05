@@ -106,7 +106,8 @@ def run_one_element_advection():
                                        solver_parameters={
                                            'ksp_type': 'preonly',
                                            'pc_type': 'bjacobi',
-                                           'sub_pc_type': 'lu'
+                                           'sub_pc_type': 'lu',
+                                        'ksp_monitor': None,
                                        })
     t = 0.
     T = 1.0
