@@ -338,8 +338,7 @@ class _SNESContext(object):
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
-        with self._F.dat.vec_wo as v:
-            snes.setFunction(self.form_function, v)
+        snes.setFunction(self.form_function)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
