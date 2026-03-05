@@ -214,8 +214,8 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
-          pip install -I git+https://github.com/firedrakeproject/ufl.git@firedrakeproject:pbrubeck/hypergeometric
-          pip install -I git@github.com:pbrubeck/loopy.git@pbrubeck:pbrubeck/hypergeometric 
+          pip install -I git+https://github.com/firedrakeproject/ufl.git@pbrubeck/hypergeometric
+          pip install -I git+https://github.com/pbrubeck/loopy.git@pbrubeck/hypergeometric
           firedrake-clean
           pip list
 
