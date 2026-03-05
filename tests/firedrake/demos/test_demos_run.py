@@ -52,7 +52,8 @@ SERIAL_DEMOS = [
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
-    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"])
+    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
+    Demo(('goal_based_adaptivity_bvp', 'goal_based_adaptivity_bvp'), ["netgen"]),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
