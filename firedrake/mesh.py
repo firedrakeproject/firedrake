@@ -88,6 +88,12 @@ UNMARKED = -1
 DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
 """The default name of the mesh."""
 
+DISTRIBUTION_PARAMETERS_NOOP = {
+    "partition": False,
+    "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+}
+"""Distribution parameters for derived meshes (RelabeledMesh/Submesh)."""
+
 
 def _generate_default_submesh_name(name):
     """Generate the default submesh name from the mesh name.
@@ -4726,16 +4732,18 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         dmlabel = plex1.getLabel(dmlabel_name)
         section = f.topological.function_space().dm.getSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
-    distribution_parameters_noop = {"partition": False,
-                                    "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
-                          distribution_parameters=distribution_parameters_noop,
+                          distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                           perm_is=tmesh._dm_renumbering,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
-    return make_mesh_from_mesh_topology(tmesh1, name1)
+    rmesh = make_mesh_from_mesh_topology(tmesh1, name1)
+    # Tag the relabeled mesh with the original distribution parameters
+    rmesh._distribution_parameters = mesh._distribution_parameters
+    rmesh._did_reordering = mesh._did_reordering
+    return rmesh
 
 
 @PETSc.Log.EventDecorator()
@@ -4767,7 +4775,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=True, comm=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4785,8 +4793,9 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         Name of the submesh.
     ignore_halo : bool
         Whether to exclude the halo from the submesh.
-    reorder : bool
-        Whether to reorder the mesh entities.
+    reorder : bool | None
+        Whether to reorder the mesh entities. By default,
+        the submesh will be reordered if the parent mesh was reordered.
     comm : PETSc.Comm | None
         An optional sub-communicator to define the submesh.
         By default, the submesh is defined on `mesh.comm`.
@@ -4848,17 +4857,20 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
+    if reorder is None:
+        # Ideally we should set perm_is = mesh.dm_reordering[label_indices]
+        reorder = mesh._did_reordering
+
     submesh = Mesh(
         subplex,
         submesh_parent=mesh,
         name=name,
         comm=comm,
         reorder=reorder,
-        distribution_parameters={
-            "partition": False,
-            "overlap_type": (DistributedMeshOverlapType.NONE, 0),
-        },
+        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
     )
+    # Tag the relabeled mesh with the original distribution parameters
+    submesh._distribution_parameters = mesh._distribution_parameters
     return submesh
 
 
