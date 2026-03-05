@@ -2689,6 +2689,35 @@ values from f.)"""
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
+    def bounding_boxes(self, max_level: int):
+        """Breadth-first traversal of the rtree, collecting node bounding boxes.
+
+        Parameters
+        ----------
+        max_level : int
+            Depth at which to stop (0 = root only, 1 = root's children, ...).
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(n_nodes, 2, gdim)`` containing the bounding
+            boxes of all nodes at ``max_level``.
+        """
+        rtree = self.spatial_index
+        gdim = self.geometric_dimension
+        current_level = [rstar.root_node(rtree)]
+        for _ in range(max_level):
+            next_level = []
+            for node in current_level:
+                next_level.extend(rstar.node_children(node))
+            if not next_level:
+                break
+            current_level = next_level
+        envelopes = np.empty((len(current_level), 2, gdim), dtype=utils.RealType)
+        for i, node in enumerate(current_level):
+            envelopes[i] = rstar.node_envelope(node, gdim)
+        return envelopes
+
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point.
