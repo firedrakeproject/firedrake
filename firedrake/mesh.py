@@ -2724,7 +2724,6 @@ values from f.)"""
 
     def partition_volume(self):
         """Calculate total voulme of the mesh partition on this rank."""
-        # Run pyop2 kernel - only works on 2D simplicial meshes
         cell_node_list = self.coordinates.function_space().cell_node_list
         n_cells = self.cell_set.size
         vertices = self.coordinates.dat.data_ro_with_halos[cell_node_list[:n_cells]]
@@ -2735,6 +2734,89 @@ values from f.)"""
             return vol
         else:
             raise NotImplementedError("Partition volume only done for 2D simplicial meshes")
+        
+    def box_ratio_heuristic(self, max_level: int = 10):
+        """Return partition bounding boxes at some optimal R*-tree level.
+
+        Descends the local R*-tree top-down breadth0first, stopping when the total
+        bounding box volume stops decreasing (ratio of next level to current
+        level >= 1) or when ``max_level`` is reached.
+
+        Parameters
+        ----------
+        max_level : int
+            Hard cap on tree depth to prevent excessive subdivision.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(n_boxes, 2, gdim)`` at the chosen level.
+        """
+        prev_bboxes = self.bounding_boxes(0)
+        prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
+        # TODO: add a cython function which descends the tree depth-first
+        # to find total number of levels.
+        for level in range(1, max_level + 1):
+            next_bboxes = self.bounding_boxes(level)
+            next_vol = self.bounding_boxes_total_volume(next_bboxes)
+            if next_vol >= prev_vol:
+                break
+            prev_vol = next_vol
+        return next_bboxes
+
+    @cached_property
+    def distributed_rtree(self):
+        """Build a global R*-tree from all ranks' partition bounding boxes.
+
+        Each rank contributes a set of bounding boxes. The boxes are gathered 
+        from all ranks and a single R*-tree is built locally on every rank.  
+        The returned ``rank_map`` array maps each box index in the tree (0-based) to the
+        MPI rank that owns it, so that a spatial query immediately yields the
+        target rank(s) to route a point to.
+
+        Returns
+        -------
+        tuple
+            ``(tree, rank_map)`` where ``tree`` is a :class:`~.rstar.RStarTree`
+            and ``rank_map`` is a 1-D integer array of length ``n_total_boxes``
+            mapping tree-leaf id → owning MPI rank.
+        """
+        gdim = self.geometric_dimension
+        comm = self.comm
+
+        #per-rank bboxes via heuristic
+        local_bboxes = self.box_ratio_heuristic()  # (n_local, 2, gdim)
+        n_local = local_bboxes.shape[0]
+
+        # --- gather box counts so we can allocate the receive buffer ---
+        counts = np.array(comm.allgather(n_local), dtype=IntType)  # (nranks,)
+        n_total = int(counts.sum())
+
+        # --- Allgatherv on the flattened bbox data ---
+        # Each box is 2*gdim doubles; pack as C-contiguous float64
+        elems_per_box = 2 * gdim
+        local_flat = np.ascontiguousarray(local_bboxes, dtype=np.float64).ravel()
+        recvcounts = (counts * elems_per_box).astype(IntType)
+        displs = np.zeros(len(counts) + 1, dtype=IntType)
+        displs[1:] = np.cumsum(recvcounts)
+        all_flat = np.empty(n_total * elems_per_box, dtype=np.float64)
+        comm.Allgatherv(
+            sendbuf=local_flat,
+            recvbuf=(all_flat, recvcounts)
+        )
+
+        # --- reconstruct (n_total, 2, gdim) and split into lo/hi ---
+        all_bboxes = all_flat.reshape(n_total, 2, gdim)
+        regions_lo = np.ascontiguousarray(all_bboxes[:, 0, :])  # (n_total, gdim)
+        regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
+
+        # --- rank_map[i] = rank that owns box i (tree leaf id i) ---
+        rank_map = np.repeat(np.arange(comm.size, dtype=IntType), counts)
+
+        # --- build the R*-tree (bulk-loaded, O(n log n)) ---
+        tree = rstar.from_regions(regions_lo, regions_hi)
+        return tree, rank_map
+
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
