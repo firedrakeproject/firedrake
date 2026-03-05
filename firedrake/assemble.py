@@ -1099,6 +1099,7 @@ class ParloopFormAssembler(FormAssembler):
 
     @cached_property
     def local_kernels(self):
+        # breakpoint()
         """Return local kernels and their subdomain IDs.
 
         Returns

@@ -27,12 +27,20 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator', 'TopologyVersionMismatchError']
 
+class TopologyVersionMismatchError(RuntimeError):
+    """Exception raised when a Function's mesh topology has changed.
+    
+    This occurs when the mesh topology is modified (e.g., points removed
+    from a VertexOnlyMesh) after a Function has been created, invalidating
+    the Function's data layout.
+    """
+    pass
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
@@ -277,6 +285,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         # LRU cache for expressions assembled onto this function
         self._expression_cache = cachetools.LRUCache(maxsize=50)
 
+        # Store the mesh topology version to detect topology changes
+        mesh = self.function_space().mesh()
+        self._mesh_topology_version = mesh._topology_version
+
         if isinstance(function_space, Function):
             self.assign(function_space)
 
@@ -299,9 +311,132 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
+        if name == 'dat':
+            self._check_mesh_topology_version()
         val = getattr(self._data, name)
         return val
+    
+    def _check_mesh_topology_version(self):
+        mesh = self.function_space().mesh()
 
+        # Skip check for coordinate functions as they are rebuilt when the mesh is rebuilt
+        if hasattr(mesh, 'coordinates') and self is mesh.coordinates:
+            return
+        if hasattr(mesh, 'reference_coordinates') and self is mesh.reference_coordinates:
+            return
+        
+        current_mesh_version = mesh._topology_version
+        if current_mesh_version != self._mesh_topology_version:
+            # Attempt to rebuild the Function (works only on for vertex-only meshes)
+            self._rebuild_function(mesh, current_mesh_version)
+
+    
+    def _rebuild_function(self, mesh, current_version):
+        from pyop2.mpi import MPI
+
+        # Check if the mesh on which the function is defined is a VertexOnlyMesh
+        if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+            raise TopologyVersionMismatchError(
+                "The mesh topology has changed since this Function was created, \
+                and automatic function migration is only supported for VertexOnlyMeshes. \
+                Please recreate this Function on the updated mesh." 
+            )
+        
+        # Get the latest one-step SF point mapping (indexed by current mesh version)
+        latest_topology_step_sf = mesh._topology_step_sfs.get(current_version, None)
+        if latest_topology_step_sf is None:
+            raise RuntimeError(
+                f"Failed to migrate the Function: the topology mapping from version {self._mesh_topology_version} could not be found."
+            )
+    
+        # Check that the element is DG0
+        # TODO: generalise to non DG0 functions
+        FS_old_wg = self.function_space()
+        FS_old_top = FS_old_wg.topological
+        element = FS_old_top.ufl_element()
+        if element.family() != "Discontinuous Lagrange" or element.degree() != 0:
+            print("Attempting to rebuild a non DG0 function on a VertexOnlyMesh.")
+
+        # Build a new FunctionSpace on the updated topology
+        FS_new_wg = FunctionSpace(mesh, element)
+        FS_new_top = FS_new_wg.topological
+
+        # Allocate new CoordinatelessFunction storage on the new topological FS
+        # NOTE: self.dat here leads to infinite recursion, so we use self._data instead
+        new_data = CoordinatelessFunction(
+            FS_new_top, val=None, name=self.name(), dtype=self._data.dat.dtype
+        )
+
+        # Transfer Function data rows via cell_node_list (maps mesh cells -> FS nodes) and the SF mapping
+        old_cnl = FS_old_top.cell_node_list
+        new_cnl = FS_new_top.cell_node_list
+
+        old_dofs = old_cnl[:, 0] # DG0 defines one dof per cell (vertex)
+        new_dofs = new_cnl[:, 0]
+
+        breakpoint()
+        
+        # Get the SF mapping from current mesh to the mesh at the time the Function was created
+        # Check if we need to chain multiple one-step SFs
+        if current_version - self._mesh_topology_version > 1:
+            # Compose multiple one-step SFs
+            chained_sf = latest_topology_step_sf # starts from latest V -> V-1
+            # Iterate backwards through the intermediate versions
+            for v in range(current_version-1, self._mesh_topology_version, -1):
+                step_sf = mesh._topology_step_sfs.get(v, None) # maps V-1 -> V-2
+                if step_sf is None:
+                    raise RuntimeError(
+                        f"Failed to migrate the Function across multiple topology changes: \
+                        the intermediate topology mapping from version {v-1} to {v} could not be found."
+                    )
+                chained_sf = step_sf.compose(chained_sf) # V -> V-2
+            
+            # ? Should I cache chained_sf from this particular composition?
+            latest_topology_step_sf = chained_sf
+
+        breakpoint()
+
+        nroots, ilocal, remote = latest_topology_step_sf.getGraph()
+        nleaves = remote.shape[0] if ilocal is None else ilocal.shape[0]
+        
+        # Flatten the function data arrays
+        # dat.data is (ndofs, dim) for vector/tensor functions       
+        old_func_vals = self._data.dat.data
+        old_func_vals_flat = old_func_vals.reshape((old_func_vals.shape[0], -1))
+        dim = old_func_vals_flat.shape[1]
+
+        root_vals = np.ascontiguousarray(old_func_vals_flat[old_dofs, :])  # shape (nroots, dim)
+        leaf_vals = np.empty((nleaves, dim), dtype=root_vals.dtype)
+
+        # Broadcast old->new componentwise
+        for c in range(dim):
+            root_c = np.ascontiguousarray(root_vals[:, c])
+            leaf_c = np.empty(nleaves, dtype=root_c.dtype)
+
+            # Get the MPI data type associated with each node in the SF
+            # see _pic_swarm_in_mesh 
+            unit = MPI._typedict[np.dtype(root_c.dtype).char]
+
+            # Replace leaf values with values broadcasted from roots
+            latest_topology_step_sf.bcastBegin(unit, root_c, leaf_c, MPI.REPLACE)
+            latest_topology_step_sf.bcastEnd(unit, root_c, leaf_c, MPI.REPLACE)
+
+            leaf_vals[:, c] = leaf_c
+        
+        new_func_vals = new_data.dat.data
+        new_func_vals_flat = new_func_vals.reshape((new_func_vals.shape[0], -1))
+        new_func_vals_flat[new_dofs, :] = leaf_vals # assign values to new VOM vertices that correspond to leaves in the SF
+
+        # Swap in the new data and function space
+        self._data = new_data
+        self._function_space = FS_new_wg
+        
+        # Clear any UFL expression caches as they need to be rebuilt
+        self._expression_cache.clear()
+
+        # Update the mesh topology version stored on the function
+        self._mesh_topology_version = current_version
+        
     def __dir__(self):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))

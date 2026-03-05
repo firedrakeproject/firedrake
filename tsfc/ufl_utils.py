@@ -52,6 +52,7 @@ def compute_form_data(form,
     kwargs overriden in the way TSFC needs it and is provided for
     other form compilers based on TSFC.
     """
+    # breakpoint()
     fd = ufl_compute_form_data(
         form,
         do_apply_function_pullbacks=do_apply_function_pullbacks,

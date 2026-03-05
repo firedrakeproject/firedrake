@@ -53,6 +53,7 @@ TSFCIntegralDataInfo.__doc__ = """
 
 
 def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
+    # breakpoint()
     """Compiles a UFL form into a set of assembly kernels.
 
     Parameters
@@ -234,6 +235,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     :arg parameters: parameters object
     :returns: Loopy-based ExpressionKernel object.
     """
+    # breakpoint()
     if parameters is None:
         parameters = default_parameters()
     else:

@@ -108,6 +108,7 @@ class TSFCKernel:
             If assembling a matrix is it diagonal?
 
         """
+        # breakpoint()
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  dont_split_numbers=dont_split_numbers,
                                  diagonal=diagonal)
@@ -169,6 +170,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
 )
 @PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+    # breakpoint()
     """Compile a form using TSFC.
 
     Parameters
