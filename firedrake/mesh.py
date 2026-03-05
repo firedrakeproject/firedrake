@@ -2718,6 +2718,24 @@ values from f.)"""
             envelopes[i] = rstar.node_envelope(node, gdim)
         return envelopes
 
+    def bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
+        side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
+        return np.prod(side_lengths, axis=1).sum()
+
+    def partition_volume(self):
+        """Calculate total voulme of the mesh partition on this rank."""
+        # Run pyop2 kernel - only works on 2D simplicial meshes
+        cell_node_list = self.coordinates.function_space().cell_node_list
+        n_cells = self.cell_set.size
+        vertices = self.coordinates.dat.data_ro_with_halos[cell_node_list[:n_cells]]
+        if self.geometric_dimension == 2:
+            edge1 = vertices[:, 1] - vertices[:, 0]
+            edge2 = vertices[:, 2] - vertices[:, 0]
+            vol = 0.5 * np.abs(edge1[:, 0]*edge2[:, 1] - edge1[:, 1]*edge2[:, 0]).sum()
+            return vol
+        else:
+            raise NotImplementedError("Partition volume only done for 2D simplicial meshes")
+
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point.
