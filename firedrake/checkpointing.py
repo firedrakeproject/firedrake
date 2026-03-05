@@ -8,7 +8,7 @@ from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, MeshSequenceGeometry, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
 from firedrake.functionspacedata import get_global_numbering, create_element
@@ -504,6 +504,165 @@ class HDF5File(object):
         self.close()
 
 
+def _generate_function_space_name(V):
+    """Return a unique function space name.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        The function space to generate a name for.
+    """
+    V_names = [PREFIX + "_function_space"]
+    for Vsub in V:
+        elem = Vsub.ufl_element()
+        if isinstance(elem, finat.ufl.RestrictedElement):
+            # RestrictedElement.shortstr() contains '<>|{}'.
+            elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
+        elif isinstance(elem, finat.ufl.EnrichedElement):
+            # EnrichedElement.shortstr() contains '<>+'.
+            elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
+        else:
+            elem_name = elem.shortstr()
+            elem_name = elem_name.replace('?', 'None')
+            # MixedElement, VectorElement, TensorElement
+            # use '<' and '>' in shortstr(), but changing
+            # these to '(' and ')' causes no confusion.
+            elem_name = elem_name.replace('<', '(').replace('>', ')')
+        mesh = Vsub.mesh()
+        # Unwrap MeshSequenceGeometry to get the concrete mesh name.
+        # CheckpointFile.save_function calls mesh.unique() before reaching
+        # here, so this is a no-op on that path. But TemporaryFunctionCheckpointFile
+        # calls _generate_function_space_name directly without prior unwrapping,
+        # so we need to handle it here to produce consistent dataset names.
+        if isinstance(mesh, MeshSequenceGeometry):
+            mesh = mesh[-1]
+        V_names.append("_".join([mesh.name, elem_name]))
+    return "_".join(V_names)
+
+
+class TemporaryFunctionCheckpointFile:
+    """An HDF5 file for saving and loading :class:`~.Function` data on a sub-communicator.
+
+    This class has a deliberately narrow contract that differs from
+    :class:`CheckpointFile` in several important ways:
+
+    - It operates on any communicator, typically a sub-communicator of
+      COMM_WORLD (e.g. ``COMM_SELF`` for per-rank files, or a node-local
+      communicator for per-node files). All I/O is collective only on that
+      communicator — no COMM_WORLD operations are performed.
+    - It stores and retrieves :class:`~.Function` *data* (the local Vec
+      array) only. It has no knowledge of mesh topology, DM sections, or
+      PETSc SF. This is why :meth:`load_function` takes a
+      :class:`~.FunctionSpace` rather than a mesh: the caller already holds
+      the function space and we simply fill in the values.
+    - It is ephemeral: files are not intended to survive between programme
+      runs. The communicator layout (partition) must be identical on save
+      and restore.
+    - The caller is responsible for assigning unique ``name``/``idx`` pairs
+      on save and for restoring the correct ``name`` and ``count`` on the
+      returned :class:`~.Function` after load.
+
+    These constraints are intentional. Using :class:`CheckpointFile` with a
+    sub-communicator deadlocks on load because the mesh DM operations
+    (``sectionLoad``, ``globalVectorLoad``) are collective on COMM_WORLD.
+    This class deliberately bypasses that path.
+
+    Parameters
+    ----------
+    comm : mpi4py.MPI.Intracomm
+        The communicator on which I/O is collective. All ranks in this
+        communicator must enter save/load together.
+    filepath : str
+        Path to the HDF5 file to open.
+    mode : str
+        File access mode: ``'r'`` for reading, ``'w'`` to create/truncate,
+        ``'a'`` to append.
+    """
+
+    def __init__(self, comm, filepath, mode):
+        self.comm = comm
+        self.filepath = filepath
+        self._viewer = PETSc.ViewerHDF5()
+        self._viewer.create(filepath, mode=mode, comm=comm)
+
+    def save_function(self, function, name=None, idx=None):
+        """Save a Function's local data to this file.
+
+        Parameters
+        ----------
+        function : Function
+            The function whose data to save.
+        name : str
+            Dataset name. The caller is responsible for uniqueness across
+            saves to this file (see :class:`CheckpointFunction`).
+        idx : int
+            Dataset index. Together with ``name`` this uniquely identifies
+            the stored dataset.
+        """
+        vec_name = f"{name}_{idx}"
+
+        with function.dat.vec_ro as v:
+            local_array = v.getArray().copy()
+
+        local_vec = PETSc.Vec().createWithArray(
+            local_array, size=(len(local_array), PETSc.DECIDE), comm=self.comm
+        )
+        local_vec.setName(vec_name)
+        local_vec.view(self._viewer)
+        local_vec.destroy()
+
+    def load_function(self, function_space, name, idx=None):
+        """Load a Function's data from this file.
+
+        Parameters
+        ----------
+        function_space : FunctionSpace
+            The function space for the returned Function.
+        name : str
+            Dataset name as passed to :meth:`save_function`.
+        idx : int
+            Dataset index as passed to :meth:`save_function`.
+
+        Returns
+        -------
+        Function
+            A new Function with data loaded from disk. The caller is
+            responsible for restoring the correct ``name`` and ``count``
+            on the returned Function.
+        """
+        from firedrake import Function
+
+        vec_name = f"{name}_{idx}"
+        f = Function(function_space)
+
+        with f.dat.vec_wo as v:
+            local_size = v.getLocalSize()
+            local_vec = PETSc.Vec().createMPI(
+                (local_size, PETSc.DECIDE), comm=self.comm
+            )
+            local_vec.setName(vec_name)
+            local_vec.load(self._viewer)
+            v.setArray(local_vec.getArray())
+            local_vec.destroy()
+
+        return f
+
+    def close(self):
+        """Close the underlying HDF5 viewer."""
+        if hasattr(self, '_viewer'):
+            self._viewer.destroy()
+            del self._viewer
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        self.close()
+
+
 class CheckpointFile(object):
 
     r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
@@ -838,14 +997,14 @@ class CheckpointFile(object):
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()
         if isinstance(V.topological, impl.MixedFunctionSpace):
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             base_path = self._path_to_mixed_function_space(mesh.name, V_name)
             self.require_group(base_path)
             self.set_attr(base_path, PREFIX + "_num_sub_spaces", V.num_sub_spaces())
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
-                Vsub_name = self._generate_function_space_name(Vsub)
+                Vsub_name = _generate_function_space_name(Vsub)
                 self.set_attr(path, PREFIX + "_function_space", Vsub_name)
                 self._save_function_space(Vsub)
         else:
@@ -857,7 +1016,7 @@ class CheckpointFile(object):
             # -- Save function space --
             tmesh = tV.mesh()
             element = tV.ufl_element()
-            V_name = self._generate_function_space_name(V)
+            V_name = _generate_function_space_name(V)
             path = self._path_to_function_spaces(tmesh.name, mesh.name)
             if V_name not in self.require_group(path):
                 # Save UFL element
@@ -921,7 +1080,7 @@ class CheckpointFile(object):
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
-        V_name = self._generate_function_space_name(V)
+        V_name = _generate_function_space_name(V)
         if isinstance(V.topological, impl.MixedFunctionSpace):
             base_path = self._path_to_mixed_function(mesh.name, V_name, f.name())
             self.require_group(base_path)
@@ -1400,27 +1559,6 @@ class CheckpointFile(object):
 
     def _generate_mesh_key_from_names(self, mesh_name, distribution_name, permutation_name):
         return (self.filename, self.commkey, mesh_name, distribution_name, permutation_name)
-
-    def _generate_function_space_name(self, V):
-        """Return a unique function space name."""
-        V_names = [PREFIX + "_function_space"]
-        for Vsub in V:
-            elem = Vsub.ufl_element()
-            if isinstance(elem, finat.ufl.RestrictedElement):
-                # RestrictedElement.shortstr() contains '<>|{}'.
-                elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
-            elif isinstance(elem, finat.ufl.EnrichedElement):
-                # EnrichedElement.shortstr() contains '<>+'.
-                elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
-            else:
-                elem_name = elem.shortstr()
-                elem_name = elem_name.replace('?', 'None')
-                # MixedElement, VectorElement, TensorElement
-                # use '<' and '>' in shortstr(), but changing
-                # these to '(' and ')' causes no confusion.
-                elem_name = elem_name.replace('<', '(').replace('>', ')')
-            V_names.append("_".join([Vsub.mesh().name, elem_name]))
-        return "_".join(V_names)
 
     def _generate_dm_name(self, nodes_per_entity, real_tensorproduct, block_size):
         return "_".join([PREFIX, "dm"]
