@@ -798,11 +798,15 @@ def check_ref_exists(component):
                 f"""\
                 Release {shas[component]['version']} of {component} is
                 referenced but no corresponding release on GitHub can be
-                found. To fix this you have to update the fork:
+                found. To fix this you have to update the fork and create the
+                release. Assuming that you have added the upstream repository
+                as a remote called 'upstream' the steps you have to follow are:
 
                 1. git fetch upstream
                 2. git push --tags
                 3. gh release create {version} --latest=false --prerelease --title {version} --repo firedrakeproject/{component}
+
+                Where 'gh' is the GitHub CLI tool.
 
                 """
             )
