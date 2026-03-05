@@ -310,3 +310,67 @@ def node_envelope(RTreeNode node, size_t dim):
     if err != Success:
         raise RuntimeError("rtree_node_envelope failed")
     return mins, maxs
+
+cdef class RStarTreeNode(object):
+    """Python class for holding a native spatial index node object."""
+
+    cdef RTreeNodeH* node
+
+    def __cinit__(self, uintptr_t node_handle):
+        self.node = <RTreeNodeH*>0
+        if node_handle == 0:
+            raise RuntimeError("invalid node handle")
+        self.node = <RTreeNodeH*>node_handle
+
+    def __dealloc__(self):
+        if self.node != <RTreeNodeH*>0:
+            rtree_node_free(self.node)
+            self.node = <RTreeNodeH*>0
+
+
+def root_node(RStarTree rtree):
+    """Return the root node of the R*-tree."""
+    cdef:
+        RTreeNodeH* node
+        RTreeError err
+    err = rtree_root_node(rtree.tree, &node)
+    if err != Success:
+        raise RuntimeError("rtree_root_node failed")
+    return RStarTreeNode(<uintptr_t>node)
+
+
+def node_children(RStarTreeNode node):
+    """Return the children of an R*-tree node as a list of RStarTreeNode."""
+    cdef:
+        RTreeNodeH** children
+        size_t nchildren
+        RTreeError err
+    err = rtree_node_children(node.node, &children, &nchildren)
+    if err != Success:
+        raise RuntimeError("rtree_node_children failed")
+    result = [RStarTreeNode(<uintptr_t>children[i]) for i in range(nchildren)]
+    rtree_node_children_free(children, nchildren)
+    return result
+
+
+def node_id(RStarTreeNode node):
+    """Return the id of a leaf node."""
+    cdef:
+        size_t id_out
+        RTreeError err
+    err = rtree_node_id(node.node, &id_out)
+    if err != Success:
+        raise RuntimeError("rtree_node_id failed (node may not be a leaf)")
+    return id_out
+
+
+def node_envelope(RStarTreeNode node, size_t dim):
+    """Return the (mins, maxs) bounding envelope of an R*-tree node."""
+    cdef:
+        np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
+        np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
+        RTreeError err
+    err = rtree_node_envelope(node.node, <double*>mins.data, <double*>maxs.data)
+    if err != Success:
+        raise RuntimeError("rtree_node_envelope failed")
+    return mins, maxs

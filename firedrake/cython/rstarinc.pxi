@@ -54,3 +54,9 @@ cdef extern from "rstar-capi.h":
         double *mins_out,
         double *maxs_out
     )
+
+    RTreeError rtree_node_free(RTreeNodeH *node)
+
+    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
+
+    RTreeError rtree_free_ids(size_t *ids, size_t n)
