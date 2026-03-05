@@ -4184,45 +4184,6 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
     return base_parent_cell_nums, extrusion_heights
 
 
-def _mpi_array_lexicographic_min(x, y, datatype):
-    """MPI operator for lexicographic minimum of arrays.
-
-    This compares two arrays of shape (N, 2) lexicographically, i.e. first
-    comparing the two arrays by their first column, returning the element-wise
-    minimum, with ties broken by comparing the second column element wise.
-
-    Parameters
-    ----------
-    x : ``np.ndarray``
-        The first array to compare of shape (N, 2).
-    y : ``np.ndarray``
-        The second array to compare of shape (N, 2).
-    datatype : ``MPI.Datatype``
-        The datatype of the arrays.
-
-    Returns
-    -------
-    ``np.ndarray``
-        The lexicographically lowest array of shape (N, 2).
-
-    """
-    # Check the first column
-    min_idxs = np.where(x[:, 0] < y[:, 0])[0]
-    result = np.copy(y)
-    result[min_idxs, :] = x[min_idxs, :]
-
-    # if necessary, check the second column
-    eq_idxs = np.where(x[:, 0] == y[:, 0])[0]
-    if len(eq_idxs):
-        # We only check where we have equal values to avoid unnecessary work
-        min_idxs = np.where(x[eq_idxs, 1] < y[eq_idxs, 1])[0]
-        result[eq_idxs[min_idxs], :] = x[eq_idxs[min_idxs], :]
-    return result
-
-
-array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
-
-
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
     parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
@@ -4386,44 +4347,26 @@ def _parent_mesh_embedding(
     else:
         locally_visible_cell_nums = parent_cell_nums[locally_visible]
 
-    ranks = np.full(ncoords_global, np.inf)   # See below for why np.inf is used here.
-    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
-
-    # see below for why np.inf is used here.
-    ref_cell_dists_l1[~locally_visible] = np.inf
-
-    # ensure that points which a rank thinks it owns are always chosen in a tie
-    # break by setting the rank to be negative. If multiple ranks think they
-    # own a point then the one with the highest rank will be chosen.
-    on_this_rank = ranks == parent_mesh.comm.rank
-    ranks[on_this_rank] = -parent_mesh.comm.rank
-    ref_cell_dists_l1_and_ranks = np.stack((ref_cell_dists_l1, ranks), axis=1)
-
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
-    # We now have the reference cell l1 distance and ranks being np.inf for any
-    # point which is not locally visible. By collectively taking the minimum
-    # of the reference cell l1 distance, which is tied to the rank via
-    # ref_cell_dists_l1_and_ranks, we both check which cell the coordinate is
-    # closest to and find out which rank owns that cell.
-    # In cases where the reference cell l1 distance is the same for a
-    # particular coordinate, we break the tie by choosing the lowest rank.
-    # This turns out to be a lexicographic row-wise minimum of the
-    # ref_cell_dists_l1_and_ranks array: we minimise the distance first and
-    # break ties by choosing the lowest rank.
-    owned_ref_cell_dists_l1_and_ranks = parent_mesh.comm.allreduce(
-        ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
-    )
+    # We first set the owning cell to be the one with the minimum L1 distance to the point.
+    # In the case of ties, we pick the highest rank number.
 
-    # switch ranks back to positive
-    owned_ref_cell_dists_l1_and_ranks[:, 1] = np.abs(
-        owned_ref_cell_dists_l1_and_ranks[:, 1]
-    )
-    ref_cell_dists_l1_and_ranks[:, 1] = np.abs(ref_cell_dists_l1_and_ranks[:, 1])
-    ranks = np.abs(ranks)
+    # Set non-visible L1 distance to np.inf so they don't interfere with the MPI.MIN reduction.
+    ref_cell_dists_l1[~locally_visible] = np.inf
+    owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
+    # The owning cell is the one with the minimum L1 distance to the point.
+    parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
 
-    owned_ref_cell_dists_l1 = owned_ref_cell_dists_l1_and_ranks[:, 0]
-    owned_ranks = owned_ref_cell_dists_l1_and_ranks[:, 1]
+    # Only ranks that achieved the global minimum distance are candidates for
+    # ownership. Among tied candidates (same minimum distance) we pick the
+    # highest rank number using MPI.MAX. Non-visible points are set to -np.inf
+    # so they don't interfere with the MAX reduction.
+    ranks = np.full(ncoords_global, -np.inf)
+    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
+    rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
+    owned_ranks = np.empty_like(rank_candidates)
+    parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
 
     changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
     changed_ranks = owned_ranks != ranks
@@ -4485,12 +4428,12 @@ def _parent_mesh_embedding(
                 parent_cell_nums)
             )
 
-    # Any ranks which are still np.inf are not in the mesh
-    missing_global_idxs = np.where(owned_ranks == np.inf)[0]
+    # Any ranks which are still -np.inf are not in the mesh
+    missing_global_idxs = np.where(owned_ranks == -np.inf)[0]
 
     if not remove_missing_points:
         missing_coords_idxs_on_rank = np.where(
-            (owned_ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+            (owned_ranks == -np.inf) & (input_ranks_global == parent_mesh.comm.rank)
         )[0]
         locally_visible[missing_coords_idxs_on_rank] = True
         parent_cell_nums[missing_coords_idxs_on_rank] = -1
