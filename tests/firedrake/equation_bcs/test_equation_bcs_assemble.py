@@ -31,17 +31,17 @@ def test_equation_bcs_direct_assemble_two_form():
     # Must preprocess bc to extract appropriate
     # `EquationBCSplit` object.
     A = assemble(a, bcs=bc.extract_form('J'))
-    expected = [[ 1/3,    0,    0,  1/6],
-                [-1/6,  2/3, -1/6, -1/3],
-                [-1/3, -1/6,  2/3, -1/6],
-                [ 1/6,    0,    0,  1/3]]
+    expected = [[ 1/3,    0,    0,  1/6],  # noqa
+                [-1/6,  2/3, -1/6, -1/3],  # noqa
+                [-1/3, -1/6,  2/3, -1/6],  # noqa
+                [ 1/6,    0,    0,  1/3]]  # noqa
     assert np.allclose(A.M.values, expected)
 
     A = assemble(a, bcs=bc.extract_form('Jp'))
-    expected = [[ 2/3,    0,    0,  1/3],
-                [-1/6,  2/3, -1/6, -1/3],
-                [-1/3, -1/6,  2/3, -1/6],
-                [ 1/3,    0,    0,  2/3]]
+    expected = [[ 2/3,    0,    0,  1/3],  # noqa
+                [-1/6,  2/3, -1/6, -1/3],  # noqa
+                [-1/3, -1/6,  2/3, -1/6],  # noqa
+                [ 1/3,    0,    0,  2/3]]  # noqa
     assert np.allclose(A.M.values, expected)
 
     with pytest.raises(TypeError) as excinfo:

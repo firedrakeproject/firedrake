@@ -32,10 +32,10 @@ def test_submesh_assemble_cell_cell_integral_cell():
     assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0])
     assert np.allclose(A.M.sparsity[1][0].nnz, [4, 4, 4, 4])
     assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
-    M10 = np.array([[1./9. , 1./18., 1./36., 1./18., 0., 0.],   # noqa: E203
-                    [1./18., 1./9. , 1./18., 1./36., 0., 0.],   # noqa: E203
-                    [1./36., 1./18., 1./9. , 1./18., 0., 0.],   # noqa: E203
-                    [1./18., 1./36., 1./18., 1./9. , 0., 0.]])  # noqa: E203
+    M10 = np.array([[1./9. , 1./18., 1./36., 1./18., 0., 0.],   # noqa
+                    [1./18., 1./9. , 1./18., 1./36., 0., 0.],   # noqa
+                    [1./36., 1./18., 1./9. , 1./18., 0., 0.],   # noqa
+                    [1./18., 1./36., 1./18., 1./9. , 0., 0.]])  # noqa
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
 
@@ -64,9 +64,9 @@ def test_submesh_assemble_cell_cell_integral_facet():
     assert np.allclose(A.M.sparsity[1][0].nnz, [8, 8, 8, 8])
     assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
 
-    M10 = [[0, 0, 0, 0,   0, 0,   0, 0],
+    M10 = [[0, 0, 0, 0,   0, 0,   0, 0],  # noqa
            [0, 0, 0, 0, 1/3, 0, 1/6, 0],
-           [0, 0, 0, 0,   0, 0,   0, 0],
+           [0, 0, 0, 0,   0, 0,   0, 0],  # noqa
            [0, 0, 0, 0, 1/6, 0, 1/3, 0]]
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
@@ -170,9 +170,9 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_various():
     assert np.allclose(A.M.sparsity[1][0].nnz, [4, 4, 4, 4])
     assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
 
-    M10 = [[  0, 0,   0, 0, 0, 0, 0, 0],
+    M10 = [[  0, 0,   0, 0, 0, 0, 0, 0],  # noqa
            [1/3, 0, 1/6, 0, 0, 0, 0, 0],
-           [  0, 0,   0, 0, 0, 0, 0, 0],
+           [  0, 0,   0, 0, 0, 0, 0, 0],  # noqa
            [1/6, 0, 1/3, 0, 0, 0, 0, 0]]
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
@@ -329,14 +329,14 @@ def test_submesh_assemble_cell_cell_equation_bc():
     assert np.allclose(A.M.sparsity[1][1].nnz, [1, 1, 1, 1])  # bc nodes
 
 
-    M00 = np.array([[ 1/9, 1/18, 1/36, 1/18],
-                    [   0,  1/3,  1/6,    0],
-                    [   0,  1/6,  1/3,    0],
-                    [1/18, 1/36, 1/18,  1/9]])
-    M01 = np.array([[   0, 0, 0,    0],
-                    [-1/3, 0, 0, -1/6],
-                    [-1/6, 0, 0, -1/3],
-                    [   0, 0, 0,    0]])
+    M00 = np.array([[ 1/9, 1/18, 1/36, 1/18],  # noqa
+                    [   0,  1/3,  1/6,    0],  # noqa
+                    [   0,  1/6,  1/3,    0],  # noqa
+                    [1/18, 1/36, 1/18,  1/9]])  # noqa
+    M01 = np.array([[   0, 0, 0,    0],  # noqa
+                    [-1/3, 0, 0, -1/6],  # noqa
+                    [-1/6, 0, 0, -1/3],  # noqa
+                    [   0, 0, 0,    0]])  # noqa
     assert np.allclose(A.M[0][0].values, M00)
     assert np.allclose(A.M[0][1].values, M01)
 
@@ -386,9 +386,9 @@ def test_submesh_assemble_cell_facet_integral_various():
     M10 = np.array([[1/3, 0, 0, 1/6, 0, 0],
                     [1/6, 0, 0, 1/3, 0, 0]])
     M10w = np.array([[1/12, 0, 0, 1/12, 0, 0],
-                     [1/12, 0, 0,  1/4, 0, 0]])
+                     [1/12, 0, 0,  1/4, 0, 0]])  # noqa
     M10ww = np.array([[1/30, 0, 0, 1/20, 0, 0],
-                      [1/20, 0, 0,  1/5, 0, 0]])
+                      [1/20, 0, 0,  1/5, 0, 0]])  # noqa
     # Use subm as primal integration domain.
     measure = Measure(
         "dx", subm,
