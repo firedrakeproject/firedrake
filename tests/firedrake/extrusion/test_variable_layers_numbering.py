@@ -497,8 +497,8 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 1:
         #  Top view, plex points
@@ -545,8 +545,8 @@ def test_layer_extents_parallel():
             # edges
             [0, 3, 0, 3],
             [0, 3, 0, 3],
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 3:
         #  Top view, plex points
@@ -569,8 +569,8 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 3, 0, 3],
             # edges
-            [0, 2, 0, 2],
             [0, 3, 0, 2],
+            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],

@@ -2097,11 +2097,9 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
 
     cStart, cEnd = dm.getHeightStratum(0)
     dim = dm.getCoordinateDim()
-
-    dm_coords = dm.getCellCoordinatesLocal().array_r
     coords_shape = ((cEnd-cStart) * ndofs[0], dim)
 
-    if dm_coords.size < np.prod(coords_shape, dtype=IntType):
+    if dm.getCellCoordinateSection().getDof(cStart) < ndofs[0] * dim:
         # Fewer cell coordinates available, we must be single-cell periodic
         if dm.getCellType(cStart) == PETSc.DM.PolytopeType.QUADRILATERAL:
             # If we have a periodic mesh with only a single cell in the periodic
@@ -2129,8 +2127,8 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
             #   |     |
             #   1-----2
             assert ndofs[0] == 4, "Not expecting high order coords here"
-            dm_coords = dm_coords.reshape(((cEnd-cStart) * 2, dim))
-            dm_coords_expanded = np.empty(coords_shape, dtype=dm_coords.dtype)
+            dm_coords_orig = dm.getCellCoordinatesLocal().array_r.reshape(((cEnd-cStart) * 2, dim))
+            dm_coords_expanded = np.empty(coords_shape, dtype=dm_coords_orig.dtype)
 
             # Create a new cell coordinate section
             dm_sec_orig = dm.getCellCoordinateSection()
@@ -2155,14 +2153,14 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
                     for c in range(cStart, cEnd):
                         CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
 
-                        dm_coords_expanded[4*c+0, 0] = dm_coords[2*c+0, 0]
-                        dm_coords_expanded[4*c+1, 0] = dm_coords[2*c+0, 0] + cell_width
-                        dm_coords_expanded[4*c+2, 0] = dm_coords[2*c+1, 0] + cell_width
-                        dm_coords_expanded[4*c+3, 0] = dm_coords[2*c+1, 0]
-                        dm_coords_expanded[4*c+0, 1] = dm_coords[2*c+0, 1]
-                        dm_coords_expanded[4*c+1, 1] = dm_coords[2*c+0, 1]
-                        dm_coords_expanded[4*c+2, 1] = dm_coords[2*c+1, 1]
-                        dm_coords_expanded[4*c+3, 1] = dm_coords[2*c+1, 1]
+                        dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
+                        dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+0, 0] + cell_width
+                        dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0] + cell_width
+                        dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+1, 0]
+                        dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
+                        dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+0, 1]
+                        dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1]
+                        dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+1, 1]
 
             else:
                 if vert_unit_periodic:
@@ -2171,14 +2169,14 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
                     for c in range(cStart, cEnd):
                         CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
 
-                        dm_coords_expanded[4*c+0, 0] = dm_coords[2*c+0, 0]
-                        dm_coords_expanded[4*c+1, 0] = dm_coords[2*c+1, 0]
-                        dm_coords_expanded[4*c+2, 0] = dm_coords[2*c+1, 0]
-                        dm_coords_expanded[4*c+3, 0] = dm_coords[2*c+0, 0]
-                        dm_coords_expanded[4*c+0, 1] = dm_coords[2*c+0, 1]
-                        dm_coords_expanded[4*c+1, 1] = dm_coords[2*c+1, 1]
-                        dm_coords_expanded[4*c+2, 1] = dm_coords[2*c+1, 1] + cell_height
-                        dm_coords_expanded[4*c+3, 1] = dm_coords[2*c+0, 1] + cell_height
+                        dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
+                        dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+1, 0]
+                        dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0]
+                        dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+0, 0]
+                        dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
+                        dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+1, 1]
+                        dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1] + cell_height
+                        dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+0, 1] + cell_height
                 else:
                     raise AssertionError("This case should not be hit")
 
@@ -2192,7 +2190,7 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
                                       f"{dm.getCellType(cStart)} is not supported")
 
     else:
-        dm_coords = dm_coords.reshape(coords_shape)
+        dm_coords = dm.getCellCoordinatesLocal().array_r.reshape(coords_shape)
         dm_sec = dm.getCellCoordinateSection()
 
     return dm_coords, dm_sec
