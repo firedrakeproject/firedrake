@@ -328,7 +328,7 @@ cdef class RStarTreeNode(object):
             self.node = <RTreeNodeH*>0
 
 
-def root_node(RStarTree rtree):
+def root_node(RTree rtree):
     """Return the root node of the R*-tree."""
     cdef:
         RTreeNodeH* node
@@ -336,10 +336,10 @@ def root_node(RStarTree rtree):
     err = rtree_root_node(rtree.tree, &node)
     if err != Success:
         raise RuntimeError("rtree_root_node failed")
-    return RStarTreeNode(<uintptr_t>node)
+    return RTreeNode(<uintptr_t>node)
 
 
-def node_children(RStarTreeNode node):
+def node_children(RTreeNode node):
     """Return the children of an R*-tree node as a list of RStarTreeNode."""
     cdef:
         RTreeNodeH** children
@@ -348,12 +348,12 @@ def node_children(RStarTreeNode node):
     err = rtree_node_children(node.node, &children, &nchildren)
     if err != Success:
         raise RuntimeError("rtree_node_children failed")
-    result = [RStarTreeNode(<uintptr_t>children[i]) for i in range(nchildren)]
+    result = [RTreeNode(<uintptr_t>children[i]) for i in range(nchildren)]
     rtree_node_children_free(children, nchildren)
     return result
 
 
-def node_id(RStarTreeNode node):
+def node_id(RTreeNode node):
     """Return the id of a leaf node."""
     cdef:
         size_t id_out
@@ -364,7 +364,7 @@ def node_id(RStarTreeNode node):
     return id_out
 
 
-def node_envelope(RStarTreeNode node, size_t dim):
+def node_envelope(RTreeNode node, size_t dim):
     """Return the (mins, maxs) bounding envelope of an R*-tree node."""
     cdef:
         np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
