@@ -329,7 +329,7 @@ def exact_primal_periodic(mesh, shape, degree):
     return expr
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
     degrees = [4]
     shape = "scalar"
