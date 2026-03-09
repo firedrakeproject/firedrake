@@ -93,7 +93,7 @@ netgen = [
   "ngsPETSc>=0.1.1",
 ]
 slepc = [
-  "slepc4py==3.24.2",
+  "slepc4py==3.24.3",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -118,7 +118,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.24.2",
+  "slepc4py==3.24.3",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -135,7 +135,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.24.2",
+  "slepc4py==3.24.3",
   "vtk",
 ]
 
