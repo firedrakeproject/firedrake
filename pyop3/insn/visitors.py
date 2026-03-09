@@ -749,6 +749,11 @@ class InstructionCacheKeyGetter(NodeVisitor):
 
 class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 
+    def __init__(self) -> None:
+        counter = itertools.count()
+        self._buffer_arg_counter = collections.defaultdict(lambda: next(counter))
+        super().__init__()
+
     @functools.singledispatchmethod
     def process(self, obj: insn_types.Instruction) -> Hashable:
         return super().process(obj)
@@ -803,11 +808,11 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
     @_get_argument_key.register(Tensor)
     def _(self, tensor: Tensor, /) -> Hashable:
         parent_key = self._get_argument_key(tensor.parent) if tensor.parent else ()
-        return (type(tensor), tensor.axis_trees, tensor.dtype, parent_key)
+        return (type(tensor), tensor.axis_trees, tensor.dtype, parent_key, self._buffer_arg_counter[tensor])
 
     @_get_argument_key.register(BufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
-        return (type(buffer_expr), buffer_expr.dtype)
+        return (type(buffer_expr), buffer_expr.dtype, self._buffer_arg_counter[buffer_expr])
 
     @_get_argument_key.register(expr_types.Operator)
     def _(self, op: expr_types.Operator, /) -> Hashable:
@@ -978,7 +983,7 @@ class LiteralInserter(NodeTransformer):
             row_axis_tree, column_axis_tree = assignment.axis_trees
             nrows = row_axis_tree.local_max_size
             ncols = column_axis_tree.local_max_size
-            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.buffer.dtype)
+            expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.dtype)
 
             new_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())

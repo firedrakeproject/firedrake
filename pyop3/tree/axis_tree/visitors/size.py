@@ -137,7 +137,7 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this
             # gets passed up
-            mysize = utils.just_one(component_size.buffer.buffer._data)
+            mysize = utils.just_one(component_size.buffer._data)
             if not isinstance(subtree_size, numbers.Integral):
                 sbuf = ArrayBuffer.from_scalar(mysize, constant=True)
                 mysize = ScalarBufferExpression(sbuf)

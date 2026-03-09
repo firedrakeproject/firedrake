@@ -24,7 +24,7 @@ from petsc4py import PETSc
 import pyop3.record
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
-from pyop3.collections import OrderedSet, is_ordered_mapping
+from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
@@ -178,7 +178,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def arguments(self) -> tuple[Tensor]:
+    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
         """Mapping from name to tensor that is passed in as an argument."""
 
     @property
@@ -244,16 +244,13 @@ class Instruction(Node, DistributedObject, abc.ABC):
         # the code executor cache but we will have to replace the buffers 
         # dat1 -> dat3 and dat2 -> dat4.
         if self._hit_executor_cache:
-            new_buffer_map = {}
-            # NOTE: This is quite inefficient as the mappings are going in different directions
-            buffer_name_to_arg_index_map = utils.invert_mapping(argument_index_to_buffer_name_map)
-            for buffer_name_in_kernel, (buffer, nest_indices) in executor.buffer_map.items():
-                if buffer.buffer.name in buffer_name_to_arg_index_map:
-                    arg_index = buffer_name_to_arg_index_map[buffer.buffer.name]
-                    arg = self.arguments[arg_index]
-                    new_buffer_map[buffer_name_in_kernel] = (BufferRef(arg.buffer), nest_indices)
-                else:
-                    new_buffer_map[buffer_name_in_kernel] = (buffer, nest_indices)
+            new_buffer_map = dict(executor.buffer_map)
+            for arg_index, buffer_name in argument_index_to_buffer_name_map.items():
+                buffer_name_in_kernel = executor._buffer_global_name_to_name_in_kernel_map[buffer_name]
+                # TODO: ick behaviour with buffer ref...
+                buffer_info = executor.buffer_map[buffer_name_in_kernel]
+                arg = self.buffer_arguments[arg_index]
+                new_buffer_map[buffer_name_in_kernel] = (arg.buffer, buffer_info[1])
             executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
 
         return executor
@@ -274,11 +271,11 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
     @cached_property
     def _argument_index_to_buffer_name_map(self) -> idict[int, str]:
-        return idict({i: arg.buffer.name for i, arg in enumerate(self.arguments) if isinstance(arg, Tensor)})
+        return idict({i: arg.buffer.name for i, arg in enumerate(self.buffer_arguments)})
 
     @cached_property
     def _argument_name_to_buffer_name_map(self) -> idict:
-        return idict({arg.name: arg.buffer.name for arg in self.arguments if isinstance(arg, Tensor | BufferExpression)})
+        return idict({arg.name: arg.buffer.name for arg in self.buffer_arguments})
 
     @cached_property
     def _executor_cache_key(self) -> Hashable:
@@ -343,8 +340,8 @@ class Loop(Instruction):
     child_attrs = ("statements",)
 
     @cached_property
-    def arguments(self) -> tuple[Tensor]:
-        return utils.reduce("+", (stmt.arguments for stmt in self.statements), ())
+    def buffer_arguments(self) -> OrderedFrozenSet[Tensor]:
+        return OrderedFrozenSet().union(*(stmt.buffer_arguments for stmt in self.statements))
 
     @property
     def comm(self) -> MPI.Comm:
@@ -386,8 +383,8 @@ class InstructionList(Instruction):
         return utils.common_comm(self.instructions, "comm")
 
     @property
-    def arguments(self) -> tuple[Tensor]:
-        return tuple(arg for insn in self.instructions for arg in insn.arguments)
+    def buffer_arguments(self) -> OrderedFrozenSet[Tensor]:
+        return OrderedFrozenSet().union(*(insn.buffer_arguments for insn in self.instructions))
 
     # }}}
 
@@ -444,7 +441,7 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
     @property
     def buffer_arguments(self) -> tuple[BufferExpression, ...]:
-        return tuple(utils.filter_type(BufferExpression, self.arguments))
+        return tuple(utils.filter_type(BufferExpression | Tensor, self.arguments))
 
 
 class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
@@ -556,11 +553,6 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def function(self) -> Function:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def arguments(self) -> tuple[Any]:
         pass
 
     @property
@@ -699,6 +691,10 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
     # }}}
 
     # {{{ Interface impls
+
+    @property
+    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
+        return OrderedFrozenSet(utils.filter_type(Tensor|BufferExpression, self.arguments))
 
     @property
     def arguments(self) -> tuple[Any, Any]:
@@ -922,6 +918,10 @@ class Exscan(TerminalInstruction):
     # }}}
 
     # {{{ interface impls
+
+    @property
+    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
+        return OrderedFrozenSet(utils.filter_type(Tensor|BufferExpression, self.arguments))
 
     @property
     def arguments(self) -> tuple[Any, Any]:

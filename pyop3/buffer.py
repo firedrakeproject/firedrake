@@ -92,6 +92,8 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
     def copy(self) -> AbstractBuffer:
         return self.duplicate(copy=True)
 
+    nest_indices = ()  # default, but nasty - clean me up
+
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
@@ -295,8 +297,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     is_nested: ClassVar[bool] = False
 
-    def handle(self, *, nest_indices: tuple[tuple[int], ...] = ()) -> np.ndarray:
-        assert not nest_indices
+    @property
+    def handle(self) -> np.ndarray:
         return self._data
 
     @property
@@ -675,15 +677,9 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
-    def handle(self, *, nest_indices: tuple[tuple[int, int], ...] = ()) -> Any:
-        handle_ = self.petscmat
-        for row_index, column_index in nest_indices:
-            handle_ = handle_.getNestSubMatrix(row_index, column_index)
-
-        if handle_.type == PETSc.Mat.Type.PYTHON:
-            handle_ = handle_.getPythonContext().handle
-
-        return handle_
+    @property
+    def handle(self) -> Any:
+        return self.petscmat
 
     def zero(self) -> None:
         self.mat.zeroEntries()
@@ -912,17 +908,71 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return mat.duplicate(copy=copy)
 
 
-# TODO: Currently we assume that the nest structure of the underlying data
-# matches that of the axis tree. This isn't necessarily true.
-@dataclasses.dataclass(frozen=True)
-class BufferRef(DistributedObject):
-    buffer: AbstractBuffer
+@pyop3.record.record()
+class BufferRef(ConcreteBuffer):
+
+    # Placeholder for now because we spawn too many of these
+    def __new__(cls, buffer, nest_indices=()):
+        if nest_indices == ():
+            return buffer
+        return super().__new__()
+
+    buffer: ConcreteBuffer
     nest_indices: tuple[tuple[int, ...], ...] = ()
 
+    # {{{ interface impls
+
     @property
+    def constant(self) -> bool:
+        return self.buffer.constant
+
+    def duplicate(self) -> bool:
+        raise NotImplementedError
+
+    def zero(self) -> None:
+        raise NotImplementedError
+
+    @property
+    def state(self) -> int:
+        return self.buffer.state
+
+    def inc_state(self) -> None:
+        self.buffer.inc_state()
+
+    # redundant???
+    @property
+    def is_nested(self) -> bool:
+        return len(self.nest_indices) > 0
+
+    @property
+    @abc.abstractmethod
     def handle(self):
-        return self.buffer.handle(nest_indices=self.nest_indices)
+        pass
+
+    @property
+    def name(self) -> str:
+        return self.buffer.name
+
+    @property
+    def dtype(self):
+        return self.buffer.dtype
 
     @property
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
+
+    # }}}
+
+
+class PetscMatBufferSubMat(BufferRef):
+
+    @property
+    def handle(self):
+        handle_ = self.buffer.handle
+        for row_index, column_index in self.nest_indices:
+            handle_ = handle_.getNestSubMatrix(row_index, column_index)
+
+        if handle_.type == PETSc.Mat.Type.PYTHON:
+            handle_ = handle_.getPythonContext().handle
+
+        return handle_

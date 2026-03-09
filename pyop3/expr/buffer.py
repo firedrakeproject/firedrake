@@ -41,15 +41,15 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
 
     @property
     def name(self) -> str:
-        return self.buffer.buffer.name
+        return self.buffer.name
 
     @property
     def dtype(self) -> np.dtype:
-        return self.buffer.buffer.dtype
+        return self.buffer.dtype
 
     @property
     def handle(self) -> Any:
-        return self.buffer.buffer.handle(nest_indices=self.buffer.nest_indices)
+        return self.buffer.handle(nest_indices=self.buffer.nest_indices)
 
     def assign(self, other) -> ArrayAssignment:
         from pyop3.insn import ArrayAssignment
@@ -95,31 +95,31 @@ class ScalarBufferExpression(BufferExpression):
         return self.name
 
     def __add__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.buffer.constant:
+        if self.buffer.constant:
             if isinstance(other, numbers.Number):
                 buffer = ArrayBuffer.from_scalar(self.value+other, constant=True)
                 return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.buffer.constant:
+            elif type(other) is type(self) and other.buffer.constant:
                 buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True)
                 return type(self)(buffer)
         return super().__add__(other)
 
     def __sub__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.buffer.constant:
+        if self.buffer.constant:
             if isinstance(other, numbers.Number):
                 buffer = ArrayBuffer.from_scalar(self.value-other, constant=True)
                 return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.buffer.constant:
+            elif type(other) is type(self) and other.buffer.constant:
                 buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True)
                 return type(self)(buffer)
         return super().__sub__(other)
 
     def __mul__(self, other: ExpressionT, /) -> ExpressionT:
-        if self.buffer.buffer.constant:
+        if self.buffer.constant:
             if isinstance(other, numbers.Number):
                 buffer = ArrayBuffer.from_scalar(self.value*other, constant=True)
                 return type(self)(buffer)
-            elif type(other) is type(self) and other.buffer.buffer.constant:
+            elif type(other) is type(self) and other.buffer.constant:
                 buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True)
                 return type(self)(buffer)
         return super().__mul__(other)
@@ -128,7 +128,7 @@ class ScalarBufferExpression(BufferExpression):
 
     @property
     def value(self) -> numbers.Number:
-        return self.buffer.buffer.data_ro.item()
+        return self.buffer.data_ro.item()
 
 
 # TODO: Does a Dat count as one of these?
@@ -221,7 +221,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     def __post_init__(self) -> None:
         from pyop3.expr.visitors import check_valid_layout
 
-        assert isinstance(self._buffer, BufferRef)
+        assert isinstance(self._buffer, AbstractBuffer)
         assert isinstance(self.layouts, idict)
         for l in self.layouts.values():
             check_valid_layout(l)
@@ -245,7 +245,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     @property
     def _full_str(self) -> str:
         return " :: ".join(
-            f"{self.buffer.buffer.name}[{as_str(layout)}]"
+            f"{self.buffer.name}[{as_str(layout)}]"
             for layout in self.layouts.values()
         )
 
@@ -312,7 +312,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
+        return f"{self.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
 
     # }}}
 
@@ -354,7 +354,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
+        return f"{self.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
 
     # }}}
 

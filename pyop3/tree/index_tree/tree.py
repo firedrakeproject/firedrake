@@ -1172,7 +1172,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     if subset_loop_axes:
                         raise NotImplementedError
                     subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
-                    indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.buffer.data_ro
+                    indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.data_ro
 
                 if isinstance(target_component.sf, StarForest):
                     # the issue is here when we are dealing with subsets (as opposed to region slices)
@@ -1850,7 +1850,7 @@ def _(affine_component: AffineSliceComponent, regions):
 @_prepare_regions_for_slice_component.register(Subset)
 def _(subset: Subset, regions) -> tuple:
     # We must lose all region information if we are not accessing entries in order
-    if len(regions) > 1 and not subset.array.buffer.buffer.ordered:
+    if len(regions) > 1 and not subset.array.buffer.ordered:
         size = sum(r.size for r in regions)
         return (AxisComponentRegion(size),)
     else:
@@ -1985,7 +1985,7 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
     """
     from pyop3 import Scalar
 
-    indices = subset.array.buffer.buffer.data_ro
+    indices = subset.array.buffer.data_ro
 
     indexed_regions = []
     loc = 0

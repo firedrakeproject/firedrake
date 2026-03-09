@@ -158,7 +158,7 @@ def _(scalar: expr_types.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
 @_evaluate.register
 def _(dat_expr: expr_types.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
-    return dat_expr.buffer.buffer.data_ro[offset]
+    return dat_expr.buffer.data_ro[offset]
 
 
 
@@ -1153,7 +1153,7 @@ class DiskCacheKeyGetter(ExpressionVisitor):
 
     def _add_buffer(self, buffer):
         if isinstance(buffer, BufferRef):
-            return (self._add_buffer(buffer.buffer), buffer.nest_indices)
+            return (self._add_buffer(buffer), buffer.nest_indices)
 
         buffer_name = self._renamer.add(buffer)
         if isinstance(buffer, NullBuffer):
@@ -1213,18 +1213,18 @@ class BufferCollector(NodeCollector):
 
     @process.register(expr_types.ScalarBufferExpression)
     def _(self, scalar_expr: expr_types.ScalarBufferExpression, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([scalar_expr.buffer.buffer])
+        return OrderedFrozenSet([scalar_expr.buffer])
 
     @process.register(expr_types.LinearDatBufferExpression)
     @NodeCollector.postorder
     def _(self, dat_expr: expr_types.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([dat_expr.buffer.buffer]).union(*visited.values())
+        return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
 
     @process.register(expr_types.NonlinearDatBufferExpression)
     @NodeCollector.postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 1
-        return OrderedFrozenSet([dat_expr.buffer.buffer]).union(
+        return OrderedFrozenSet([dat_expr.buffer]).union(
             *visited["layouts"].values()
         )
 
@@ -1232,7 +1232,7 @@ class BufferCollector(NodeCollector):
     @NodeCollector.postorder
     def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
-        return OrderedFrozenSet([mat_expr.buffer.buffer]).union(
+        return OrderedFrozenSet([mat_expr.buffer]).union(
             visited["row_layout"], visited["column_layout"]
         )
 
@@ -1240,7 +1240,7 @@ class BufferCollector(NodeCollector):
     @NodeCollector.postorder
     def _(self, mat_expr: expr_types.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
-        return OrderedFrozenSet([mat_expr.buffer.buffer]).union(
+        return OrderedFrozenSet([mat_expr.buffer]).union(
             *visited["row_layouts"].values(), *visited["column_layouts"].values()
         )
 

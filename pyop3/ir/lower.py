@@ -178,7 +178,7 @@ class LoopyCodegenContext(CodegenContext):
         #
         # is not.
 
-        buffer = buffer_ref.buffer
+        buffer = buffer_ref
         buffer_key = (buffer.name, buffer_ref.nest_indices)
         if isinstance(buffer, NullBuffer):
             assert not buffer_ref.nest_indices
@@ -199,7 +199,7 @@ class LoopyCodegenContext(CodegenContext):
                     self.global_buffer_intents[buffer_key] = RW
                 return self._kernel_names[buffer_key]
 
-            if isinstance(buffer_ref.handle, np.ndarray):
+            if isinstance(buffer_ref, ArrayBuffer):
                 # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
                 # that it is correctly included in the cache key).
                 # Inject constant buffer data into the generated code if sufficiently small
@@ -226,7 +226,7 @@ class LoopyCodegenContext(CodegenContext):
                 shape = self._temporary_shapes.get(buffer_key, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(buffer_ref.handle, PETSc.Mat)
+                assert isinstance(buffer_ref, PetscMatBuffer)
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
@@ -365,12 +365,12 @@ class Executable:
             reductions = []
             broadcasts = []
             for buffer_ref, intent in self.buffer_map.values():
-                if isinstance(buffer_ref.buffer, PetscMatBuffer):
+                if isinstance(buffer_ref, PetscMatBuffer):
                     continue
                 else:
-                    assert isinstance(buffer_ref.buffer, ArrayBuffer)
+                    assert isinstance(buffer_ref, ArrayBuffer)
 
-                inits, reds, bcasts = self._buffer_exchanges(buffer_ref.buffer, intent)
+                inits, reds, bcasts = self._buffer_exchanges(buffer_ref, intent)
                 initializers.extend(inits)
                 reductions.extend(reds)
                 broadcasts.extend(bcasts)
@@ -411,8 +411,12 @@ class CompiledCodeExecutor:
         return tuple(ref for ref, _ in self.buffer_map.values())
 
     @cached_property
+    def _buffer_global_name_to_name_in_kernel_map(self):
+        return {buffer_ref.name: name_in_kernel for name_in_kernel, (buffer_ref, _) in self.buffer_map.items()}
+
+    @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
-        return tuple(buffer_ref.buffer for buffer_ref in self._buffer_refs)
+        return tuple(buffer_ref for buffer_ref in self._buffer_refs)
 
     def __call__(self, **kwargs) -> None:
         """
@@ -437,10 +441,7 @@ class CompiledCodeExecutor:
             for buffer_key, replacement_buffer in kwargs.items():
                 index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
-                replacement_handle = replacement_buffer.handle(
-                    nest_indices=self._buffer_refs[index].nest_indices
-                )
-                exec_arguments[index] = self._as_exec_argument(replacement_handle)
+                exec_arguments[index] = self._as_exec_argument(replacement_buffer.handle)
 
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
@@ -455,7 +456,7 @@ class CompiledCodeExecutor:
         str_.append(sep)
 
         for arg in self.executable.code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.buffer_map[arg.name][0].buffer)
+            size, buffer = self._buffer_str(self.buffer_map[arg.name][0])
             str_.append(f"{arg.name} {size} : {buffer}")
 
         str_.append(sep)
@@ -477,7 +478,7 @@ class CompiledCodeExecutor:
     def _buffer_ref_indices(self) -> idict[str, int]:
         return idict({
             # (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
-            buffer_ref.buffer.name: i for i, buffer_ref in enumerate(self._buffer_refs)
+            buffer_ref.name: i for i, buffer_ref in enumerate(self._buffer_refs)
         })
 
     @cached_property
@@ -809,7 +810,7 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
     for kernel_arg in entrypoint.args:
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         buffer_ref = context.global_buffers[buffer_key]
-        buffer_index = op.buffers.index(buffer_ref.buffer)
+        buffer_index = op.buffers.index(buffer_ref)
         intent = context.global_buffer_intents[buffer_key]
         buffer_index_map[kernel_arg.name] = (buffer_index, buffer_ref.nest_indices, intent)
 
@@ -853,7 +854,7 @@ def _(assignment: AbstractAssignment, /) -> idict:
 def _(call: StandaloneCalledFunction):
     return idict(
         {
-            (arg.buffer.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
             for lp_arg, arg in zip(
                 call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
@@ -1009,8 +1010,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(
-        isinstance(arg.buffer.buffer, ConcreteBuffer)
-        and isinstance(arg.buffer.handle, PETSc.Mat)
+        isinstance(arg.buffer, PetscMatBuffer)
         for arg in assignment.buffer_arguments
     ):
         _compile_petsc_mat(assignment, loop_indices, context)
@@ -1026,7 +1026,7 @@ def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indice
 def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
     # We need to know whether the matrix is the assignee or not because we need
     # to know whether to put MatGetValues or MatSetValues
-    if isinstance(assignment.assignee.buffer.buffer, PetscMatBuffer):
+    if isinstance(assignment.assignee.buffer, PetscMatBuffer):
         mat = assignment.assignee
         expr = assignment.expression
         setting_mat_values = True
@@ -1382,7 +1382,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
 def maybe_multiindex(buffer_ref, offset_expr, context):
     # hack to handle the facbuffer.t that temporaries can have shape but we want to
     # linearly index it here
-    buffer_key = (buffer_ref.buffer.name, buffer_ref.nest_indices)
+    buffer_key = (buffer_ref.name, buffer_ref.nest_indices)
     if buffer_key in context._temporary_shapes:
         shape = context._temporary_shapes[buffer_key]
         rank = len(shape)

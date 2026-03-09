@@ -929,7 +929,7 @@ class FunctionSpace:
         dof_axis = utils.just_one(
             axis for axis in self.layout_axes.nodes if axis.label == "dof"
         )
-        ndofs = dof_axis.local_size.buffer.buffer.data_ro
+        ndofs = dof_axis.local_size.buffer.data_ro
 
         node = 0
         for point, ndof in enumerate(ndofs):
