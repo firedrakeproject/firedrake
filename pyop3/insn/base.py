@@ -16,7 +16,8 @@ from typing import Any, ClassVar, Iterable, Tuple
 from immutabledict import immutabledict as idict
 import loopy as lp
 import numpy as np
-from pyop3.buffer import BufferRef
+from pyop3.buffer import BufferRef, PetscMatBufferSubMat
+from pyop3.expr.buffer import LinearDatBufferExpression
 import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -28,7 +29,7 @@ from pyop3.collections import OrderedFrozenSet, OrderedSet, is_ordered_mapping
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
-from pyop3.expr import BufferExpression, Tensor
+from pyop3.expr import BufferExpression, Tensor, Scalar, Dat, Mat
 from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -194,7 +195,8 @@ class Instruction(Node, DistributedObject, abc.ABC):
         if kwargs:
             for arg_name, new_arg in kwargs.items():
                 buffer_name = self._argument_name_to_buffer_name_map[arg_name]
-                new_buffers[buffer_name] = new_arg.buffer
+                buffer = self._extract_buffer(new_arg)
+                new_buffers[buffer_name] = buffer
 
         executable(**new_buffers)
 
@@ -248,9 +250,10 @@ class Instruction(Node, DistributedObject, abc.ABC):
             for arg_index, buffer_name in argument_index_to_buffer_name_map.items():
                 buffer_name_in_kernel = executor._buffer_global_name_to_name_in_kernel_map[buffer_name]
                 # TODO: ick behaviour with buffer ref...
-                buffer_info = executor.buffer_map[buffer_name_in_kernel]
+                _, intent = executor.buffer_map[buffer_name_in_kernel]
                 arg = self.buffer_arguments[arg_index]
-                new_buffer_map[buffer_name_in_kernel] = (arg.buffer, buffer_info[1])
+                buffer = self._extract_buffer(arg)
+                new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
             new_buffer_map = idict(new_buffer_map)
 
             # can we do this check more eagerly?
@@ -286,6 +289,35 @@ class Instruction(Node, DistributedObject, abc.ABC):
         from pyop3.insn.visitors import get_instruction_executor_cache_key
 
         return get_instruction_executor_cache_key(self)
+
+    @functools.singledispatchmethod
+    def _extract_buffer(self, arg):
+        raise TypeError
+
+    @_extract_buffer.register(Scalar)
+    def _(self, scalar):
+        return scalar.buffer
+
+    @_extract_buffer.register(Dat)
+    def _(self, dat):
+        if not isinstance(dat.buffer.handle, np.ndarray):
+            raise NotImplementedError
+        return dat.buffer
+
+    @_extract_buffer.register(LinearDatBufferExpression)
+    def _(self, dat):
+        return dat.buffer
+
+    @_extract_buffer.register(Mat)
+    def _(self, mat):
+        if isinstance(mat.buffer.handle, PETSc.Mat):
+            match mat.buffer.handle.type:
+                case "nest":
+                    return PetscMatBufferSubMat(mat.buffer, mat.nest_indices)
+                case "python":
+                    return self._extract_buffer(mat.buffer.handle.getPythonContext().dat)
+                case _:
+                    return mat.buffer
 
 
 _DEFAULT_LOOP_NAME = "pyop3_loop"

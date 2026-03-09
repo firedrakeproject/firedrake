@@ -1519,30 +1519,15 @@ class IndexedAxisTree(AbstractAxisTree):
     # TODO: Should have nest indices and nest labels as separate concepts.
     # The former is useful for buffers and the latter for trees
     @cached_property
-    def nest_indices(self) -> tuple[int, ...]:
-        # Compare the 'fully indexed' bits of the matching target and try to
-        # match to the unindexed tree.
-        consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
+    def nest_indices(self):
+        return tuple(index for _, index in self._nest_info)
 
-        nest_indices_ = []
-        path = idict()
-        while consumed_axes:
-            axis = self.unindexed.node_map[path]
-            component_label = consumed_axes.pop(axis.label)
-            component_index = axis.component_labels.index(component_label)
-
-            if axis.components[component_index].size != 1:
-                # indexed bit is not a scalar axis anymore, nest indices
-                # don't make sense here
-                break
-
-            path = path | {axis.label: component_label}
-            nest_indices_.append(component_label)
-        return tuple(nest_indices_)
-
-    # return the index instead of the label
     @cached_property
-    def nest_indices2(self) -> tuple[int, ...]:
+    def nest_labels(self):
+        return tuple(label for label, _ in self._nest_info)
+
+    @cached_property
+    def _nest_info(self) -> tuple:
         # Compare the 'fully indexed' bits of the matching target and try to
         # match to the unindexed tree.
         consumed_axes = dict(utils.merge_dicts(t.path for t in self._matching_target[idict()]))
@@ -1560,7 +1545,7 @@ class IndexedAxisTree(AbstractAxisTree):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append(component_index)
+            nest_indices_.append((component_label, component_index))
         return tuple(nest_indices_)
 
     def restrict_nest(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
@@ -1815,6 +1800,14 @@ class UnitIndexedAxisTree(DistributedObject):
     # TODO: shared with other index tree
     @cached_property
     def nest_indices(self):
+        return tuple(index for _, index in self._nest_info)
+
+    @cached_property
+    def nest_labels(self):
+        return tuple(label for label, _ in self._nest_info)
+
+    @cached_property
+    def _nest_info(self):
         if idict() not in self._matching_target:
             return ()
 
@@ -1833,7 +1826,7 @@ class UnitIndexedAxisTree(DistributedObject):
                 break
 
             path = path | {axis.label: component_label}
-            nest_indices_.append(component_label)
+            nest_indices_.append((component_label, component_index))
         return tuple(nest_indices_)
 
     def restrict_nest(self, nest_label: ComponentLabelT) -> UnitIndexedAxisTree:
@@ -2059,6 +2052,10 @@ class AxisForest(DistributedObject):
 
     @property
     def nest_indices(self):
+        return utils.single_valued((tree.nest_indices for tree in self.trees))
+
+    @property
+    def nest_labels(self):
         return utils.single_valued((tree.nest_indices for tree in self.trees))
 
     @property

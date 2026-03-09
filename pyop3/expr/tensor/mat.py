@@ -326,6 +326,10 @@ class Mat(Tensor):
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
         return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.column_axes.nest_indices))
 
+    @cached_property
+    def nest_labels(self) -> tuple[tuple[int, int], ...]:
+        return tuple(itertools.zip_longest(self.row_axes.nest_labels, self.column_axes.nest_labels))
+
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
@@ -395,7 +399,7 @@ class DatPythonMatContext:
     @property
     def handle(self):
         assert not self.dat.buffer.is_nested
-        return self.dat.buffer.handle()
+        return self.dat.buffer.handle
 
 
     # def __getitem__(self, key):

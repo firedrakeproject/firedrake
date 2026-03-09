@@ -915,7 +915,7 @@ class BufferRef(ConcreteBuffer):
     def __new__(cls, buffer, nest_indices=()):
         if nest_indices == ():
             return buffer
-        return super().__new__()
+        return object.__new__(cls)
 
     buffer: ConcreteBuffer
     nest_indices: tuple[tuple[int, ...], ...] = ()
@@ -964,7 +964,19 @@ class BufferRef(ConcreteBuffer):
     # }}}
 
 
-class PetscMatBufferSubMat(BufferRef):
+class PetscMatBufferSubMat(BufferRef, PetscMatBuffer):
+
+    @property
+    def mat(self) -> PETSc.Mat:
+        return self.buffer.mat
+
+    @property
+    def mat_spec(self) -> FullPetscMatBufferSpec:
+        raise NotImplementedError
+
+    # not valid
+    def empty(self):
+        raise AssertionError
 
     @property
     def handle(self):

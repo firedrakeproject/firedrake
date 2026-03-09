@@ -18,7 +18,7 @@ from pyop3.config import config
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
 from pyop3.expr.tensor import Scalar
-from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer, PetscMatBufferSubMat
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 
 from pyop3 import utils
@@ -449,15 +449,15 @@ def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
             raise NotImplementedError
 
-        row_label = utils.just_one(row_axes.nest_indices)
-        row_index = utils.just_one(row_axes.nest_indices2)
-        column_label = utils.just_one(column_axes.nest_indices)
-        column_index = utils.just_one(column_axes.nest_indices2)
+        row_label = utils.just_one(row_axes.nest_labels)
+        row_index = utils.just_one(row_axes.nest_indices)
+        column_label = utils.just_one(column_axes.nest_labels)
+        column_index = utils.just_one(column_axes.nest_indices)
         nest_indices = ((row_index, column_index),)
         row_axes = row_axes.restrict_nest(row_label)
         column_axes = column_axes.restrict_nest(column_label)
 
-    buffer_ref = BufferRef(mat.buffer, nest_indices)
+    buffer_ref = PetscMatBufferSubMat(mat.buffer, nest_indices)
 
     # For PETSc matrices we must always tabulate the indices
     # NOTE: we can't check isinstance(PetscMatBuffer) here because of MATPYTHON
@@ -1152,9 +1152,6 @@ class DiskCacheKeyGetter(ExpressionVisitor):
         )
 
     def _add_buffer(self, buffer):
-        if isinstance(buffer, BufferRef):
-            return (self._add_buffer(buffer), buffer.nest_indices)
-
         buffer_name = self._renamer.add(buffer)
         if isinstance(buffer, NullBuffer):
             return (type(buffer), buffer_name, buffer.size, buffer.dtype)

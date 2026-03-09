@@ -31,7 +31,7 @@ from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBufferSubMat
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -199,7 +199,7 @@ class LoopyCodegenContext(CodegenContext):
                     self.global_buffer_intents[buffer_key] = RW
                 return self._kernel_names[buffer_key]
 
-            if isinstance(buffer_ref, ArrayBuffer):
+            if isinstance(buffer_ref.handle, np.ndarray):
                 # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
                 # that it is correctly included in the cache key).
                 # Inject constant buffer data into the generated code if sufficiently small
@@ -226,7 +226,7 @@ class LoopyCodegenContext(CodegenContext):
                 shape = self._temporary_shapes.get(buffer_key, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(buffer_ref, PetscMatBuffer)
+                assert isinstance(buffer_ref.handle, PETSc.Mat)
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
@@ -401,6 +401,7 @@ class CompiledCodeExecutor:
 
     """
 
+    # TODO: decouple intents from the buffer map (put intents on the executable)
     def __init__(self, executable: Executable, buffer_map: WeakValueDictionary[str, ConcretBuffer], comm: Pyop3Comm):
         self.executable = executable
         self.buffer_map = buffer_map
@@ -713,7 +714,7 @@ def compile(op, compiler_parameters=None):
     for kernel_arg_name, buffer_info in buffer_index_map.items():
         buffer_index, nest_indices, intent = buffer_info
         global_buffer = op.buffers[buffer_index]
-        sorted_buffers[kernel_arg_name] = (BufferRef(global_buffer, nest_indices), intent)
+        sorted_buffers[kernel_arg_name] = (global_buffer, intent)
 
     return CompiledCodeExecutor(executable, sorted_buffers, op.comm)
 
@@ -1010,7 +1011,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(
-        isinstance(arg.buffer, PetscMatBuffer)
+        isinstance(arg.buffer, ConcreteBuffer) and isinstance(arg.buffer.handle, PETSc.Mat)
         for arg in assignment.buffer_arguments
     ):
         _compile_petsc_mat(assignment, loop_indices, context)
