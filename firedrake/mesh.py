@@ -2648,25 +2648,26 @@ values from f.)"""
     
     @PETSc.Log.EventDecorator()
     def box_ratio_heuristic(self, max_level: int = 10):
-        """Return partition bounding boxes at some optimal R*-tree level.
+        """Return partition bounding boxes at some optimal Rtree level.
 
-        Descends the local R*-tree top-down breadth0first, stopping when the total
+        Descends the local Rtree top-down breadth-first, stopping when the total
         bounding box volume stops decreasing (ratio of next level to current
         level >= 1) or when ``max_level`` is reached.
 
         Parameters
         ----------
         max_level : int
-            Hard cap on tree depth to prevent excessive subdivision.
+            Limit on depth.
 
         Returns
         -------
         numpy.ndarray
-            Array of shape ``(n_boxes, 2, gdim)`` at the chosen level.
+            Array of shape `(n_boxes, 2, gdim)` containing all the bounding boxes
+            at the chosen level.
         """
         prev_bboxes = self.bounding_boxes(0)
         prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
-        # TODO: add a cython function which descends the tree depth-first
+        # TODO: add a function (in cython? or C api?) which descends the tree depth-first
         # to find total number of levels.
         for level in range(1, max_level + 1):
             next_bboxes = self.bounding_boxes(level)
@@ -2679,11 +2680,11 @@ values from f.)"""
     @cached_property
     @PETSc.Log.EventDecorator()
     def distributed_rtree(self):
-        """Build a global R*-tree from all ranks' partition bounding boxes.
+        """Build a global Rtree from all ranks' partition bounding boxes.
 
         Each rank contributes bounding boxes chosen by `box_ratio_heuristic`.
         The boxes are gathered from all ranks and a single Rtree is built 
-        on every rank.  The owning MPI rank is stored as the id of each leaf,
+        on every rank. The owning MPI rank is stored as the id of each leaf,
         so querying the tree with a point will return a list of candidate ranks
         who may have a cell containing that point.
 
