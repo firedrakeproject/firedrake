@@ -16,7 +16,7 @@ from loopy.tools import LoopyKeyBuilder
 
 import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
-from pyop3.expr.buffer import MatArrayBufferExpression
+from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
 from pyop3.expr.tensor import mat
 from pyop3.expr.tensor.dat import AggregateDat
 from pyop3.expr.tensor.mat import AggregateMat
@@ -810,9 +810,13 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
         parent_key = self._get_argument_key(tensor.parent) if tensor.parent else ()
         return (type(tensor), tensor.axis_trees, tensor.dtype, parent_key, self._buffer_arg_counter[tensor])
 
-    @_get_argument_key.register(BufferExpression)
+    @_get_argument_key.register(ScalarBufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
         return (type(buffer_expr), buffer_expr.dtype, self._buffer_arg_counter[buffer_expr])
+
+    @_get_argument_key.register(LinearDatBufferExpression)
+    def _(self, buffer_expr: BufferExpression, /) -> Hashable:
+        return (type(buffer_expr), buffer_expr.dtype, buffer_expr.layout, self._buffer_arg_counter[buffer_expr])
 
     @_get_argument_key.register(expr_types.Operator)
     def _(self, op: expr_types.Operator, /) -> Hashable:

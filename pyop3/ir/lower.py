@@ -305,7 +305,7 @@ class Executable:
         return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, *args) -> None:
-        # if len(self.loopy_code.callables_table) > 1 and "kernel_prolong" in str(self):
+        # if len(self.code.callables_table) > 1 and "form" in str(self.code):
         #     breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         # if len(self.buffer_map) == 5:

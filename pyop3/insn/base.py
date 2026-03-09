@@ -251,15 +251,19 @@ class Instruction(Node, DistributedObject, abc.ABC):
                 buffer_info = executor.buffer_map[buffer_name_in_kernel]
                 arg = self.buffer_arguments[arg_index]
                 new_buffer_map[buffer_name_in_kernel] = (arg.buffer, buffer_info[1])
-            executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
+            new_buffer_map = idict(new_buffer_map)
+
+            # can we do this check more eagerly?
+            if new_buffer_map != executor.buffer_map:
+                executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
 
         return executor
 
-    # @memory_cache(
-    #     hashkey=lambda self, cp: (self._executor_cache_key, cp),
-    #     get_comm=lambda self, *a, **kw: self.comm,
-    #     heavy=True,
-    # )
+    @memory_cache(
+        hashkey=lambda self, cp: (self._executor_cache_key, cp),
+        get_comm=lambda self, *a, **kw: self.comm,
+        heavy=True,
+    )
     def _compile(self, compiler_parameters: ParsedCompilerParameters) -> CompiledCodeExecutor:
         from pyop3.ir.lower import compile
 
