@@ -455,6 +455,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
                         res = x.dot(y)
                     return res
+                elif isinstance(rhs, matrix.MatrixBase):
+                    petsc_mat = rhs.petscmat
+                    (row, col) = rhs.arguments()
+                    res = firedrake.Function(col.function_space())
+                    with lhs.dat.vec_ro as v_vec:
+                        with res.dat.vec as res_vec:
+                            petsc_mat.multTranspose(v_vec, res_vec)
+                    return res
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             else:
@@ -804,7 +812,10 @@ class BaseFormAssembler(AbstractFormAssembler):
                 new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
                 replace_map.update(dict(zip(other_args, new_args)))
                 # Replace arguments
-                return ufl.replace(right, replace_map)
+                # import ipdb; ipdb.set_trace()
+                # return ufl.replace(right, replace_map)
+                argument_slots = tuple(ufl.replace(a, replace_map) for a in right.argument_slots())
+                return right._ufl_expr_reconstruct_(*right.ufl_operands, argument_slots=argument_slots)
 
         if isinstance(expr, ufl.Adjoint):
             form = expr.form()
