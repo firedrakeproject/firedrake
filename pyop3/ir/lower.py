@@ -294,79 +294,72 @@ class DummyModuleExecutor:
         pass
 
 
-class CompiledCodeExecutor:
-    """
-    Notes
-    -----
-    This class has a large number of cached properties to reduce latency when it
-    is called.
-
-    """
-
-    # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], compiler_parameters: Mapping, comm: Pyop3Comm):
-        self.loopy_code = loopy_code
-        self.buffer_map = buffer_map
+class Executable:
+    def __init__(self, code: lp.TranslationUnit, compiler_parameters: Mapping, comm: Pyop3Comm):
+        self.code = code
         self.compiler_parameters = compiler_parameters
         self.comm = comm
 
-    @property
-    def loopy_kernel(self) -> lp.LoopKernel:
-        return self.loopy_code.default_entrypoint
-
     @cached_property
-    def _buffer_refs(self) -> tuple[BufferRef]:
-        return tuple(ref for ref, _ in self.buffer_map.values())
+    def callable(self):
+        return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
-    @cached_property
-    def _default_buffers(self) -> tuple[ConcreteBuffer]:
-        return tuple(buffer_ref.buffer for buffer_ref in self._buffer_refs)
-
-    @cached_property
-    def executable(self):
-        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters, comm=self.comm)
-
-    def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
-        """
-        Notes
-        -----
-        This code is performance critical.
-
-        """
-        if replacement_buffers is None:  # shortcut for the most common case
-            buffers = self._default_buffers
-            exec_arguments = self._default_exec_arguments
-        else:
-            buffers = list(self._default_buffers)
-            exec_arguments = list(self._default_exec_arguments)
-
-            # TODO:
-            # if CONFIG.debug:
-            if False:
-                for buffer_name, replacement_buffer in kwargs.items():
-                    self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
-
-            for buffer_key, replacement_buffer in replacement_buffers.items():
-                index = self._buffer_ref_indices[buffer_key]
-                buffers[index] = replacement_buffer
-                replacement_handle = replacement_buffer.handle(
-                    nest_indices=self._buffer_refs[index].nest_indices
-                )
-                exec_arguments[index] = self._as_exec_argument(replacement_handle)
-
-        for index in self._modified_buffer_indices:
-            buffers[index].inc_state()
-
+    def __call__(self, *args) -> None:
         # if len(self.loopy_code.callables_table) > 1 and "kernel_prolong" in str(self):
         #     breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         # if len(self.buffer_map) == 5:
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
+        # import pyop3.debug
+        # pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:
                 raise NotImplementedError
+                # new_index, (icore, iroot, ileaf) = partition_iterset(
+                #     self.index, [a for a, _ in self.function_arguments]
+                # )
+                # #buffer_intents
+                # # assert self.index.id == new_index.id
+                # #
+                # # # substitute subsets into loopexpr, should maybe be done in partition_iterset
+                # # parallel_loop = self.copy(index=new_index)
+                #
+                # for init in initializers:
+                #     init()
+                #
+                # # replace the parallel axis subset with one for the specific indices here
+                # extent = utils.just_one(icore.axes.root.components).count
+                # core_kwargs = utils.merge_dicts(
+                #     [kwargs, {icore.name: icore, extent.name: extent}]
+                # )
+                #
+                # with PETSc.Log.Event(f"compute_{self.name}_core"):
+                #     code(**core_kwargs)
+                #
+                # # await reductions
+                # for red in reductions:
+                #     red()
+                #
+                # # roots
+                # # replace the parallel axis subset with one for the specific indices here
+                # root_extent = utils.just_one(iroot.axes.root.components).count
+                # root_kwargs = utils.merge_dicts(
+                #     [kwargs, {icore.name: iroot, extent.name: root_extent}]
+                # )
+                # with PETSc.Log.Event(f"compute_{self.name}_root"):
+                #     code(**root_kwargs)
+                #
+                # # await broadcasts
+                # for broadcast in broadcasts:
+                #     broadcast()
+                #
+                # # leaves
+                # leaf_extent = utils.just_one(ileaf.axes.root.components).count
+                # leaf_kwargs = utils.merge_dicts(
+                #     [kwargs, {icore.name: ileaf, extent.name: leaf_extent}]
+                # )
+                # with PETSc.Log.Event(f"compute_{self.name}_leaf"):
+                #     code(**leaf_kwargs)
 
             initializers = []
             reductions = []
@@ -391,18 +384,77 @@ class CompiledCodeExecutor:
                 bcast()
 
             # Now all the data is correct, compute!
-            self.executable(*exec_arguments)
+            self.callable(*args)
         else:
-            self.executable(*exec_arguments)
+            self.callable(*args)
+
+
+class CompiledCodeExecutor:
+    """
+    Notes
+    -----
+    This class has a large number of cached properties to reduce overhead when it
+    is called.
+
+    This class is basically executable+buffers. It is useful because we want to cache the executable globally
+    but we don't want to cache this globally because the buffers are likely to change.
+
+    """
+
+    def __init__(self, executable: Executable, buffer_map: WeakValueDictionary[str, ConcretBuffer], comm: Pyop3Comm):
+        self.executable = executable
+        self.buffer_map = buffer_map
+        self.comm = comm
+
+    @cached_property
+    def _buffer_refs(self) -> tuple[BufferRef]:
+        return tuple(ref for ref, _ in self.buffer_map.values())
+
+    @cached_property
+    def _default_buffers(self) -> tuple[ConcreteBuffer]:
+        return tuple(buffer_ref.buffer for buffer_ref in self._buffer_refs)
+
+    def __call__(self, **kwargs) -> None:
+        """
+        Notes
+        -----
+        This code is performance critical.
+
+        """
+        if not kwargs:  # shortcut for the most common case
+            buffers = self._default_buffers
+            exec_arguments = self._default_exec_arguments
+        else:
+            buffers = list(self._default_buffers)
+            exec_arguments = list(self._default_exec_arguments)
+
+            # TODO:
+            # if CONFIG.debug:
+            if False:
+                for buffer_name, replacement_buffer in kwargs.items():
+                    self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
+
+            for buffer_key, replacement_buffer in kwargs.items():
+                index = self._buffer_ref_indices[buffer_key]
+                buffers[index] = replacement_buffer
+                replacement_handle = replacement_buffer.handle(
+                    nest_indices=self._buffer_refs[index].nest_indices
+                )
+                exec_arguments[index] = self._as_exec_argument(replacement_handle)
+
+        for index in self._modified_buffer_indices:
+            buffers[index].inc_state()
+
+        self.executable(*exec_arguments)
 
     def __str__(self) -> str:
         sep = "*" * 80
         str_ = []
         str_.append(sep)
-        str_.append(lp.generate_code_v2(self.loopy_code).device_code())
+        str_.append(lp.generate_code_v2(self.executable.code).device_code())
         str_.append(sep)
 
-        for arg in self.loopy_code.default_entrypoint.args:
+        for arg in self.executable.code.default_entrypoint.args:
             size, buffer = self._buffer_str(self.buffer_map[arg.name][0].buffer)
             str_.append(f"{arg.name} {size} : {buffer}")
 
@@ -424,7 +476,8 @@ class CompiledCodeExecutor:
     @cached_property
     def _buffer_ref_indices(self) -> idict[str, int]:
         return idict({
-            (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
+            # (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
+            buffer_ref.buffer.name: i for i, buffer_ref in enumerate(self._buffer_refs)
         })
 
     @cached_property
@@ -652,6 +705,7 @@ def compile(op, compiler_parameters=None):
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
     loopy_code, buffer_index_map = _compile_static(op, compiler_parameters)
+    executable = Executable(loopy_code, compiler_parameters, op.comm)
 
     # TODO: The handling of nest indices here is very confused
     sorted_buffers = {}
@@ -660,7 +714,7 @@ def compile(op, compiler_parameters=None):
         global_buffer = op.buffers[buffer_index]
         sorted_buffers[kernel_arg_name] = (BufferRef(global_buffer, nest_indices), intent)
 
-    return CompiledCodeExecutor(loopy_code, sorted_buffers, compiler_parameters, op.comm)
+    return CompiledCodeExecutor(executable, sorted_buffers, op.comm)
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
@@ -1369,7 +1423,7 @@ def _(expr: op3_expr.Expression, inames, loop_indices, context):
 
 
 # NOTE: A lot of this is more generic than just loopy, try to refactor
-def compile_loopy(translation_unit, *, pyop3_compiler_parameters, comm):
+def compile_loopy(translation_unit, *, compiler_parameters, comm):
     """Build a shared library and return a function pointer from it.
 
     :arg jitmodule: The JIT Module which can generate the code to compile, or
@@ -1413,7 +1467,7 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters, comm):
 
     dll = load(code, "c", cppargs, ldargs, comm=comm)
 
-    if pyop3_compiler_parameters.add_petsc_event:
+    if compiler_parameters.add_petsc_event:
         # Create the event in python and then set in the shared library to avoid
         # allocating memory over and over again in the C kernel.
         event_name = translation_unit.default_entrypoint.name

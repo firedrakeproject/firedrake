@@ -12,6 +12,7 @@ from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefa
 from pyop3.dtypes import ScalarType, as_cstr
 from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
+from pyop3.cache import cached_method
 from pyop3.utils import (  # noqa: F401
     readonly,
     pairwise,
@@ -30,7 +31,6 @@ from pyop3.utils import (  # noqa: F401
     as_tuple,
     is_sorted,
     unique_name as op3_unique_name,
-    cached_method,
 )
 
 import petsctools

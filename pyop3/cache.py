@@ -151,6 +151,21 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
+def _get_method_cache(obj):
+    if not hasattr(obj, "_pyop3_method_cache"):
+        # Use object.__setattr__ to get around frozen dataclasses
+        object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
+    return obj._pyop3_method_cache
+
+
+def cached_method(key=default_hashkey):
+    def wrapper(func):
+        return cachetools.cachedmethod(
+            lambda self: _get_method_cache(self)[func.__qualname__], key
+        )(func)
+    return wrapper
+
+
 def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
     """ Filter PyOP2 caches based on communicator, function or cache type.
     """

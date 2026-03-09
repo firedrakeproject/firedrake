@@ -28,7 +28,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 import pyop3.record
-from pyop3.cache import cached_on, memory_cache
+from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
@@ -561,7 +561,7 @@ class AxisComponent(LabelledNodeComponent):
         assert False, "old code"
         return tuple(r.label for r in self._all_regions)
 
-    @utils.cached_method()
+    @cached_method()
     def localize(self) -> AxisComponent:
         if any(
             _region_label_matches(region, label_)
@@ -583,7 +583,7 @@ class AxisComponent(LabelledNodeComponent):
             assert self.sf is None
             return self
 
-    @utils.cached_method()
+    @cached_method()
     def regionless(self) -> AxisComponent:
         if len(self.regions) > 1:
             merged_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
@@ -729,11 +729,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
         """
         return self._tree
 
-    @utils.cached_method()
+    @cached_method()
     def localize(self):
         return self.copy(components=tuple(c.localize() for c in self.components))
 
-    @utils.cached_method()
+    @cached_method()
     def regionless(self):
         return self.copy(components=tuple(c.regionless() for c in self.components))
 
@@ -874,7 +874,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    @utils.cached_method(key=_getitem_cache_key)
+    @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False) -> AbstractAxisTree | AxisForest | ContextSensitiveAxisTree:
         from pyop3.tree.index_tree.parse import as_index_forests
         from pyop3.tree.index_tree import index_axes
@@ -1061,6 +1061,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     # old
     @cached_property
     def alloc_size(self):
+        assert False, "old code"
         return self._alloc_size()
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
@@ -1076,7 +1077,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
             size_expr = self.materialize().subtree(subpath).local_size
 
         size_dat = Dat.empty(axis.linearize(component.label).regionless(), dtype=IntType)
-
 
         size_dat.assign(size_expr, eager=True)
 
@@ -1339,7 +1339,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     # }}}
 
-    @utils.cached_method()
+    @cached_method()
     def localize(self) -> AxisTree:
         node_map = {
             path: axis.localize() if axis else None
@@ -1347,7 +1347,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         }
         return type(self)(node_map)
 
-    @utils.cached_method()
+    @cached_method()
     def regionless(self) -> AxisTree:
         node_map = {
             path: axis.regionless() if axis else None
@@ -1500,7 +1500,7 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=self.unindexed.regionless,
         )
 
-    @utils.cached_method()
+    @cached_method()
     def localize(self):
         return type(self)(
             self.materialize().localize(),
@@ -1508,7 +1508,7 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=self.unindexed.localize(),
         )
 
-    @utils.cached_method()
+    @cached_method()
     def regionless(self):
         return type(self)(
             self.materialize().regionless(),
@@ -1754,14 +1754,14 @@ class UnitIndexedAxisTree(DistributedObject):
     def materialize(self):
         return UNIT_AXIS_TREE
 
-    @utils.cached_method()
+    @cached_method()
     def localize(self):
         return type(self)(
             targets=self.targets,
             unindexed=self.unindexed.localize(),
         )
 
-    @utils.cached_method()
+    @cached_method()
     def regionless(self):
         return type(self)(
             targets=self.targets,
@@ -1965,7 +1965,7 @@ class AxisForest(DistributedObject):
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
 
-    @utils.cached_method(key=_getitem_cache_key)
+    @cached_method(key=_getitem_cache_key)
     def getitem(self, indices, *, strict=False):
         if utils.is_ellipsis_type(indices):
             return self

@@ -17,6 +17,8 @@ from types import GeneratorType
 from pyop3.exceptions import Pyop3Exception
 import pytools
 
+from pyop3.cache import cached_method
+
 from pyop3 import utils
 from pyop3.utils import (
     Id,
@@ -598,7 +600,7 @@ class LabelledTree:
                 nest[node].append(None)
         return idict(nest)
 
-    @utils.cached_method()
+    @cached_method()
     def _subtree_node_map(self, path: ConcretePathT) -> idict:
         trimmed_node_map = {}
         path_set = set(path.items())

@@ -564,21 +564,6 @@ def dict_stack(dict_, to_push):
         dict_.pop(key)
 
 
-def _get_method_cache(obj):
-    if not hasattr(obj, "_pyop3_method_cache"):
-        # Use object.__setattr__ to get around frozen dataclasses
-        object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
-    return obj._pyop3_method_cache
-
-
-def cached_method(*args, **kwargs):
-    def wrapper(func):
-        return cachetools.cachedmethod(
-            lambda self: _get_method_cache(self)[func.__qualname__], *args, **kwargs
-        )(func)
-    return wrapper
-
-
 def pretty_type(obj: Any) -> str:
     type_ = type(obj)
     return f"{type_.__module__}.{type_.__name__}"

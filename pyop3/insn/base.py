@@ -13,21 +13,22 @@ import textwrap
 from functools import cached_property
 from typing import Any, ClassVar, Iterable, Tuple
 
-import immutabledict
+from immutabledict import immutabledict as idict
 import loopy as lp
 import numpy as np
+from pyop3.buffer import BufferRef
 import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.record
 from pyop3 import utils
-from pyop3.cache import with_heavy_caches
+from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
 from pyop3.collections import OrderedSet, is_ordered_mapping
 from pyop3.node import Node, Terminal
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisForest, ContextFree, ContextSensitive, axis_tree_is_valid_subset, matching_axis_tree
-from pyop3.expr import BufferExpression
+from pyop3.expr import BufferExpression, Tensor
 from pyop3.sf import DistributedObject
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -89,7 +90,7 @@ class CompilerParameters:
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
 
-META_COMPILER_PARAMETERS = immutabledict.immutabledict({
+META_COMPILER_PARAMETERS = idict({
     # TODO: when implemented should also set interleave_comp_comm to True
     "optimize": {"compress_indirection_maps": True}
 })
@@ -172,17 +173,32 @@ class UnprocessedExpressionException(Pyop3Exception):
 
 class Instruction(Node, DistributedObject, abc.ABC):
 
-    def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None, *, compiler_parameters=None):
-        compiler_parameters = parse_compiler_parameters(compiler_parameters)
+    def __init__(self) -> None:
+        object.__setattr__(self, "_hit_executor_cache", True)
 
+    @property
+    @abc.abstractmethod
+    def arguments(self) -> tuple[Tensor]:
+        """Mapping from name to tensor that is passed in as an argument."""
+
+    @property
+    @abc.abstractmethod
+    def comm(self) -> MPI.Comm:
+        pass
+
+    @with_self_heavy_cache
+    def __call__(self, *, compiler_parameters=None, **kwargs) -> None:
         executable = self.compile(compiler_parameters)
-        executable(replacement_buffers)
 
-    def preprocess(self, compiler_parameters=None):
-        compiler_parameters = parse_compiler_parameters(compiler_parameters)
-        return self._preprocess(compiler_parameters)
+        new_buffers = {}
+        if kwargs:
+            for arg_name, new_arg in kwargs.items():
+                buffer_name = self._argument_name_to_buffer_name_map[arg_name]
+                new_buffers[buffer_name] = new_arg.buffer
 
-    @utils.cached_method()
+        executable(**new_buffers)
+
+    @cached_method()
     def _preprocess(self, compiler_parameters: ParsedCompilerParameters) -> Instruction:
         from .visitors import (
             expand_implicit_pack_unpack,
@@ -211,29 +227,64 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
         return PreprocessedOperation(insn)
 
-    # TODO: only really an attr of lowered ones...
+    @cached_method()
     def compile(self, compiler_parameters=None):
-        compiler_parameters = parse_compiler_parameters(compiler_parameters)
-        return self._compile(compiler_parameters)
+        from pyop3.ir.lower import CompiledCodeExecutor
 
-    @utils.cached_method()
-    def _compile(self, compiler_parameters: ParsedCompilerParameters):
+        compiler_parameters = parse_compiler_parameters(compiler_parameters)
+        executor, argument_index_to_buffer_name_map = self._compile(compiler_parameters)
+
+        # If the returned executor is cached from a previous invocation then we
+        # have to duplicate it with new buffers. For example consider the expressions:
+        #
+        #     dat1.assign(2*dat2)
+        #     dat3.assign(2*dat4)
+        #
+        # Assuming that all the dats have the same axis trees then this will hit
+        # the code executor cache but we will have to replace the buffers 
+        # dat1 -> dat3 and dat2 -> dat4.
+        if self._hit_executor_cache:
+            new_buffer_map = {}
+            # NOTE: This is quite inefficient as the mappings are going in different directions
+            buffer_name_to_arg_index_map = utils.invert_mapping(argument_index_to_buffer_name_map)
+            for buffer_name_in_kernel, (buffer, nest_indices) in executor.buffer_map.items():
+                if buffer.buffer.name in buffer_name_to_arg_index_map:
+                    arg_index = buffer_name_to_arg_index_map[buffer.buffer.name]
+                    arg = self.arguments[arg_index]
+                    new_buffer_map[buffer_name_in_kernel] = (BufferRef(arg.buffer), nest_indices)
+                else:
+                    new_buffer_map[buffer_name_in_kernel] = (buffer, nest_indices)
+            executor = CompiledCodeExecutor(executor.executable, new_buffer_map, executor.comm)
+
+        return executor
+
+    @memory_cache(
+        hashkey=lambda self, cp: (self._executor_cache_key, cp),
+        get_comm=lambda self, *a, **kw: self.comm,
+        heavy=True,
+    )
+    def _compile(self, compiler_parameters: ParsedCompilerParameters) -> CompiledCodeExecutor:
         from pyop3.ir.lower import compile
 
-        preprocessed = self.preprocess(compiler_parameters)
-        return compile(preprocessed, compiler_parameters=compiler_parameters)
+        object.__setattr__(self, "_hit_executor_cache", False)
+        preprocessed = self._preprocess(compiler_parameters)
+        executor = compile(preprocessed, compiler_parameters=compiler_parameters)
 
+        return executor, self._argument_index_to_buffer_name_map
 
-class ContextAwareInstruction(Instruction):
-    @property
-    @abc.abstractmethod
-    def datamap(self):
-        """Map from names to arrays."""
+    @cached_property
+    def _argument_index_to_buffer_name_map(self) -> idict[int, str]:
+        return idict({i: arg.buffer.name for i, arg in enumerate(self.arguments) if isinstance(arg, Tensor)})
 
-    # @property
-    # @abc.abstractmethod
-    # def kernel_arguments(self):
-    #     pass
+    @cached_property
+    def _argument_name_to_buffer_name_map(self) -> idict:
+        return idict({arg.name: arg.buffer.name for arg in self.arguments if isinstance(arg, Tensor | BufferExpression)})
+
+    @cached_property
+    def _executor_cache_key(self) -> Hashable:
+        from pyop3.insn.visitors import get_instruction_executor_cache_key
+
+        return get_instruction_executor_cache_key(self)
 
 
 _DEFAULT_LOOP_NAME = "pyop3_loop"
@@ -283,12 +334,17 @@ class Loop(Instruction):
         statements = utils.as_tuple(statements)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
+        super().__init__()
 
     # }}}
 
     # {{{ interface impls
 
     child_attrs = ("statements",)
+
+    @cached_property
+    def arguments(self) -> tuple[Tensor]:
+        return utils.reduce("+", (stmt.arguments for stmt in self.statements), ())
 
     @property
     def comm(self) -> MPI.Comm:
@@ -305,88 +361,6 @@ class Loop(Instruction):
 {'\n'.join(stmt_strs)}
   ]
 )"""
-
-    @with_heavy_caches(lambda self, *a, **kw: {self})
-    def __call__(self, replacement_buffers: Mapping | None = None, *, compiler_parameters=None):
-        # TODO just parse into ContextAwareLoop and call that
-        from pyop3.ir.lower import compile
-        from pyop3.tree.index_tree.tree import partition_iterset
-        from pyop3.buffer import ArrayBuffer
-
-        compiler_parameters = parse_compiler_parameters(compiler_parameters)
-
-        code = self.compile(compiler_parameters)
-
-        # TODO: Move to executor class
-        if compiler_parameters.interleave_comp_comm:
-            raise NotImplementedError
-            new_index, (icore, iroot, ileaf) = partition_iterset(
-                self.index, [a for a, _ in self.function_arguments]
-            )
-            #buffer_intents
-            # assert self.index.id == new_index.id
-            #
-            # # substitute subsets into loopexpr, should maybe be done in partition_iterset
-            # parallel_loop = self.copy(index=new_index)
-
-            for init in initializers:
-                init()
-
-            # replace the parallel axis subset with one for the specific indices here
-            extent = utils.just_one(icore.axes.root.components).count
-            core_kwargs = utils.merge_dicts(
-                [kwargs, {icore.name: icore, extent.name: extent}]
-            )
-
-            with PETSc.Log.Event(f"compute_{self.name}_core"):
-                code(**core_kwargs)
-
-            # await reductions
-            for red in reductions:
-                red()
-
-            # roots
-            # replace the parallel axis subset with one for the specific indices here
-            root_extent = utils.just_one(iroot.axes.root.components).count
-            root_kwargs = utils.merge_dicts(
-                [kwargs, {icore.name: iroot, extent.name: root_extent}]
-            )
-            with PETSc.Log.Event(f"compute_{self.name}_root"):
-                code(**root_kwargs)
-
-            # await broadcasts
-            for broadcast in broadcasts:
-                broadcast()
-
-            # leaves
-            leaf_extent = utils.just_one(ileaf.axes.root.components).count
-            leaf_kwargs = utils.merge_dicts(
-                [kwargs, {icore.name: ileaf, extent.name: leaf_extent}]
-            )
-            with PETSc.Log.Event(f"compute_{self.name}_leaf"):
-                code(**leaf_kwargs)
-
-            # also may need to eagerly assemble Mats, or be clever and spike the accessors?
-        else:
-            # TODO: reenable logging (what is 'self.name')?
-            # with PETSc.Log.Event(f"apply_{self.name}"):
-            code(replacement_buffers)
-
-    @cached_property
-    def function_arguments(self) -> tuple:
-        args = {}  # ordered
-        for stmt in self.statements:
-            for arg, intent in stmt.function_arguments:
-                args[arg] = intent
-        return tuple((arg, intent) for arg, intent in args.items())
-
-    @cached_property
-    def kernel_arguments(self):
-        args = OrderedSet()
-        for stmt in self.statements:
-            for arg in stmt.kernel_arguments:
-                args.add(arg)
-        return tuple(args)
 
 
 @pyop3.record.frozenrecord()
@@ -410,6 +384,10 @@ class InstructionList(Instruction):
     @property
     def comm(self) -> MPI.Comm:
         return utils.common_comm(self.instructions, "comm")
+
+    @property
+    def arguments(self) -> tuple[Tensor]:
+        return tuple(arg for insn in self.instructions for arg in insn.arguments)
 
     # }}}
 
@@ -799,6 +777,7 @@ class ArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+        super().__init__()
         self.__post_init__()
 
     def __post_init__(self) -> None:

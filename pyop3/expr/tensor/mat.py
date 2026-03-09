@@ -16,6 +16,7 @@ from pyop3 import buffer
 
 import pyop3.record
 from pyop3 import utils
+from pyop3.cache import cached_method
 from pyop3.typing import KwargsT
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
@@ -181,7 +182,7 @@ class Mat(Tensor):
         "The number of local columns in the matrix (including ghosts)."
         return self.column_axes.local_size
 
-    @utils.cached_method()
+    @cached_method()
     def getitem(self, row_index, column_index, *, strict=False):
         # (old comment, still useful exposition)
         # Combine the loop contexts of the row and column indices. Consider

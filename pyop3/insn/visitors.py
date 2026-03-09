@@ -7,7 +7,7 @@ import itertools
 import numbers
 from collections.abc import Iterable, Mapping
 from os import access
-from typing import Any
+from typing import Any, Hashable
 
 import numpy as np
 from petsc4py import PETSc
@@ -734,22 +734,98 @@ class Renamer:
             return self._store.setdefault(obj, label)
 
 
-class DiskCacheKeyGetter(NodeVisitor):
-
-    def __init__(self):
-        self._renamer = Renamer()
-        super().__init__()
-
+class InstructionCacheKeyGetter(NodeVisitor):
     @functools.singledispatchmethod
     def process(self, obj: insn_types.Instruction) -> Hashable:
         return super().process(obj)
-
 
     @process.register(insn_types.InstructionList)
     @process.register(insn_types.NullInstruction)
     @NodeVisitor.postorder
     def _(self, insn: insn_types.Instruction, *visited: Hashable) -> Hashable:
         return (type(insn), *visited)
+
+
+
+class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
+
+    @functools.singledispatchmethod
+    def process(self, obj: insn_types.Instruction) -> Hashable:
+        return super().process(obj)
+
+    @process.register(insn_types.Loop)
+    def _(self, loop: insn_types.Loop) -> Hashable:
+        # self._renamer.add(loop.index)  # TODO: needed?
+        return (
+            type(loop),
+            loop.index.iterset,
+            *(self(stmt) for stmt in loop.statements),
+        )
+
+    @process.register(insn_types.CalledFunction)
+    def _(self, func: insn_types.CalledFunction, /) -> Hashable:
+        # TODO: don't really need loopy here
+        loopy_key = LoopyKeyBuilder()(func.function)
+        return (
+            type(func),
+            loopy_key,
+            *(map(self._get_argument_key, func.arguments)),
+        )
+
+    @process.register(insn_types.Exscan)
+    def _(self, exscan: insn_types.Exscan) -> Hashable:
+        return (
+            type(exscan),
+            self._get_argument_key(exscan.assignee),
+            self._get_argument_key(exscan.expression),
+            exscan.scan_type,
+        )
+
+    @process.register(insn_types.ArrayAssignment)
+    def _(self, assignment: insn_types.ArrayAssignment, /) -> Hashable:
+        return (
+            type(assignment),
+            self._get_argument_key(assignment.assignee),
+            self._get_argument_key(assignment.expression),
+            assignment.assignment_type,
+        )
+
+    @functools.singledispatchmethod
+    def _get_argument_key(self, argument: Any, /) -> Hashable:
+        raise TypeError
+
+    @_get_argument_key.register(numbers.Number)
+    @_get_argument_key.register(expr_types.AxisVar)
+    @_get_argument_key.register(expr_types.LoopIndexVar)
+    def _(self, var: Hashable, /) -> Hashable:
+        return var
+
+    @_get_argument_key.register(Tensor)
+    def _(self, tensor: Tensor, /) -> Hashable:
+        parent_key = self._get_argument_key(tensor.parent) if tensor.parent else ()
+        return (type(tensor), tensor.axis_trees, tensor.dtype, parent_key)
+
+    @_get_argument_key.register(BufferExpression)
+    def _(self, buffer_expr: BufferExpression, /) -> Hashable:
+        return (type(buffer_expr), buffer_expr.dtype)
+
+    @_get_argument_key.register(expr_types.Operator)
+    def _(self, op: expr_types.Operator, /) -> Hashable:
+        return (type(op), tuple(self._get_argument_key(operand) for operand in op.operands))
+
+
+def get_instruction_executor_cache_key(insn: insn_types.Instruction) -> Hashable:
+    return InstructionExecutorCacheKeyGetter()(insn)
+
+
+class DiskCacheKeyGetter(InstructionCacheKeyGetter):
+    def __init__(self) -> None:
+        self._renamer = Renamer()
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj: insn_types.Instruction) -> Hashable:
+        return super().process(obj)
 
     @process.register(insn_types.Loop)
     def _(self, loop: insn_types.Loop) -> Hashable:

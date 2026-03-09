@@ -44,6 +44,10 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
         return self.buffer.buffer.name
 
     @property
+    def dtype(self) -> np.dtype:
+        return self.buffer.buffer.dtype
+
+    @property
     def handle(self) -> Any:
         return self.buffer.buffer.handle(nest_indices=self.buffer.nest_indices)
 
