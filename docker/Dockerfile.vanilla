@@ -151,7 +151,7 @@ RUN git clone --branch ${BRANCH} \
    && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
    && pip install --verbose -r /opt/firedrake/requirements-build.txt \
    && pip install --verbose --no-build-isolation \
-      ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
+      slepc4py \
    && pip install --verbose --no-binary h5py --no-build-isolation \
       --editable '/opt/firedrake[docker]' || exit; \
    if [ ${BRANCH} == "main" ]; then \
