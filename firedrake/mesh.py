@@ -2478,17 +2478,13 @@ values from f.)"""
 
     @cached_property
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculates bounding boxes for spatial indexing.
 
         Returns
         -------
         Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
-
-        None if the geometric dimension is 1.
-        TODO: rstar supports 1D, we just need to add a case for it in the
-        C api.
 
         Notes
         -----
@@ -2499,11 +2495,6 @@ values from f.)"""
         """
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
-
-        gdim = self.geometric_dimension
-        if gdim <= 1:
-            info_red("TODO: add 1D case to rstar-capi")
-            return None
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
@@ -2539,7 +2530,7 @@ values from f.)"""
             return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -2548,7 +2539,7 @@ values from f.)"""
 
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
+        domain = f"{{[d, i]: 0 <= d < {self.geometric_dimension} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
@@ -2603,11 +2594,10 @@ values from f.)"""
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
-        if self.bounding_box_coords is None:
-            # This happens in 1D meshes
-            return None
-        else:
-            coords_min, coords_max = self.bounding_box_coords
+        coords_min, coords_max = self.bounding_box_coords
+        if self.geometric_dimension == 1:
+            coords_min = coords_min.reshape(len(coords_min), -1)
+            coords_max = coords_max.reshape(len(coords_max), -1)
 
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
 
@@ -2616,7 +2606,6 @@ values from f.)"""
         coords_min = coords_mid - (tolerance + 0.5)*d
         coords_max = coords_mid + (tolerance + 0.5)*d
 
-        # Build spatial index
         with PETSc.Log.Event("spatial_index_build"):
             self._spatial_index = rstar.from_regions(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
