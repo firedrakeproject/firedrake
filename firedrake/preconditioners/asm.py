@@ -1,5 +1,6 @@
 import abc
 
+from itertools import chain
 from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
@@ -140,68 +141,6 @@ class ASMPatchPC(PCBase):
             self.asmpc.destroy()
 
 
-def get_entity_dofs(V, V_local_ises_indices, points):
-    """Extract degrees of freedom associated to mesh entities (points of the DMPlex)."""
-    indices = []
-    for (i, W) in enumerate(V):
-        section = W.dm.getDefaultSection()
-        for p in points:
-            dof = section.getDof(p)
-            if dof <= 0:
-                continue
-            off = section.getOffset(p)
-            # Local indices within W
-            W_slice = slice(off*W.block_size, W.block_size * (off + dof))
-            indices.extend(V_local_ises_indices[i][W_slice])
-    return indices
-
-
-def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
-    """Build index sets for star patches."""
-    points = []
-    for seed in seed_points:
-        # Only build patches over owned DoFs
-        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-            continue
-        # Create point list from mesh DM
-        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-        star = order_points(mesh_dm, star, ordering, prefix)
-        points.extend(star)
-
-    indices = get_entity_dofs(V, V_local_ises_indices, points)
-    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-    return iset
-
-
-def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
-    """Build index sets for Vanka patches."""
-    V_points = []
-    Q_points = []
-    for seed in seed_points:
-        # Only build patches over owned DoFs
-        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-            continue
-        # Create point list from mesh DM
-        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-        star = order_points(mesh_dm, star, ordering, prefix)
-        if include_star:
-            Q_points.extend(star)
-        else:
-            Q_points.append(seed)
-
-        closure = []
-        for s in reversed(star):
-            cs, _ = mesh_dm.getTransitiveClosure(s, useCone=True)
-            closure.extend(cs)
-        # Grab unique points with stable ordering
-        V_points.extend(reversed(dict.fromkeys(closure)))
-
-    indices = get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points)
-    indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
-    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-    return iset
-
-
 class ASMStarPC(ASMPatchPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
@@ -214,13 +153,13 @@ class ASMStarPC(ASMPatchPC):
     _prefix = "pc_star_"
 
     def get_patches(self, V):
-        mesh = V._mesh
+        mesh = V.mesh()
         if len(set(mesh)) == 1:
-            mesh_unique = mesh.unique()
+            mesh = mesh.unique()
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh_unique.topology_dm
-        if mesh_unique.cell_set._extruded:
+        mesh_dm = mesh.topology_dm
+        if mesh.cell_set._extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -229,25 +168,31 @@ class ASMStarPC(ASMPatchPC):
         depth = opts.getInt("construct_dim", default=0)
         coloring = opts.getBool("coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
-        validate_overlap(mesh_unique, depth, "star")
+        validate_overlap(mesh, depth, "star")
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
-        (start, end) = mesh_dm.getDepthStratum(depth)
-        if coloring and end > start:
-            colors = mesh_dm.createColoring(depth=depth, distance=1)
-            colors = [color for color in colors if color.getLocalSize() > 0]
-            if len(colors) == 0:
-                shift = 0
-            else:
-                shift = start - min(color.indices.min() for color in colors)
-            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color.indices+shift)
+        point_subset = None
+        if hasattr(mesh, "netgen_mesh"):
+            cell_subset = get_refined_cells(mesh)
+            point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
+
+        if coloring:
+            colors = get_point_coloring(mesh_dm, depth, 1)
+            if point_subset is not None:
+                colors = tuple(numpy.intersect1d(point_subset, color) for color in colors)
+
+            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color)
                     for color in colors]
         else:
+            (start, end) = mesh_dm.getDepthStratum(depth)
+            if point_subset is None:
+                point_subset = range(start, end)
+
             ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, (seed,))
-                    for seed in range(start, end)]
+                    for seed in point_subset]
         return ises
 
 
@@ -263,13 +208,13 @@ class ASMVankaPC(ASMPatchPC):
     _prefix = "pc_vanka_"
 
     def get_patches(self, V):
-        mesh = V._mesh
+        mesh = V.mesh()
         if len(set(mesh)) == 1:
-            mesh_unique = mesh.unique()
+            mesh = mesh.unique()
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh_unique.topology_dm
-        if mesh_unique.layers:
+        mesh_dm = mesh.topology_dm
+        if mesh.layers:
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -300,29 +245,29 @@ class ASMVankaPC(ASMPatchPC):
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
-        if depth != -1:
-            (start, end) = mesh_dm.getDepthStratum(depth)
-            patch_dim = depth
-        else:
-            (start, end) = mesh_dm.getHeightStratum(height)
-            patch_dim = mesh_dm.getDimension() - height
-        validate_overlap(mesh_unique, patch_dim, "vanka")
+        if depth == -1:
+            depth = mesh_dm.getDimension() - height
+        validate_overlap(mesh, depth, "vanka")
 
-        if start == end:
-            ises = []
-        elif coloring:
-            colors = mesh_dm.createColoring(depth=patch_dim, distance=2)
-            colors = [color for color in colors if color.getLocalSize() > 0]
-            if len(colors) == 0:
-                shift = start
-            else:
-                shift = start - min(color.indices.min() for color in colors)
+        point_subset = None
+        if hasattr(mesh, "netgen_mesh"):
+            cell_subset = get_refined_cells(mesh)
+            point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
+
+        if coloring:
+            colors = get_point_coloring(mesh_dm, depth, 2)
+            if point_subset is not None:
+                colors = tuple(numpy.intersect1d(point_subset, color) for color in colors)
+
             ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
-                                        include_star, color.indices+shift)
-                    for color in colors]
+                                        include_star, color) for color in colors]
         else:
-            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, (seed,))
-                    for seed in range(start, end)]
+            (start, end) = mesh_dm.getDepthStratum(depth)
+            if point_subset is None:
+                point_subset = range(start, end)
+
+            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
+                                        include_star, (seed,)) for seed in point_subset]
         return ises
 
 
@@ -348,7 +293,7 @@ class ASMLinesmoothPC(ASMPatchPC):
     _prefix = "pc_linesmooth_"
 
     def get_patches(self, V):
-        mesh = V._mesh
+        mesh = V.mesh()
         if len(set(mesh)) == 1:
             mesh_unique = mesh.unique()
         else:
@@ -593,3 +538,151 @@ def validate_overlap(mesh, patch_dim, patch_type):
         if overlap_depth < patch_depth:
             warning(f"Mesh overlap depth of {overlap_depth} does not support {patch_type}-patches. "
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
+
+
+def get_entity_dofs(V, V_local_ises_indices, points):
+    """Extract degrees of freedom associated to mesh entities (points of the DMPlex)."""
+    indices = []
+    for (i, W) in enumerate(V):
+        section = W.dm.getDefaultSection()
+        for p in points:
+            dof = section.getDof(p)
+            if dof <= 0:
+                continue
+            off = section.getOffset(p)
+            # Local indices within W
+            W_slice = slice(off*W.block_size, W.block_size * (off + dof))
+            indices.extend(V_local_ises_indices[i][W_slice])
+    return indices
+
+
+def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
+    """Build index sets for star patches."""
+    points = []
+    for seed in seed_points:
+        # Only build patches over owned DoFs
+        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            continue
+        # Create point list from mesh DM
+        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+        star = order_points(mesh_dm, star, ordering, prefix)
+        points.extend(star)
+
+    indices = get_entity_dofs(V, V_local_ises_indices, points)
+    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+    return iset
+
+
+def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
+    """Build index sets for Vanka patches."""
+    V_points = []
+    Q_points = []
+    for seed in seed_points:
+        # Only build patches over owned DoFs
+        if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            continue
+        # Create point list from mesh DM
+        star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
+        star = order_points(mesh_dm, star, ordering, prefix)
+        if include_star:
+            Q_points.extend(star)
+        else:
+            Q_points.append(seed)
+
+        closure = []
+        for s in reversed(star):
+            cs, _ = mesh_dm.getTransitiveClosure(s, useCone=True)
+            closure.extend(cs)
+        # Grab unique points with stable ordering
+        V_points.extend(reversed(dict.fromkeys(closure)))
+
+    indices = get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points)
+    indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
+    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
+    return iset
+
+
+def get_point_coloring(plex, depth, distance):
+    """Return the point subsets for a coloring of the plex."""
+    start, end = plex.getDepthStratum(depth)
+    colors = plex.createColoring(depth=depth, distance=distance)
+    color_indices = [c.indices for c in colors]
+    if any(ci.size > 0 for ci in color_indices):
+        offset = start - min(ci.min() for ci in color_indices if ci.size > 0)
+        for c in color_indices:
+            c += offset
+    return color_indices
+
+
+def get_refined_cells(mesh):
+    """Return the cell indices corresponding to fine cells."""
+    from firedrake.mg.utils import get_level
+    from firedrake import FunctionSpace
+
+    sf = mesh.sfBC_orig
+    plex = mesh.topology_dm
+    cellNum = plex.getCellNumbering().indices
+    cellNum[cellNum < 0] = -cellNum[cellNum < 0]-1
+    fstart, fend = plex.getHeightStratum(0)
+    cids = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
+
+    # Create Netgen to Firedrake reordering
+    M = FunctionSpace(mesh, "DG", 0)
+    marked = M.dof_dset.layout_vec.copy()
+    cstart, cend = marked.getOwnershipRange()
+    marked.setValues(cellNum[cids[:cend-cstart]], numpy.arange(cstart, cend))
+    marked.assemble()
+    marked0 = marked
+    if sf is not None:
+        sfBCInv = sf.createInverse()
+        _, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
+    perm = marked0.getArray().astype(PETSc.IntType)
+
+    # Get refined cells globally on rank 0
+    if mesh.comm.rank == 0:
+        tdim = mesh.topological_dimension
+        if tdim == 2:
+            parents = mesh.netgen_mesh.parentsurfaceelements.NumPy()
+        elif tdim == 3:
+            parents = mesh.netgen_mesh.parentelements.NumPy()
+        else:
+            raise ValueError("Need a 2D or 3D mesh")
+        mh, level = get_level(mesh)
+        if mh is not None and level > 0:
+            coarse_ngmesh = mh[level-1].netgen_mesh
+            num_coarse_cells = len(coarse_ngmesh.Elements2D()) if tdim == 2 else len(coarse_ngmesh.Elements3D())
+        else:
+            num_coarse_cells = parents.tolist().count((-1,))
+        children = [[] for c in range(num_coarse_cells)]
+        num_fine_cells = parents.shape[0]
+        for f in range(num_fine_cells):
+            c = f
+            while c >= num_coarse_cells:
+                c = parents[c][0]
+            children[c].append(f)
+
+        cell_subset = list(set(chain.from_iterable(f for c, f in enumerate(children) if len(f) > 1)))
+        if sf is not None:
+            cell_subset = perm[cell_subset].tolist()
+        cell_subset.sort()
+    else:
+        cell_subset = []
+
+    # Get refined cells locally on this rank
+    cell_subset = mesh.comm.bcast(cell_subset, root=0)
+    *_, cell_subset = numpy.intersect1d(cell_subset, cellNum, return_indices=True)
+    cell_subset += fstart
+    return cell_subset
+
+
+def get_adjacent_stratum(plex, depth, subset=None):
+    """Return point stratum subset adjacent to another point subset (of different depth)."""
+    pstart, pend = plex.getDepthStratum(depth)
+    if subset is None:
+        points = range(pstart, pend)
+    else:
+        points = set()
+        for s in subset:
+            points.update(p for p in plex.getAdjacency(s) if pstart <= p < pend)
+    points = list(points)
+    return points
