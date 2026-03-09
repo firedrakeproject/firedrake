@@ -461,7 +461,7 @@ def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
 
     # For PETSc matrices we must always tabulate the indices
     # NOTE: we can't check isinstance(PetscMatBuffer) here because of MATPYTHON
-    if isinstance(buffer_ref.buffer, ConcreteBuffer) and isinstance(buffer_ref.handle, PETSc.Mat):
+    if isinstance(buffer_ref, ConcreteBuffer) and isinstance(buffer_ref.handle, PETSc.Mat):
         mat_expr = expr_types.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts

@@ -255,11 +255,11 @@ class Instruction(Node, DistributedObject, abc.ABC):
 
         return executor
 
-    @memory_cache(
-        hashkey=lambda self, cp: (self._executor_cache_key, cp),
-        get_comm=lambda self, *a, **kw: self.comm,
-        heavy=True,
-    )
+    # @memory_cache(
+    #     hashkey=lambda self, cp: (self._executor_cache_key, cp),
+    #     get_comm=lambda self, *a, **kw: self.comm,
+    #     heavy=True,
+    # )
     def _compile(self, compiler_parameters: ParsedCompilerParameters) -> CompiledCodeExecutor:
         from pyop3.ir.lower import compile
 

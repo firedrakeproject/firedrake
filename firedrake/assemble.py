@@ -1081,7 +1081,7 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
-                    parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                    parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
             else:
                 parloop(**{self._tensor_name[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
 
