@@ -1,5 +1,4 @@
 from firedrake import *
-import numpy as np
 import pytest
 
 
@@ -56,8 +55,6 @@ def test_poisson_offload(ksp_type, pc_type):
     problem = LinearVariationalProblem(L, R, u_f, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
-    npsol = sol.dat.data[:]
-    npu_f = u_f.dat.data[:]
     error = errornorm(problem.u, sol)
     print(f"Error norm = {error}", flush=True)
     assert error < 1.2e-2
