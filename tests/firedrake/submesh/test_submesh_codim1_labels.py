@@ -232,13 +232,8 @@ def test_submesh_codim1_no_parent_edge_sets():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_edge_sets_propagated_2_procs():
-    _check_edge_sets_propagated()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_edge_sets_propagated_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_edge_sets_propagated():
     _check_edge_sets_propagated(ncells=4)
 
 
@@ -247,13 +242,8 @@ def test_submesh_codim1_edge_sets_propagated_3_procs():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_ds_edge_sets_2_procs():
-    _check_ds_edge_sets()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_ds_edge_sets_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_ds_edge_sets():
     _check_ds_edge_sets(ncells=4)
 
 
@@ -277,13 +267,8 @@ def _check_boundary_coordinate_integral(ncells=2):
     assert abs(assemble(x * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_boundary_coord_integral_2_procs():
-    _check_boundary_coordinate_integral()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_boundary_coord_integral_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_boundary_coord_integral():
     _check_boundary_coordinate_integral(ncells=4)
 
 
@@ -306,13 +291,8 @@ def _check_interpolate_and_integrate(ncells=2):
     assert abs(assemble(f * ds(EDGE_B)) - 4. / 3) < 1e-12
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_interpolate_integrate_2_procs():
-    _check_interpolate_and_integrate()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_interpolate_integrate_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_interpolate_integrate():
     _check_interpolate_and_integrate(ncells=4)
 
 
@@ -333,11 +313,6 @@ def _check_vertex_sets_ds(ncells=2):
     assert abs(assemble(Constant(1.) * ds(VTX_B, domain=submesh)) - 1.0) < 1e-12
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_vertex_sets_ds_2_procs():
-    _check_vertex_sets_ds()
-
-
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel([1, 2, 3])
 def test_submesh_codim1_vertex_sets_ds_3_procs():
     _check_vertex_sets_ds(ncells=4)
