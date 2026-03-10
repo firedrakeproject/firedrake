@@ -36,14 +36,14 @@
 #     Extra arguments to pass to PETSc's `configure` script
 #
 # Example usage for a specific firedrake release with complex scalars:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:2025.4.2-complex \
 #     --build-arg ARCH=complex \
 #     --build-arg BRANCH=2025.4.2
 #
 # Example usage for building from firedrake main with real scalars, ml installed with PETSc, and valgrind installed with apt:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:main-latest \
 #     --build-arg ARCH=default \
@@ -137,9 +137,8 @@ ENV MPICC=$CC
 ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 # Install Firedrake
-# - petsc4py and slepc4py are installed from source in PETSc repo.
-# - slepc4py is installed without build isolation so it links against
-#     the correct petsc4py version.
+# - If installing 'main' then petsc4py and slepc4py are installed from source,
+#   otherwise they are installed from PyPI. This mirrors our CI.
 # - Firedrake main branch requires main/master branch of some upstream
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
@@ -147,14 +146,19 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
-   && pip cache purge \
-   && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
-   && pip install --verbose -r /opt/firedrake/requirements-build.txt \
-   && pip install --verbose --no-build-isolation \
-      ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
-   && pip install --verbose --no-binary h5py --no-build-isolation \
-      --editable '/opt/firedrake[docker]' || exit; \
-   if [ ${BRANCH} == "main" ]; then \
+    && pip cache purge || exit; \
+    if [ ${BRANCH} == "main" ]; then \
+      pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
+      && pip install --verbose -r /opt/firedrake/requirements-build.txt \
+      && pip install --verbose --no-build-isolation \
+           ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
+      && pip install --verbose --no-binary h5py --no-build-isolation \
+        --editable '/opt/firedrake[docker]' || exit; \
+    else \
+      pip install --verbose --no-binary h5py \
+        --editable '/opt/firedrake[docker]' || exit; \
+    fi; \
+    if [ ${BRANCH} == "main" ]; then \
       for pkg in \
          "git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad" \
          "git+https://github.com/firedrakeproject/fiat.git#egg=firedrake-fiat" \
