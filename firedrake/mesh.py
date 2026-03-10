@@ -2607,7 +2607,7 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = rstar.from_regions(coords_min, coords_max)
+            self._spatial_index = rstar.build_from_aabb(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
