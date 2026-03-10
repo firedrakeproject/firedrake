@@ -4014,8 +4014,8 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
         CHKERR(DMLabelDestroyIndex(ext_facet_label))
         if sub_ext_facet_is.iset:
             CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
-    else:
-        # subdim == dim - 1: codimension-1 submesh.
+    elif subdim == dim - 1:
+        # Codimension-1 submesh.
         # Submesh facets are at depth (subdim - 1) in the parent mesh.
         # Propagate parent labels at that depth into "Face Sets" on subdm.
         if subdim - 1 == 1:
