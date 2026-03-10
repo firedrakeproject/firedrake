@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: firedrake
-          ref: ${{ inputs.branch }}
+          ref: ${{ github.ref_name }}
 
       - name: Checkout Colab notebooks
         uses: actions/checkout@v5
