@@ -621,6 +621,7 @@ def get_refined_cells(mesh):
     # Create Netgen to Firedrake reordering
     M = FunctionSpace(mesh, "DG", 0)
     marked = M.dof_dset.layout_vec.copy()
+    marked.set(0)
     cstart, cend = marked.getOwnershipRange()
     marked.setValues(cellNum[cids[:cend-cstart]], numpy.arange(cstart, cend))
     marked.assemble()
