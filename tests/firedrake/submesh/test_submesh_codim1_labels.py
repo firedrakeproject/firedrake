@@ -232,13 +232,8 @@ def _check_edge_sets_propagated(ncells=2):
     assert EDGE_B in marker_set, f"EDGE_B={EDGE_B} not in {marker_set}"
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_edge_sets_propagated_2_procs():
-    _check_edge_sets_propagated()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_edge_sets_propagated_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_edge_sets_propagated():
     _check_edge_sets_propagated(ncells=4)
 
 
