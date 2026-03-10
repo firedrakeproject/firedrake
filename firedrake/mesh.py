@@ -2386,7 +2386,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # Save the coordinates as a 'CoordinatelessFunction' and as a 'Function'
         self._coordinates = coordinates
-        V = functionspaceimpl.WithGeometry.create(coordinates.function_space(), self)
+        V = functionspaceimpl.WithGeometry(coordinates.function_space(), self)
         self._coordinates_function = function.Function(V, val=coordinates)
 
     def _ufl_signature_data_(self, *args, **kwargs):
@@ -3197,7 +3197,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
                                                                 val=reference_coordinates_data,
                                                                 name=_generate_default_mesh_reference_coordinates_name(name))
-        refCoordV = functionspaceimpl.WithGeometry.create(reference_coordinates_fs, vmesh)
+        refCoordV = functionspaceimpl.WithGeometry(reference_coordinates_fs, vmesh)
         vmesh.reference_coordinates = function.Function(refCoordV, val=reference_coordinates)
     else:
         # We can't do this in 0D so leave it undefined.

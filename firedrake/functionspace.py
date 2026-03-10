@@ -331,7 +331,7 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
         An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
-                                                                 boundary_set=boundary_set,
-                                                                 name=name),
-                                    function_space.mesh())
+    return impl.WithGeometry(impl.RestrictedFunctionSpace(function_space,
+                                                          boundary_set=boundary_set,
+                                                          name=name),
+                             function_space.mesh())
