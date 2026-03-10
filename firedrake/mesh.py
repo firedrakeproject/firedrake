@@ -4390,14 +4390,13 @@ def _parent_mesh_embedding(
     rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
     owned_ranks = np.empty_like(rank_candidates)
     parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
+    changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+    changed_ranks = owned_ranks != ranks
 
-        changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
-        changed_ranks = owned_ranks != ranks
-
-        # If distance has changed the the point is not in local mesh partition
-        # since some other cell on another rank is closer.
-        locally_visible[changed_ref_cell_dists_l1] = False
-        parent_cell_nums[changed_ref_cell_dists_l1] = -1
+    # If distance has changed the the point is not in local mesh partition
+    # since some other cell on another rank is closer.
+    locally_visible[changed_ref_cell_dists_l1] = False
+    parent_cell_nums[changed_ref_cell_dists_l1] = -1
     # If the rank has changed but the distance hasn't then there was a tie
     # break and we need to search for the point again, this time disallowing
     # the previously identified cell: if we match the identified owned_rank AND
