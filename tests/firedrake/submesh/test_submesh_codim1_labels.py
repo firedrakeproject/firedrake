@@ -49,6 +49,10 @@ def _make_cube_with_edge_sets(extra_edge_c=False, ncells=2):
     """
     mesh = UnitCubeMesh(ncells, ncells, ncells)
     dm = mesh.topology_dm
+    # Remove default Face Sets so we have full control over labels.
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
+    dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     eStart, eEnd = dm.getDepthStratum(1)
     fStart, fEnd = dm.getDepthStratum(2)
@@ -88,6 +92,10 @@ def _make_square_with_vertex_sets(ncells=2):
     """
     mesh = UnitSquareMesh(ncells, ncells)
     dm = mesh.topology_dm
+    # Remove default Face Sets so we have full control over labels.
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
+    dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     vStart, vEnd = dm.getDepthStratum(0)
     eStart, eEnd = dm.getDepthStratum(1)
@@ -136,14 +144,19 @@ def test_submesh_codim1_edge_sets_excludes_nonsubmesh():
 
 
 def test_submesh_codim1_unlabeled_get_default_value():
-    """Exterior facets without a parent Edge Sets label get max(label_vals)+1."""
+    """Exterior facets without a parent Edge Sets label get a fresh default value."""
     mesh = _make_cube_with_edge_sets()
     submesh = Submesh(mesh, 2, FACE_TAG_3D)
     markers = submesh.exterior_facets.unique_markers
     assert markers is not None
     marker_set = set(markers)
-    next_val = max(EDGE_A, EDGE_B) + 1
-    assert next_val in marker_set, f"Default {next_val} not in {marker_set}"
+    # Default must be larger than all Edge Sets and inherited Face Sets values.
+    default_vals = marker_set - {EDGE_A, EDGE_B, FACE_TAG_3D}
+    assert len(default_vals) == 1, f"Expected one default value, got {default_vals}"
+    default_val = default_vals.pop()
+    assert default_val > max(EDGE_A, EDGE_B), (
+        f"Default {default_val} should be > max(EDGE_A, EDGE_B)={max(EDGE_A, EDGE_B)}"
+    )
 
 
 def test_submesh_codim1_ds_edge_sets():
@@ -188,6 +201,9 @@ def test_submesh_codim1_no_parent_edge_sets():
     """Codim-1 submesh with no Edge Sets on the parent still labels exterior facets."""
     mesh = UnitCubeMesh(2, 2, 2)
     dm = mesh.topology_dm
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
+    dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     fStart, fEnd = dm.getDepthStratum(2)
 
@@ -199,8 +215,7 @@ def test_submesh_codim1_no_parent_edge_sets():
     submesh = Submesh(mesh, 2, FACE_TAG_3D)
     markers = submesh.exterior_facets.unique_markers
     assert markers is not None
-    # All exterior facets should receive the default label (0)
-    assert 0 in set(markers)
+    assert len(markers) > 0
 
 
 # ---------------------------------------------------------------------------

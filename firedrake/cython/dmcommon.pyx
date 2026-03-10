@@ -3983,12 +3983,13 @@ cdef void _propagate_parent_facet_labels(
     """Codimension-1 helper: map the parent's lower-dimensional label into "Face Sets".
 
     For a 3D→2D submesh the parent's "Edge Sets" are propagated; for 2D→1D
-    the parent's "Vertex Sets" are used.  Exterior facets without a
-    corresponding parent label value receive a default tag.
+    the parent's "Vertex Sets" are used.  Exterior facets that already carry
+    an inherited "Face Sets" value (from ``DMPlexFilter``) are left alone;
+    the remaining ones receive the parent label value or a default tag.
     """
     cdef:
-        PetscInt pStart, pEnd, next_label_val, label_val, subf, f, i
-        DMLabel parent_label
+        PetscInt pStart, pEnd, next_label_val, label_val, existing_val, subf, f, i
+        DMLabel parent_label, face_sets_label
 
     if subdim == 2:
         parent_label_name = b"Edge Sets"
@@ -4003,14 +4004,20 @@ cdef void _propagate_parent_facet_labels(
     next_label_val = 0
     if has_parent_label:
         with dm.getLabelIdIS(parent_label_name) as ids:
-            next_label_val = ids.max() + 1 if len(ids) > 0 else 0
+            if len(ids) > 0:
+                next_label_val = max(next_label_val, ids.max() + 1)
+    if subdm.hasLabel(FACE_SETS_LABEL):
+        with subdm.getLabelIdIS(FACE_SETS_LABEL) as ids:
+            if len(ids) > 0:
+                next_label_val = max(next_label_val, ids.max() + 1)
     next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
 
-    # DMPlexFilter may propagate cell-level "Face Sets" to the subdm;
-    # remove them so they don't contaminate the facet markers.
-    if subdm.hasLabel(FACE_SETS_LABEL):
-        subdm.removeLabel(FACE_SETS_LABEL)
-    subdm.createLabel(FACE_SETS_LABEL)
+    # Ensure "Face Sets" exists but keep any values inherited from DMPlexFilter
+    # (e.g. mark_entities labels all closure entities, so boundary edges of a
+    # codim-1 submesh may already carry the correct tags).
+    if not subdm.hasLabel(FACE_SETS_LABEL):
+        subdm.createLabel(FACE_SETS_LABEL)
+    CHKERR(DMGetLabel(subdm.dm, b"Face Sets", &face_sets_label))
 
     if has_parent_label:
         CHKERR(DMGetLabel(dm.dm, <const char *>parent_label_name, &parent_label))
@@ -4019,6 +4026,10 @@ cdef void _propagate_parent_facet_labels(
     for i in range(sub_ext_facet_size):
         subf = sub_ext_facet_indices[i]
         if subfStart <= subf < subfEnd:
+            # Skip facets that already have an inherited "Face Sets" value.
+            CHKERR(DMLabelGetValue(face_sets_label, subf, &existing_val))
+            if existing_val >= 0:
+                continue
             f = subpoint_indices[subf]
             label_val = -1
             if has_parent_label:
