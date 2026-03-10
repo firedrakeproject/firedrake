@@ -249,13 +249,8 @@ def _check_ds_edge_sets(ncells=2):
     assert abs(assemble(Constant(1.) * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_ds_edge_sets_2_procs():
-    _check_ds_edge_sets()
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_submesh_codim1_ds_edge_sets_3_procs():
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim1_ds_edge_sets():
     _check_ds_edge_sets(ncells=4)
 
 
