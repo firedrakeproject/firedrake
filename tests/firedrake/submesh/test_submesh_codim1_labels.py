@@ -40,14 +40,14 @@ EDGE_B = 2
 EDGE_C = 3
 
 
-def _make_cube_with_edge_sets(extra_edge_c=False):
-    """UnitCubeMesh(2,2,2) with Face Sets on z=0 boundary faces and Edge Sets
+def _make_cube_with_edge_sets(extra_edge_c=False, ncells=2):
+    """UnitCubeMesh with Face Sets on z=0 boundary faces and Edge Sets
     on selected boundary edges of the z=0 face.
 
     If *extra_edge_c* is True an additional label EDGE_C is placed on edges
     at z=1, x=0 (not part of the z=0 submesh).
     """
-    mesh = UnitCubeMesh(2, 2, 2)
+    mesh = UnitCubeMesh(ncells, ncells, ncells)
     dm = mesh.topology_dm
     vc = _get_dm_vertex_coords(dm)
     eStart, eEnd = dm.getDepthStratum(1)
@@ -82,11 +82,11 @@ VTX_A = 1
 VTX_B = 2
 
 
-def _make_square_with_vertex_sets():
-    """UnitSquareMesh(2,2) with Face Sets on y=0 boundary edges and Vertex
+def _make_square_with_vertex_sets(ncells=2):
+    """UnitSquareMesh with Face Sets on y=0 boundary edges and Vertex
     Sets on the corner vertices of that edge.
     """
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(ncells, ncells)
     dm = mesh.topology_dm
     vc = _get_dm_vertex_coords(dm)
     vStart, vEnd = dm.getDepthStratum(0)
@@ -204,16 +204,132 @@ def test_submesh_codim1_no_parent_edge_sets():
 
 
 # ---------------------------------------------------------------------------
-# Parallel
+# Parallel – marker propagation
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_codim1_edge_sets_propagated_parallel():
-    """Edge Sets propagation works in parallel (2 ranks)."""
-    mesh = _make_cube_with_edge_sets()
+def _check_edge_sets_propagated(ncells=2):
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
     submesh = Submesh(mesh, 2, FACE_TAG_3D)
     markers = submesh.exterior_facets.unique_markers
     assert markers is not None
     marker_set = set(markers)
     assert EDGE_A in marker_set, f"EDGE_A={EDGE_A} not in {marker_set}"
     assert EDGE_B in marker_set, f"EDGE_B={EDGE_B} not in {marker_set}"
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_codim1_edge_sets_propagated_2_procs():
+    _check_edge_sets_propagated()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_codim1_edge_sets_propagated_3_procs():
+    _check_edge_sets_propagated(ncells=4)
+
+
+# ---------------------------------------------------------------------------
+# Parallel – boundary length integration (ds)
+# ---------------------------------------------------------------------------
+
+def _check_ds_edge_sets(ncells=2):
+    """Integrate 1 over each tagged boundary of the 2D submesh."""
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
+    submesh = Submesh(mesh, 2, FACE_TAG_3D)
+    assert abs(assemble(Constant(1.) * ds(EDGE_A, domain=submesh)) - 1.0) < 1e-12
+    assert abs(assemble(Constant(1.) * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_codim1_ds_edge_sets_2_procs():
+    _check_ds_edge_sets()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_codim1_ds_edge_sets_3_procs():
+    _check_ds_edge_sets(ncells=4)
+
+
+# ---------------------------------------------------------------------------
+# Parallel – coordinate expression integration
+# ---------------------------------------------------------------------------
+
+def _check_boundary_coordinate_integral(ncells=2):
+    """Integrate coordinate expressions over tagged boundaries.
+
+    On the z=0 submesh:
+      EDGE_A is at x=0, y in [0,1]  =>  int(y dy) = 1/2,  int(x dy) = 0
+      EDGE_B is at x=1, y in [0,1]  =>  int(y dy) = 1/2,  int(x dy) = 1
+    """
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
+    submesh = Submesh(mesh, 2, FACE_TAG_3D)
+    x, y, z = SpatialCoordinate(submesh)
+    assert abs(assemble(y * ds(EDGE_A, domain=submesh)) - 0.5) < 1e-12
+    assert abs(assemble(x * ds(EDGE_A, domain=submesh))) < 1e-12
+    assert abs(assemble(y * ds(EDGE_B, domain=submesh)) - 0.5) < 1e-12
+    assert abs(assemble(x * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_codim1_boundary_coord_integral_2_procs():
+    _check_boundary_coordinate_integral()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_codim1_boundary_coord_integral_3_procs():
+    _check_boundary_coordinate_integral(ncells=4)
+
+
+# ---------------------------------------------------------------------------
+# Parallel – FunctionSpace interpolation + boundary integration
+# ---------------------------------------------------------------------------
+
+def _check_interpolate_and_integrate(ncells=2):
+    """Interpolate x^2+y^2 on the submesh and integrate over tagged boundaries.
+
+    EDGE_A (x=0): int_0^1 y^2 dy = 1/3
+    EDGE_B (x=1): int_0^1 (1+y^2) dy = 4/3
+    """
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
+    submesh = Submesh(mesh, 2, FACE_TAG_3D)
+    V = FunctionSpace(submesh, "CG", 2)
+    x, y, z = SpatialCoordinate(submesh)
+    f = Function(V).interpolate(x**2 + y**2)
+    assert abs(assemble(f * ds(EDGE_A)) - 1. / 3) < 1e-12
+    assert abs(assemble(f * ds(EDGE_B)) - 4. / 3) < 1e-12
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_codim1_interpolate_integrate_2_procs():
+    _check_interpolate_and_integrate()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_codim1_interpolate_integrate_3_procs():
+    _check_interpolate_and_integrate(ncells=4)
+
+
+# ---------------------------------------------------------------------------
+# Parallel – 2D -> 1D (Vertex Sets)
+# ---------------------------------------------------------------------------
+
+def _check_vertex_sets_ds(ncells=2):
+    """Integrate over vertex-tagged boundaries of a 1D submesh."""
+    mesh = _make_square_with_vertex_sets(ncells=ncells)
+    submesh = Submesh(mesh, 1, FACE_TAG_2D)
+    markers = submesh.exterior_facets.unique_markers
+    assert markers is not None
+    marker_set = set(markers)
+    assert VTX_A in marker_set
+    assert VTX_B in marker_set
+    assert abs(assemble(Constant(1.) * ds(VTX_A, domain=submesh)) - 1.0) < 1e-12
+    assert abs(assemble(Constant(1.) * ds(VTX_B, domain=submesh)) - 1.0) < 1e-12
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_codim1_vertex_sets_ds_2_procs():
+    _check_vertex_sets_ds()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_codim1_vertex_sets_ds_3_procs():
+    _check_vertex_sets_ds(ncells=4)

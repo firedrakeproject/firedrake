@@ -3937,134 +3937,155 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelDestroyIndex(lbl_ghost))
 
 
+cdef void _label_new_exterior_facets(
+    PETSc.DM dm, PETSc.DM subdm,
+    const PetscInt *subpoint_indices,
+    const PetscInt *sub_ext_facet_indices,
+    PetscInt sub_ext_facet_size,
+    PetscInt subfStart, PetscInt subfEnd,
+):
+    """Same-dimension helper: tag exterior facets that were interior in the parent.
+
+    Facets of the submesh that are *not* in the parent's ``exterior_facets``
+    label are new boundary and receive ``max("Face Sets") + 1``.
+    """
+    cdef:
+        PetscInt pStart, pEnd, next_label_val, subf, f, i
+        DMLabel parent_ext_label
+        PetscBool has_point
+
+    with dm.getLabelIdIS(FACE_SETS_LABEL) as ids:
+        next_label_val = ids.max() + 1 if len(ids) > 0 else 0
+    next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
+    subdm.createLabel(FACE_SETS_LABEL)
+
+    CHKERR(DMGetLabel(dm.dm, b"exterior_facets", &parent_ext_label))
+    pStart, pEnd = dm.getChart()
+    CHKERR(DMLabelCreateIndex(parent_ext_label, pStart, pEnd))
+    for i in range(sub_ext_facet_size):
+        subf = sub_ext_facet_indices[i]
+        if subfStart <= subf < subfEnd:
+            f = subpoint_indices[subf]
+            CHKERR(DMLabelHasPoint(parent_ext_label, f, &has_point))
+            if not has_point:
+                CHKERR(DMSetLabelValue(subdm.dm, b"Face Sets", subf, next_label_val))
+    CHKERR(DMLabelDestroyIndex(parent_ext_label))
+
+
+cdef void _propagate_parent_facet_labels(
+    PETSc.DM dm, PETSc.DM subdm,
+    PetscInt subdim,
+    const PetscInt *subpoint_indices,
+    const PetscInt *sub_ext_facet_indices,
+    PetscInt sub_ext_facet_size,
+    PetscInt subfStart, PetscInt subfEnd,
+):
+    """Codimension-1 helper: map the parent's lower-dimensional label into "Face Sets".
+
+    For a 3D→2D submesh the parent's "Edge Sets" are propagated; for 2D→1D
+    the parent's "Vertex Sets" are used.  Exterior facets without a
+    corresponding parent label value receive a default tag.
+    """
+    cdef:
+        PetscInt pStart, pEnd, next_label_val, label_val, subf, f, i
+        DMLabel parent_label
+
+    if subdim == 2:
+        parent_label_name = b"Edge Sets"
+    elif subdim == 1:
+        parent_label_name = b"Vertex Sets"
+    else:
+        parent_label_name = None
+
+    has_parent_label = (parent_label_name is not None
+                        and dm.hasLabel(parent_label_name))
+
+    next_label_val = 0
+    if has_parent_label:
+        with dm.getLabelIdIS(parent_label_name) as ids:
+            next_label_val = ids.max() + 1 if len(ids) > 0 else 0
+    next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
+
+    # DMPlexFilter may propagate cell-level "Face Sets" to the subdm;
+    # remove them so they don't contaminate the facet markers.
+    if subdm.hasLabel(FACE_SETS_LABEL):
+        subdm.removeLabel(FACE_SETS_LABEL)
+    subdm.createLabel(FACE_SETS_LABEL)
+
+    if has_parent_label:
+        CHKERR(DMGetLabel(dm.dm, <const char *>parent_label_name, &parent_label))
+        pStart, pEnd = dm.getChart()
+        CHKERR(DMLabelCreateIndex(parent_label, pStart, pEnd))
+    for i in range(sub_ext_facet_size):
+        subf = sub_ext_facet_indices[i]
+        if subfStart <= subf < subfEnd:
+            f = subpoint_indices[subf]
+            label_val = -1
+            if has_parent_label:
+                CHKERR(DMLabelGetValue(parent_label, f, &label_val))
+            if label_val >= 0:
+                CHKERR(DMSetLabelValue(subdm.dm, b"Face Sets", subf, label_val))
+            else:
+                CHKERR(DMSetLabelValue(subdm.dm, b"Face Sets", subf, next_label_val))
+    if has_parent_label:
+        CHKERR(DMLabelDestroyIndex(parent_label))
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
-    """Update facet labels of subdm taking the new exterior facet points into account.
+    """Update "Face Sets" on *subdm* for its exterior facets.
 
     Parameters
     ----------
     dm : PETSc.DM
-        The parent dm.
+        The parent DM.
     subdm : PETSc.DM
-        The subdm.
+        The sub-DM whose facet labels are updated.
 
     Notes
     -----
-    For same-dimension submeshes (subdim == dim), marks new exterior facets
-    with current max label value + 1 in "Face Sets".
-
-    For codimension-1 submeshes (subdim == dim - 1), propagates the parent's
-    lower-dimensional labels ("Edge Sets" for 3D parents, "Vertex Sets" for 2D
-    parents) to "Face Sets" on the subdm.  Exterior facets without a parent
-    label are marked with a fresh label value.
+    * **Same-dimension** (``subdim == dim``): new exterior facets (those that
+      were interior in the parent) are tagged with ``max("Face Sets") + 1``.
+    * **Codimension-1** (``subdim == dim - 1``): the parent's lower-dimensional
+      labels ("Edge Sets" for 3D, "Vertex Sets" for 2D) are mapped into
+      "Face Sets" on the subdm.  Unlabeled facets get a default value.
 
     """
     cdef:
-        PetscInt dim, subdim, pStart, pEnd, f, subfStart, subfEnd, subf, sub_ext_facet_size, next_label_val, i
-        PetscInt label_val
-        PETSc.IS subpoint_is
-        PETSc.IS sub_ext_facet_is
+        PetscInt dim, subdim, subfStart, subfEnd, sub_ext_facet_size
+        PETSc.IS subpoint_is, sub_ext_facet_is
         const PetscInt *subpoint_indices = NULL
         const PetscInt *sub_ext_facet_indices = NULL
-        char *int_facet_label_name = <char *>"interior_facets"
-        char *ext_facet_label_name = <char *>"exterior_facets"
-        char *face_sets_label_name = <char *>"Face Sets"
-        char *edge_sets_label_name = <char *>"Edge Sets"
-        char *vertex_sets_label_name = <char *>"Vertex Sets"
-        char *parent_label_cname = NULL
-        DMLabel ext_facet_label
-        DMLabel parent_facet_lbl
-        PETSc.DMLabel sub_int_facet_label, sub_ext_facet_label
-        PetscBool has_point
 
     dim = dm.getDimension()
     subdim = subdm.getDimension()
     if subdim != dim and subdim != dim - 1:
         return
-    # Mark interior and exterior facets
+
     label_facets(subdm)
-    sub_int_facet_label = subdm.getLabel("interior_facets")
-    sub_ext_facet_label = subdm.getLabel("exterior_facets")
+
     subpoint_is = subdm.getSubpointIS()
     CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
+    sub_ext_facet_size = subdm.getStratumSize("exterior_facets", 1)
+    sub_ext_facet_is = subdm.getStratumIS("exterior_facets", 1)
+    if sub_ext_facet_is.iset:
+        CHKERR(ISGetIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
+    subfStart, subfEnd = subdm.getHeightStratum(1)
+
     if subdim == dim:
-        # Mark new exterior facets with current max label value + 1 in "Face Sets"
-        with dm.getLabelIdIS(FACE_SETS_LABEL) as label_value_indices:
-            next_label_val = label_value_indices.max() + 1 if len(label_value_indices) > 0 else 0
-        next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
-        subdm.createLabel(FACE_SETS_LABEL)
-        sub_ext_facet_size = subdm.getStratumSize("exterior_facets", 1)
-        sub_ext_facet_is = subdm.getStratumIS("exterior_facets", 1)
-        if sub_ext_facet_is.iset:
-            CHKERR(ISGetIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
-        CHKERR(DMGetLabel(dm.dm, ext_facet_label_name, &ext_facet_label))
-        pStart, pEnd = dm.getChart()
-        CHKERR(DMLabelCreateIndex(ext_facet_label, pStart, pEnd))
-        subfStart, subfEnd = subdm.getHeightStratum(1)
-        for i in range(sub_ext_facet_size):
-            subf = sub_ext_facet_indices[i]
-            if subf < subfStart or subf >= subfEnd:
-                continue
-            f = subpoint_indices[subf]
-            CHKERR(DMLabelHasPoint(ext_facet_label, f, &has_point))
-            if not has_point:
-                # Found a new exterior facet
-                CHKERR(DMSetLabelValue(subdm.dm, face_sets_label_name, subf, next_label_val))
-        CHKERR(DMLabelDestroyIndex(ext_facet_label))
-        if sub_ext_facet_is.iset:
-            CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
+        _label_new_exterior_facets(
+            dm, subdm, subpoint_indices,
+            sub_ext_facet_indices, sub_ext_facet_size,
+            subfStart, subfEnd)
     elif subdim == dim - 1:
-        # Codimension-1 submesh.
-        # Submesh facets are at depth (subdim - 1) in the parent mesh.
-        # Propagate parent labels at that depth into "Face Sets" on subdm.
-        if subdim - 1 == 1:
-            parent_label_cname = edge_sets_label_name
-            parent_label_pyname = "Edge Sets"
-        elif subdim - 1 == 0:
-            parent_label_cname = vertex_sets_label_name
-            parent_label_pyname = "Vertex Sets"
-        else:
-            parent_label_cname = NULL
-            parent_label_pyname = None
-        has_parent_facet_label = (parent_label_pyname is not None
-                                 and dm.hasLabel(parent_label_pyname))
-        next_label_val = 0
-        if has_parent_facet_label:
-            with dm.getLabelIdIS(parent_label_pyname) as label_value_indices:
-                next_label_val = label_value_indices.max() + 1 if len(label_value_indices) > 0 else 0
-        next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
-        # DMPlexFilter propagates parent "Face Sets" to the subdm, but those
-        # values sit on cells (codim-0), not facets. Remove them so they don't
-        # contaminate the exterior facet markers we are about to create.
-        if subdm.hasLabel(FACE_SETS_LABEL):
-            subdm.removeLabel(FACE_SETS_LABEL)
-        subdm.createLabel(FACE_SETS_LABEL)
-        sub_ext_facet_size = subdm.getStratumSize("exterior_facets", 1)
-        sub_ext_facet_is = subdm.getStratumIS("exterior_facets", 1)
-        if sub_ext_facet_is.iset:
-            CHKERR(ISGetIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
-        subfStart, subfEnd = subdm.getHeightStratum(1)
-        if has_parent_facet_label:
-            CHKERR(DMGetLabel(dm.dm, parent_label_cname, &parent_facet_lbl))
-            pStart, pEnd = dm.getChart()
-            CHKERR(DMLabelCreateIndex(parent_facet_lbl, pStart, pEnd))
-        for i in range(sub_ext_facet_size):
-            subf = sub_ext_facet_indices[i]
-            if subf < subfStart or subf >= subfEnd:
-                continue
-            f = subpoint_indices[subf]
-            label_val = -1
-            if has_parent_facet_label:
-                CHKERR(DMLabelGetValue(parent_facet_lbl, f, &label_val))
-            if label_val >= 0:
-                CHKERR(DMSetLabelValue(subdm.dm, face_sets_label_name, subf, label_val))
-            else:
-                CHKERR(DMSetLabelValue(subdm.dm, face_sets_label_name, subf, next_label_val))
-        if has_parent_facet_label:
-            CHKERR(DMLabelDestroyIndex(parent_facet_lbl))
-        if sub_ext_facet_is.iset:
-            CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
+        _propagate_parent_facet_labels(
+            dm, subdm, subdim, subpoint_indices,
+            sub_ext_facet_indices, sub_ext_facet_size,
+            subfStart, subfEnd)
+
+    if sub_ext_facet_is.iset:
+        CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     subdm.removeLabel("interior_facets")
     subdm.removeLabel("exterior_facets")
