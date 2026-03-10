@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import numbers
 from functools import cached_property
-from typing import Any, ClassVar, Callable
+from typing import Any, ClassVar, Callable, Hashable
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -44,6 +44,10 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     # {{{ abstract methods
 
+    @abc.abstractmethod
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        pass
+
     @property
     @abc.abstractmethod
     def name(self) -> str:
@@ -51,7 +55,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def parent(self) -> Array | None:
+    def transform(self):
         pass
 
     @property
@@ -161,6 +165,10 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
 # NOTE: No idea if this is where this should live, quite possibly this is wrong
 class TensorTransform(abc.ABC):
 
+    @abc.abstractmethod
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        pass
+
     @property
     @abc.abstractmethod
     def prev(self) -> TensorTransform | None:
@@ -168,7 +176,7 @@ class TensorTransform(abc.ABC):
 
 
 class CallableTensorTransform(TensorTransform):
-    ...
+    pass
 
 
 @pyop3.record.frozenrecord()
@@ -184,13 +192,17 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
     # {{{ interface impls
 
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        prev_key = self.prev.instruction_executor_cache_key(buffer_counter) if self.prev else None
+        return (type(self), self.transform_in, self.transform_out, prev_key)
+
     prev = pyop3.record.attr("_prev")
 
     # }}}
 
 
 class IdentityTensorTransform(TensorTransform):
-    ...
+    pass
 
 
 @pyop3.record.frozenrecord()
@@ -204,6 +216,10 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     # }}}
 
     # {{{ interface impls
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        prev_key = self.prev.instruction_executor_cache_key(buffer_counter) if self.prev else None
+        return (type(self), self.axis_trees, prev_key)
 
     prev = pyop3.record.attr("_prev")
 

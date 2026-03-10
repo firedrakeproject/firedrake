@@ -432,11 +432,11 @@ def _(assignment: insn_types.ArrayAssignment, /) -> insn_types.InstructionList:
 
 
 def has_materialized_temporaries(tensor: Tensor) -> bool:
-    while tensor.parent:
-        if isinstance(tensor.parent, OutOfPlaceTensorTransform):
+    while tensor.transform:
+        if isinstance(tensor.transform, OutOfPlaceTensorTransform):
             return True
         else:
-            tensor = tensor.parent.untransformed
+            tensor = tensor.transform.prev
     return False
 
 
@@ -807,20 +807,22 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 
     @_get_argument_key.register(Tensor)
     def _(self, tensor: Tensor, /) -> Hashable:
-        parent_key = self._get_argument_key(tensor.parent) if tensor.parent else ()
-        return (type(tensor), tensor.axis_trees, tensor.dtype, parent_key, self._buffer_arg_counter[tensor])
+        return tensor.instruction_executor_cache_key(self._buffer_arg_counter)
 
     @_get_argument_key.register(ScalarBufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
-        return (type(buffer_expr), buffer_expr.dtype, self._buffer_arg_counter[buffer_expr])
+        return (type(buffer_expr), self._get_buffer_key(buffer_expr.buffer))
 
     @_get_argument_key.register(LinearDatBufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
-        return (type(buffer_expr), buffer_expr.dtype, buffer_expr.layout, self._buffer_arg_counter[buffer_expr])
+        return (type(buffer_expr), self._get_buffer_key(buffer_expr.buffer), buffer_expr.layout)
 
     @_get_argument_key.register(expr_types.Operator)
     def _(self, op: expr_types.Operator, /) -> Hashable:
         return (type(op), tuple(self._get_argument_key(operand) for operand in op.operands))
+
+    def _get_buffer_key(self, buffer):
+        return (type(buffer), buffer.dtype, self._buffer_arg_counter[buffer], type(buffer.handle))
 
 
 def get_instruction_executor_cache_key(insn: insn_types.Instruction) -> Hashable:
@@ -976,6 +978,7 @@ class LiteralInserter(NodeTransformer):
         # if the mat is on the rhs
         if (
             isinstance(assignment.assignee, MatPetscMatBufferExpression)
+            and isinstance(assignment.assignee.buffer.handle, PETSc.Mat)
             and isinstance(assignment.expression, numbers.Number)
         ):
             # If we have an expression like
@@ -989,7 +992,7 @@ class LiteralInserter(NodeTransformer):
             ncols = column_axis_tree.local_max_size
             expr_data = np.full((nrows, ncols), assignment.expression, dtype=assignment.assignee.buffer.dtype)
 
-            new_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
+            new_buffer = ArrayBuffer(expr_data, constant=True)
             new_expression = MatArrayBufferExpression(new_buffer, idict(), idict())
             return assignment.__record_init__(_expression=new_expression)
         else:

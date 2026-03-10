@@ -423,7 +423,7 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.Scal
     if axis_trees:
         import pyop3
         pyop3.extras.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
-    return expr_types.ScalarBufferExpression(BufferRef(scalar.buffer))
+    return expr_types.ScalarBufferExpression(scalar.buffer)
 
 
 @concretize_layouts.register(expr_types.Dat)
@@ -434,9 +434,9 @@ def _(dat: expr_types.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
     dat_axes = matching_axis_tree(dat.axes, axis_tree)
     if dat_axes.is_linear:
         layout = utils.just_one(dat_axes.leaf_subst_layouts.values())
-        expr = expr_types.LinearDatBufferExpression(BufferRef(dat.buffer), layout)
+        expr = expr_types.LinearDatBufferExpression(dat.buffer, layout)
     else:
-        expr = expr_types.NonlinearDatBufferExpression(BufferRef(dat.buffer), dat_axes.leaf_subst_layouts)
+        expr = expr_types.NonlinearDatBufferExpression(dat.buffer, dat_axes.leaf_subst_layouts)
     return concretize_layouts(expr, axis_trees)
 
 
@@ -457,16 +457,18 @@ def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
         row_axes = row_axes.restrict_nest(row_label)
         column_axes = column_axes.restrict_nest(column_label)
 
-    buffer_ref = PetscMatBufferSubMat(mat.buffer, nest_indices)
-
     # For PETSc matrices we must always tabulate the indices
     # NOTE: we can't check isinstance(PetscMatBuffer) here because of MATPYTHON
-    if isinstance(buffer_ref, ConcreteBuffer) and isinstance(buffer_ref.handle, PETSc.Mat):
+    if isinstance(mat.buffer, ConcreteBuffer) and isinstance(mat.buffer.handle, PETSc.Mat):
+        if nest_indices:
+            buffer_ref = PetscMatBufferSubMat(mat.buffer, nest_indices)
+        else:
+            buffer_ref = mat.buffer
         mat_expr = expr_types.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts
         column_layouts = column_axes.leaf_subst_layouts
-        mat_expr = expr_types.MatArrayBufferExpression(buffer_ref, row_layouts, column_layouts)
+        mat_expr = expr_types.MatArrayBufferExpression(mat.buffer, row_layouts, column_layouts)
 
     return concretize_layouts(mat_expr, axis_trees)
 
@@ -906,9 +908,10 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
             newlayouts[path_] = newlayout
     newlayouts = idict(newlayouts)
 
-    materialized_expr = expr_types.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+    if axes.nest_indices:
+        raise NotImplementedError("Need a buffer ref")
 
-    return materialized_expr
+    return expr_types.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
@@ -1172,10 +1175,46 @@ def get_disk_cache_key(expr: ExpressionT, renamer) -> Hashable:
     return DiskCacheKeyGetter(renamer)(expr)
 
 
+class ArgumentCollector(NodeCollector):
+
+    @classmethod
+    # @memory_cache(heavy=True)
+    def maybe_singleton(cls, comm) -> Self:
+        return cls()
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any) -> OrderedFrozenSet:
+        return super().process(obj)
+
+    @process.register(expr_types.Operator)
+    @NodeCollector.postorder
+    def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet().union(*visited.values())
+
+    @process.register(numbers.Number)
+    @process.register(expr_types.NaN)
+    @process.register(expr_types.AxisVar)
+    @process.register(expr_types.LoopIndexVar)
+    def _(self, expr: expr_types.ExpressionT, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet()
+
+    # TODO: AbstractBufferExpression
+    @process.register(expr_types.Tensor)
+    @process.register(expr_types.BufferExpression)
+    def _(self, arg: Any, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet([arg])
+
+
+def collect_arguments(expr: ExpressionT) -> OrderedFrozenSet:
+    return ArgumentCollector()(expr)
+
+
+# TODO: remove all the shallow stuff, now in above class
 class BufferCollector(NodeCollector):
 
-    def __init__(self, tree_collector: TreeBufferCollector | None = None):
+    def __init__(self, tree_collector: TreeBufferCollector | None = None, *, shallow: bool = False):
         self._lazy_tree_collector = tree_collector
+        self.shallow = shallow
         super().__init__()
 
     @classmethod
@@ -1199,47 +1238,71 @@ class BufferCollector(NodeCollector):
 
     @process.register(expr_types.AxisVar)
     def _(self, axis_var: expr_types.AxisVar, /) -> OrderedFrozenSet:
-        return self._collect_tree(axis_var.axis.as_tree())
+        if self.shallow:
+            return OrderedFrozenSet()
+        else:
+            return self._collect_tree(axis_var.axis.as_tree())
 
     @process.register(expr_types.LoopIndexVar)
-    def _(self, loop_var: op3_exprLoopIndexVar, /) -> OrderedFrozenSet:
-        return (
-            self._collect_tree(loop_var.loop_index.iterset)
-            | self._collect_tree(loop_var.axis.as_tree())
-        )
+    def _(self, loop_var: expr_types.LoopIndexVar, /) -> OrderedFrozenSet:
+        if self.shallow:
+            return OrderedFrozenSet()
+        else:
+            return (
+                self._collect_tree(loop_var.loop_index.iterset)
+                | self._collect_tree(loop_var.axis.as_tree())
+            )
 
     @process.register(expr_types.ScalarBufferExpression)
     def _(self, scalar_expr: expr_types.ScalarBufferExpression, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([scalar_expr.buffer])
 
+    @process.register(expr_types.Dat)
+    def _(self, dat: expr_types.Dat, /) -> OrderedFrozenSet:
+        if not self.shallow:
+            raise NotImplementedError
+        return OrderedFrozenSet([dat.buffer])
+
     @process.register(expr_types.LinearDatBufferExpression)
     @NodeCollector.postorder
     def _(self, dat_expr: expr_types.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
+        if self.shallow:
+            return OrderedFrozenSet([dat_expr.buffer])
+        else:
+            return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
 
     @process.register(expr_types.NonlinearDatBufferExpression)
     @NodeCollector.postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 1
-        return OrderedFrozenSet([dat_expr.buffer]).union(
-            *visited["layouts"].values()
-        )
+        if self.shallow:
+            return OrderedFrozenSet([dat_expr.buffer])
+        else:
+            return OrderedFrozenSet([dat_expr.buffer]).union(
+                *visited["layouts"].values()
+            )
 
     @process.register(expr_types.MatPetscMatBufferExpression)
     @NodeCollector.postorder
     def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
-        return OrderedFrozenSet([mat_expr.buffer]).union(
-            visited["row_layout"], visited["column_layout"]
-        )
+        if self.shallow:
+            return OrderedFrozenSet([mat_expr.buffer])
+        else:
+            return OrderedFrozenSet([mat_expr.buffer]).union(
+                visited["row_layout"], visited["column_layout"]
+            )
 
     @process.register(expr_types.MatArrayBufferExpression)
     @NodeCollector.postorder
     def _(self, mat_expr: expr_types.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
-        return OrderedFrozenSet([mat_expr.buffer]).union(
-            *visited["row_layouts"].values(), *visited["column_layouts"].values()
-        )
+        if self.shallow:
+            return OrderedFrozenSet([mat_expr.buffer])
+        else:
+            return OrderedFrozenSet([mat_expr.buffer]).union(
+                *visited["row_layouts"].values(), *visited["column_layouts"].values()
+            )
 
     def _collect_tree(self, axis_tree) -> OrderedFrozenSet:
         from pyop3.tree.axis_tree.visitors import BufferCollector as TreeBufferCollector
@@ -1254,8 +1317,8 @@ class BufferCollector(NodeCollector):
         return self._lazy_tree_collector._safe_call(axis_tree, OrderedFrozenSet())
 
 
-def collect_buffers(expr: ExpressionT) -> OrderedFrozenSet:
-    return BufferCollector()(expr)
+def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFrozenSet:
+    return BufferCollector(shallow=shallow)(expr)
 
 
 # TODO: This is useful to emit instructions if we have a mat inside a bigger rhs expr
@@ -1430,7 +1493,7 @@ def _(tensor: expr_types.Tensor, /, access_type):
     if not tensor.transform:
         return tensor, ()
     else:
-        bare_tensor = tensor.__record_init__(transform=None)
+        bare_tensor = tensor.__record_init__(_transform=None)
         return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
 
 

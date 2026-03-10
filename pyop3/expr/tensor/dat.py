@@ -67,8 +67,16 @@ class Dat(Tensor):
     axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
-    _parent: Dat | None
-    transform: TensorTransform | None = None
+    _transform: TensorTransform | None = None
+
+    def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
+        transform_key = self.transform.instruction_executor_cache_key(buffer_counter) if self._transform else None
+        return (
+            type(self),
+            self.axes,
+            self.buffer.instruction_executor_cache_key(buffer_counter),
+            transform_key,
+        )
 
     def __init__(
         self,
@@ -78,7 +86,6 @@ class Dat(Tensor):
         data: np.ndarray | None = None,
         name=None,
         prefix=None,
-        parent=None,
         buffer_kwargs=None,
         transform=None,
     ):
@@ -114,8 +121,7 @@ class Dat(Tensor):
         self.axes = axes
         self._buffer = buffer
         self._name = name
-        self._parent = parent
-        self.transform = transform
+        self._transform = transform
 
         # self._cache = {}
 
@@ -138,8 +144,8 @@ class Dat(Tensor):
     # {{{ interface impls
 
     name = pyop3.record.attr("_name")
-    parent = pyop3.record.attr("_parent")
     buffer = pyop3.record.attr("_buffer")
+    transform = pyop3.record.attr("_transform")
     dim = 1
 
     @property
@@ -303,7 +309,7 @@ class Dat(Tensor):
         return tuple(selected)
 
     def duplicate(self, *, copy=False) -> Dat:
-        if self.parent is not None:
+        if self.transform is not None:
             raise RuntimeError
 
         name = f"{self.name}_copy"
@@ -601,9 +607,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, transform=ReshapeTensorTransform((self.axes,), self.transform))
-
-        # return self.materialize().__record_init__(axes=axes, _parent=IdentityTensorTransform(self))
+        return self.__record_init__(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?

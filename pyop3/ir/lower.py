@@ -1333,7 +1333,7 @@ def _(loop_var: op3_expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwa
 @_lower_expr.register(op3_expr.Scalar)
 def _(scalar: op3_expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
-    buffer_ref = BufferRef(scalar.buffer)
+    buffer_ref = scalar.buffer
     name_in_kernel = context.add_buffer(buffer_ref, intent)
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
@@ -1354,10 +1354,11 @@ def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, 
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
-# @_lower_expr.register(op3_expr.MatPetscMatBufferExpression)
-# def _(mat_expr: op3_expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
-#     layouts = (mat_expr.row_layout, mat_expr.column_layout)
-#     return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+@_lower_expr.register(op3_expr.MatPetscMatBufferExpression)
+def _(mat_expr: op3_expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (mat_expr.row_layout.linearize(row_path), mat_expr.column_layout.linearize(column_path))
+    return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
 @_lower_expr.register(op3_expr.MatArrayBufferExpression)

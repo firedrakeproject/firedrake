@@ -24,7 +24,19 @@ class Scalar(Tensor):
     _name: str
     _buffer: AbstractBuffer
 
-    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, constant: bool | None = None, name: str | None = None, prefix: str | None = None):
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (type(self), self._buffer.instruction_executor_cache_key(buffer_counter))
+
+    def __init__(
+        self,
+        value: numbers.Number | None = None,
+        comm: MPI.Comm | None=None,
+        *,
+        buffer: AbstractBuffer | None = None,
+        constant: bool | None = None,
+        name: str | None = None,
+        prefix: str | None = None,
+    ):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         if buffer is not None:
@@ -61,7 +73,7 @@ class Scalar(Tensor):
     name: ClassVar[str] = pyop3.record.attr("_name")
     buffer: ClassVar[ArrayBuffer] = pyop3.record.attr("_buffer")
     dim: ClassVar[int] = 0
-    parent: ClassVar[None] = None
+    transform: ClassVar[None] = None
 
     def copy(self) -> Scalar:
         name = f"{self.name}_copy"

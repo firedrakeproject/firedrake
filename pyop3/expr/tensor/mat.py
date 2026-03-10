@@ -49,8 +49,17 @@ class Mat(Tensor):
     column_axes: AxisTreeT
     _buffer: AbstractBuffer
     _name: str
-    _parent: Mat | None
-    transform: TensorTransform | None
+    _transform: TensorTransform | None
+
+    def instruction_executor_cache_key(self, buffer_counter) -> Hashable:
+        transform_key = self._transform.instruction_executor_cache_key(buffer_counter) if self._transform else None
+        return (
+            type(self),
+            self.row_axes,
+            self.column_axes,
+            self._buffer.instruction_executor_cache_key(buffer_counter),
+            transform_key,
+        )
 
     def __init__(
         self,
@@ -60,7 +69,6 @@ class Mat(Tensor):
         *,
         name=None,
         prefix=None,
-        parent=None,
         transform=None,
     ):
         if not isinstance(buffer, AbstractBuffer):
@@ -74,8 +82,7 @@ class Mat(Tensor):
         self.column_axes = column_axes
         self._buffer = buffer
         self._name = name
-        self._parent = parent
-        self.transform = None
+        self._transform = transform
 
         self.__post_init__()
 
@@ -94,7 +101,7 @@ class Mat(Tensor):
     # {{{ interface impls
 
     name: ClassVar[property] = pyop3.record.attr("_name")
-    parent: ClassVar[property] = pyop3.record.attr("_parent")
+    transform: ClassVar[property] = pyop3.record.attr("_transform")
 
     @property
     def local_max(self) -> numbers.Number:
@@ -260,7 +267,7 @@ class Mat(Tensor):
         return self.__record_init__(
             row_axes=row_axes,
             column_axes=column_axes,
-            transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
+            _transform=ReshapeTensorTransform((self.row_axes, self.column_axes), self.transform)
         )
 
     @cached_property

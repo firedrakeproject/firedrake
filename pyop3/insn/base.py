@@ -17,7 +17,7 @@ from immutabledict import immutabledict as idict
 import loopy as lp
 import numpy as np
 from pyop3.buffer import BufferRef, PetscMatBufferSubMat
-from pyop3.expr.buffer import LinearDatBufferExpression
+from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
 import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -177,6 +177,9 @@ class Instruction(Node, DistributedObject, abc.ABC):
     def __init__(self) -> None:
         object.__setattr__(self, "_hit_executor_cache", True)
 
+    # FIXME: This is very similar to PreprocessedOperation.buffers but *not the same*
+    #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
+    # it is everything that gets passed in
     @property
     @abc.abstractmethod
     def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
@@ -270,6 +273,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
     def _compile(self, compiler_parameters: ParsedCompilerParameters) -> CompiledCodeExecutor:
         from pyop3.ir.lower import compile
 
+        assert self._hit_executor_cache
         object.__setattr__(self, "_hit_executor_cache", False)
         preprocessed = self._preprocess(compiler_parameters)
         executor = compile(preprocessed, compiler_parameters=compiler_parameters)
@@ -303,6 +307,10 @@ class Instruction(Node, DistributedObject, abc.ABC):
         if not isinstance(dat.buffer.handle, np.ndarray):
             raise NotImplementedError
         return dat.buffer
+
+    @_extract_buffer.register(ScalarBufferExpression)
+    def _(self, scalar):
+        return scalar.buffer
 
     @_extract_buffer.register(LinearDatBufferExpression)
     def _(self, dat):
@@ -476,8 +484,12 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
         pass
 
     @property
-    def buffer_arguments(self) -> tuple[BufferExpression, ...]:
-        return tuple(utils.filter_type(BufferExpression | Tensor, self.arguments))
+    def buffer_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
+        from pyop3.expr.visitors import collect_arguments
+
+        return OrderedFrozenSet().union(
+            *(collect_arguments(arg) for arg in self.arguments)
+        )
 
 
 class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
@@ -729,10 +741,6 @@ class AbstractAssignment(TerminalInstruction, metaclass=abc.ABCMeta):
     # {{{ Interface impls
 
     @property
-    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
-        return OrderedFrozenSet(utils.filter_type(Tensor|BufferExpression, self.arguments))
-
-    @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
 
@@ -954,10 +962,6 @@ class Exscan(TerminalInstruction):
     # }}}
 
     # {{{ interface impls
-
-    @property
-    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
-        return OrderedFrozenSet(utils.filter_type(Tensor|BufferExpression, self.arguments))
 
     @property
     def arguments(self) -> tuple[Any, Any]:

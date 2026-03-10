@@ -8,7 +8,7 @@ import numbers
 import weakref
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Hashable
 
 import numpy as np
 from mpi4py import MPI
@@ -66,6 +66,10 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
     DEFAULT_DTYPE = ScalarType
 
     # {{{ abstract methods
+
+    @abc.abstractmethod
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        pass
 
     @property
     @abc.abstractmethod
@@ -134,6 +138,9 @@ class NullBuffer(AbstractArrayBuffer):
     _dtype: np.dtype
     _max_value: np.number | None
     _ordered: bool
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (type(self), self._size, self._dtype, self._ordered, buffer_counter[self])
 
     def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -229,6 +236,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _leaves_valid: bool = True
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (
+            type(self), self._constant, self._rank_equal, self._ordered, 
+            self.dtype, buffer_counter[self])
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
@@ -565,7 +577,8 @@ class MatBufferSpec(abc.ABC):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
+# @pyop3.record.frozenrecord()
+@pyop3.record.record()
 class LGMap:
     indices: np.ndarray[IntType]
     axes: AxisTree  # this is unblocked
@@ -603,13 +616,13 @@ class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
     block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class PetscMatNestBufferSpec(PetscMatBufferSpec):
     submat_specs: np.ndarray
 
@@ -620,7 +633,8 @@ class PetscMatNestBufferSpec(PetscMatBufferSpec):
 # TODO: This nested dependence suggests that this type belongs elsewhere?
 # I think this does need to have a weird dependency cycle because we inject this
 # into the matrix constructor logic, which belongs on the buffer.
-@dataclasses.dataclass(frozen=True)
+# @pyop3.record.frozenrecord()
+@pyop3.record.record()
 class FullPetscMatBufferSpec:
     mat_type: str
     row_spec: PetscMatAxisSpec | "AbstractAxisTree"
@@ -628,7 +642,7 @@ class FullPetscMatBufferSpec:
     comm: MPI.Comm
 
 
-@dataclasses.dataclass(frozen=True)
+@pyop3.record.frozenrecord()
 class PetscMatAxisSpec:
     size: int
     lgmap: PETSc.LGMap
@@ -697,6 +711,13 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def empty(cls, *args, **kwargs):
         pass
+
+    @cached_property
+    def _mat_spec_instruction_executor_cache_key(self) -> Hashable:
+        if isinstance(self.mat_spec, np.ndarray):
+            return tuple(self.mat_spec.flatten())
+        else:
+            return self.mat_spec
 
     @property
     def mat_type(self) -> str:
@@ -780,6 +801,15 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     _name: str
     _constant: bool
 
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (
+            type(self),
+            self._mat_spec_instruction_executor_cache_key,
+            self._constant,
+            self.dtype,
+            buffer_counter[self],
+        )
+
     def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -821,6 +851,15 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     _constant: bool
 
     _lazy_template: PETSc.Mat | None = None
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (
+            type(self),
+            self._mat_spec_instruction_executor_cache_key,
+            self._constant,
+            self.dtype,
+            buffer_counter[self],
+        )
 
     def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -908,17 +947,14 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return mat.duplicate(copy=copy)
 
 
-@pyop3.record.record()
+@pyop3.record.frozenrecord()
 class BufferRef(ConcreteBuffer):
 
-    # Placeholder for now because we spawn too many of these
-    def __new__(cls, buffer, nest_indices=()):
-        if nest_indices == ():
-            return buffer
-        return object.__new__(cls)
-
-    buffer: ConcreteBuffer
-    nest_indices: tuple[tuple[int, ...], ...] = ()
+    # # Placeholder for now because we spawn too many of these
+    # def __new__(cls, buffer, nest_indices=()):
+    #     if nest_indices == ():
+    #         return buffer
+    #     return object.__new__(cls)
 
     # {{{ interface impls
 
@@ -964,7 +1000,20 @@ class BufferRef(ConcreteBuffer):
     # }}}
 
 
+@pyop3.record.frozenrecord()
 class PetscMatBufferSubMat(BufferRef, PetscMatBuffer):
+
+    # {{{ instance attrs
+
+    buffer: ConcreteBuffer
+    nest_indices: tuple[tuple[int, ...], ...] = ()
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        # NOTE: This may be overly restrictive. We should be able to swap in submat from a matnest with
+        # normal mats into generated code
+        return (type(self), self.buffer.instruction_executor_cache_key(buffer_counter), self.nest_indices)
+
+    # }}}
 
     @property
     def mat(self) -> PETSc.Mat:

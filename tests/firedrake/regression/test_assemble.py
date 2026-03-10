@@ -200,6 +200,8 @@ def test_assemble_diagonal(mesh):
     v = TestFunction(V)
     a = inner(u, v)*dx
     M = assemble(a, mat_type="aij")
+    import pyop3.debug
+    pyop3.debug.enable_conditional_breakpoints()
     Mdiag = assemble(a, diagonal=True)
     assert np.allclose(M.petscmat.getDiagonal().array_r, Mdiag.dat.data_ro)
 

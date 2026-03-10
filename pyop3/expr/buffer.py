@@ -70,8 +70,6 @@ class ScalarBufferExpression(BufferExpression):
     _buffer: BufferRef
 
     def __init__(self, buffer) -> None:
-        if isinstance(buffer, AbstractBuffer):
-            buffer = BufferRef(buffer)
         object.__setattr__(self, "_buffer", buffer)
 
     # }}}
@@ -161,9 +159,6 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     layout: Any
 
     def __init__(self, buffer, layout):
-        if isinstance(buffer, AbstractBuffer):
-            buffer = BufferRef(buffer)
-
         object.__setattr__(self, "_buffer", buffer)
         object.__setattr__(self, "layout", layout)
         self.__post_init__()
@@ -262,6 +257,9 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
             ):
                 leaf_layouts_[path] = layout
         return idict(leaf_layouts_)
+
+    def linearize(self, path) -> LinearDatBufferExpression:
+        return LinearDatBufferExpression(self.buffer, self.layouts[path])
 
 
 class MatBufferExpression(BufferExpression):
@@ -379,16 +377,16 @@ def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
 
 @_as_linear_buffer_expression.register
 def _(dat: Dat) -> LinearDatBufferExpression:
-    assert dat.parent is None
+    assert dat.transform is None
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
     axes = dat.axes.regionless()
     layout = utils.just_one(axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(BufferRef(dat.buffer), layout)
+    return LinearDatBufferExpression(dat.buffer, layout)
 
 
 @_as_linear_buffer_expression.register
 def _(scalar: Scalar) -> ScalarBufferExpression:
-    assert scalar.parent is None
-    return ScalarBufferExpression(BufferRef(scalar.buffer))
+    assert scalar.transform is None
+    return ScalarBufferExpression(scalar.buffer)
