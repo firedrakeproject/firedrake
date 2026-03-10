@@ -36,14 +36,14 @@
 #     Extra arguments to pass to PETSc's `configure` script
 #
 # Example usage for a specific firedrake release with complex scalars:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:2025.4.2-complex \
 #     --build-arg ARCH=complex \
 #     --build-arg BRANCH=2025.4.2
 #
 # Example usage for building from firedrake main with real scalars, ml installed with PETSc, and valgrind installed with apt:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:main-latest \
 #     --build-arg ARCH=default \
@@ -151,7 +151,7 @@ RUN git clone --branch ${BRANCH} \
       pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
       && pip install --verbose -r /opt/firedrake/requirements-build.txt \
       && pip install --verbose --no-build-isolation \
-           ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py; \
+           ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
       && pip install --verbose --no-binary h5py --no-build-isolation \
         --editable '/opt/firedrake[docker]' || exit; \
     else \
