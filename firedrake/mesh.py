@@ -4674,6 +4674,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     :kwarg name: optional name of the output mesh object.
     """
     import firedrake.function as function
+    from firedrake import FunctionSpace
 
     if not isinstance(mesh, MeshGeometry):
         raise TypeError(f"mesh must be a MeshGeometry, not a {type(mesh)}")
@@ -4739,7 +4740,19 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
-    rmesh = make_mesh_from_mesh_topology(tmesh1, name1)
+
+    # Create a new coordinates function with the same values as before but
+    # living on the new topology
+    coordinates_fs = FunctionSpace(tmesh1, mesh.ufl_coordinate_element())
+    relabeled_coordinates = function.CoordinatelessFunction(
+        coordinates_fs,
+        val=mesh.coordinates.dat,
+        name=_generate_default_mesh_coordinates_name(tmesh1.name),
+    )
+    rmesh = MeshGeometry(relabeled_coordinates)
+    rmesh.name = name1
+    rmesh._tolerance = mesh.tolerance
+
     # Tag the relabeled mesh with the original distribution parameters
     rmesh._distribution_parameters = mesh._distribution_parameters
     rmesh._did_reordering = mesh._did_reordering
