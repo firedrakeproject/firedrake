@@ -180,19 +180,17 @@ class ASMStarPC(ASMPatchPC):
             point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
 
         if coloring:
-            colors = get_point_coloring(mesh_dm, depth, 1)
+            colors = mesh_dm.createColoring(depth=depth, distance=1)
             if point_subset is not None:
-                colors = tuple(numpy.intersect1d(point_subset, color) for color in colors)
-
-            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color)
-                    for color in colors]
+                colors = tuple(numpy.intersect1d(point_subset, color.indices) for color in colors)
         else:
-            (start, end) = mesh_dm.getDepthStratum(depth)
             if point_subset is None:
-                point_subset = range(start, end)
+                colors = range(*mesh_dm.getDepthStratum(depth))
+            else:
+                colors = point_subset
 
-            ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, (seed,))
-                    for seed in point_subset]
+        ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, color)
+                for color in colors]
         return ises
 
 
@@ -255,19 +253,17 @@ class ASMVankaPC(ASMPatchPC):
             point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
 
         if coloring:
-            colors = get_point_coloring(mesh_dm, depth, 2)
+            colors = mesh_dm.createColoring(depth=depth, distance=2)
             if point_subset is not None:
-                colors = tuple(numpy.intersect1d(point_subset, color) for color in colors)
-
-            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
-                                        include_star, color) for color in colors]
+                colors = tuple(numpy.intersect1d(point_subset, color.indices) for color in colors)
         else:
-            (start, end) = mesh_dm.getDepthStratum(depth)
             if point_subset is None:
-                point_subset = range(start, end)
+                colors = range(*mesh_dm.getDepthStratum(depth))
+            else:
+                colors = point_subset
 
-            ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
-                                        include_star, (seed,)) for seed in point_subset]
+        ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix,
+                                    include_star, color) for color in colors]
         return ises
 
 
@@ -558,6 +554,10 @@ def get_entity_dofs(V, V_local_ises_indices, points):
 
 def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
     """Build index sets for star patches."""
+    if isinstance(seed_points, PETSc.IS):
+        seed_points = seed_points.indices
+    elif numpy.isscalar(seed_points):
+        seed_points = (seed_points,)
     points = []
     for seed in seed_points:
         # Only build patches over owned DoFs
@@ -575,6 +575,10 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
 
 def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
     """Build index sets for Vanka patches."""
+    if isinstance(seed_points, PETSc.IS):
+        seed_points = seed_points.indices
+    elif numpy.isscalar(seed_points):
+        seed_points = (seed_points,)
     V_points = []
     Q_points = []
     for seed in seed_points:
@@ -600,18 +604,6 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
     indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
-
-
-def get_point_coloring(plex, depth, distance):
-    """Return the point subsets for a coloring of the plex."""
-    start, end = plex.getDepthStratum(depth)
-    colors = plex.createColoring(depth=depth, distance=distance)
-    color_indices = [c.indices for c in colors]
-    if any(ci.size > 0 for ci in color_indices):
-        offset = start - min(ci.min() for ci in color_indices if ci.size > 0)
-        for c in color_indices:
-            c += offset
-    return color_indices
 
 
 def get_refined_cells(mesh):
