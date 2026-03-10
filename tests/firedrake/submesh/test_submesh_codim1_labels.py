@@ -120,15 +120,19 @@ def _make_square_with_vertex_sets(ncells=2):
 # Tests – 3D parent -> 2D submesh (Edge Sets → Face Sets)
 # ---------------------------------------------------------------------------
 
-def test_submesh_codim1_edge_sets_propagated():
-    """Parent 'Edge Sets' tags appear in submesh exterior_facets.unique_markers."""
-    mesh = _make_cube_with_edge_sets()
+def _check_edge_sets_propagated(ncells=2):
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
     submesh = Submesh(mesh, 2, FACE_TAG_3D)
     markers = submesh.exterior_facets.unique_markers
     assert markers is not None
     marker_set = set(markers)
     assert EDGE_A in marker_set, f"EDGE_A={EDGE_A} not in {marker_set}"
     assert EDGE_B in marker_set, f"EDGE_B={EDGE_B} not in {marker_set}"
+
+
+def test_submesh_codim1_edge_sets_propagated():
+    """Parent 'Edge Sets' tags appear in submesh exterior_facets.unique_markers."""
+    _check_edge_sets_propagated()
 
 
 def test_submesh_codim1_edge_sets_excludes_nonsubmesh():
@@ -159,14 +163,19 @@ def test_submesh_codim1_unlabeled_get_default_value():
     )
 
 
-def test_submesh_codim1_ds_edge_sets():
-    """ds(tag) with propagated Edge Sets integrates the correct boundary length."""
-    mesh = _make_cube_with_edge_sets()
+def _check_ds_edge_sets(ncells=2):
+    """Integrate 1 over each tagged boundary of the 2D submesh."""
+    mesh = _make_cube_with_edge_sets(ncells=ncells)
     submesh = Submesh(mesh, 2, FACE_TAG_3D)
     # EDGE_A labels edges at x=0, z=0: total length = 1
     assert abs(assemble(Constant(1.) * ds(EDGE_A, domain=submesh)) - 1.0) < 1e-12
     # EDGE_B labels edges at x=1, z=0: total length = 1
     assert abs(assemble(Constant(1.) * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
+
+
+def test_submesh_codim1_ds_edge_sets():
+    """ds(tag) with propagated Edge Sets integrates the correct boundary length."""
+    _check_ds_edge_sets()
 
 
 # ---------------------------------------------------------------------------
@@ -222,15 +231,6 @@ def test_submesh_codim1_no_parent_edge_sets():
 # Parallel – marker propagation
 # ---------------------------------------------------------------------------
 
-def _check_edge_sets_propagated(ncells=2):
-    mesh = _make_cube_with_edge_sets(ncells=ncells)
-    submesh = Submesh(mesh, 2, FACE_TAG_3D)
-    markers = submesh.exterior_facets.unique_markers
-    assert markers is not None
-    marker_set = set(markers)
-    assert EDGE_A in marker_set, f"EDGE_A={EDGE_A} not in {marker_set}"
-    assert EDGE_B in marker_set, f"EDGE_B={EDGE_B} not in {marker_set}"
-
 
 @pytest.mark.parallel(nprocs=2)
 def test_submesh_codim1_edge_sets_propagated_2_procs():
@@ -245,13 +245,6 @@ def test_submesh_codim1_edge_sets_propagated_3_procs():
 # ---------------------------------------------------------------------------
 # Parallel – boundary length integration (ds)
 # ---------------------------------------------------------------------------
-
-def _check_ds_edge_sets(ncells=2):
-    """Integrate 1 over each tagged boundary of the 2D submesh."""
-    mesh = _make_cube_with_edge_sets(ncells=ncells)
-    submesh = Submesh(mesh, 2, FACE_TAG_3D)
-    assert abs(assemble(Constant(1.) * ds(EDGE_A, domain=submesh)) - 1.0) < 1e-12
-    assert abs(assemble(Constant(1.) * ds(EDGE_B, domain=submesh)) - 1.0) < 1e-12
 
 
 @pytest.mark.parallel(nprocs=2)
