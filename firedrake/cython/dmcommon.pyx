@@ -3937,6 +3937,14 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelDestroyIndex(lbl_ghost))
 
 
+cdef PetscInt _max_label_value(PETSc.DM dm, label_name):
+    """Return the maximum value in *label_name*, or -1 if absent/empty."""
+    if not dm.hasLabel(label_name):
+        return -1
+    with dm.getLabelIdIS(label_name) as ids:
+        return ids.max() if len(ids) > 0 else -1
+
+
 cdef void _label_new_exterior_facets(
     PETSc.DM dm, PETSc.DM subdm,
     const PetscInt *subpoint_indices,
@@ -3954,8 +3962,7 @@ cdef void _label_new_exterior_facets(
         DMLabel parent_ext_label
         PetscBool has_point
 
-    with dm.getLabelIdIS(FACE_SETS_LABEL) as ids:
-        next_label_val = ids.max() + 1 if len(ids) > 0 else 0
+    next_label_val = _max_label_value(dm, FACE_SETS_LABEL) + 1
     next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
     subdm.createLabel(FACE_SETS_LABEL)
 
@@ -4001,15 +4008,10 @@ cdef void _propagate_parent_facet_labels(
     has_parent_label = (parent_label_name is not None
                         and dm.hasLabel(parent_label_name))
 
-    next_label_val = 0
-    if has_parent_label:
-        with dm.getLabelIdIS(parent_label_name) as ids:
-            if len(ids) > 0:
-                next_label_val = max(next_label_val, ids.max() + 1)
-    if subdm.hasLabel(FACE_SETS_LABEL):
-        with subdm.getLabelIdIS(FACE_SETS_LABEL) as ids:
-            if len(ids) > 0:
-                next_label_val = max(next_label_val, ids.max() + 1)
+    next_label_val = max(
+        _max_label_value(dm, parent_label_name) if has_parent_label else -1,
+        _max_label_value(subdm, FACE_SETS_LABEL),
+    ) + 1
     next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
 
     # Ensure "Face Sets" exists but keep any values inherited from DMPlexFilter
