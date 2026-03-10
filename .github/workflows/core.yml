@@ -525,7 +525,7 @@ jobs:
           apt-get update
 
       # Git is needed for actions/checkout and Python for firedrake-configure
-      # curl/gnupg2 and ca-certificates needed for adding new deb repositories to ubunut
+      # curl/gnupg2 and ca-certificates needed for adding new deb repositories to ubuntu
       - name: Install system dependencies (1)
         run: apt-get -y install git python3 gnupg2 curl ca-certificates
 

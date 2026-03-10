@@ -610,9 +610,8 @@ def prepare_configure_options(
         configure_options.append("--with-scalar-type=complex")
 
     if gpu_arch == CUDA:
-        # SuperLU_DIST does not support cuda-arch<70, comma separated multiple arch CUDA builds are not supported by PETSc
         configure_options.extend(
-            ["--with-cuda=1", "--with-openmp=1", "--with-cuda-arch=70"]
+            ["--with-cuda=1", "--with-openmp=1"]
         )
 
     external_packages = list(COMMON_PETSC_EXTERNAL_PACKAGES)
