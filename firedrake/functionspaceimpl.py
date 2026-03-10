@@ -1049,6 +1049,7 @@ class FunctionSpace:
         Used when extracting blocks from matrices for solvers."""
         return self.field_ises
 
+    # TODO: rename 'global_field_ises' and 'local...'
     @cached_property
     def field_ises(self) -> tuple[PETSc.IS]:
         """A list of PETSc ISes defining the global indices for each set in
@@ -1393,8 +1394,8 @@ class FunctionSpace:
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
-        indices = self.block_axes.global_numbering
-        return PETSc.LGMap().create(indices, bsize=self.value_size, comm=self.comm)
+        indices = self.axes.blocked(self.shape).global_numbering
+        return PETSc.LGMap().create(indices.data_ro, bsize=self.value_size, comm=self.comm)
 
     @utils.cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:

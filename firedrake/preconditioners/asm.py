@@ -152,7 +152,7 @@ class ASMStarPC(ASMPatchPC):
     _prefix = "pc_star_"
 
     def get_patches(self, V):
-        mesh = V._mesh
+        mesh = V.mesh()
         if len(set(mesh)) == 1:
             mesh_unique = mesh.unique()
         else:
@@ -169,14 +169,14 @@ class ASMStarPC(ASMPatchPC):
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = tuple(iset.indices for iset in V.local_ises)
 
         # Build index sets for the patches
         ises = []
         (start, end) = mesh_dm.getDepthStratum(depth)
         for seed in range(start, end):
             # Only build patches over owned DoFs
-            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            if mesh_dm.getLabelValue("firedrake_is_ghost", seed) != -1:
                 continue
 
             # Create point list from mesh DM
@@ -238,7 +238,7 @@ class ASMVankaPC(ASMPatchPC):
         ordering = opts.getString("mat_ordering_type", default="natural")
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = tuple(iset.indices for iset in V.local_ises)
 
         # Build index sets for the patches
         ises = []
@@ -252,7 +252,7 @@ class ASMVankaPC(ASMPatchPC):
 
         for seed in range(start, end):
             # Only build patches over owned DoFs
-            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+            if mesh_dm.getLabelValue("firedrake_is_ghost", seed) != -1:
                 continue
 
             # Create point list from mesh DM
@@ -326,7 +326,7 @@ class ASMLinesmoothPC(ASMPatchPC):
         for codim in codim_list:
             for p in range(*dm.getHeightStratum(codim)):
                 # Only want to build patches over owned faces
-                if dm.getLabelValue("pyop2_ghost", p) != -1:
+                if dm.getLabelValue("firedrake_is_ghost", p) != -1:
                     continue
                 dof = section.getDof(p)
                 if dof <= 0:
@@ -437,7 +437,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_ises = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_ises = tuple(iset.indices for iset in V.local_ises)
         basemeshoff = []
         basemeshdof = []
         basemeshlayeroffsets = []
@@ -479,7 +479,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             start, end = mesh_dm.getDepthStratum(base_depth)
             for seed in range(start, end):
                 # Only build patches over owned DoFs
-                if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                if mesh_dm.getLabelValue("firedrake_is_ghost", seed) != -1:
                     continue
 
                 # Create point list from mesh DM
