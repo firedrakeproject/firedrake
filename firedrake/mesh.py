@@ -2596,8 +2596,8 @@ values from f.)"""
         # going on in getattr.
         coords_min, coords_max = self.bounding_box_coords
         if self.geometric_dimension == 1:
-            coords_min = coords_min.reshape(len(coords_min), -1)
-            coords_max = coords_max.reshape(len(coords_max), -1)
+            coords_min = coords_min.reshape(-1, 1)
+            coords_max = coords_max.reshape(-1, 1)
 
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
 
