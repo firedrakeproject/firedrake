@@ -9,7 +9,7 @@ from libc.stdint cimport uintptr_t
 
 include "rstarinc.pxi"
 
-cdef class RStarTree(object):
+cdef class RTree(object):
     """Python class for holding a native spatial index object."""
 
     cdef RTreeH* tree
@@ -32,37 +32,52 @@ cdef class RStarTree(object):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
-                 np.ndarray[np.float64_t, ndim=2, mode="c"] regions_hi):
-    """Builds a spatial index from a set of maximum bounding regions (MBRs).
+def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
+                    np.ndarray[np.float64_t, ndim=2, mode="c"] coords_max,
+                    np.ndarray[np.npy_uintp, ndim=1, mode="c"] ids = None):
+    """Builds rtree from two arrays of shape (n, dim) containing the coordinates
+    of the lower and upper corners of n axis-aligned bounding boxes, and an
+    optional array of shape (n,) containing integer ids for each box.
 
-    regions_lo and regions_hi must have the same size.
-    regions_lo[i] and regions_hi[i] contain the coordinates of the diagonally
-    opposite lower and higher corners of the i-th MBR, respectively.
-    """
+    Parameters
+    ----------
+    coords_min : (n, dim) array
+        The lower corner coordinates of the bounding boxes.
+    regions_hi : (n, dim) array
+        The upper corner coordinates of the bounding boxes.
+    ids : (n,) array, optional
+        Integer ids for each box. If not provided, defaults to 0, 1, ..., n-1.
+
+    Returns
+    -------
+    RTree
+        An RTree object containing the built R*-tree.
+    """    
     cdef:
-        RStarTree rstar_tree
-        np.ndarray[np.npy_uintp, ndim=1, mode="c"] ids
         RTreeH* rtree
         size_t n
         size_t dim
-        RTreeError err 
+        RTreeError err
 
-    assert regions_lo.shape[0] == regions_hi.shape[0]
-    assert regions_lo.shape[1] == regions_hi.shape[1]
-    n = <size_t>regions_lo.shape[0]
-    dim = <size_t>regions_lo.shape[1]
-    ids = np.arange(n, dtype=np.uintp)
+    if coords_min.shape[0] != coords_max.shape[0] or coords_min.shape[1] != coords_max.shape[1]:
+        raise ValueError("coords_min and coords_max must have the same shape")
+
+    n = <size_t>coords_min.shape[0]
+    dim = <size_t>coords_min.shape[1]
+    if ids is not None and ids.shape[0] != n:
+        raise ValueError("Mismatch between number of boxes and number of ids")
+    else:
+        ids = np.arange(n, dtype=np.uintp)
 
     err = rtree_bulk_load(
         &rtree,
-        <const double*>regions_lo.data,
-        <const double*>regions_hi.data,
+        <const double*>coords_min.data,
+        <const double*>coords_max.data,
         <const size_t*>ids.data,
         n,
         dim
     )
     if err != Success:
         raise RuntimeError("RTree_FromArray failed")
-    rstar_tree = RStarTree(<uintptr_t>rtree)
-    return rstar_tree
+
+    return RTree(<uintptr_t>rtree)
