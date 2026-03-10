@@ -78,9 +78,9 @@ def pseudo_random_coords(size):
 
 def functionspace_tests(vm):
     # Prep
-    num_cells = vm.cells.owned.size
+    num_cells = vm.cells.owned.local_size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = vm.cells.size - num_cells
+    num_cells_halo = vm.cells.local_size - num_cells
 
     def reshape(_data):
         return _data.reshape((-1, vm.geometric_dimension))
@@ -99,8 +99,8 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == num_cells
-    assert f.function_space().axes.size == g.function_space().axes.size == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.local_size == g.function_space().axes.owned.local_size == num_cells
+    assert f.function_space().axes.local_size == g.function_space().axes.local_size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
@@ -198,9 +198,9 @@ def functionspace_tests(vm):
 
 def vectorfunctionspace_tests(vm):
     # Prep
-    num_cells = vm.cells.owned.size
+    num_cells = vm.cells.owned.local_size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = vm.cells.size - num_cells
+    num_cells_halo = vm.cells.local_size - num_cells
 
     gdim = vm.geometric_dimension
     def reshape(_data):
@@ -219,8 +219,8 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size // gdim == g.function_space().axes.owned.size // gdim == num_cells
-    assert f.function_space().axes.size // gdim == g.function_space().axes.size // gdim == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.local_size // gdim == g.function_space().axes.owned.local_size // gdim == num_cells
+    assert f.function_space().axes.local_size // gdim == g.function_space().axes.local_size // gdim == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     assert np.allclose(f.dat.data_ro, 2*vm.coordinates.dat.data_ro)
