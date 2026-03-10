@@ -3,6 +3,7 @@ from firedrake.petsc import DEFAULT_PARTITIONER
 import pytest
 import numpy as np
 from mpi4py import MPI
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 # Utility Functions
@@ -124,39 +125,30 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
-    ref_cell_dists_l1 = []
+    ref_cell_dists_l1 = {}
     # this method of getting owned cells works for all mesh types
     owned_cells = len(Function(FunctionSpace(m, "DG", 0)).dat.data_ro)
     for i in range(len(inputvertexcoords)):
         cell_num, _, ref_cell_dist_l1 = m.locate_cells_ref_coords_and_dists(inputvertexcoords[i].reshape(1, gdim))
         if cell_num != -1 and cell_num < owned_cells:
             in_bounds.append(i)
-            ref_cell_dists_l1.append(ref_cell_dist_l1)
+            ref_cell_dists_l1[i] = ref_cell_dist_l1[0]
     # In parallel locate_cells_ref_coords_and_dists might give point
     # duplication: the voting algorithm in VertexOnlyMesh should remove these.
     # We can check that this is the case by seeing if all the missing
-    # coordinates have positive distances from the reference cell but this is a
-    # faff. For now just check that, where point duplication occurs, we have
-    # some ref_cell_dists_l1 over half the mesh tolerance (i.e. where I'd
-    # expect this to start ocurring).
-    total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
-    total_in_bounds = MPI.COMM_WORLD.allreduce(len(in_bounds), op=MPI.SUM)
+    # coordinates have positive distances from the reference cell.
     skip_in_bounds_checks = False
-    local_cells = len(vm.coordinates.dat.data_ro)
-    if total_cells != total_in_bounds:
-        assert MPI.COMM_WORLD.size > 1  # i.e. we're in parallel
-        assert total_cells < total_in_bounds  # i.e. some points are duplicated
-        local_in_bounds = len(in_bounds)
-        if not local_cells == local_in_bounds and local_in_bounds > 0:
-            # This assertion needs to happen in parallel!
-            assertion = (max(ref_cell_dists_l1) > 0.5*m.tolerance)
-            skip_in_bounds_checks = True
-        else:
-            assertion = True
+    final_input_indices = np.copy(vm.topology_dm.getField("inputindex").ravel())
+    vm.topology_dm.restoreField("inputindex")
+    final_input_indices = np.sort(final_input_indices)
+    local_in_bounds = np.array(sorted(in_bounds), dtype=int)
+    if not np.array_equal(final_input_indices, local_in_bounds):
+        missing_coordinate_indices = np.setdiff1d(local_in_bounds, final_input_indices)
+        assertion = np.all([ref_cell_dists_l1[i] > 0.0 for i in missing_coordinate_indices])
+        skip_in_bounds_checks = True
     else:
         assertion = True
-    # FIXME: Replace with parallel assert when it's merged into pytest-mpi
-    assert min(MPI.COMM_WORLD.allgather([assertion]))
+    parallel_assert([assertion])
 
     # Correct local coordinates (though not guaranteed to be in same order)
     if not skip_in_bounds_checks:
