@@ -28,6 +28,8 @@ from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTen
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees
+from pyop3.tree.axis_tree.visitors import canonicalize_labels as canonicalize_axis_labels
+from pyop3.expr.visitors import canonicalize_labels as canonicalize_expr_labels
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, NullBuffer, ArrayBuffer, BufferRef
 
 from pyop3.tree.index_tree.tree import LoopIndex
@@ -734,6 +736,27 @@ class Renamer:
             return self._store.setdefault(obj, label)
 
 
+# same as above but takes in strings
+class Renamer2:
+    def __init__(self):
+        self._store = {}
+        self._counter_by_type = collections.defaultdict(itertools.count)
+
+    def __getitem__(self, key):
+        assert isinstance(key, str)
+        return self._store[key]
+
+    def add(self, obj: Any, obj_type):
+        assert isinstance(obj, str)
+        assert isinstance(obj_type, str)
+        try:
+            return self._store[obj]
+        except KeyError:
+            index = next(self._counter_by_type[obj_type])
+            label = f"{obj_type}_{index}"
+            return self._store.setdefault(obj, label)
+
+
 class InstructionCacheKeyGetter(NodeVisitor):
     @functools.singledispatchmethod
     def process(self, obj: insn_types.Instruction) -> Hashable:
@@ -1001,3 +1024,65 @@ class LiteralInserter(NodeTransformer):
 
 def insert_literals(insn: insn_types.Instruction) -> insn_types.Instruction:
     return LiteralInserter()(insn)
+
+
+# TODO: This class is very similar to the disk cache key getter one, if we do this
+# first can we drop the relabeling there?
+class LabelCanonicalizer(NodeTransformer):
+
+    def __init__(self):
+        self._relabeler = Renamer2()
+        super().__init__()
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /) -> insn_types.Instruction:
+        return super().process(obj)
+
+    @process.register(insn_types.Loop)
+    def _(self, loop: insn_types.Loop, /) -> insn_types.Loop:
+        self._relabeler.add(loop.index.id, "loop")
+        relabeled_iterset = canonicalize_axis_labels(loop.index.iterset, self._relabeler)
+        relabeled_index = LoopIndex(relabeled_iterset, id=self._relabeler[loop.index.id])
+        relabeled_stmts = tuple(self(stmt) for stmt in loop.statements)
+        return loop.__record_init__(index=relabeled_index, statements=relabeled_stmts)
+
+    @process.register(insn_types.CalledFunction)
+    def _(self, func: insn_types.CalledFunction, /) -> insn_types.CalledFunction:
+        relabeled_arguments = tuple(
+            canonicalize_expr_labels(arg, self._relabeler) for arg in func.arguments
+        )
+        return func.__record_init__(_arguments=relabeled_arguments)
+
+    @process.register(insn_types.Exscan)
+    def _(self, exscan: insn_types.Exscan, /) -> insn_types.Exscan:
+        relabeled_assignee = canonicalize_expr_labels(exscan.assignee, self._relabeler)
+        relabeled_expression = canonicalize_expr_labels(exscan.expression, self._relabeler)
+        relabeled_scan_axis = canonicalize_axis_labels(exscan.scan_axis, self._relabeler)
+        return exscan.__record_init__(
+            assignee=relabeled_assignee,
+            expression=relabeled_expression,
+            scan_axis=relabeled_scan_axis,
+        )
+
+    @process.register(insn_types.ArrayAssignment)
+    def _(self, assignment: insn_types.ArrayAssignment, /) -> insn_types.ArrayAssignment:
+        relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
+        relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
+        return assignment.__record_init__(
+            _assignee=relabeled_assignee, _expression=relabeled_expression
+        )
+
+    @process.register(insn_types.ConcretizedNonEmptyArrayAssignment)
+    def _(self, assignment: insn_types.ArrayAssignment, /) -> insn_types.ArrayAssignment:
+        relabeled_assignee = canonicalize_expr_labels(assignment.assignee, self._relabeler)
+        relabeled_expression = canonicalize_expr_labels(assignment.expression, self._relabeler)
+        relabeled_axis_trees = tuple(
+            canonicalize_axis_labels(tree, self._relabeler) for tree in assignment.axis_trees
+        )
+        return assignment.__record_init__(
+            _assignee=relabeled_assignee, _expression=relabeled_expression, _axis_trees=relabeled_axis_trees
+        )
+
+
+def canonicalize_labels(insn: insn_types.Instruction) -> insn_types.Instruction:
+    return LabelCanonicalizer()(insn)

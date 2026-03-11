@@ -48,7 +48,6 @@ from pyop3.insn.base import (
     Exscan,
     NullInstruction,
     assignment_type_as_intent,
-    parse_compiler_parameters,
     WRITE,
     AssignmentType,
     ConcretizedNonEmptyArrayAssignment,
@@ -56,6 +55,8 @@ from pyop3.insn.base import (
     Loop,
     InstructionList,
 )
+# TODO: import other way around?
+from pyop3.insn.exec import parse_compiler_parameters
 
 
 # FIXME this needs to be synchronised with TSFC, tricky
@@ -738,7 +739,7 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
     datamap
 
     """
-    insn = op.root_insn
+    insn = op._preprocess
     # function_name = insn.name
     function_name = "pyop3_loop"  # TODO: Provide as kwarg
 

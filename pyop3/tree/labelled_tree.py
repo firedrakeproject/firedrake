@@ -65,11 +65,8 @@ class TreeMutationException(Pyop3Exception):
     pass
 
 
-class Node(pytools.ImmutableRecord):
-    fields = set()
-
-    def __init__(self):
-        pytools.ImmutableRecord.__init__(self)
+class Node:
+    pass
 
 
 class LabelledNodeComponent(abc.ABC):
@@ -80,12 +77,17 @@ class LabelledNodeComponent(abc.ABC):
 
 
 class MultiComponentLabelledNode(Node, Labelled):
-    fields = Node.fields | {"label"}
 
-    def __init__(self, label=utils.PYOP3_DECIDE):
-        Node.__init__(self)
-        Labelled.__init__(self, label)
+    @property
+    @abc.abstractmethod
+    def label(self):
+        pass
 
+    # def __init__(self, label=utils.PYOP3_DECIDE):
+    #     Node.__init__(self)
+    #     Labelled.__init__(self, label)
+
+    def __post_init__(self) -> None:
         if not utils.has_unique_entries(self.component_labels):
             raise ValueError("Duplicate component labels found")
 

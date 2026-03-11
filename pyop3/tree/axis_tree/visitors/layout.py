@@ -18,7 +18,6 @@ from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
 from pyop3.expr.base import NAN, get_loop_tree, loopified_shape
-from pyop3.expr.visitors import get_shape, replace
 from pyop3.insn import exscan, loop_
 from pyop3.tree import (
     Axis,
@@ -248,6 +247,8 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         Each layout function is always the sum of the per-axis layout with this.
 
     """
+    from pyop3.expr.visitors import get_shape
+
     layouts = {}
 
     axis = axis_tree.node_map[path_acc]
@@ -417,6 +418,8 @@ def _collect_regions(axes: AxisTree):
 @memory_cache(heavy=True)
 # def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
 def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
+    from pyop3.expr.visitors import get_shape, replace
+
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
     if linear_axis.label not in {n.label for n in utils.just_one(get_shape(size_expr)).nodes}:

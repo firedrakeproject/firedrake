@@ -1,3 +1,4 @@
+# TODO: rename to just 'DECIDE'
 PYOP3_DECIDE = object()
 """Placeholder indicating that a value should be set by pyop3.
 

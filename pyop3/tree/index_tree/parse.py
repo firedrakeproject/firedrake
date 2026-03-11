@@ -551,7 +551,7 @@ def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
 @_as_context_free_indices.register(CalledMap)
 def _(called_map, /, loop_context, **kwargs):
     cf_maps = []
-    cf_indices = _as_context_free_indices(called_map.from_index, loop_context)
+    cf_indices = _as_context_free_indices(called_map.index, loop_context)
 
     # loop over semantically equivalent indices
     for cf_index in cf_indices:

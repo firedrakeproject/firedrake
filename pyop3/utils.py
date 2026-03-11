@@ -93,8 +93,8 @@ class Identified(abc.ABC):
 
 
 class Labelled(abc.ABC):
-    def __init__(self, label):
-        self.label = label if label is not PYOP3_DECIDE else self.unique_label()
+    # def __init__(self, label):
+    #     self.label = label if label is not PYOP3_DECIDE else self.unique_label()
 
     @classmethod
     def unique_label(cls) -> str:

@@ -30,6 +30,7 @@ from petsc4py import PETSc
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
+from pyop3.constants import PYOP3_DECIDE
 from pyop3.dtypes import IntType
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.sf import DistributedObject, AbstractStarForest, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
@@ -593,8 +594,10 @@ class AxisComponent(LabelledNodeComponent):
             return self
 
 
+@pyop3.record.frozenrecord()
 class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
-    fields = MultiComponentLabelledNode.fields | {"components"}
+    components: tuple
+    _label: Any
 
     def __init__(
         self,
@@ -602,7 +605,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
         label=utils.PYOP3_DECIDE,
     ):
         components = self._parse_components(components)
-
         # relabel components if needed
         if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
             if len(components) > 1:
@@ -610,20 +612,17 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
             else:
                 components = (utils.just_one(components).__record_init__(_label=None),)
 
-        self.components = components
-        super().__init__(label=label)
+        label = label if label is not PYOP3_DECIDE else self.unique_label()
 
-    def __eq__(self, other):
-        return (
-            type(self) is type(other)
-            and self.components == other.components
-            and self.label == other.label
-        )
+        object.__setattr__(self, "components", components)
+        object.__setattr__(self, "_label", label)
+        self.__post_init__()
 
-    def __hash__(self):
-        return hash(
-            (type(self), self.components, self.label)
-        )
+    def __post_init__(self) -> None:
+        assert isinstance(self.components, tuple)
+        return super().__post_init__()
+
+    label = pyop3.record.attr("_label")
 
     def __getitem__(self, indices):
         # NOTE: This *must* return an axis tree because that is where we attach
@@ -656,11 +655,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
         if len(self.component_labels) == 1:
             return self
         else:
-            return self.copy(components=tuple(c for c in self.components if c.label == component_label))
+            return self.__record_init__(components=tuple(c for c in self.components if c.label == component_label))
 
     @cached_property
     def regionless(self) -> Axis:
-        return self.copy(components=tuple(c.regionless for c in self.components))
+        return self.__record_init__(components=tuple(c.regionless for c in self.components))
 
     @property
     def component_labels(self):
@@ -731,11 +730,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
 
     @cached_method()
     def localize(self):
-        return self.copy(components=tuple(c.localize() for c in self.components))
+        return self.__record_init__(components=tuple(c.localize() for c in self.components))
 
     @cached_method()
     def regionless(self):
-        return self.copy(components=tuple(c.regionless() for c in self.components))
+        return self.__record_init__(components=tuple(c.regionless() for c in self.components))
 
     def component_offset(self, component):
         cidx = self.component_index(component)

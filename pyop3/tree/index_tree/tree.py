@@ -24,6 +24,7 @@ import pytools
 from immutabledict import immutabledict as idict
 
 import pyop3.record
+from pyop3.constants import PYOP3_DECIDE
 from pyop3.tree.axis_tree import (
     Axis,
     AxisComponent,
@@ -283,14 +284,25 @@ class UnparsedSlice:
     wrappee: Any  # TODO: Can specialise the type here
 
 
-class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
-    fields = {"target_axis", "target_component", "label"}
+class MapComponent(Labelled, abc.ABC):
 
-    def __init__(self, target_axis, target_component, *, label=utils.PYOP3_DECIDE):
-        pytools.ImmutableRecord.__init__(self)
-        Labelled.__init__(self, label)
-        self.target_axis = target_axis
-        self.target_component = target_component
+    # target_axis: Any
+    # target_component: Any
+    #
+    # def __init__(self, target_axis, target_component, *, label=utils.PYOP3_DECIDE):
+    #     self.target_axis = target_axis
+    #     self.target_component = target_component
+    #     self.label = label if label != utils.PYOP3_DECIDE else self.unique_label()
+
+    @property
+    @abc.abstractmethod
+    def target_axis(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def target_component(self):
+        pass
 
     @property
     @abc.abstractmethod
@@ -303,8 +315,14 @@ class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
 
 
 # TODO: Implement AffineMapComponent
+@pyop3.record.frozenrecord()
 class TabulatedMapComponent(MapComponent):
-    fields = MapComponent.fields | {"array", "arity"}
+
+    _target_axis: Any
+    _target_component: Any
+    array: Any
+    _arity: Any
+    _label: Any
 
     def __init__(self, target_axis, target_component, array, *, arity=None, label=utils.PYOP3_DECIDE):
         from pyop3.expr import as_linear_buffer_expression
@@ -313,13 +331,19 @@ class TabulatedMapComponent(MapComponent):
         if arity is None:
             arity = just_one(array.axes.leaf_component.regions).size
 
-        super().__init__(target_axis, target_component, label=label)
-        self.array = as_linear_buffer_expression(array)
-        self._arity = arity
+        array = as_linear_buffer_expression(array)
+        label = label if label is not PYOP3_DECIDE else self.unique_label()
 
-    @property
-    def arity(self):
-        return self._arity
+        object.__setattr__(self, "_target_axis", target_axis)
+        object.__setattr__(self, "_target_component", target_component)
+        object.__setattr__(self, "array", array)
+        object.__setattr__(self, "_arity", arity)
+        object.__setattr__(self, "_label", label)
+
+    target_axis = pyop3.record.attr("_target_axis")
+    target_component = pyop3.record.attr("_target_component")
+    arity = pyop3.record.attr("_arity")
+    label = pyop3.record.attr("_label")
 
     # old alias
     @property
@@ -345,6 +369,7 @@ class AxisIndependentIndex(Index):
 LoopIndexIdT = Hashable
 
 
+@pyop3.record.frozenrecord()
 class LoopIndex(Index):
     """
     Parameters
@@ -353,17 +378,21 @@ class LoopIndex(Index):
         Only add context later on
 
     """
+    iterset: AbstractAxisTree
+    id: Any
+
     dtype = IntType
-    fields = Index.fields - {"label"} | {"id"}
 
     def __init__(self, iterset: AbstractAxisTree, *, id=utils.PYOP3_DECIDE):
-        self.iterset = iterset
-        super().__init__(label=id)
+        id = id if id is not utils.PYOP3_DECIDE else self.unique_label()
 
-    # TODO: This is very unclear...
+        object.__setattr__(self, "iterset", iterset)
+        object.__setattr__(self, "id", id)
+
+    # ick, remove
     @property
-    def id(self):
-        return self.label
+    def label(self):
+        return self.id
 
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
     # index trees
@@ -422,13 +451,16 @@ class InvalidIterationSetException(Pyop3Exception):
 
 
 class ScalarIndex(Index):
-    fields = {"axis", "component", "value"}
 
     def __init__(self, axis, component, value):
-        super().__init__()
         self.axis = axis
         self.component = component
         self.value = value
+        self._label = self.unique_label()
+
+    @property
+    def label(self):
+        return self._label
 
     @property
     def leaf_target_paths(self):
@@ -439,6 +471,7 @@ class ScalarIndex(Index):
         return ("0",)
 
 
+@pyop3.record.frozenrecord()
 class Slice(Index):
     """
 
@@ -449,7 +482,9 @@ class Slice(Index):
 
     """
 
-    fields = Index.fields | {"axis", "components", "label"}
+    axis: Any
+    components: Any
+    _label: Any
 
     def __init__(self, axis, components, *, label=utils.PYOP3_DECIDE):
         components = as_tuple(components)
@@ -458,9 +493,13 @@ class Slice(Index):
                 raise ValueError("Cannot have only some as PYOP3_DECIDE")
             components = tuple(c.__record_init__(_label=i) for i, c in enumerate(components))
 
-        self.axis = axis
-        self.components = components
-        super().__init__(label=label)
+        label = label if label is not utils.PYOP3_DECIDE else self.unique_label()
+
+        object.__setattr__(self, "axis", axis)
+        object.__setattr__(self, "components", components)
+        object.__setattr__(self, "_label", label)
+
+    label = pyop3.record.attr("_label")
 
     @property
     def component_labels(self) -> tuple:
@@ -658,17 +697,23 @@ class UnspecialisedCalledMapException(Pyop3Exception):
     """
 
 
+@pyop3.record.frozenrecord()
 class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
-    fields = {"map", "from_index", "id", "label"}
+    map: Map
+    index: Any
+    id: Any
+    _label: Any
 
     def __init__(self, map, from_index, *, id=None, label=None):
-        Identified.__init__(self, id=id)
-        Labelled.__init__(self, label=label)
-        self.map = map
-        self.index = from_index
+        id = id if id is not None else self.unique_id()
+        label = label if label is not None else self.unique_label()
 
-        # this is an old alias
-        self.from_index = from_index
+        object.__setattr__(self, "map", map)
+        object.__setattr__(self, "index", from_index)
+        object.__setattr__(self, "id", id)
+        object.__setattr__(self, "_label", label)
+
+    label = pyop3.record.attr("_label")
 
     def __getitem__(self, indices):
         raise NotImplementedError("TODO")
@@ -837,7 +882,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         raise NotImplementedError
         # maybe this line isn't needed?
         # cf_index = self.from_index.with_context(context, axes)
-        cf_index = self.from_index
+        cf_index = self.index
         leaf_target_paths = tuple(
             idict({mcpt.target_axis: mcpt.target_component})
             for path in cf_index.leaf_target_paths
