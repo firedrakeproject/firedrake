@@ -976,7 +976,8 @@ class RestrictedFunctionSpace(FunctionSpace):
         self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
                                                      function_space.ufl_element(),
                                                      label=self._label)
-        self.topological = function_space
+        self.function_space = function_space
+        self.topological = self
         self.name = name or function_space.name
 
     def set_shared_data(self):
