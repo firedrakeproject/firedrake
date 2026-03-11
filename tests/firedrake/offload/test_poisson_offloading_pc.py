@@ -3,19 +3,20 @@ import pytest
 
 
 # TODO: add marker for cuda pytests and something to check if cuda memory was really used
-@pytest.mark.skipcuda
+@pytest.mark.skipnogpu
 @pytest.mark.parametrize(
     "ksp_type, pc_type", [("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")]
 )
 def test_poisson_offload(ksp_type, pc_type):
 
-    # Different tests for poisoon: cg and pctype sor, --ksp_type=cg --pc_type=gamg
+    # Different tests for poisson: cg and pctype sor, --ksp_type=cg --pc_type=gamg
     print(f"Using ksp_type = {ksp_type}, and pc_type = {pc_type}.", flush=True)
 
     nested_parameters = {
         "pc_type": "ksp",
         "ksp": {
             "ksp_type": ksp_type,
+            "ksp_max_it": 50,
             "ksp_view": None,
             "ksp_rtol": "1e-10",
             "ksp_monitor": None,
@@ -40,14 +41,13 @@ def test_poisson_offload(ksp_type, pc_type):
 
     # Equations
     L = inner(grad(u), grad(v)) * dx
-    R = inner(v, f) * dx
 
     # Dirichlet boundary on all sides to 0
     bcs = DirichletBC(V, 0, "on_boundary")
 
     # Exact solution
     sol = Function(V)
-    sol.interpolate(sin(pi * x) * sin(pi * y))
+    R = action(L, sol)
 
     # Solution function
     u_f = Function(V)
@@ -55,9 +55,9 @@ def test_poisson_offload(ksp_type, pc_type):
     problem = LinearVariationalProblem(L, R, u_f, bcs=bcs)
     solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
-    error = errornorm(problem.u, sol)
+    error = errornorm(u_f, sol)
     print(f"Error norm = {error}", flush=True)
-    assert error < 1.2e-2
+    assert error < 1.0e-9
 
 
 if __name__ == "__main__":

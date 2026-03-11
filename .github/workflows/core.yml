@@ -23,7 +23,7 @@ on:
         description: Whether to test using macOS
         type: boolean
         default: false
-      test_cuda:
+      test_gpu:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
         default: false
@@ -58,7 +58,7 @@ on:
         description: Whether to test using macOS
         type: boolean
         default: false
-      test_cuda:
+      test_gpu:
         description: Whether to test using CUDA-enabled PETSc
         type: boolean
         default: false
@@ -481,13 +481,13 @@ jobs:
         run: |
           find . -delete
 
-  test_cuda:
+  test_gpu:
     name: Build and test Firedrake (Linux CUDA)
     runs-on: [self-hosted, Linux, gpu]
     container:
       image: ubuntu:latest
       options: --gpus all
-    if: inputs.test_cuda
+    if: inputs.test_gpu
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -515,26 +515,26 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      # Use a different mirror to fetch apt packages from to get around
-      # temporary outage.
-      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
-      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
-      - name: Configure apt
-        run: |
-          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-          apt-get update
-
       # Git is needed for actions/checkout and Python for firedrake-configure
-      # curl/gnupg2 and ca-certificates needed for adding new deb repositories to ubuntu
+      # curl needed for adding new deb repositories to ubuntu
       - name: Install system dependencies (1)
-        run: apt-get -y install git python3 gnupg2 curl ca-certificates
+        run: apt-get -y install git python3 curl
 
       - name: Add Nvidia CUDA deb repositories
         run: |
-          curl -fsSL $( python3 ./firedrake-repo/scripts/firedrake-configure --gpu-arch cuda --show-extra-repo-key ) | apt-key add -
-          python3 ./firedrake-repo/scripts/firedrake-configure --gpu-arch cuda --show-extra-repo-file-contents > \
-            /etc/apt/sources.list.d/$( python3 ./firedrake-repo/scripts/firedrake-configure --gpu-arch cuda --show-extra-repo-file-name )
+          deburl=$( python3 ./firedrake-repo/scripts/firedrake-configure --show-extra-repo-pkg-url --gpu-arch cuda )
+          debfile=$( basename "${deburl}" )
+          curl -fsSLO "${deburl}"
+          dpkg -i "${debfile}"
           apt-get update
+
+      - name: Install system dependencies (2)
+        run: |
+          apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --gpu-arch cuda --show-system-packages)
+          apt-get -y install python3-venv
+          : # Dependencies needed to run the test suite
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
@@ -566,10 +566,6 @@ jobs:
 
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
-
-          : # Fix for petsc4py+slepc4py build
-          echo 'setuptools<81' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''

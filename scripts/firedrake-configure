@@ -59,13 +59,9 @@ CUDA_ARCH_MAP = {
 # Structure is ( deb_repo_filename, file_contents, GPG_key_URL )
 # A file named /etc/apt/sources.list.d/deb_repo_filename containing file_contents will be created
 # The output of curl -fsSL GPG_Key_URL will be passed to 'apt-key add'
-EXTRA_LINUX_APT_REPO = {
-    NO_GPU: ("", "", ""),
-    CUDA: (
-        "cuda.list",
-        f"deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/{CUDA_ARCH_MAP.get(platform.machine(), platform.machine())} /",
-        f"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/{CUDA_ARCH_MAP.get(platform.machine(), platform.machine())}/3bf863cc.pub",
-    ),
+EXTRA_LINUX_APT_PKG_URL = {
+    NO_GPU: "",
+    CUDA: f"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/{CUDA_ARCH_MAP.get(platform.machine(), platform.machine())}/cuda-keyring_1.1-1_all.deb",
 }
 
 
@@ -147,22 +143,10 @@ Please see https://firedrakeproject.org/install for more information."""
         help="Print out the environment variables that need to be exported to install Firedrake.",
     )
     cmd_group.add_argument(
-        "--show-extra-repo-key",
-        "--repokey",
+        "--show-extra-repo-pkg-url",
+        "--repopkgurl",
         action="store_true",
-        help="Print out the URL of the GPG key of any non-OS package repository required for this build"
-    )
-    cmd_group.add_argument(
-        "--show-extra-repo-file-contents",
-        "--repofile",
-        action="store_true",
-        help="Print out the contents of any non-OS package repository source file required for this build"
-    )
-    cmd_group.add_argument(
-        "--show-extra-repo-file-name",
-        "--repofilename",
-        action="store_true",
-        help="Print out the name of the any non-OS package repository source file required for this build"
+        help="Print out the URL of any package required to enable non-OS repo access for this build",
     )
 
     args = parser.parse_args()
@@ -200,12 +184,8 @@ Please see https://firedrakeproject.org/install for more information."""
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch, gpu_arch]), end="")
     elif args.show_petsc_version:
         print(SUPPORTED_PETSC_VERSION, end="")
-    elif args.show_extra_repo_key:
-        print(EXTRA_LINUX_APT_REPO[gpu_arch][2], end="")
-    elif args.show_extra_repo_file_contents:
-        print(EXTRA_LINUX_APT_REPO[gpu_arch][1], end="")
-    elif args.show_extra_repo_file_name:
-        print(EXTRA_LINUX_APT_REPO[gpu_arch][0], end="")
+    elif args.show_extra_repo_pkg_url:
+        print(EXTRA_LINUX_APT_PKG_URL[gpu_arch], end="")
     else:
         assert args.show_env
         print(" ".join(ENVIRONMENT_VARS[package_manager, arch, gpu_arch]), end="")
@@ -263,7 +243,7 @@ BASE_LINUX_APT_PACKAGES = (
     MINIMAL_LINUX_APT_PACKAGES + ("bison", "cmake", "libopenblas-dev", "libopenmpi-dev")
 )
 
-PETSC_EXTRAS_LINUX_APT_PACKAGES = (
+PETSC_EXTRAS_COMMON_APT_PACKAGES = (
     "libfftw3-dev",
     "libfftw3-mpi-dev",
     "libhwloc-dev",
@@ -274,6 +254,9 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
     "libpnetcdf-dev",
     "libptscotch-dev",
     "libscalapack-openmpi-dev",
+)
+
+PETSC_EXTRAS_LINUX_APT_PACKAGES = PETSC_EXTRAS_COMMON_APT_PACKAGES + (
     "libsuitesparse-dev",
     "libsuperlu-dev",
     "libsuperlu-dist-dev",
@@ -281,7 +264,7 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
 
 cuda_ver_str = SUPPORTED_CUDA_VERSION.replace(".", "-")
 
-CUDA_EXTRAS_LINUX_APT_PACKAGES = (
+PETSC_EXTRAS_LINUX_APT_CUDA_PACKAGES = PETSC_EXTRAS_COMMON_APT_PACKAGES + (
     f"cuda-compat-{cuda_ver_str}",
     f"cuda-nvtx-{cuda_ver_str}",
     f"cuda-cudart-dev-{cuda_ver_str}",
@@ -294,22 +277,9 @@ CUDA_EXTRAS_LINUX_APT_PACKAGES = (
     f"libcublas-dev-{cuda_ver_str}",
 )
 
-CUDA_PETSC_LINUX_APT_SKIP_PACKAGES = (
-    "libsuitesparse-dev",
-    "libsuperlu-dev",
-    "libsuperlu-dist-dev",
-)
-
 LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
 
-LINUX_APT_PACKAGES_CUDA = (
-    tuple(
-        pkg
-        for pkg in LINUX_APT_PACKAGES
-        if pkg not in CUDA_PETSC_LINUX_APT_SKIP_PACKAGES
-    )
-    + CUDA_EXTRAS_LINUX_APT_PACKAGES
-)
+LINUX_APT_PACKAGES_CUDA = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_CUDA_PACKAGES
 
 MINIMAL_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
@@ -391,7 +361,7 @@ PETSC_DOWNLOAD = PetscPackageAction.PETSC_DOWNLOAD
 PetscSpecValueType = PetscPackageAction | str | tuple[str | None, tuple[str, ...]]
 PetscSpecsDictType = dict[str, dict[PackageManager, PetscSpecValueType]]
 
-PETSC_EXTERNAL_PACKAGE_SPECS: PetscSpecsDictType = {
+PETSC_EXTERNAL_PACKAGE_SPECS_COMMON: PetscSpecsDictType = {
     "bison": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
@@ -447,21 +417,6 @@ PETSC_EXTERNAL_PACKAGE_SPECS: PetscSpecsDictType = {
         LINUX_APT_AARCH64: (None, ("-lscalapack-openmpi",)),
         MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
-    "suitesparse": {
-        LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
-    },
-    "superlu_dist": {
-        LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
-    },
-    "umpire": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
-    },
     "zlib": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
@@ -469,21 +424,42 @@ PETSC_EXTERNAL_PACKAGE_SPECS: PetscSpecsDictType = {
     },
 }
 
-PetscSpecsDeltaDictType = dict[GPUArch, PetscSpecsDictType]
+PETSC_EXTERNAL_PACKAGE_SPECS: PetscSpecsDictType = (
+    PETSC_EXTERNAL_PACKAGE_SPECS_COMMON
+    | {
+        "suitesparse": {
+            LINUX_APT_X86_64: PETSC_AUTODETECT,
+            LINUX_APT_AARCH64: PETSC_AUTODETECT,
+            MACOS_HOMEBREW_ARM64: "/opt/homebrew",
+        },
+        "superlu_dist": {
+            LINUX_APT_X86_64: PETSC_AUTODETECT,
+            LINUX_APT_AARCH64: PETSC_AUTODETECT,
+            MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        },
+    }
+)
 
-# Suitesparse and SuperLU-DIST must be built from source to enable GPU features
-PETSC_EXTERNAL_PACKAGE_SPECS_DELTA_GPU: PetscSpecsDeltaDictType = {
-    CUDA: {
+PETSC_EXTERNAL_PACKAGE_SPECS_CUDA: PetscSpecsDictType = (
+    PETSC_EXTERNAL_PACKAGE_SPECS_COMMON
+    | {
         "suitesparse": {
             LINUX_APT_X86_64: PETSC_DOWNLOAD,
             LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+            MACOS_HOMEBREW_ARM64: "/opt/homebrew",
         },
         "superlu_dist": {
             LINUX_APT_X86_64: PETSC_DOWNLOAD,
             LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+            MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        },
+        "umpire": {
+            LINUX_APT_X86_64: PETSC_DOWNLOAD,
+            LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+            MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
         },
     }
-}
+)
 
 COMMON_PETSC_EXTERNAL_PACKAGES = (
     "bison",
@@ -501,17 +477,7 @@ COMMON_PETSC_EXTERNAL_PACKAGES = (
     "zlib",
 )
 
-
-def blend_package_spec(
-    package_manager: PackageManager, gpu_arch: GPUArch
-) -> dict[str, PetscSpecValueType]:
-    if gpu_arch == NO_GPU:
-        return {k: v[package_manager] for k, v in PETSC_EXTERNAL_PACKAGE_SPECS.items()}
-    else:
-        out = {k: v[package_manager] for k, v in PETSC_EXTERNAL_PACKAGE_SPECS.items()}
-        for k, v in PETSC_EXTERNAL_PACKAGE_SPECS_DELTA_GPU[gpu_arch].items():
-            out[k] = v[package_manager]
-        return out
+PETSC_EXTRA_EXTERNAL_PACKAGES_CUDA = ("umpire",)
 
 
 def prepare_external_package_configure_options(
@@ -519,16 +485,16 @@ def prepare_external_package_configure_options(
     package_manager: PackageManager | None = None,
     gpu_arch: GPUArch = NO_GPU,
 ) -> tuple[str, ...]:
-    if package_manager is not None:
-        petsc_package_spec = blend_package_spec(package_manager, gpu_arch)
-
     configure_options = []
     for external_package in external_packages:
         if package_manager is None:
             # Don't know anything about the system, download everything
             package_spec = PETSC_DOWNLOAD
         else:
-            package_spec = petsc_package_spec[external_package]
+            if gpu_arch == NO_GPU:
+                package_spec = PETSC_EXTERNAL_PACKAGE_SPECS[external_package][package_manager]
+            elif gpu_arch == CUDA:
+                package_spec = PETSC_EXTERNAL_PACKAGE_SPECS_CUDA[external_package][package_manager]
 
         if package_spec == PETSC_AUTODETECT:
             # PETSc will find the package for us
@@ -577,9 +543,13 @@ def prepare_configure_options(
         includes = (
             f"{incdir}/hdf5/openmpi",
             f"{incdir}/scotch",
-            f"{incdir}/superlu",
-            f"{incdir}/superlu-dist",
         )
+
+        if gpu_arch == NO_GPU:
+            includes = includes + (
+                f"{incdir}/superlu",
+                f"{incdir}/superlu-dist",
+            )
 
         libraries = (
             f"{libdir}/hdf5/openmpi",
@@ -611,14 +581,14 @@ def prepare_configure_options(
 
     if gpu_arch == CUDA:
         configure_options.extend(
-            ["--with-cuda=1", "--with-openmp=1"]
+            ["--with-cuda=1", "--with-openmp=1", "--with-cxx-dialect=c++17"]
         )
 
     external_packages = list(COMMON_PETSC_EXTERNAL_PACKAGES)
     if arch != ARCH_COMPLEX:
         external_packages.append("hypre")
     if gpu_arch == CUDA:
-        external_packages.append("umpire")
+        external_packages.extend(PETSC_EXTRA_EXTERNAL_PACKAGES_CUDA)
     configure_options.extend(
         prepare_external_package_configure_options(
             external_packages, package_manager, gpu_arch
