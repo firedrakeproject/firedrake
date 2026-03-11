@@ -2924,45 +2924,42 @@ values from f.)"""
             - refine_faces, which is a boolean specifying if you want to refine faces.
 
         """
-        import firedrake as fd
-
         utils.check_netgen_installed()
 
         if netgen_flags is None:
             netgen_flags = self.netgen_flags
-        netgen_mesh = self.netgen_mesh.Copy()
-        els = {2: netgen_mesh.Elements2D, 3: netgen_mesh.Elements3D}
         dim = self.geometric_dimension
-        refine_faces = netgen_flags.get("refine_faces", False)
-        if dim in [2, 3]:
-            with mark.dat.vec as marked:
-                marked0 = marked
-                getIdx = self._cell_numbering.getOffset
-                sf = self.sfBC_orig
-                if sf is not None:
-                    sfBCInv = sf.createInverse()
-                    getIdx = lambda x: x
-                    _, marked0 = self.topology_dm.distributeField(sfBCInv,
-                                                                  self._cell_numbering,
-                                                                  marked)
-                if self.comm.rank == 0:
-                    mark = marked0.getArray()
-                    max_refs = int(np.max(mark))
-                    for _ in range(max_refs):
-                        for i, el in enumerate(els[dim]()):
-                            el.refine = mark[getIdx(i)] > 0
-                        if not refine_faces and dim == 3:
-                            netgen_mesh.Elements2D().NumPy()["refine"] = 0
-                        netgen_mesh.Refine(adaptive=True)
-                        mark -= 1
-
-                return fd.Mesh(netgen_mesh,
-                               reorder=self._did_reordering,
-                               distribution_parameters=self._distribution_parameters,
-                               comm=self.comm,
-                               netgen_flags=netgen_flags)
-        else:
+        if dim not in {2, 3}:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
+
+        with mark.dat.vec as mvec:
+            if self.sfBC_orig is None:
+                perm = list(map(self._cell_numbering.getOffset, range(mvec.getSize())))
+                mark_np = mvec.getArray()[perm]
+            else:
+                sfBCInv = self.sfBC_orig.createInverse()
+                _, marked0 = self.topology_dm.distributeField(sfBCInv,
+                                                              self._cell_numbering,
+                                                              mvec)
+                mark_np = marked0.getArray()
+
+        netgen_mesh = self.netgen_mesh.Copy()
+        refine_faces = netgen_flags.get("refine_faces", False)
+        if self.comm.rank == 0:
+            max_refs = int(mark_np.max())
+            for _ in range(max_refs):
+                netgen_cells = netgen_mesh.Elements2D() if dim == 2 else netgen_mesh.Elements3D()
+                netgen_cells.NumPy()["refine"][:mark_np.size] = mark_np > 0
+                if not refine_faces and dim == 3:
+                    netgen_mesh.Elements2D().NumPy()["refine"] = 0
+                netgen_mesh.Refine(adaptive=True)
+                mark_np -= 1
+
+        return Mesh(netgen_mesh,
+                    reorder=self._did_reordering,
+                    distribution_parameters=self._distribution_parameters,
+                    comm=self.comm,
+                    netgen_flags=netgen_flags)
 
     @PETSc.Log.EventDecorator()
     def curve_field(self, order, permutation_tol=1e-8, location_tol=1e-1, cg_field=False):
