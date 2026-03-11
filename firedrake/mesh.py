@@ -2959,7 +2959,8 @@ values from f.)"""
                 return fd.Mesh(netgen_mesh,
                                reorder=self._did_reordering,
                                distribution_parameters=self._distribution_parameters,
-                               comm=self.comm)
+                               comm=self.comm,
+                               netgen_flags=netgen_flags)
         else:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
 
@@ -3386,7 +3387,7 @@ def Mesh(meshfile, **kwargs):
                         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                         comm=mesh.comm)
             temp.netgen_mesh = mesh.netgen_mesh
-            temp.netgen_flags = netgen_flags
+            temp.netgen_flags = mesh.netgen_flags
             temp._distribution_parameters = mesh._distribution_parameters
             temp._did_reordering = mesh._did_reordering
             mesh = temp
