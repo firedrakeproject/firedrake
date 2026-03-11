@@ -49,10 +49,9 @@ def _make_cube_with_edge_sets(extra_edge_c=False, ncells=2):
     """
     mesh = UnitCubeMesh(ncells, ncells, ncells)
     dm = mesh.topology_dm
-    # Remove default labels so we have full control.
-    for name in ("Face Sets", "Edge Sets", "Vertex Sets"):
-        if dm.hasLabel(name):
-            dm.removeLabel(name)
+    # Remove default Face Sets so we have full control over labels.
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
     dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     eStart, eEnd = dm.getDepthStratum(1)
@@ -93,10 +92,9 @@ def _make_square_with_vertex_sets(ncells=2):
     """
     mesh = UnitSquareMesh(ncells, ncells)
     dm = mesh.topology_dm
-    # Remove default labels so we have full control.
-    for name in ("Face Sets", "Vertex Sets"):
-        if dm.hasLabel(name):
-            dm.removeLabel(name)
+    # Remove default Face Sets so we have full control over labels.
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
     dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     vStart, vEnd = dm.getDepthStratum(0)
@@ -205,9 +203,8 @@ def test_submesh_codim1_no_parent_edge_sets():
     """Codim-1 submesh with no Edge Sets on the parent still labels exterior facets."""
     mesh = UnitCubeMesh(2, 2, 2)
     dm = mesh.topology_dm
-    for name in ("Face Sets", "Edge Sets", "Vertex Sets"):
-        if dm.hasLabel(name):
-            dm.removeLabel(name)
+    if dm.hasLabel("Face Sets"):
+        dm.removeLabel("Face Sets")
     dm.createLabel("Face Sets")
     vc = _get_dm_vertex_coords(dm)
     fStart, fEnd = dm.getDepthStratum(2)

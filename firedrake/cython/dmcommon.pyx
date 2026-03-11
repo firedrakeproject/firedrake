@@ -11,7 +11,7 @@ from firedrake.petsc import PETSc
 from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
-from libc.stdlib cimport qsort
+from libc.stdlib cimport qsort, malloc, free
 from finat.element_factory import as_fiat_cell
 
 cimport numpy as np
@@ -1726,74 +1726,17 @@ def label_facets(PETSc.DM plex):
     CHKERR(DMLabelDestroyIndex(lbl_ext))
 
 
-cdef void _populate_lower_dim_labels(PETSc.DM dm, PetscInt tdim):
-    """Copy "Face Sets" values to "Edge Sets" and "Vertex Sets" for
-    lower-dimensional entities.
-
-    After ``DMPlexLabelComplete`` has propagated "Face Sets" into the
-    closure, edges and vertices carry the boundary tag of their parent
-    face.  This helper mirrors those values into the corresponding
-    lower-dimensional label so that a codimension-1 ``Submesh`` can
-    find the information it needs without relying on the inherited
-    "Face Sets" (which mixes cell- and facet-level values).
-
-    Entities that already have a value in the target label are skipped
-    to avoid overwriting user-defined labels (e.g. from Gmsh).
-    """
-    cdef:
-        PetscInt pStart, pEnd, p, face_val, existing_val
-        DMLabel face_sets_lbl, edge_sets_lbl, vertex_sets_lbl
-
-    CHKERR(DMGetLabel(dm.dm, b"Face Sets", &face_sets_lbl))
-
-    if tdim >= 3:
-        if not dm.hasLabel(EDGE_SETS_LABEL):
-            dm.createLabel(EDGE_SETS_LABEL)
-        CHKERR(DMGetLabel(dm.dm, b"Edge Sets", &edge_sets_lbl))
-        CHKERR(DMPlexGetDepthStratum(dm.dm, 1, &pStart, &pEnd))
-        for p in range(pStart, pEnd):
-            CHKERR(DMLabelGetValue(face_sets_lbl, p, &face_val))
-            if face_val >= 0:
-                CHKERR(DMLabelGetValue(edge_sets_lbl, p, &existing_val))
-                if existing_val < 0:
-                    CHKERR(DMLabelSetValue(edge_sets_lbl, p, face_val))
-
-    if tdim >= 2:
-        if not dm.hasLabel(VERTEX_SETS_LABEL):
-            dm.createLabel(VERTEX_SETS_LABEL)
-        CHKERR(DMGetLabel(dm.dm, b"Vertex Sets", &vertex_sets_lbl))
-        CHKERR(DMPlexGetDepthStratum(dm.dm, 0, &pStart, &pEnd))
-        for p in range(pStart, pEnd):
-            CHKERR(DMLabelGetValue(face_sets_lbl, p, &face_val))
-            if face_val >= 0:
-                CHKERR(DMLabelGetValue(vertex_sets_lbl, p, &existing_val))
-                if existing_val < 0:
-                    CHKERR(DMLabelSetValue(vertex_sets_lbl, p, face_val))
-
-
 def complete_facet_labels(PETSc.DM dm):
     """Transfer label values from the facet labels to everything in
-    the closure of the facets.
+    the closure of the facets."""
+    cdef PETSc.DMLabel label
 
-    After completing "Face Sets" this also populates "Edge Sets" and
-    "Vertex Sets" so that boundary information is available at every
-    topological dimension.  Entities that already carry a value in the
-    target label (e.g. user-defined labels from Gmsh) are not overwritten.
-    """
-    cdef:
-        PETSc.DMLabel label
-        PetscInt tdim
-
-    tdim = get_topological_dimension(dm)
-    if tdim == 0:
+    if get_topological_dimension(dm) == 0:
         return
     for name in [FACE_SETS_LABEL, "exterior_facets", "interior_facets"]:
         if dm.hasLabel(name):
             label = dm.getLabel(name)
             CHKERR( DMPlexLabelComplete(dm.dm, label.dmlabel) )
-
-    if dm.hasLabel(FACE_SETS_LABEL):
-        _populate_lower_dim_labels(dm, tdim)
 
 
 @cython.boundscheck(False)
@@ -3886,6 +3829,8 @@ def submesh_create(PETSc.DM dm,
                 CHKERR(DMLabelSetValue(<DMLabel>temp_label.dmlabel, p, label_value))
         CHKERR(ISRestoreIndices(stratum_is, &stratum_indices))
         CHKERR(ISDestroy(&stratum_is))
+    if subdim == dm.getDimension() - 1 and dm.hasLabel(FACE_SETS_LABEL):
+        _populate_lower_dim_labels(dm, dm.getDimension())
     # Make submesh using temp_label.
     subdm, ownership_transfer_sf = dm.filter(label=temp_label,
                                              value=label_value,
@@ -3996,6 +3941,89 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     CHKERR(DMLabelDestroyIndex(lbl_ghost))
 
 
+cdef void _populate_lower_dim_labels(PETSc.DM dm, PetscInt tdim):
+    """Derive "Edge Sets" / "Vertex Sets" from positive "Face Sets" strata.
+
+    Iterates each "Face Sets" stratum value > 0 and copies the value to
+    the corresponding lower-dimensional label for depth-1 or depth-0
+    entities.  Entities that already carry a positive value in the
+    target label are skipped to preserve user-defined labels (e.g. from
+    Gmsh).  Stale value-0 entries (mesh-generator artifacts) are
+    cleared before the positive value is set, so that
+    ``DMLabelGetValue`` returns the meaningful value rather than 0.
+    """
+    cdef:
+        PetscInt pStart, pEnd, p, nvals, i, j, stratum_val, stratum_size
+        PetscInt existing_val
+        DMLabel face_sets_lbl, target_lbl
+        PETSc.PetscIS stratum_is = NULL
+        const PetscInt *stratum_pts = NULL
+
+    CHKERR(DMGetLabel(dm.dm, b"Face Sets", &face_sets_lbl))
+    CHKERR(DMLabelGetNumValues(face_sets_lbl, &nvals))
+    if nvals == 0:
+        return
+
+    cdef PetscInt *vals = <PetscInt *>malloc(nvals * sizeof(PetscInt))
+    with dm.getLabelIdIS(FACE_SETS_LABEL) as ids:
+        for i in range(nvals):
+            vals[i] = ids[i]
+
+    if tdim >= 3:
+        if not dm.hasLabel(EDGE_SETS_LABEL):
+            dm.createLabel(EDGE_SETS_LABEL)
+        CHKERR(DMGetLabel(dm.dm, b"Edge Sets", &target_lbl))
+        CHKERR(DMPlexGetDepthStratum(dm.dm, 1, &pStart, &pEnd))
+        for i in range(nvals):
+            stratum_val = vals[i]
+            if stratum_val <= 0:
+                continue
+            CHKERR(DMLabelGetStratumSize(face_sets_lbl, stratum_val, &stratum_size))
+            if stratum_size == 0:
+                continue
+            CHKERR(DMLabelGetStratumIS(face_sets_lbl, stratum_val, &stratum_is))
+            CHKERR(ISGetIndices(stratum_is, &stratum_pts))
+            for j in range(stratum_size):
+                p = stratum_pts[j]
+                if pStart <= p < pEnd:
+                    CHKERR(DMLabelGetValue(target_lbl, p, &existing_val))
+                    if existing_val > 0:
+                        continue
+                    if existing_val == 0:
+                        CHKERR(DMLabelClearValue(target_lbl, p, 0))
+                    CHKERR(DMLabelSetValue(target_lbl, p, stratum_val))
+            CHKERR(ISRestoreIndices(stratum_is, &stratum_pts))
+            CHKERR(ISDestroy(&stratum_is))
+
+    if tdim >= 2:
+        if not dm.hasLabel(VERTEX_SETS_LABEL):
+            dm.createLabel(VERTEX_SETS_LABEL)
+        CHKERR(DMGetLabel(dm.dm, b"Vertex Sets", &target_lbl))
+        CHKERR(DMPlexGetDepthStratum(dm.dm, 0, &pStart, &pEnd))
+        for i in range(nvals):
+            stratum_val = vals[i]
+            if stratum_val <= 0:
+                continue
+            CHKERR(DMLabelGetStratumSize(face_sets_lbl, stratum_val, &stratum_size))
+            if stratum_size == 0:
+                continue
+            CHKERR(DMLabelGetStratumIS(face_sets_lbl, stratum_val, &stratum_is))
+            CHKERR(ISGetIndices(stratum_is, &stratum_pts))
+            for j in range(stratum_size):
+                p = stratum_pts[j]
+                if pStart <= p < pEnd:
+                    CHKERR(DMLabelGetValue(target_lbl, p, &existing_val))
+                    if existing_val > 0:
+                        continue
+                    if existing_val == 0:
+                        CHKERR(DMLabelClearValue(target_lbl, p, 0))
+                    CHKERR(DMLabelSetValue(target_lbl, p, stratum_val))
+            CHKERR(ISRestoreIndices(stratum_is, &stratum_pts))
+            CHKERR(ISDestroy(&stratum_is))
+
+    free(vals)
+
+
 cdef PetscInt _max_label_value(PETSc.DM dm, label_name):
     """Return the maximum value in *label_name*, or -1 if absent/empty."""
     if not dm.hasLabel(label_name):
@@ -4039,29 +4067,34 @@ cdef void _label_new_exterior_facets(
 
 
 cdef void _propagate_parent_facet_labels(
-    PETSc.DM subdm,
+    PETSc.DM dm, PETSc.DM subdm,
     PetscInt subdim,
     const PetscInt *sub_ext_facet_indices,
     PetscInt sub_ext_facet_size,
     PetscInt subfStart, PetscInt subfEnd,
 ):
-    """Codimension-1 helper: populate "Face Sets" from the subdm's own
-    lower-dimensional labels.
+    """Codimension-1 helper: rebuild "Face Sets" purely from "Edge Sets"
+    (3D→2D) or "Vertex Sets" (2D→1D).
 
-    ``DMPlexFilter`` copies every label from the parent into the subdm,
-    including "Edge Sets" and "Vertex Sets".  Inherited "Face Sets"
-    values are preserved because removing and recreating the label
-    loses PETSc's internal parallel label-migration state, breaking
-    chained submesh operations (e.g. 3D → 2D → 1D).
+    ``DMPlexFilter`` copies every label from the parent into the subdm.
+    The inherited "Face Sets" mixes cell- and facet-level values from
+    the parent, so we clear every stratum with ``DMLabelClearStratum``
+    (preserving the label object) and rebuild only from the subdm's own
+    lower-dimensional labels.  ``DMPlexLabelComplete`` is called
+    afterwards to propagate values to closure entities and synchronise
+    ghost points via the point SF.
 
-    Only exterior facets that do *not* already have an inherited
-    "Face Sets" value are updated: they receive the subdm's own
-    "Edge Sets" (3D→2D) or "Vertex Sets" (2D→1D) value, or a fresh
-    default tag if none exists.
+    When no lower-dimensional source label exists, inherited "Face Sets"
+    values are preserved and only unlabeled exterior facets receive a
+    fresh default tag.
     """
     cdef:
-        PetscInt pStart, pEnd, next_label_val, label_val, existing_val, subf, i
+        PetscInt pStart, pEnd, next_label_val, label_val, existing_val
+        PetscInt subf, i, nvals, local_has
         DMLabel source_label, face_sets_label
+        PetscInt *stratum_vals_arr = NULL
+        PetscBool has_point
+        PETSc.DMLabel face_sets_py
 
     if subdim == 2:
         source_label_name = b"Edge Sets"
@@ -4070,40 +4103,67 @@ cdef void _propagate_parent_facet_labels(
     else:
         source_label_name = None
 
-    has_source = (source_label_name is not None
-                  and subdm.hasLabel(source_label_name))
+    # Determine has_source consistently across all ranks.
+    if source_label_name is not None and subdm.hasLabel(source_label_name):
+        local_has = 1 if _max_label_value(subdm, source_label_name) > 0 else 0
+    else:
+        local_has = 0
+    has_source = bool(dm.comm.tompi4py().allreduce(local_has, op=MPI.MAX))
 
     next_label_val = max(
-        _max_label_value(subdm, source_label_name) if has_source else -1,
+        _max_label_value(dm, source_label_name)
+        if (source_label_name is not None and dm.hasLabel(source_label_name))
+        else -1,
         _max_label_value(subdm, FACE_SETS_LABEL),
     ) + 1
-    next_label_val = subdm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
+    next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
 
     if not subdm.hasLabel(FACE_SETS_LABEL):
         subdm.createLabel(FACE_SETS_LABEL)
     CHKERR(DMGetLabel(subdm.dm, b"Face Sets", &face_sets_label))
 
     if has_source:
-        CHKERR(DMGetLabel(subdm.dm, <const char *>source_label_name, &source_label))
-        pStart, pEnd = subdm.getChart()
-        CHKERR(DMLabelCreateIndex(source_label, pStart, pEnd))
+        # --- Clear + rebuild path ---
+        CHKERR(DMLabelGetNumValues(face_sets_label, &nvals))
+        if nvals > 0:
+            stratum_vals_arr = <PetscInt *>malloc(nvals * sizeof(PetscInt))
+            with subdm.getLabelIdIS(FACE_SETS_LABEL) as ids:
+                for i in range(nvals):
+                    stratum_vals_arr[i] = ids[i]
+            for i in range(nvals):
+                CHKERR(DMLabelClearStratum(face_sets_label, stratum_vals_arr[i]))
+            free(stratum_vals_arr)
 
-    for i in range(sub_ext_facet_size):
-        subf = sub_ext_facet_indices[i]
-        if subfStart <= subf < subfEnd:
-            CHKERR(DMLabelGetValue(face_sets_label, subf, &existing_val))
-            if existing_val >= 0:
-                continue
-            label_val = -1
-            if has_source:
-                CHKERR(DMLabelGetValue(source_label, subf, &label_val))
-            if label_val >= 0:
-                CHKERR(DMLabelSetValue(face_sets_label, subf, label_val))
-            else:
-                CHKERR(DMSetLabelValue(subdm.dm, b"Face Sets", subf, next_label_val))
+        if subdm.hasLabel(source_label_name):
+            CHKERR(DMGetLabel(subdm.dm, <const char *>source_label_name,
+                              &source_label))
+            pStart, pEnd = subdm.getChart()
+            CHKERR(DMLabelCreateIndex(source_label, pStart, pEnd))
+            for subf in range(subfStart, subfEnd):
+                CHKERR(DMLabelHasPoint(source_label, subf, &has_point))
+                if has_point:
+                    CHKERR(DMLabelGetValue(source_label, subf, &label_val))
+                    if label_val > 0:
+                        CHKERR(DMLabelSetValue(face_sets_label, subf, label_val))
+            CHKERR(DMLabelDestroyIndex(source_label))
 
-    if has_source:
-        CHKERR(DMLabelDestroyIndex(source_label))
+        for i in range(sub_ext_facet_size):
+            subf = sub_ext_facet_indices[i]
+            if subfStart <= subf < subfEnd:
+                CHKERR(DMLabelGetValue(face_sets_label, subf, &label_val))
+                if label_val < 0:
+                    CHKERR(DMLabelSetValue(face_sets_label, subf, next_label_val))
+
+        face_sets_py = subdm.getLabel(FACE_SETS_LABEL)
+        CHKERR(DMPlexLabelComplete(subdm.dm, face_sets_py.dmlabel))
+    else:
+        # --- Preserve inherited path ---
+        for i in range(sub_ext_facet_size):
+            subf = sub_ext_facet_indices[i]
+            if subfStart <= subf < subfEnd:
+                CHKERR(DMLabelGetValue(face_sets_label, subf, &existing_val))
+                if existing_val < 0:
+                    CHKERR(DMLabelSetValue(face_sets_label, subf, next_label_val))
 
 
 @cython.boundscheck(False)
@@ -4157,7 +4217,7 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
         CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     elif subdim == dim - 1:
         _propagate_parent_facet_labels(
-            subdm, subdim,
+            dm, subdm, subdim,
             sub_ext_facet_indices, sub_ext_facet_size,
             subfStart, subfEnd)
 
