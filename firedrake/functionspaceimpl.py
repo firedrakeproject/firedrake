@@ -154,7 +154,7 @@ class WithGeometryBase:
         r"""Split into a tuple of constituent spaces."""
         if isinstance(self.topological, MixedFunctionSpace):
             return tuple(
-                type(self).create(subspace, mesh, parent=self)
+                type(self)(subspace, mesh, parent=self)
                 for mesh, subspace in zip(self.mesh(), self.topological.subspaces, strict=True)
             )
         else:
@@ -176,7 +176,7 @@ class WithGeometryBase:
 
     @cached_property
     def _components(self):
-        return tuple(type(self).create(self.topological.sub(i), self.mesh(), parent=self)
+        return tuple(type(self)(self.topological.sub(i), self.mesh(), parent=self)
                      for i in range(self.block_size))
 
     @PETSc.Log.EventDecorator()
@@ -350,7 +350,7 @@ class WithGeometryBase:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     def collapse(self):
-        return type(self).create(self.topological.collapse(), self.mesh())
+        return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
     def make_function_space(cls, mesh, element, name=None):
