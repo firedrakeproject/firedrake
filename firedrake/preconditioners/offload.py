@@ -1,23 +1,19 @@
 from firedrake.preconditioners.assembled import AssembledPC
 from firedrake.petsc import PETSc
+from firedrake.utils import device_matrix_type
 from functools import cache
 import warnings
 
-import petsctools
 import firedrake.dmhooks as dmhooks
 
 __all__ = ("OffloadPC",)
 
 
-device_mat_type_map = {"cuda": "aijcusparse"}
-
 
 @cache
 def offload_mat_type(pc_comm_rank) -> str | None:
-    for device, mat_type in device_mat_type_map.items():
-        if device in petsctools.get_external_packages():
-            break
-    else:
+    mat_type = device_matrix_type()
+    if mat_type is None:
         if pc_comm_rank == 0:
             warnings.warn(
                 "This installation of Firedrake is not GPU-enabled, therefore OffloadPC"
@@ -35,12 +31,10 @@ def offload_mat_type(pc_comm_rank) -> str | None:
             )
         return None
     if dev.getDeviceType() == "HOST":
-        if pc_comm_rank == 0:
-            warnings.warn(
-                "A GPU-enabled Firedrake build has been detected, but a GPU device was"
-                "unable to be initialised. OffloadPC will do nothing."
-            )
-        return None
+        raise RuntimeError(
+            "A GPU-enabled Firedrake build has been detected, and GPU hardware has been"
+            "detected but a GPU device was unable to be initialised."
+        )
     dev.destroy()
     return mat_type
 
