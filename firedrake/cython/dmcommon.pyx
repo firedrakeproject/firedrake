@@ -4066,7 +4066,7 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
       were interior in the parent) are tagged with ``max("Face Sets") + 1``.
     * **Codimension-1** (``subdim == dim - 1``): the parent's lower-dimensional
       labels ("Edge Sets" for 3D, "Vertex Sets" for 2D) are mapped into
-      "Face Sets" on the subdm.  Unlabeled facets get a default value.
+      "Face Sets" on the subdm.  Unlabeled facets get a default value of ``max(label) + 1``.
 
     """
     cdef:
