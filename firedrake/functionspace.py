@@ -313,7 +313,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
-    return cls.create(new, mixed_mesh_geometry)
+    return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")

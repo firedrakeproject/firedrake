@@ -378,7 +378,7 @@ class WithGeometryBase:
         # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
-            new = cls.create(new, mesh)
+            new = cls(new, mesh)
         return new
 
     def broken_space(self):

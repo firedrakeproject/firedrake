@@ -1416,7 +1416,7 @@ class CheckpointFile(object):
             element = self._load_ufl_element(path, PREFIX + "_ufl_element")
             tV = self._load_function_space_topology(tmesh, element)
             # Construct function space
-            V = impl.WithGeometry.create(tV, mesh)
+            V = impl.WithGeometry(tV, mesh)
         else:
             raise RuntimeError(f"""
                 FunctionSpace ({name}) not found in either of the following path in {self.filename}:
