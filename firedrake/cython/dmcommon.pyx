@@ -3990,9 +3990,17 @@ cdef void _propagate_parent_facet_labels(
     """Codimension-1 helper: map the parent's lower-dimensional label into "Face Sets".
 
     For a 3D→2D submesh the parent's "Edge Sets" are propagated; for 2D→1D
-    the parent's "Vertex Sets" are used.  Exterior facets that already carry
-    an inherited "Face Sets" value (from ``DMPlexFilter``) are left alone;
-    the remaining ones receive the parent label value or a default tag.
+    the parent's "Vertex Sets" are used.
+
+    ``DMPlexFilter`` copies every label from the parent into the subdm.
+    In particular, the inherited "Face Sets" already carries useful
+    facet-level boundary information (from ``complete_facet_labels`` /
+    ``DMPlexLabelComplete`` on the parent).  We preserve those inherited
+    values because they are required by downstream code (e.g. a subsequent
+    ``Submesh`` call that selects by "Face Sets" value).  Only exterior
+    facets that do *not* already have an inherited "Face Sets" value are
+    updated: they receive the parent's lower-dimensional label value, or a
+    fresh default tag if none exists.
     """
     cdef:
         PetscInt pStart, pEnd, next_label_val, label_val, existing_val, subf, f, i
@@ -4014,9 +4022,6 @@ cdef void _propagate_parent_facet_labels(
     ) + 1
     next_label_val = dm.comm.tompi4py().allreduce(next_label_val, op=MPI.MAX)
 
-    # Ensure "Face Sets" exists but keep any values inherited from DMPlexFilter
-    # (e.g. mark_entities labels all closure entities, so boundary edges of a
-    # codim-1 submesh may already carry the correct tags).
     if not subdm.hasLabel(FACE_SETS_LABEL):
         subdm.createLabel(FACE_SETS_LABEL)
     CHKERR(DMGetLabel(subdm.dm, b"Face Sets", &face_sets_label))
@@ -4028,7 +4033,6 @@ cdef void _propagate_parent_facet_labels(
     for i in range(sub_ext_facet_size):
         subf = sub_ext_facet_indices[i]
         if subfStart <= subf < subfEnd:
-            # Skip facets that already have an inherited "Face Sets" value.
             CHKERR(DMLabelGetValue(face_sets_label, subf, &existing_val))
             if existing_val >= 0:
                 continue
