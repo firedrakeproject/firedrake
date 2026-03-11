@@ -2948,7 +2948,7 @@ values from f.)"""
         if self.comm.rank == 0:
             max_refs = int(mark_np.max())
             for _ in range(max_refs):
-                netgen_cells = netgen_mesh.Elements2D() if dim == 2 else netgen_mesh.Elements3D()
+                netgen_cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
                 netgen_cells.NumPy()["refine"][:mark_np.size] = mark_np > 0
                 if not refine_faces and dim == 3:
                     netgen_mesh.Elements2D().NumPy()["refine"] = 0
@@ -2981,12 +2981,13 @@ values from f.)"""
 
         from firedrake.netgen import find_permutation
 
+        netgen_mesh = self.netgen_mesh
         # Check if the mesh is a surface mesh or two dimensional mesh
-        if len(self.netgen_mesh.Elements3D()) == 0:
-            ng_element = self.netgen_mesh.Elements2D
+        if len(netgen_mesh.Elements3D()) == 0:
+            ng_element = netgen_mesh.Elements2D()
         else:
-            ng_element = self.netgen_mesh.Elements3D
-        ng_dimension = len(ng_element())
+            ng_element = netgen_mesh.Elements3D()
+        ng_dimension = len(ng_element)
         geom_dim = self.geometric_dimension
 
         # Construct the mesh as a Firedrake function
@@ -3020,11 +3021,11 @@ values from f.)"""
             curved_space_points = np.zeros(
                 (ng_dimension, reference_space_points.shape[0], geom_dim)
             )
-            self.netgen_mesh.CalcElementMapping(reference_space_points, physical_space_points)
-            # NOTE: This will segfault!
-            self.netgen_mesh.Curve(order)
-            self.netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
-            curved = ng_element().NumPy()["curved"]
+            netgen_mesh.CalcElementMapping(reference_space_points, physical_space_points)
+            # NOTE: This will do nothing for OCC or segfault for CSG!
+            netgen_mesh.Curve(order)
+            netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
+            curved = ng_element.NumPy()["curved"]
             # Broadcast a boolean array identifying curved cells
             curved = self.comm.bcast(curved, root=0)
             physical_space_points = physical_space_points[curved]
@@ -3041,13 +3042,13 @@ values from f.)"""
             )
 
         # Broadcast curved cell point data
-        self.comm.Bcast(physical_space_points, root=0)
-        self.comm.Bcast(curved_space_points, root=0)
+        physical_space_points = self.comm.bcast(physical_space_points, root=0)
+        curved_space_points = self.comm.bcast(curved_space_points, root=0)
         cell_node_map = new_coordinates.cell_node_map()
 
         # Select only the points in curved cells
         barycentres = np.average(physical_space_points, axis=1)
-        ng_index = [*map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres)]
+        ng_index = list(map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres))
 
         # Select only the indices of points owned by this rank
         owned = [(0 <= ii < len(cell_node_map.values)) if ii is not None else False for ii in ng_index]

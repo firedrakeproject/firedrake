@@ -3,12 +3,20 @@ import pytest
 from firedrake import *
 
 
-def create_netgen_mesh_circle():
-    from netgen.geom2d import Circle, CSG2d
-    geo = CSG2d()
-
-    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
-    geo.Add(circle)
+@pytest.fixture(params=["occ"])
+def circle_geometry(request):
+    backend = request.param
+    if backend == "occ":
+        from netgen.occ import Circle, OCCGeometry
+        circle = Circle((0, 0), 1.0).Face()
+        geo = OCCGeometry(circle, dim=2)
+    elif backend == "csg":
+        from netgen.geom2d import Circle, CSG2d
+        circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
+        geo = CSG2d()
+        geo.Add(circle)
+    else:
+        raise ValueError(f"Unexpected backend {backend}")
 
     ngmesh = geo.GenerateMesh(maxh=0.75)
     return ngmesh
@@ -17,9 +25,9 @@ def create_netgen_mesh_circle():
 @pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-def test_netgen_mg_circle():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
+def test_netgen_mg_circle(circle_geometry):
+    mesh = Mesh(circle_geometry)
+    ngmesh = mesh.netgen_mesh
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
     for m in nh:
@@ -49,9 +57,9 @@ def test_netgen_mg_circle():
 @pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-def test_netgen_mg_circle_non_uniform_degree():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
+def test_netgen_mg_circle_non_uniform_degree(circle_geometry):
+    mesh = Mesh(circle_geometry)
+    ngmesh = mesh.netgen_mesh
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": [1, 2, 3]})
     mesh = nh[-1]
 
@@ -80,9 +88,9 @@ def test_netgen_mg_circle_non_uniform_degree():
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
 @pytest.mark.parallel
-def test_netgen_mg_circle_parallel():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
+def test_netgen_mg_circle_parallel(circle_geometry):
+    mesh = Mesh(circle_geometry)
+    ngmehs = mesh.netgen_mesh
     nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
     mesh = nh[-1]
 
