@@ -543,6 +543,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
         self.submesh_parent = submesh_parent
+        self.sfBC_orig = None
         # User comm
         self.user_comm = comm
         dmcommon.label_facets(self.topology_dm)
@@ -1145,6 +1146,7 @@ class MeshTopology(AbstractMeshTopology):
             sfBC = plex.distribute(overlap=0)
             plex.setName(original_name)
             self.sfBC = sfBC
+            self.sfBC_orig = sfBC
             # plex carries a new dm after distribute, which
             # does not inherit partitioner from the old dm.
             # It probably makes sense as chaco does not work
@@ -2928,7 +2930,6 @@ values from f.)"""
 
         if netgen_flags is None:
             netgen_flags = self.netgen_flags
-        DistParams = self._distribution_parameters
         netgen_mesh = self.netgen_mesh.Copy()
         els = {2: netgen_mesh.Elements2D, 3: netgen_mesh.Elements3D}
         dim = self.geometric_dimension
@@ -2937,30 +2938,28 @@ values from f.)"""
             with mark.dat.vec as marked:
                 marked0 = marked
                 getIdx = self._cell_numbering.getOffset
-                if self.sfBC is not None:
-                    sfBCInv = self.sfBC.createInverse()
+                sf = self.sfBC_orig
+                if sf is not None:
+                    sfBCInv = sf.createInverse()
                     getIdx = lambda x: x
                     _, marked0 = self.topology_dm.distributeField(sfBCInv,
                                                                   self._cell_numbering,
                                                                   marked)
-                if self.comm.Get_rank() == 0:
+                if self.comm.rank == 0:
                     mark = marked0.getArray()
-                    max_refs = np.max(mark)
-                    for _ in range(int(max_refs)):
+                    max_refs = int(np.max(mark))
+                    for _ in range(max_refs):
                         for i, el in enumerate(els[dim]()):
-                            if mark[getIdx(i)] > 0:
-                                el.refine = True
-                            else:
-                                el.refine = False
+                            el.refine = mark[getIdx(i)] > 0
                         if not refine_faces and dim == 3:
                             netgen_mesh.Elements2D().NumPy()["refine"] = 0
                         netgen_mesh.Refine(adaptive=True)
-                        mark = mark-np.ones(mark.shape)
-                    return fd.Mesh(netgen_mesh, distribution_parameters=DistParams,
-                                   netgen_flags=netgen_flags, comm=self.comm)
-                return fd.Mesh(netgen.libngpy._meshing.Mesh(dim),
-                               distribution_parameters=DistParams,
-                               netgen_flags=netgen_flags, comm=self.comm)
+                        mark -= 1
+
+                return fd.Mesh(netgen_mesh,
+                               reorder=self._did_reordering,
+                               distribution_parameters=self._distribution_parameters,
+                               comm=self.comm)
         else:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
 
@@ -3374,22 +3373,22 @@ def Mesh(meshfile, **kwargs):
         if degree != 1:
             permutation_tol = netgen_flags.get("permutation_tol", 1e-8)
             cg = netgen_flags.get("cg", False)
-            ho_field = mesh.curve_field(
+            coordinates = mesh.curve_field(
                 order=degree,
                 permutation_tol=permutation_tol,
-                cg_field=cg
+                cg_field=cg,
             )
             # Do not redistribute the mesh
-            distribution_parameters_noop = {"partition": False,
-                                            "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
             reorder_noop = None
-            temp = Mesh(ho_field,
+            temp = Mesh(coordinates,
                         reorder=reorder_noop,
-                        distribution_parameters=distribution_parameters_noop,
+                        perm_is=mesh._dm_renumbering,
+                        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
                         comm=mesh.comm)
             temp.netgen_mesh = mesh.netgen_mesh
             temp.netgen_flags = netgen_flags
             temp._distribution_parameters = mesh._distribution_parameters
+            temp._did_reordering = mesh._did_reordering
             mesh = temp
 
     mesh.submesh_parent = submesh_parent
