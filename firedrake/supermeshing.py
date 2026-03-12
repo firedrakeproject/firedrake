@@ -213,9 +213,12 @@ each supermesh cell.
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
 
-    evaluate_kernel_A = compile_element(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()), name="evaluate_kernel_A")
-    evaluate_kernel_B = compile_element(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()), name="evaluate_kernel_B")
-    evaluate_kernel_S = compile_element(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()), name="evaluate_kernel_S")
+    interp_A = ufl.Interpolate(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()))
+    interp_B = ufl.Interpolate(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()))
+    interp_S = ufl.Interpolate(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()))
+    evaluate_kernel_A = compile_element(interp_A, name="evaluate_kernel_A")
+    evaluate_kernel_B = compile_element(interp_B, name="evaluate_kernel_B")
+    evaluate_kernel_S = compile_element(interp_S, name="evaluate_kernel_S")
 
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
