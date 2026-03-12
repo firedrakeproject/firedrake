@@ -2163,7 +2163,7 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
                         dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+1, 1]
 
             else:
-                assert vert_unit_periodic:
+                assert vert_unit_periodic
                 cell_height = L[1]
 
                 for c in range(cStart, cEnd):
