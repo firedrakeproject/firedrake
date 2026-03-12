@@ -505,12 +505,13 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
     domain = extract_unique_domain(coefficient)
-    integral_type = domain_integral_type_map[domain]
-    if integral_type is None:
+    try:
+        integral_type = domain_integral_type_map[domain]
+    except KeyError:
         # This means that this coefficient does not exist in the DAG,
         # so corresponding gem expression will never be needed.
-        expression = None
-    elif integral_type.startswith("interior_facet"):
+        return None
+    if integral_type.startswith("interior_facet"):
         varexp = gem.Variable(name, (2 * size,))
         plus = gem.view(varexp, slice(size))
         minus = gem.view(varexp, slice(size, 2 * size))
