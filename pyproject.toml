@@ -23,7 +23,7 @@ dependencies = [
   # TODO RELEASE
   "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@release",
   # TODO RELEASE
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@release",
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/subelement",
   "h5py>3.12.1",
   "immutabledict",
   "libsupermesh",
