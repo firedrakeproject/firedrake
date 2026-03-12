@@ -3712,7 +3712,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
     swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
-        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
+        mesh, vertexcoords, tolerance=tolerance, redundant=redundant
     )
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
@@ -3798,7 +3798,6 @@ def _pic_swarm_in_mesh(
     fields=None,
     tolerance=None,
     redundant=True,
-    exclude_halos=True,
 ):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
@@ -3831,10 +3830,6 @@ def _pic_swarm_in_mesh(
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
-    :kwarg exclude_halos: If True, the DMSwarm will not contain any points in
-        the mesh halos. If False, it will but the global index of the points
-        in the halos will match a global index of a point which is not in the
-        halo.
     :returns: (swarm, input_ordering_swarm, n_missing_points)
         - swarm: the immersed DMSwarm
         - input_ordering_swarm: a DMSwarm with points in the same order and with the
@@ -3935,7 +3930,6 @@ def _pic_swarm_in_mesh(
         coords,
         tolerance,
         redundant,
-        exclude_halos,
         remove_missing_points=False,
     )
     visible_idxs = parent_cell_nums_local != -1
@@ -4298,7 +4292,7 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
 
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
-    parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
+    parent_mesh, coords, tolerance, redundant, remove_missing_points
 ):
     """Find the parent mesh cells containing the given coordinates.
 
@@ -4320,9 +4314,6 @@ def _parent_mesh_embedding(
     redundant : ``bool``
         If True, the embedding will be done using only the points specified on
         MPI rank 0.
-    exclude_halos : ``bool``
-        If True, the embedding will be done using only the points specified on
-        the locally owned mesh partition.
     remove_missing_points : ``bool``
         If True, any points which are not found in the mesh will be removed
         from the output arrays. If False, they will be kept on the MPI rank
@@ -4362,14 +4353,6 @@ def _parent_mesh_embedding(
     missing_global_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
         embedded on any rank.
-
-    .. note::
-        Where we have ``exclude_halos == True`` and ``remove_missing_points ==
-        False``, and we run in parallel, the points are ordered such that the
-        halo points follow the owned points. Any missing points will be at the
-        end of the array. This is to ensure that dat views work as expected -
-        in general it is always assumed that halo points follow owned points.
-
     """
 
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
@@ -4562,14 +4545,6 @@ def _parent_mesh_embedding(
         parent_cell_nums[missing_coords_idxs_on_rank] = -1
         reference_coords[missing_coords_idxs_on_rank, :] = np.nan
         owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
-
-    with PETSc.Log.Event("pm_embed_exclude_halos_parallel"):
-        if exclude_halos and parent_mesh.comm.size > 1:
-            off_rank_coords_idxs = np.where(
-                (owned_ranks != parent_mesh.comm.rank)
-                & (owned_ranks != parent_mesh.comm.size + 1)
-            )[0]
-            locally_visible[off_rank_coords_idxs] = False
 
     with PETSc.Log.Event("pm_embed_compress_arrays"):
         coords_embedded = np.compress(locally_visible, coords_global, axis=0)
