@@ -8,6 +8,7 @@ cdef extern from "mpi-compat.h":
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
+    ctypedef int PetscMPIInt
     ctypedef double PetscReal
     ctypedef double PetscScalar
     ctypedef enum PetscBool:
@@ -32,6 +33,17 @@ cdef extern from "petscsys.h" nogil:
     PetscErrorCode PetscFree(void*)
     PetscErrorCode PetscFree2(void*,void*)
     PetscErrorCode PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
+    PetscErrorCode PetscCommBuildTwoSided(
+        MPI.MPI_Comm comm,
+        PetscMPIInt count,
+        MPI.MPI_Datatype dtype,
+        PetscMPIInt nto,
+        const PetscMPIInt *toranks,
+        const void *todata,
+        PetscMPIInt *nfrom,
+        PetscMPIInt **fromranks,
+        void *fromdata
+    ) 
 
 cdef extern from "petscdmtypes.h" nogil:
     ctypedef enum PetscDMPolytopeType "DMPolytopeType":
