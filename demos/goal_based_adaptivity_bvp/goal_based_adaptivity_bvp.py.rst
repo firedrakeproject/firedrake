@@ -10,8 +10,8 @@ Goal-based adaptivity for stationary boundary value problems
     adjoint equation, residual formulation, etc. In this demo we show how the DWR method
     can be automatically implemented in Firedrake for stationary boundary value problems.
 
-    The demo was contributed by `Patrick Farrell
-    <mailto:patrick.farrell@maths.ox.ac.uk>`__, based on the MSc project of Joseph Flood.
+    The demo was contributed by `Patrick Farrell <mailto:patrick.farrell@maths.ox.ac.uk>`__, based on the MSc project of
+    `Joseph Flood <mailto:josephdflood01@gmail.com>`__.
 
 The dual-weighted residual (DWR) method :cite:`Becker2001` is a technique for designing global and local error estimators for the error in a goal functional :math:`J(u)`. While implementing DWR by hand involves substantial expertise, the high-level symbolic UFL representation of the problem to solve permits the *automation* of DWR :cite:`Rognes2010`.
 
@@ -65,9 +65,10 @@ To apply goal-based adaptivity, we need a goal functional. For this we will empl
 
 We now specify options for how the goal-based adaptivity should proceed. We choose to use an expensive/robust approach,
 where the adjoint solution is approximated in a higher-degree function space, and where both the adjoint and primal residuals
-are employed for the error estimate. This tends to give better error estimates, but requires four solves on every grid (primal
-and adjoint solutions with degree :math:`p` and :math:`p+1`). It is possible to employ cheaper approximations by setting
-the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver` appropriately. ::
+are employed for the error estimate. This requires four solves on every grid (primal and adjoint solutions with degree :math:`p`
+and :math:`p+1`), and gives a provably efficient and reliable error estimator under a saturation assumption up to a term that is cubic in the error :cite:`Endtmayer2024`.
+It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver`
+appropriately. ::
 
     dwr_parameters = {
         "max_iterations": 40,
