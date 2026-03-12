@@ -404,3 +404,29 @@ def test_firedrake_Adaptivity_netgen_parallel():
         dofs.append(uh.function_space().dim())
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
+
+
+def test_netgen_manifold():
+    from netgen.meshing import MeshingStep
+    from netgen.occ import Pnt, SplineApproximation, Face, Wire, Axis, OCCGeometry, X, Z, Circle
+    # Ellipsoid with center (0,R,0) with Y-radius a, Z-radius b
+    R = 3.0
+    a = 1.5
+    b = 1.6
+
+    def Curve(t):
+        return Pnt(0, R+a*np.cos(t), b*np.sin(t))
+
+    n = 100
+    pnts = [Curve(2*np.pi*t/n) for t in range(n+1)]
+
+    spline = SplineApproximation(pnts)
+    f = Face(Wire(spline))
+
+    torus = f.Revolve(Axis((0,0,0), Z), 360)
+    geo = OCCGeometry(torus, dim=3)
+    ngmesh = geo.GenerateMesh(maxh=0.5, perfstepsend=MeshingStep.MESHSURFACE)
+    mesh = Mesh(ngmesh)
+
+    assert mesh.topological_dimension == 2
+    assert mesh.geometric_dimension == 3

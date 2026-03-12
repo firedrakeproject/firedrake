@@ -260,16 +260,16 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     # Firedrake quantities
     meshes = []
     lgmaps = []
-    if distribution_parameters is None:
-        distribution_parameters = mesh._distribution_parameters
-    else:
-        distribution_parameters.update(mesh._distribution_parameters)
     # Curve the mesh
     if mesh.coordinates.function_space().ufl_element().degree() != order[0]:
-        mesh = curved_mesh(mesh,
-                           order=order[0],
-                           cg_field=cg,
-                           permutation_tol=permutation_tol)
+        coordinates = mesh.curve_field(
+                order=order[0],
+                location_tol=location_tol,
+                permutation_tol=permutation_tol,
+                cg_field=cg,
+        )
+        mesh = reconstruct_mesh(mesh, coordinates)
+
     # Make a plex (cdm) without overlap.
     dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
@@ -280,6 +280,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     no = impl.create_lgmap(cdm)
     o = impl.create_lgmap(mesh.topology_dm)
     lgmaps.append((no, o))
+
     mesh.topology_dm.setRefineLevel(0)
     ngmesh = mesh.netgen_mesh
     meshes.append(mesh)
@@ -304,14 +305,17 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
             snapToNetgenDMPlex(ngmesh, rdm, comm)
 
         # We construct a Firedrake mesh from the DMPlex mesh
-        no = impl.create_lgmap(rdm)
-        mesh = fd.Mesh(rdm, dim=meshes[0].geometric_dimension,
-                       reorder=False,
-                       distribution_parameters=distribution_parameters,
-                       comm=comm)
+        parameters = {}
+        if distribution_parameters is not None:
+            parameters.update(distribution_parameters)
+        else:
+            parameters.update(mesh._distribution_parameters)
+        parameters["partition"] = False
+        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension, distribution_parameters=parameters)
         mesh.netgen_mesh = ngmesh
         mesh.netgen_flags = flags
 
+        no = impl.create_lgmap(rdm)
         o = impl.create_lgmap(mesh.topology_dm)
         lgmaps.append((no, o))
 
@@ -320,16 +324,15 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
             logger.info("\t\t\tCurving the mesh ...")
             tic = time.time()
             if snap == "geometry":
-                mesh = curved_mesh(mesh,
+                coordinates = mesh.curve_field(
                     order=order[l+1],
                     location_tol=location_tol,
                     permutation_tol=permutation_tol,
                     cg_field=cg,
                 )
+                mesh = reconstruct_mesh(mesh, coordinates)
             elif snap == "coarse":
-                mesh = snapToCoarse(meshes[l].coordinates, mesh, order[l+1], snap_smoothing, cg)
-                mesh.netgen_mesh = ngmesh
-                mesh.netgen_flags = flags
+                mesh = snapToCoarse(meshes[0].coordinates, mesh, order[l+1], snap_smoothing, cg)
 
             toc = time.time()
             logger.info(f"\t\t\tMeshed curved. Time taken: {toc-tic}")
@@ -344,14 +347,18 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1, nested=nested)
 
 
-def curved_mesh(mesh, **kwargs):
-    coordinates = mesh.curve_field(**kwargs)
-    temp = fd.Mesh(coordinates, reorder=False,
-                   perm_is=mesh._dm_renumbering,
-                   distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-                   comm=mesh.comm)
-    temp._distribution_parameters = mesh._distribution_parameters
-    temp._did_reordering = mesh._did_reordering
-    temp.netgen_mesh = mesh.netgen_mesh
-    temp._tolerance = mesh.tolerance
-    return temp
+def reconstruct_mesh(mesh, *args, **kwargs):
+    """Reconstruct a mesh."""
+    kwargs.setdefault("dim", mesh.geometric_dimension)
+    kwargs.setdefault("reorder", False)
+    kwargs.setdefault("distribution_parameters", DISTRIBUTION_PARAMETERS_NOOP)
+    kwargs.setdefault("comm", mesh.comm)
+    kwargs.setdefault("tolerance", mesh.tolerance)
+    kwargs.setdefault("perm_is", mesh._dm_renumbering)
+
+    tmesh = fd.Mesh(*args, **kwargs)
+    tmesh._distribution_parameters = mesh._distribution_parameters
+    tmesh._did_reordering = mesh._did_reordering
+    tmesh.netgen_mesh = mesh.netgen_mesh
+    tmesh.netgen_flags = mesh.netgen_flags
+    return tmesh
