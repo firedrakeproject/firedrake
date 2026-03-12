@@ -1638,7 +1638,17 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
     def _(self, dat: expr_types.Dat, /) -> expr_types.Dat:
         relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
         if dat.transform is not None:
-            relabeled_transform = dat.transform.__record_init__(_prev=self(dat.transform.prev))
+            if isinstance(dat.transform, ReshapeTensorTransform):
+                relabeled_axis_trees = tuple(
+                    canonicalize_axis_labels(tree, self._relabeler) for tree in dat.transform.axis_trees
+                )
+                if dat.transform.prev is not None:
+                    relabeled_prev = self(dat.transform.prev)
+                else:
+                    relabeled_prev = None
+                relabeled_transform = dat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+            else:
+                raise NotImplementedError
         else:
             relabeled_transform = None
         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)

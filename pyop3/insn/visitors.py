@@ -848,6 +848,9 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
         return (type(buffer), buffer.dtype, self._buffer_arg_counter[buffer], type(buffer.handle))
 
 
+# TODO: This cache key is slightly too restrictive. For instance an axis tree and
+# indexed axis tree can be used identically in places (the output code is unchanged
+# and you'd get the same result) but currently these hash differently.
 def get_instruction_executor_cache_key(insn: insn_types.Instruction) -> Hashable:
     return InstructionExecutorCacheKeyGetter()(insn)
 

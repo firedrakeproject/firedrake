@@ -473,8 +473,6 @@ class AxisVar(TerminalExpression):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        if self.axis.label == "_label_Axis_1":
-            breakpoint()
         pass
 
     # }}}
@@ -587,7 +585,7 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     for loop_var in collect_loop_index_vars(expr):
         axis = loop_var.axis
         new_axis_label = f"{axis.label}_{loop_var.loop_index.id}"
-        new_axis = axis.__record_init__(label=new_axis_label)
+        new_axis = axis.__record_init__(_label=new_axis_label)
         axes.append(new_axis)
         loop_var_replace_map[loop_var] = AxisVar(new_axis)
     return (AxisTree.from_iterable(axes), loop_var_replace_map)

@@ -1465,10 +1465,7 @@ class IndexedAxisTree(AbstractAxisTree):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        # Eagerly evaluate some attributes to make profiles easier to understand
-        # infinite recursion...
-        # self.subst_layouts()
-        pass
+        self.targets
 
     # }}}
 
@@ -1680,8 +1677,12 @@ class IndexedAxisTree(AbstractAxisTree):
 
 
 # TODO: Choose a suitable base class
+@pyop3.record.frozenrecord()
 class UnitIndexedAxisTree(DistributedObject):
     """An indexed axis tree representing something indexed down to a scalar."""
+    unindexed: AxisTree
+    _targets: Any
+
     def __init__(
         self,
         unindexed,  # allowed to be None
@@ -1711,8 +1712,13 @@ class UnitIndexedAxisTree(DistributedObject):
             assert isinstance(vs, tuple)
             assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
 
-        self.unindexed = unindexed
-        self._targets = targets
+        object.__setattr__(self, "unindexed", unindexed)
+        object.__setattr__(self, "_targets", targets)
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        # debugging
+        self.targets
 
     def __contains__(self, node) -> bool:
         return False

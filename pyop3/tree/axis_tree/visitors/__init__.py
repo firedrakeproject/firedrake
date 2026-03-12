@@ -185,12 +185,22 @@ def _(axis_tree: op3_tree.AxisTree, relabeler: Renamer) -> AxisTree:
 
 @canonicalize_labels.register(op3_tree.IndexedAxisTree)
 def _(axes: op3_tree.IndexedAxisTree, relabeler):
-    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
-
     node_map = LabelCanonicalizer(relabeler)(axes)
     unindexed = canonicalize_labels(axes.unindexed, relabeler)
-    targets = {}
-    for path, axis_targetss in axes.targets.items():
+    targets = _canonicalize_target_labels(axes.targets, relabeler)
+    return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
+
+@canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
+def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+    unindexed = canonicalize_labels(axes.unindexed, relabeler)
+    targets = _canonicalize_target_labels(axes.targets, relabeler)
+    return axes.__record_init__(unindexed=unindexed, _targets=targets)
+
+def _canonicalize_target_labels(targets, relabeler):
+    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
+
+    relabeled_targets = {}
+    for path, axis_targetss in targets.items():
         relabeled_path = idict({
             relabeler[axis_label]: component_label
             for axis_label, component_label in path.items()
@@ -199,13 +209,12 @@ def _(axes: op3_tree.IndexedAxisTree, relabeler):
         for axis_targets in axis_targetss:
              relabeled_axis_targetss.append(
                 tuple(
-                    axis_target.__record_init__(axis=relabeler[axis_target.axis], expr=relabel_expr(axis_target.expr, relabeler))
+                    axis_target.__record_init__(axis=relabeler.add(axis_target.axis, "axis"), expr=relabel_expr(axis_target.expr, relabeler))
                     for axis_target in axis_targets
                 )
             )
-        targets[relabeled_path] = tuple(relabeled_axis_targetss)
-    targets = idict(targets)
-    return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
+        relabeled_targets[relabeled_path] = tuple(relabeled_axis_targetss)
+    return idict(relabeled_targets)
 
 
 @canonicalize_labels.register(op3_tree.Axis)
