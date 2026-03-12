@@ -385,10 +385,13 @@ class Ensemble:
         if synchronise:
             self.global_comm.Barrier()
 
+        # make sure we have unique tags for each message
+        tag_offset = len(kwargs.items()) + 10
+
         if not first_rank:
             src = rank - 1
             for i, (k, v) in enumerate(kwargs.items()):
-                recv_kwargs = {'source': src, 'tag': rank+i*100}
+                recv_kwargs = {'source': src, 'tag': tag_offset*rank+i}
                 if isinstance(v, (Function, Cofunction)):
                     self.recv(kwargs[k], **recv_kwargs)
                 else:
@@ -402,7 +405,7 @@ class Ensemble:
             dst = rank + 1
             for i, v in enumerate((getattr(ctx, k)
                                    for k in kwargs.keys())):
-                send_kwargs = {'dest': dst, 'tag': dst+i*100}
+                send_kwargs = {'dest': dst, 'tag': tag_offset*dst+i}
                 if isinstance(v, (Function, Cofunction)):
                     self.send(v, **send_kwargs)
                 else:
