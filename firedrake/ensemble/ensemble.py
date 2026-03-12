@@ -1,6 +1,8 @@
 from functools import wraps
 import weakref
+from contextlib import contextmanager
 from itertools import zip_longest
+from types import SimpleNamespace
 
 from firedrake.petsc import PETSc
 from firedrake.function import Function
@@ -584,3 +586,93 @@ class Ensemble:
         requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
                          for dat in frecv.dat])
         return requests
+
+    @contextmanager
+    def sequential(self, *, synchronise: bool = False, **kwargs):
+        """
+        Context manager for executing code on each ensemble member
+        consecutively (ordered by increasing :attr:`~.Ensemble.ensemble_rank`).
+
+        Any data in ``kwargs`` will be made available in the returned context
+        and will be communicated forward after each ensemble member exits.
+        :class:`.Function` or :class:`.Cofunction` ``kwargs`` will be sent with
+        the ``Ensemble`` wrappers, and other types will be delegated to the
+        standard :class:`mpi4py.MPI.Comm` methods.
+
+        For example:
+
+        .. code-block:: python3
+
+            index=0
+
+            with ensemble.sequential(index=index) as ctx:
+                print(ensemble.ensemble_rank, ctx.index)
+                ctx.index += 2
+
+        Would print:
+
+        .. code-block::
+
+            0 0
+            1 2
+            2 4
+            3 6
+            ...
+
+        Note that the `value` (but not presence) of each ``kwarg`` is
+        ignored on all ranks except rank ``0``. On subsequent ranks
+        the values in the returned ``ctx`` are those sent forward from
+        the previous rank.
+
+        Parameters
+        ----------
+        synchronise :
+            If True then MPI_Barrier will be called on the ``global_comm``
+            at the beginning and end of this method.
+
+        kwargs :
+            Data to be passed forward by each rank and made available
+            in the returned ``ctx``.
+        """
+        rank = self.ensemble_rank
+        first_rank = (rank == 0)
+        last_rank = (rank == self.ensemble_size - 1)
+
+        if synchronise:
+            self.global_comm.Barrier()
+
+        # make sure we have unique tags for each message
+        tag_offset = len(kwargs.items()) + 1
+
+        if not first_rank:
+            src = rank - 1
+            for i, (k, v) in enumerate(kwargs.items()):
+                recv_kwargs = {'source': src, 'tag': tag_offset*rank+i}
+                if isinstance(v, (Function, Cofunction)):
+                    self.recv(kwargs[k], **recv_kwargs)
+                else:
+                    kwargs[k] = self.ensemble_comm.recv(
+                        **recv_kwargs)
+
+        ctx = SimpleNamespace(**kwargs)
+        yield ctx
+
+        if not last_rank:
+            dst = rank + 1
+            for i, v in enumerate((getattr(ctx, k)
+                                   for k in kwargs.keys())):
+                send_kwargs = {'dest': dst, 'tag': tag_offset*dst+i}
+                try:
+                    if isinstance(v, (Function, Cofunction)):
+                        self.send(v, **send_kwargs)
+                    else:
+                        self.ensemble_comm.send(v, **send_kwargs)
+                except Exception as error:
+                    raise TypeError(
+                        "Failed to send object of type {type(v)}. kwargs for"
+                        " Ensemble.sequential must be Functions, Cofunctions,"
+                        " or acceptable arguments to mpi4py.MPI.Comm.send."
+                    ) from error
+
+        if synchronise:
+            self.global_comm.Barrier()
