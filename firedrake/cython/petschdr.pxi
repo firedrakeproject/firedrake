@@ -95,6 +95,8 @@ cdef extern from "petscdmlabel.h" nogil:
     PetscErrorCode DMLabelClearValue(DMLabel, PetscInt, PetscInt)
     PetscErrorCode DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
     PetscErrorCode DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
+    PetscErrorCode DMLabelClearStratum(DMLabel, PetscInt)
+    PetscErrorCode DMLabelGetNumValues(DMLabel, PetscInt*)
 
 cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMCreateLabel(PETSc.PetscDM,char[])
