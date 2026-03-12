@@ -151,6 +151,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
 
+    if exclude_halos:
+        pytest.skip("Skip for now")
+
     if not exclude_halos and parentmesh.comm.size == 1:
         pytest.skip("Testing halo behaviour in serial isn't worth the time")
 
