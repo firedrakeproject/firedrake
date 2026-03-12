@@ -3022,10 +3022,11 @@ values from f.)"""
                 (ng_dimension, reference_space_points.shape[0], geom_dim)
             )
             netgen_mesh.CalcElementMapping(reference_space_points, physical_space_points)
-            # NOTE: This will do nothing for OCC or segfault for CSG!
+            # NOTE: This will segfault for CSG!
             netgen_mesh.Curve(order)
             netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
             curved = ng_element.NumPy()["curved"]
+
             # Broadcast a boolean array identifying curved cells
             curved = self.comm.bcast(curved, root=0)
             physical_space_points = physical_space_points[curved]
@@ -3050,36 +3051,36 @@ values from f.)"""
         barycentres = np.average(physical_space_points, axis=1)
         ng_index = list(map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres))
 
-        # Select only the indices of points owned by this rank
+        # Select only the indices of cells owned by this rank
         owned = [(0 <= ii < len(cell_node_map.values)) if ii is not None else False for ii in ng_index]
+
+        # Get the PyOP2 indices corresponding to the netgen indices
+        ng_index = [idx for idx, o in zip(ng_index, owned) if o]
+        pyop2_index = cell_node_map.values[ng_index].flatten()
 
         # Select only the points owned by this rank
         physical_space_points = physical_space_points[owned]
         curved_space_points = curved_space_points[owned]
         barycentres = barycentres[owned]
-        ng_index = [idx for idx, o in zip(ng_index, owned) if o]
 
-        # Get the PyOP2 indices corresponding to the netgen indices
-        pyop2_index = []
-        for ngidx in ng_index:
-            pyop2_index.extend(cell_node_map.values[ngidx])
+        if any(owned):
+            # Find the correct coordinate permutation for each cell
+            permutation = find_permutation(
+                physical_space_points,
+                new_coordinates.dat.data[pyop2_index].real.reshape(
+                    physical_space_points.shape
+                ),
+                tol=permutation_tol
+            )
 
-        # Find the correct coordinate permutation for each cell
-        permutation = find_permutation(
-            physical_space_points,
-            new_coordinates.dat.data[pyop2_index].real.reshape(
-                physical_space_points.shape
-            ),
-            tol=permutation_tol
-        )
-
-        # Apply the permutation to each cell in turn
-        for ii, p in enumerate(curved_space_points):
-            curved_space_points[ii] = p[permutation[ii]]
+            # Apply the permutation to each cell in turn
+            for ii, p in enumerate(curved_space_points):
+                curved_space_points[ii] = p[permutation[ii]]
+        else:
+            print("barf")
 
         # Assign the curved coordinates to the dat
         new_coordinates.dat.data[pyop2_index] = curved_space_points.reshape(-1, geom_dim)
-
         return new_coordinates
 
 

@@ -263,10 +263,10 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     # Curve the mesh
     if mesh.coordinates.function_space().ufl_element().degree() != order[0]:
         coordinates = mesh.curve_field(
-                order=order[0],
-                location_tol=location_tol,
-                permutation_tol=permutation_tol,
-                cg_field=cg,
+            order=order[0],
+            location_tol=location_tol,
+            permutation_tol=permutation_tol,
+            cg_field=cg,
         )
         mesh = reconstruct_mesh(mesh, coordinates)
 
@@ -311,7 +311,10 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         else:
             parameters.update(mesh._distribution_parameters)
         parameters["partition"] = False
-        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension, distribution_parameters=parameters)
+        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension,
+                       reorder=False,
+                       distribution_parameters=parameters,
+                       tolerance=mesh.tolerance)
         mesh.netgen_mesh = ngmesh
         mesh.netgen_flags = flags
 
