@@ -93,11 +93,16 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.atm = AdaptiveTransferManager()
 
         mesh = V.mesh().unique()
-        amh, level = utils.get_level(mesh)
-        if amh is None:
+        mh, level = utils.get_level(mesh)
+        if mh is None:
             amh = AdaptiveMeshHierarchy(mesh)
-        if not isinstance(amh, AdaptiveMeshHierarchy):
-            raise ValueError("Problem needs to be defined on an AdaptiveMeshHierarchy")
+        elif isinstance(mh, AdaptiveMeshHierarchy):
+            amh = mh
+        else:
+            meshes = list(mh)
+            amh = AdaptiveMeshHierarchy(meshes[0])
+            for m in meshes[1:level+1]:
+                amh.add_mesh(m)
 
         # FIXME we should construct a subset of the original hierarchy instead
         amh, level = utils.get_level(mesh)
