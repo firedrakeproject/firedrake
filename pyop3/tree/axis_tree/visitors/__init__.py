@@ -194,6 +194,10 @@ def _(axes: op3_tree.IndexedAxisTree, relabeler):
 def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
     return axes
 
+@canonicalize_labels.register(op3_tree.AxisForest)
+def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+    return type(axes)([canonicalize_labels(t, relabeler) for t in axes.trees])
+
 @canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
 def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
     unindexed = canonicalize_labels(axes.unindexed, relabeler)

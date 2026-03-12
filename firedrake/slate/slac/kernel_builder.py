@@ -104,20 +104,20 @@ class LocalLoopyKernelBuilder:
         In particular needed for the right shape of scalar tensors.
         """
         if tensor.shape == ():
-            return (1, )  # scalar tensor
+            return (1,)  # scalar tensor
         else:
             return tensor.shape
 
     def extent(self, argument):
         """ Return the value size of a constant or coefficient."""
         if isinstance(argument, Constant):
-            return (argument.dat.cdim, )
+            return (argument.dat.axes.global_size,)
         else:
             element = argument.ufl_element()
             if element.family() == "Real":
-                return (argument.dat.cdim, )
+                return (argument.dat.axes.global_size,)
             else:
-                return (create_element(element).space_dimension(), )
+                return (create_element(element).space_dimension(),)
 
     def generate_lhs(self, tensor, temp):
         """ Generation of an lhs for the loopy kernel,
@@ -379,7 +379,7 @@ class LocalLoopyKernelBuilder:
         for constant, constant_name in self.bag.constants:
             constant_loopy_arg = loopy.GlobalArg(
                 constant_name,
-                shape=constant.dat.cdim,
+                shape=constant.dat.axes.global_size,
                 dtype=self.tsfc_parameters["scalar_type"]
             )
             args.append(kernel_args.ConstantKernelArg(constant_loopy_arg))
