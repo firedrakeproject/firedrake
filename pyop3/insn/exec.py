@@ -10,6 +10,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.buffer
 import pyop3.collections
 import pyop3.expr
 from pyop3.cache import cached_method, memory_cache
@@ -261,7 +262,7 @@ class InstructionExecutionContext:
         if isinstance(mat.buffer.handle, PETSc.Mat):
             match mat.buffer.handle.type:
                 case "nest":
-                    return PetscMatBufferSubMat(mat.buffer, mat.nest_indices)
+                    return pyop3.buffer.PetscMatBufferSubMat(mat.buffer, mat.nest_indices)
                 case "python":
                     return self._extract_buffer(mat.buffer.handle.getPythonContext().dat)
                 case _:

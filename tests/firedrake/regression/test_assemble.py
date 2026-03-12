@@ -412,9 +412,9 @@ def test_split_subdomain_ids():
     a = assemble(conj(v0)*dx + conj(v1)*dx)
     b = assemble(conj(v0)*dx + conj(v1)*dx(1))
 
-    assert (a.dat[0].data == b.dat[0].data).all()
-    assert b.dat[1].data[0] == 0.0
-    assert b.dat[1].data[1] == a.dat[1].data[1]
+    assert (a.dat[Z._labels[0]].data == b.dat[Z._labels[0]].data).all()
+    assert b.dat[Z._labels[1]].data[0] == 0.0
+    assert b.dat[Z._labels[1]].data[1] == a.dat[Z._labels[1]].data[1]
 
 
 def test_assemble_tensor_empty_shape(mesh):

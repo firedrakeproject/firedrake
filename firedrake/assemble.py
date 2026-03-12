@@ -1632,7 +1632,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
-        index = Ellipsis if V.index is None else V.name
+        if V.index is None:
+            index = Ellipsis
+        else:
+            index = utils.single_valued(
+                axes.trees[0].root.component_labels[V.index]
+                for axes in [tensor.M.row_axes, tensor.M.column_axes]
+            )
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             # if fs.topological != self.topological:
@@ -1892,25 +1898,26 @@ class ParloopBuilder:
             jbc = 0 if j is None else j
             row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
 
-            if i is None:
-                i = Ellipsis
-            else:
-                # i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
-                pass
-            if j is None:
-                j = Ellipsis
-            else:
-                # j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
-                pass
-
             mat_buffer = matrix.M.buffer
 
             mat_spec = mat_buffer.mat_spec
             if isinstance(mat_spec, numpy.ndarray):
                 mat_spec = mat_spec[i, j]
+                i = None
+                j = None
 
             if mat_spec.mat_type in {"rvec", "cvec"}:
                 return None
+
+            if i is None:
+                i = Ellipsis
+            else:
+                i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
+            if j is None:
+                j = Ellipsis
+            else:
+                j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
+
 
             # rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(mat_spec.row_spec.lgmap, row_bcs)
             # clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)

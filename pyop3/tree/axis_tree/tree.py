@@ -1693,32 +1693,12 @@ class UnitIndexedAxisTree(DistributedObject):
             targets = targets | {idict(): ((),)}
 
         assert targets.keys() == {idict()}
-        # same as indexed axis tree
-        # new_targets = []
-        # for target in targets:
-        #     # for consistency we don't want missing bits, even if they are empty
-        #     if idict() not in target:
-        #         target = {idict(): ()} | target
-        #     new_targets.append(target)
-        # drop duplicate entries as they are necessarily equivalent
-        # TODO: remove this ideally...
-        # targets = utils.unique(new_targets)
-        # targets = utils.freeze(targets)
-        # assert len(targets) > 0
-
-        # debugging
-        assert isinstance(targets, idict)
-        for vs in targets.values():
-            assert isinstance(vs, tuple)
-            assert all(isinstance(v_, AxisTarget) for v in vs for v_ in v)
-
         object.__setattr__(self, "unindexed", unindexed)
         object.__setattr__(self, "_targets", targets)
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        # debugging
-        self.targets
+        pass
 
     def getitem(self, indices, *, strict=False) -> UnitIndexedAxisTree:
         if utils.is_ellipsis_type(indices):

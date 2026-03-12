@@ -18,6 +18,7 @@ from .tree import (  # noqa: F401
     AxisForest,
     AbstractAxisTree,
     UNIT_AXIS_TREE,
+    _UnitAxisTree,
     merge_axis_trees,
 )
 from .parse import as_axis_tree, as_axis_forest, as_axis_tree_type, collect_unindexed_axis_trees  # noqa: F401

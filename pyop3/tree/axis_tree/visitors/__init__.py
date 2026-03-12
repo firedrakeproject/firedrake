@@ -190,6 +190,10 @@ def _(axes: op3_tree.IndexedAxisTree, relabeler):
     targets = _canonicalize_target_labels(axes.targets, relabeler)
     return axes.__record_init__(_node_map=node_map, _unindexed=unindexed, _targets=targets)
 
+@canonicalize_labels.register(op3_tree._UnitAxisTree)
+def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
+    return axes
+
 @canonicalize_labels.register(op3_tree.UnitIndexedAxisTree)
 def _(axes: op3_tree.UnitIndexedAxisTree, relabeler):
     unindexed = canonicalize_labels(axes.unindexed, relabeler)
