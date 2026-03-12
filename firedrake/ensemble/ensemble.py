@@ -596,7 +596,7 @@ class Ensemble:
         Any data in ``kwargs`` will be made available in the returned context
         and will be communicated forward after each ensemble member exits.
         :class:`.Function` or :class:`.Cofunction` ``kwargs`` will be sent with
-        the ``Ensemble`` wrappers, and other types will be delagated to the
+        the ``Ensemble`` wrappers, and other types will be delegated to the
         standard :class:`mpi4py.MPI.Comm` methods.
 
         For example:
