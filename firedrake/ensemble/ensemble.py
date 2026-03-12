@@ -642,7 +642,7 @@ class Ensemble:
             self.global_comm.Barrier()
 
         # make sure we have unique tags for each message
-        tag_offset = len(kwargs.items()) + 10
+        tag_offset = len(kwargs.items()) + 1
 
         if not first_rank:
             src = rank - 1
@@ -662,10 +662,17 @@ class Ensemble:
             for i, v in enumerate((getattr(ctx, k)
                                    for k in kwargs.keys())):
                 send_kwargs = {'dest': dst, 'tag': tag_offset*dst+i}
-                if isinstance(v, (Function, Cofunction)):
-                    self.send(v, **send_kwargs)
-                else:
-                    self.ensemble_comm.send(v, **send_kwargs)
+                try:
+                    if isinstance(v, (Function, Cofunction)):
+                        self.send(v, **send_kwargs)
+                    else:
+                        self.ensemble_comm.send(v, **send_kwargs)
+                except Exception as error:
+                    raise TypeError(
+                        "Failed to send object of type {type(v)}. All kwargs"
+                        " to Ensemble.sequential be Functions, Cofunctions,"
+                        " or acceptable arguments to mpi4py.MPI.Comm.send."
+                    ) from error
 
         if synchronise:
             self.global_comm.Barrier()
