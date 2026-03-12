@@ -669,8 +669,8 @@ class Ensemble:
                         self.ensemble_comm.send(v, **send_kwargs)
                 except Exception as error:
                     raise TypeError(
-                        "Failed to send object of type {type(v)}. All kwargs"
-                        " to Ensemble.sequential be Functions, Cofunctions,"
+                        "Failed to send object of type {type(v)}. kwargs for"
+                        " Ensemble.sequential must be Functions, Cofunctions,"
                         " or acceptable arguments to mpi4py.MPI.Comm.send."
                     ) from error
 
