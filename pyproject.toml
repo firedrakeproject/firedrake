@@ -31,7 +31,7 @@ dependencies = [
   "numpy",
   "packaging",
   # TODO RELEASE
-  # "petsc4py==3.24.0",
+  # "petsc4py==3.24.5",
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
@@ -98,7 +98,7 @@ jax = [
 # ]
 # TODO RELEASE
 # slepc = [
-#   "slepc4py==3.24.0",
+#   "slepc4py==3.24.3",
 # ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -127,7 +127,7 @@ ci = [
   "pytest-timeout",
   "pytest-xdist",
   # TODO RELEASE
-  # "slepc4py==3.24.0",
+  # "slepc4py==3.24.3",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -147,7 +147,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-timeout",
   "pytest-xdist",
   # TODO RELEASE
-  # "slepc4py==3.24.0",
+  # "slepc4py==3.24.3",
   "vtk",
 ]
 
@@ -159,7 +159,7 @@ requires = [
   "mpi4py; python_version < '3.13'",
   "numpy",
   # TODO RELEASE
-  # "petsc4py==3.24.0",
+  # "petsc4py==3.24.5",
   "petsctools",
   "pkgconfig",
   "pybind11",
