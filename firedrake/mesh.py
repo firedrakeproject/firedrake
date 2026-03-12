@@ -37,7 +37,7 @@ import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
-from firedrake.logging import info_red
+from firedrake.logging import info_red, logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
@@ -201,14 +201,6 @@ class _Facets(object):
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
-    @cached_property
-    def _null_subset(self):
-        '''Empty subset for the case in which there are no facets with
-        a given marker value. This is required because not all
-        markers need be represented on all processors.'''
-
-        return op2.Subset(self.set, [])
-
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -283,9 +275,16 @@ class _Facets(object):
                         marked_points_list.append(self.mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
             if marked_points_list:
                 _, indices, _ = np.intersect1d(self.facets, np.concatenate(marked_points_list), return_indices=True)
-                return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
             else:
-                return self._subsets.setdefault(markers, self._null_subset)
+                indices = np.empty(0, dtype=IntType)
+
+            with temp_internal_comm(self.mesh.comm) as icomm:
+                num_global_indices = icomm.reduce(len(indices), MPI.SUM, root=0)
+                if num_global_indices == 0 and icomm.rank == 0:
+                    logger.warn(f"Subdomain {markers} is empty. This is likely an error. "
+                                "Did you choose the right label?")
+
+            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
     def _collect_unmarked_points(self, markers):
         """Collect points that are not marked by markers."""
