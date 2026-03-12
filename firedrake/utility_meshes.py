@@ -931,9 +931,9 @@ def PeriodicRectangleMesh(
     The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == 1
+    * 2: plane x == Lx
     * 3: plane y == 0
-    * 4: plane y == 1
+    * 4: plane y == Ly
 
     If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
     if periodic in 'y' then 3 and 4 are empty.
@@ -1039,9 +1039,9 @@ def PeriodicSquareMesh(
     The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == 1
+    * 2: plane x == L
     * 3: plane y == 0
-    * 4: plane y == 1
+    * 4: plane y == L
 
     If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
     if periodic in 'y' then 3 and 4 are empty.
@@ -3051,9 +3051,9 @@ def PartiallyPeriodicRectangleMesh(
     The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
-    * 2: plane x == 1
+    * 2: plane x == Lx
     * 3: plane y == 0
-    * 4: plane y == 1
+    * 4: plane y == Ly
 
     If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
     if periodic in 'y' then 3 and 4 are empty.

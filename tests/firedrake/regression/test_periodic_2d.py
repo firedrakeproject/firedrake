@@ -38,10 +38,9 @@ def test_periodic_helmholtz(direction, cell_options):
 
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
-    # FIXME: This suggests some really weird behaviour!
     if direction == "x":
         bcs = DirichletBC(V, Constant(0), (3, 4))
-    if direction == "y":
+    elif direction == "y":
         bcs = DirichletBC(V, Constant(0), (1, 2))
     elif direction == "both":
         bcs = []

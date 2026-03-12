@@ -2163,22 +2163,20 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
                         dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+1, 1]
 
             else:
-                if vert_unit_periodic:
-                    cell_height = L[1]
+                assert vert_unit_periodic:
+                cell_height = L[1]
 
-                    for c in range(cStart, cEnd):
-                        CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
+                for c in range(cStart, cEnd):
+                    CHKERR(PetscSectionSetDof(dm_sec_expanded.sec, c, 8))
 
-                        dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
-                        dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+1, 0]
-                        dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0]
-                        dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+0, 0]
-                        dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
-                        dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+1, 1]
-                        dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1] + cell_height
-                        dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+0, 1] + cell_height
-                else:
-                    raise AssertionError("This case should not be hit")
+                    dm_coords_expanded[4*c+0, 0] = dm_coords_orig[2*c+0, 0]
+                    dm_coords_expanded[4*c+1, 0] = dm_coords_orig[2*c+1, 0]
+                    dm_coords_expanded[4*c+2, 0] = dm_coords_orig[2*c+1, 0]
+                    dm_coords_expanded[4*c+3, 0] = dm_coords_orig[2*c+0, 0]
+                    dm_coords_expanded[4*c+0, 1] = dm_coords_orig[2*c+0, 1]
+                    dm_coords_expanded[4*c+1, 1] = dm_coords_orig[2*c+1, 1]
+                    dm_coords_expanded[4*c+2, 1] = dm_coords_orig[2*c+1, 1] + cell_height
+                    dm_coords_expanded[4*c+3, 1] = dm_coords_orig[2*c+0, 1] + cell_height
 
             dm_sec_expanded.setUp()
 
@@ -2195,7 +2193,15 @@ def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
 
     return dm_coords, dm_sec
 
+
 def _get_periodicity(dm: PETSc.DM) -> tuple[tuple[bool, bool], ...]:
+    """Return mesh periodicity information.
+    
+    This function returns a 2-tuple of bools per dimension where the first entry indicates
+    whether the mesh is periodic in that dimension, and the second indicates whether the
+    mesh is single-cell periodic in that dimension.
+    
+    """
     cdef:
         const PetscReal *maxCell, *L
 
@@ -2205,6 +2211,7 @@ def _get_periodicity(dm: PETSc.DM) -> tuple[tuple[bool, bool], ...]:
         (L[d] >= 0, maxCell[d] >= L[d])
         for d in range(dim)
     )
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
