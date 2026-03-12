@@ -8,8 +8,7 @@ RUN pip install --verbose \
         jax torch
 
 # Install ngsPETSc and dependencies. Netgen do not package ARM wheels so
-# we have to build it from source in that case. If on x86 then we have to
-# set PYTHONPATH so netgen can be found (see https://github.com/NGSolve/netgen/issues/213).
+# we have to build it from source in that case.
 RUN \
         if [ "$(dpkg --print-architecture)" == "arm64" ]; then \
                 apt-get update \
@@ -23,13 +22,19 @@ RUN \
                 && cmake -DCMAKE="-cxx-flags=-flax-vector-conversions" -DCMAKE_INSTALL_PREFIX=/opt/ngsuite/netgen-install /opt/ngsuite/netgen-src \
                 && make \
                 && make install \
-                && export PATH=/opt/ngsuite/netgen-install/bin:$PATH \
-                && export PYTHONPATH=/opt/ngsuite/netgen-install/lib/python3.12/site-packages:$PYTHONPATH \
                 && pip install ngsPETSc --no-deps; \
         else \
-                export PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH \
-                && pip install ngsPETSc; \
+                pip install ngsPETSc; \
         fi
+
+# Dockerfiles do not allow conditional ENV statements so we have to set
+# things for both the ARM and x86 cases.
+# ARM:
+ENV PATH=/opt/ngsuite/netgen-install/bin:$PATH
+ENV PYTHONPATH=/opt/ngsuite/netgen-install/lib/python3.12/site-packages:$PYTHONPATH
+# x86:
+# (see https://github.com/NGSolve/netgen/issues/213).
+ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH
 
 # Install some other niceties
 RUN apt-get update \
