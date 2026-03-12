@@ -1654,13 +1654,24 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
 
     @process.register(expr_types.Mat)
-    def _(self, expr: expr_types.Mat, /) -> Hashable:
-        raise NotImplementedError
-        return (
-            type(expr),
-            self._add_buffer(expr.buffer),
-            visited,
-        )
+    def _(self, mat: expr_types.Mat, /) -> expr_types.Mat:
+        relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
+        relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
+        if mat.transform is not None:
+            if isinstance(mat.transform, ReshapeTensorTransform):
+                relabeled_axis_trees = tuple(
+                    canonicalize_axis_labels(tree, self._relabeler) for tree in mat.transform.axis_trees
+                )
+                if mat.transform.prev is not None:
+                    relabeled_prev = self(mat.transform.prev)
+                else:
+                    relabeled_prev = None
+                relabeled_transform = mat.transform.__record_init__(axis_trees=relabeled_axis_trees, _prev=relabeled_prev)
+            else:
+                raise NotImplementedError
+        else:
+            relabeled_transform = None
+        return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
 
     @process.register(expr_types.LinearDatBufferExpression)
     def _(self, dat_expr: expr_types.LinearDatBufferExpression, /) -> expr_types.LinearDatBufferExpression:

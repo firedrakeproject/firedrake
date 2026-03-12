@@ -43,7 +43,6 @@ from pyop3.tree.axis_tree.tree import (
     UnitIndexedAxisTree,
     OWNED_REGION_LABEL,
     GHOST_REGION_LABEL,
-    find_matching_target,
     match_target,
 )
 from pyop3.dtypes import IntType

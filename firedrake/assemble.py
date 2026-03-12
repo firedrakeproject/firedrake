@@ -1895,11 +1895,13 @@ class ParloopBuilder:
             if i is None:
                 i = Ellipsis
             else:
-                i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
+                # i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
+                pass
             if j is None:
                 j = Ellipsis
             else:
-                j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
+                # j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
+                pass
 
             mat_buffer = matrix.M.buffer
 

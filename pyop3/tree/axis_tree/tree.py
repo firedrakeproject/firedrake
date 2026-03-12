@@ -1720,6 +1720,12 @@ class UnitIndexedAxisTree(DistributedObject):
         # debugging
         self.targets
 
+    def getitem(self, indices, *, strict=False) -> UnitIndexedAxisTree:
+        if utils.is_ellipsis_type(indices):
+            return self
+        else:
+            raise InvalidIndexTargetException
+
     def __contains__(self, node) -> bool:
         return False
 
@@ -1851,41 +1857,6 @@ class UnitIndexedAxisTree(DistributedObject):
         return match_target(self, self.unindexed, self.targets)
 
 
-def find_matching_target(self, target_set):
-    assert False, "old code"
-    # NOTE: I don't currently know why we still need this, but we apparently do as things otherwise fail
-    matching_targets = []
-    for target in target_set:
-        all_leaves_match = True
-        for leaf_path in self.leaf_paths:
-            target_path = {}
-            for leaf_path_acc in accumulate_path(leaf_path):
-                if leaf_path_acc in target:
-                    for target_ in target[leaf_path_acc]:
-                        target_path[target_.axis] = target_.component
-            target_path = idict(target_path)
-
-            # NOTE: We assume that if we get an empty target path then something has
-            # gone wrong. This is needed because of .get() calls which are needed
-            # because sometimes targets are incomplete.
-            # these both work for some cases but not others...
-            # if not target_path or not target_path in self.unindexed.leaf_paths:
-            if not target_path or not target_path in self.unindexed.node_map:
-                all_leaves_match = False
-                break
-
-        if all_leaves_match:
-            # drop empty mappings as they lead to conflicts
-            target = idict({
-                key: value
-                for key, value in target.items()
-                if value != (idict(), idict())
-            })
-            matching_targets.append(target)
-
-    return utils.single_valued(matching_targets)
-
-
 class IncompatibleAxisTargetException(Pyop3Exception):
     pass
 
@@ -1968,7 +1939,6 @@ class AxisForest(DistributedObject):
         if utils.is_ellipsis_type(indices):
             return self
 
-        # FIXME: This will not always work, catch exceptions!
         indexed_trees = []
         for tree in self.trees:
             try:
