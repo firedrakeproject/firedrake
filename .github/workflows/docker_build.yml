@@ -82,6 +82,7 @@ jobs:
           build-args: |
             ARCH=${{ inputs.arch }}
             BRANCH=${{ inputs.branch }}
+            X86=1
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -138,6 +139,7 @@ jobs:
           build-args: |
             ARCH=${{ inputs.arch }}
             BRANCH=${{ inputs.branch }}
+            ARM64=1
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
