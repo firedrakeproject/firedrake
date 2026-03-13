@@ -36,7 +36,7 @@ RUN \
                 pip install ngsPETSc; \
         fi
 
-# Set some environment variables.
+# Set environment variables so that the netgen installation can be found
 # For x86 we have to set PYTHONPATH because of https://github.com/NGSolve/netgen/issues/213.
 ENV PATH=${ARM64:+/opt/ngsuite/netgen-install/bin:}$PATH
 ENV PYTHONPATH=${ARM64:+/opt/ngsuite/netgen-install/lib/python3.12/site-packages:}${X86:+/usr/local/lib/python3.12/site-packages:}$PYTHONPATH
