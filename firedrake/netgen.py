@@ -29,6 +29,73 @@ except ImportError:
             Mesh = type(None)
 
 
+def netgen_distribute(mesh, netgen_data):
+    from firedrake import FunctionSpace
+    # Create Netgen to Plex reordering
+    plex = mesh.topology_dm
+    sf = mesh.sfBC_orig
+    perm, iperm = netgen_to_plex_numbering(mesh)
+    if sf is not None:
+        netgen_data = np.asarray(netgen_data)
+        dtype = netgen_data.dtype
+        dtype = mesh.comm.bcast(dtype, root=0)
+
+        netgen_data = netgen_data.transpose()
+        shp = netgen_data.shape[:-1]
+        shp = mesh.comm.bcast(shp, root=0)
+        if mesh.comm.rank != 0:
+            netgen_data = np.empty((*shp, 0), dtype=dtype)
+
+        M = FunctionSpace(mesh, "DG", 0)
+        marked = M.dof_dset.layout_vec.copy()
+        marked.set(0)
+
+        sfBCInv = sf.createInverse()
+        section, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
+        plex_data = None
+        for i in np.ndindex(shp):
+            marked0[:netgen_data.shape[-1]] = netgen_data[i]
+            _, marked = plex.distributeField(sf, section, marked0)
+            arr = marked.getArray()
+            if plex_data is None:
+                plex_data = np.empty(shp + arr.shape, dtype=dtype)
+            plex_data[i] = arr.astype(dtype)
+
+        plex_data = plex_data.transpose()
+    else:
+        plex_data = netgen_data
+    return plex_data
+
+
+def netgen_to_plex_numbering(mesh):
+    from firedrake import FunctionSpace
+
+    sf = mesh.sfBC_orig
+    plex = mesh.topology_dm
+    cellNum = plex.getCellNumbering().indices
+    cellNum[cellNum < 0] = -cellNum[cellNum < 0]-1
+    fstart, fend = plex.getHeightStratum(0)
+    cids = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
+    num_cells = fend - fstart
+
+    # Create Netgen to Plex reordering
+    M = FunctionSpace(mesh, "DG", 0)
+    marked = M.dof_dset.layout_vec.copy()
+    marked.set(0)
+
+    cstart, cend = marked.getOwnershipRange()
+    iperm = cellNum[cids[:cend-cstart]]
+    marked.setValues(iperm, np.arange(cstart, cend))
+    marked.assemble()
+    marked0 = marked
+    if sf is not None:
+        sfBCInv = sf.createInverse()
+        _, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
+
+    perm = marked0.getArray()[:M.dim()].astype(PETSc.IntType)
+    return perm, iperm
+
+
 @PETSc.Log.EventDecorator()
 def find_permutation(points_a: npt.NDArray[np.inexact], points_b: npt.NDArray[np.inexact],
                      tol: float = 1e-5):
@@ -91,10 +158,10 @@ class FiredrakeMesh:
     :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
     :arg comm: the MPI communicator.
     '''
-    def __init__(self, mesh, netgen_flags, user_comm=fd.COMM_WORLD):
+    def __init__(self, mesh, netgen_flags=None, user_comm=fd.COMM_WORLD):
         self.comm = user_comm
         # Parsing netgen flags
-        if not isinstance(netgen_flags, dict):
+        if netgen_flags is None:
             netgen_flags = {}
         split2tets = netgen_flags.get("split_to_tets", False)
         split = netgen_flags.get("split", False)

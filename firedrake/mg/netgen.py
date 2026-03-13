@@ -10,6 +10,7 @@ from packaging.version import Version
 from petsc4py import PETSc
 
 import firedrake as fd
+from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.cython import mgimpl as impl, dmcommon
 from firedrake import dmhooks
 from firedrake.logging import logger
@@ -246,8 +247,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     logger.info(f"\tOrder of the hierarchy: {order}")
     if isinstance(order, int):
         order = [order]*(levs+1)
-    permutation_tol = flags.get("permutation_tol", 1e-8)
-    location_tol = flags.get("location_tol", 1e-8)
     refType = flags.get("refinement_type", "uniform")
     logger.info(f"\tRefinement type: {refType}")
     optMoves = flags.get("optimisation_moves", False)
@@ -256,26 +255,21 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
     cg = flags.get("cg", False)
     nested = flags.get("nested", snap in ["coarse"])
+    permutation_tol = flags.get("permutation_tol", 1e-8)
+    location_tol = flags.get("location_tol", 1e-8)
     # Firedrake quantities
     meshes = []
     lgmaps = []
-    parameters = {}
-    if distribution_parameters is not None:
-        parameters.update(distribution_parameters)
-    else:
-        parameters.update(mesh._distribution_parameters)
-    parameters["partition"] = False
     # Curve the mesh
-    if order[0] > 1:
-        ho_field = mesh.curve_field(
+    if mesh.coordinates.function_space().ufl_element().degree() != order[0]:
+        coordinates = mesh.curve_field(
             order=order[0],
+            location_tol=location_tol,
             permutation_tol=permutation_tol,
-            cg_field=cg
+            cg_field=cg,
         )
-        temp = fd.Mesh(ho_field, distribution_parameters=parameters, comm=comm)
-        temp.netgen_mesh = mesh.netgen_mesh
-        temp._tolerance = mesh.tolerance
-        mesh = temp
+        mesh = reconstruct_mesh(mesh, coordinates)
+
     # Make a plex (cdm) without overlap.
     dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
@@ -286,23 +280,17 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     no = impl.create_lgmap(cdm)
     o = impl.create_lgmap(mesh.topology_dm)
     lgmaps.append((no, o))
+
     mesh.topology_dm.setRefineLevel(0)
-    meshes.append(mesh)
     ngmesh = mesh.netgen_mesh
+    meshes.append(mesh)
+
     for l in range(levs):
         # Straighten the mesh
         ngmesh.Curve(1)
         rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
         cdm = rdm
-        # Snap the mesh to the Netgen mesh
-        if snap == "geometry":
-            snapToNetgenDMPlex(ngmesh, rdm, comm)
-        # We construct a Firedrake mesh from the DMPlex mesh
-        no = impl.create_lgmap(rdm)
-        mesh = fd.Mesh(rdm, dim=meshes[-1].geometric_dimension, reorder=False,
-                       distribution_parameters=parameters, comm=comm)
-        o = impl.create_lgmap(mesh.topology_dm)
-        lgmaps.append((no, o))
+
         if optMoves:
             # Optimises the mesh, for example smoothing
             if ngmesh.dim == 2:
@@ -311,27 +299,69 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                 ngmesh.OptimizeVolumeMesh(MeshingParameters(optimize3d=optMoves))
             else:
                 raise ValueError("Only 2D and 3D meshes can be optimised.")
+
+        # Snap the mesh to the Netgen mesh
+        if snap == "geometry":
+            snapToNetgenDMPlex(ngmesh, rdm, comm)
+
+        # We construct a Firedrake mesh from the DMPlex mesh
+        parameters = {}
+        if distribution_parameters is not None:
+            parameters.update(distribution_parameters)
+        else:
+            parameters.update(mesh._distribution_parameters)
+        parameters["partition"] = False
+        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension,
+                       reorder=False,
+                       distribution_parameters=parameters,
+                       tolerance=mesh.tolerance)
         mesh.netgen_mesh = ngmesh
+        mesh.netgen_flags = flags
+
+        no = impl.create_lgmap(rdm)
+        o = impl.create_lgmap(mesh.topology_dm)
+        lgmaps.append((no, o))
+
         # Curve the mesh
-        if order[l+1] > 1:
+        if order[l+1] != mesh.coordinates.function_space().ufl_element().degree():
             logger.info("\t\t\tCurving the mesh ...")
             tic = time.time()
             if snap == "geometry":
-                mesh = fd.Mesh(
-                    mesh.curve_field(order=order[l+1],
-                                     location_tol=location_tol,
-                                     permutation_tol=permutation_tol),
-                    distribution_parameters=parameters,
-                    comm=comm)
+                coordinates = mesh.curve_field(
+                    order=order[l+1],
+                    location_tol=location_tol,
+                    permutation_tol=permutation_tol,
+                    cg_field=cg,
+                )
+                mesh = reconstruct_mesh(mesh, coordinates)
             elif snap == "coarse":
-                mesh = snapToCoarse(ho_field, mesh, order[l+1], snap_smoothing, cg)
+                mesh = snapToCoarse(meshes[0].coordinates, mesh, order[l+1], snap_smoothing, cg)
+
             toc = time.time()
             logger.info(f"\t\t\tMeshed curved. Time taken: {toc-tic}")
         logger.info(f"\t\tLevel {l+1}: with {ngmesh.Coordinates().shape[0]}\
                 vertices, with order {order[l+1]}, snapping to {snap}\
                 and optimisation moves {optMoves}.")
-        mesh.topology_dm.setRefineLevel(1 + l)
+        mesh.topology_dm.setRefineLevel(l+1)
         meshes.append(mesh)
+
     # Populate the coarse to fine map
     coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps)
     return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1, nested=nested)
+
+
+def reconstruct_mesh(mesh, *args, **kwargs):
+    """Reconstruct a mesh."""
+    kwargs.setdefault("dim", mesh.geometric_dimension)
+    kwargs.setdefault("reorder", False)
+    kwargs.setdefault("distribution_parameters", DISTRIBUTION_PARAMETERS_NOOP)
+    kwargs.setdefault("comm", mesh.comm)
+    kwargs.setdefault("tolerance", mesh.tolerance)
+    kwargs.setdefault("perm_is", mesh._dm_renumbering)
+
+    tmesh = fd.Mesh(*args, **kwargs)
+    tmesh._distribution_parameters = mesh._distribution_parameters
+    tmesh._did_reordering = mesh._did_reordering
+    tmesh.netgen_mesh = mesh.netgen_mesh
+    tmesh.netgen_flags = mesh.netgen_flags
+    return tmesh

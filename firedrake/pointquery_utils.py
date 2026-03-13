@@ -128,7 +128,10 @@ def init_X(fiat_cell, parameters):
 
 
 @PETSc.Log.EventDecorator()
-def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype="double", dX_dtype=ScalarType):
+def to_reference_coords_newton_step(ufl_coordinate_element, parameters,
+                                    x0_dtype="double",
+                                    dX_dtype=ScalarType,
+                                    kernel_name="to_reference_coords_newton_step"):
     # Set up UFL form
     cell = ufl_coordinate_element.cell
     domain = ufl.Mesh(ufl_coordinate_element)
@@ -191,7 +194,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     impero_c = impero_utils.compile_gem(assignments, ())
     kernel, _ = tsfc.loopy.generate(
         impero_c, loopy_args, ScalarType,
-        kernel_name="to_reference_coords_newton_step")
+        kernel_name=kernel_name)
     return lp.generate_code_v2(kernel).device_code()
 
 

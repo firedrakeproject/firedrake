@@ -3,6 +3,27 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.skipnetgen
+def test_create_netgen_mesh_high_order():
+    from netgen.geom2d import Circle, CSG2d
+    geo = CSG2d()
+
+    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
+    geo.Add(circle)
+
+    ngmesh = geo.GenerateMesh(maxh=0.75)
+
+    # Test that setting the degree in netgen_flags produces a high-order mesh
+    mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
+    assert mesh.coordinates.function_space().ufl_element().degree() == 3
+
+    # Test that refining a high-order mesh gives a high-order mesh
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    markers = Function(DG0).assign(1)
+    mesh2 = mesh.refine_marked_elements(markers)
+    assert mesh2.coordinates.function_space().ufl_element().degree() == 3
+
+
 def square_geometry(h):
     from netgen.geom2d import SplineGeometry
     geo = SplineGeometry()
@@ -305,6 +326,8 @@ def test_firedrake_Adaptivity_netgen():
         (eta, error_est) = estimate_error(mesh, uh)
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
+        if error_est < 0.05:
+            break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.05
 
@@ -381,5 +404,33 @@ def test_firedrake_Adaptivity_netgen_parallel():
         (eta, error_est) = estimate_error(mesh, uh)
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
+        if error_est < 0.05:
+            break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
+
+
+def test_netgen_manifold():
+    from netgen.meshing import MeshingStep
+    from netgen.occ import Pnt, SplineApproximation, Face, Wire, Axis, OCCGeometry, Z
+    # Ellipsoid with center (0,R,0) with Y-radius a, Z-radius b
+    R = 3.0
+    a = 1.5
+    b = 1.6
+
+    def Curve(t):
+        return Pnt(0, R+a*np.cos(t), b*np.sin(t))
+
+    n = 100
+    pnts = [Curve(2*np.pi*t/n) for t in range(n+1)]
+
+    spline = SplineApproximation(pnts)
+    f = Face(Wire(spline))
+
+    torus = f.Revolve(Axis((0, 0, 0), Z), 360)
+    geo = OCCGeometry(torus, dim=3)
+    ngmesh = geo.GenerateMesh(maxh=0.5, perfstepsend=MeshingStep.MESHSURFACE)
+    mesh = Mesh(ngmesh)
+
+    assert mesh.topological_dimension == 2
+    assert mesh.geometric_dimension == 3
