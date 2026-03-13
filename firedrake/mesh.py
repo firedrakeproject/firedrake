@@ -2926,6 +2926,8 @@ values from f.)"""
         """
         utils.check_netgen_installed()
 
+        if not hasattr(self, "netgen_mesh"):
+            raise ValueError("Adaptive refinement requires a netgen mesh.")
         if netgen_flags is None:
             netgen_flags = self.netgen_flags
         dim = self.geometric_dimension
@@ -2947,13 +2949,22 @@ values from f.)"""
         refine_faces = netgen_flags.get("refine_faces", False)
         if self.comm.rank == 0:
             max_refs = int(mark_np.max())
-            for _ in range(max_refs):
-                netgen_cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
-                netgen_cells.NumPy()["refine"][:mark_np.size] = mark_np > 0
+            for r in range(max_refs):
+                cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
+                cells.NumPy()["refine"] = (mark_np > 0)
                 if not refine_faces and dim == 3:
-                    netgen_mesh.Elements2D().NumPy()["refine"] = 0
+                    netgen_mesh.Elements2D().NumPy()["refine"] = False
                 netgen_mesh.Refine(adaptive=True)
                 mark_np -= 1
+                if r < max_refs - 1:
+                    parents = netgen_mesh.parentelements if dim == 3 else netgen_mesh.parentsurfaceelements
+                    parents = parents.NumPy().astype(int).flatten()
+                    num_coarse_cells = mark_np.size
+                    num_fine_cells = parents.shape[0]
+                    fine_cells = indices > num_coarse_cells
+                    indices = np.arange(num_fine_cells, dtype=int)
+                    indices[fine_cells] = parents[indices[fine_cells]]
+                    mark_np = mark_np[indices]
 
         return Mesh(netgen_mesh,
                     reorder=self._did_reordering,
@@ -2979,7 +2990,7 @@ values from f.)"""
 
         utils.check_netgen_installed()
 
-        from firedrake.netgen import find_permutation
+        from firedrake.netgen import find_permutation, netgen_to_plex_numbering, netgen_distribute
 
         netgen_mesh = self.netgen_mesh
         # Check if the mesh is a surface mesh or two dimensional mesh
@@ -3012,6 +3023,12 @@ values from f.)"""
                     ref.append(pt)
         reference_space_points = np.array(ref)
 
+        # Get numbering
+        cell_node_map = new_coordinates.cell_node_map()
+        DG0 = fd.FunctionSpace(self, "DG", 0)
+        rstart, rend = DG0.dof_dset.layout_vec.getOwnershipRange()
+        perm, iperm = netgen_to_plex_numbering(self)
+
         # Curve the mesh on rank 0 only
         if self.comm.rank == 0:
             # Construct numpy arrays for physical domain data
@@ -3027,43 +3044,72 @@ values from f.)"""
             netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
             curved = ng_element.NumPy()["curved"]
 
-            # Broadcast a boolean array identifying curved cells
-            curved = self.comm.bcast(curved, root=0)
             physical_space_points = physical_space_points[curved]
             curved_space_points = curved_space_points[curved]
         else:
-            curved = self.comm.bcast(None, root=0)
-            # Construct numpy arrays as buffers to receive physical domain data
-            ncurved = np.sum(curved)
-            physical_space_points = np.zeros(
-                (ncurved, reference_space_points.shape[0], geom_dim)
-            )
-            curved_space_points = np.zeros(
-                (ncurved, reference_space_points.shape[0], geom_dim)
-            )
+            curved = []
+            physical_space_points = []
+            curved_space_points = []
 
         # Broadcast curved cell point data
+        iperm -= rstart
+        num_cells = rend - rstart
+        own_curved = netgen_distribute(self, curved)
+        own_curved = np.flatnonzero(own_curved[:num_cells])
+
+        own_curved_points = netgen_distribute(self, curved_space_points)[own_curved]
+        own_physical_points = netgen_distribute(self, physical_space_points)[own_curved]
+        pyop2_index = cell_node_map.values[iperm[own_curved]].flatten().tolist()
+
+        if False:
+            if any(own_curved):
+                # Find the correct coordinate permutation for each cell
+                permutation = find_permutation(
+                    own_physical_points,
+                    new_coordinates.dat.data[pyop2_index].real.reshape(
+                        own_physical_points.shape
+                    ),
+                    tol=permutation_tol,
+                )
+
+                # Apply the permutation to each cell in turn
+                for ii, p in enumerate(own_curved_points):
+                    own_curved_points[ii] = p[permutation[ii]]
+
+            # Assign the curved coordinates to the dat
+            new_coordinates.dat.data[pyop2_index] = own_curved_points
+            return new_coordinates
+
+        # Broadcast curved cell point data
+        curved = self.comm.bcast(curved, root=0)
         physical_space_points = self.comm.bcast(physical_space_points, root=0)
         curved_space_points = self.comm.bcast(curved_space_points, root=0)
-        cell_node_map = new_coordinates.cell_node_map()
+
+        print("", self.comm.rank, "distr", own_curved.tolist(), "\n",
+            self.comm.rank, "bcast", np.flatnonzero(curved[rstart:rend]).tolist(), flush=True)
 
         # Select only the points in curved cells
         barycentres = np.average(physical_space_points, axis=1)
         ng_index = list(map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres))
+        ng_index = np.array(ng_index)
 
         # Select only the indices of cells owned by this rank
         owned = [(0 <= ii < len(cell_node_map.values)) if ii is not None else False for ii in ng_index]
 
         # Get the PyOP2 indices corresponding to the netgen indices
-        ng_index = [idx for idx, o in zip(ng_index, owned) if o]
+        ng_index = ng_index[owned].tolist()
+        old_index = pyop2_index
         pyop2_index = cell_node_map.values[ng_index].flatten()
 
-        # Select only the points owned by this rank
-        physical_space_points = physical_space_points[owned]
-        curved_space_points = curved_space_points[owned]
-        barycentres = barycentres[owned]
+        #print("", self.comm.rank, "ng_index", list(map(int, ng_index)), "\n",
+        #      self.comm.rank, "iperm   ", iperm.tolist(), flush=True)
 
         if any(owned):
+            # Select only the points owned by this rank
+            physical_space_points = physical_space_points[owned]
+            curved_space_points = curved_space_points[owned]
+            # print(physical_space_points - own_physical_points)
+
             # Find the correct coordinate permutation for each cell
             permutation = find_permutation(
                 physical_space_points,
@@ -3076,8 +3122,6 @@ values from f.)"""
             # Apply the permutation to each cell in turn
             for ii, p in enumerate(curved_space_points):
                 curved_space_points[ii] = p[permutation[ii]]
-        else:
-            print("barf")
 
         # Assign the curved coordinates to the dat
         new_coordinates.dat.data[pyop2_index] = curved_space_points.reshape(-1, geom_dim)
