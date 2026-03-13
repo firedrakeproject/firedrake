@@ -45,7 +45,7 @@ Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <
     u.interpolate(0.99*u_exact)
 
     v = TestFunction(V)
-    F = (inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v)) * dx
+    F = (inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v)) * dx(degree=degree+10)
          - inner(f, v) * dx(degree=degree+10)
     )
     bcs = DirichletBC(V, u_exact, "on_boundary")
