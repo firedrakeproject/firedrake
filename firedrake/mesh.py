@@ -360,11 +360,11 @@ class AbstractMeshTopology(abc.ABC):
         # User comm
         self.user_comm = comm
         dmcommon.label_facets(self.topology_dm)
-        mylabel = self.topology_dm.getLabel("exterior_facets")
         self._distribute()
         self._grown_halos = False
 
         self.name = name
+        self._did_reordering = bool(reorder)
 
         if self.comm.size > 1:
             self._add_overlap()

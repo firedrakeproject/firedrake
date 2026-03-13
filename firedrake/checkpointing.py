@@ -1059,7 +1059,7 @@ class CheckpointFile(object):
                 layers_a_iset.load(self.viewer)
                 self.viewer.popGroup()
                 layers_a = layers_a_iset.getIndices()
-                layers = np.empty((base_tmesh.cell_set.total_size, 2), dtype=utils.IntType)
+                layers = np.empty((base_tmesh.cells.local_size, 2), dtype=utils.IntType)
                 unit = MPI._typedict[np.dtype(utils.IntType).char]
                 lsf.bcastBegin(unit, layers_a, layers, MPI.REPLACE)
                 lsf.bcastEnd(unit, layers_a, layers, MPI.REPLACE)
@@ -1125,7 +1125,7 @@ class CheckpointFile(object):
                 cell_orientations_a_iset.load(self.viewer)
                 self.viewer.popGroup()
                 cell_orientations_a = cell_orientations_a_iset.getIndices()
-                cell_orientations = np.empty((tmesh.cell_set.total_size, ), dtype=utils.IntType)
+                cell_orientations = np.empty((tmesh.cells.local_size, ), dtype=utils.IntType)
                 unit = MPI._typedict[np.dtype(utils.IntType).char]
                 lsf.bcastBegin(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)
                 lsf.bcastEnd(unit, cell_orientations_a, cell_orientations, MPI.REPLACE)

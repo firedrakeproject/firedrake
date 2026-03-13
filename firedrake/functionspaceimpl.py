@@ -1306,10 +1306,6 @@ class FunctionSpace:
         if self.boundary_set:
             raise NotImplementedError
         return self.nodal_axes.local_size
-        constrained_node_set = set()
-        for sub_domain in self.boundary_set:
-            constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
-        return self.node_set.total_size - len(constrained_node_set)
 
     @utils.cached_property
     def dof_count(self):

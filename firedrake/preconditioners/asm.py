@@ -368,6 +368,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
 
 def get_basemesh_nodes(W):
+    raise NotImplementedError
     pstart, pend = W.mesh().topology_dm.getChart()
     section = W.dm.getDefaultSection()
     # location of first dof on an entity
@@ -378,7 +379,7 @@ def get_basemesh_nodes(W):
     basemeshlayeroffset = numpy.empty(pend - pstart, dtype=utils.IntType)
 
     # For every base mesh entity, what's the layer offset?
-    layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=utils.IntType)
+    layer_offsets = numpy.full(W.nodes.local_size, -1, dtype=utils.IntType)
     layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
     nlayers = W.mesh().layers
 

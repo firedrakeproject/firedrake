@@ -26,12 +26,14 @@ from mpi4py import MPI
 
 
 def _isconstant(expr):
-    return isinstance(expr, Constant) or \
-        (isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() == "Real")
+    return isinstance(expr, Constant)
+    # return isinstance(expr, Constant) or \
+    #     (isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() == "Real")
 
 
 def _isfunction(expr):
-    return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
+    # return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
+    return isinstance(expr, Function | Cofunction)
 
 
 class CoefficientCollector(MultiFunction):

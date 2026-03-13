@@ -105,7 +105,7 @@ def matrix_funptr(form, state):
         # iterset = get_map(test).iterset
         # entity_node_map = op2.Map(iterset,
         #                           toset, arity,
-        #                           values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        #                           values=numpy.zeros(iterset.local_size*arity, dtype=IntType))
         # mat = LocalMat(dofset)
         #
         # arg = mat(op2.INC, (entity_node_map, entity_node_map))
@@ -120,7 +120,7 @@ def matrix_funptr(form, state):
         # statedat = LocalDat(dofset)
         # state_entity_node_map = op2.Map(iterset,
         #                                 toset, arity,
-        #                                 values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+        #                                 values=numpy.zeros(iterset.local_size*arity, dtype=IntType))
         # statearg = statedat(op2.READ, state_entity_node_map)
 
         for i in kinfo.active_domain_numbers.coordinates:
@@ -204,13 +204,13 @@ def residual_funptr(form, state):
         iterset = get_map(test, mesh, integral_type).iterset
         entity_node_map = op2.Map(iterset,
                                   toset, arity,
-                                  values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+                                  values=numpy.zeros(iterset.local_size*arity, dtype=IntType))
         dat = LocalDat(dofset, needs_mask=True)
 
         statedat = LocalDat(dofset)
         state_entity_node_map = op2.Map(iterset,
                                         toset, arity,
-                                        values=numpy.zeros(iterset.total_size*arity, dtype=IntType))
+                                        values=numpy.zeros(iterset.local_size*arity, dtype=IntType))
         statearg = statedat(op2.READ, state_entity_node_map)
 
         arg = dat(op2.INC, entity_node_map)
