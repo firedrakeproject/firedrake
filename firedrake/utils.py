@@ -23,6 +23,14 @@ complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "comp
 SLATE_SUPPORTS_COMPLEX = False
 
 
+def device_matrix_type() -> str | None:
+    _device_mat_type_map = {"cuda": "aijcusparse"}
+    for device, mat_type in _device_mat_type_map.items():
+        if device in petsctools.get_external_packages():
+            return mat_type
+    return None
+
+
 def _new_uid(comm):
     uid = comm.Get_attr(FIREDRAKE_UID)
     if uid is None:
