@@ -136,11 +136,15 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.solve()
 
         if self.options.use_adjoint_residual:
+            if self.options.primal_low_method == "solve":
+                solve_uh()
+
             # Now solve in higher-order space
             high_degree = self.degree + self.options.dual_extra_degree  # Use dual degree
             high_element = PMGPC.reconstruct_degree(self.element, high_degree)
             V_high = V.reconstruct(element=high_element)
-            u_high = Function(V_high).interpolate(u)
+            u_high = Function(V_high)
+            u_high.interpolate(u)
 
             v_old, = F.arguments()
             v_high = TestFunction(V_high)
@@ -153,9 +157,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
-            if self.options.primal_low_method == "solve":
-                solve_uh()
-            elif self.options.primal_low_method == "project":
+            if self.options.primal_low_method == "project":
                 u.project(u_high)
             elif self.options.primal_low_method == "interpolate":
                 u.interpolate(u_high)
