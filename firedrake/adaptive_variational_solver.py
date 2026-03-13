@@ -96,18 +96,11 @@ class GoalAdaptiveNonlinearVariationalSolver():
         mh, level = utils.get_level(mesh)
         if mh is None:
             amh = AdaptiveMeshHierarchy(mesh)
-        elif isinstance(mh, AdaptiveMeshHierarchy):
-            amh = mh
         else:
             meshes = list(mh)
             amh = AdaptiveMeshHierarchy(meshes[0])
             for m in meshes[1:level+1]:
                 amh.add_mesh(m)
-
-        # FIXME we should construct a subset of the original hierarchy instead
-        amh, level = utils.get_level(mesh)
-        while len(amh) > level+1:
-            amh.pop_mesh()
         self.amh = amh
 
         # Data storage and writing
