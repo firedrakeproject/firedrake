@@ -10,7 +10,6 @@ from firedrake.petsc import PETSc
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
-from firedrake.functionspacedata import get_global_numbering, create_element
 from firedrake.function import Function, CoordinatelessFunction
 from firedrake import extrusion_utils as eutils
 from firedrake.embedding import get_embedding_element_for_checkpointing, get_embedding_method_for_checkpointing
@@ -1278,12 +1277,6 @@ class CheckpointFile(object):
             gsf, lsf = topology_dm.sectionLoad(self.viewer, dm, sfXC)
             topology_dm.setName(base_tmesh.name)
             nodes_per_entity, real_tensorproduct, block_size = sd_key
-            # Don't cache if the section has been expanded by block_size
-            if block_size == 1:
-                cached_section = get_global_numbering(tmesh, (nodes_per_entity, real_tensorproduct), global_numbering=dm.getSection())
-                if dm.getSection() is not cached_section:
-                    # The same section has already been cached.
-                    dm.setSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
@@ -1417,7 +1410,7 @@ class CheckpointFile(object):
                         + [str(block_size)])
 
     def _get_shared_data_key_for_checkpointing(self, mesh, ufl_element):
-        finat_element = create_element(ufl_element)
+        finat_element = impl.create_element(ufl_element)
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))

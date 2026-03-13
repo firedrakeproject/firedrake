@@ -20,6 +20,8 @@ from typing import Literal, Optional
 from mpi4py import MPI
 
 import finat.ufl
+from finat.element_factory import create_element as _create_element
+
 import numpy
 import pyop3 as op3
 import ufl
@@ -36,7 +38,6 @@ from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.cython import extrusion_numbering as extnum
-from firedrake.functionspacedata import create_element
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, get_iteration_spec
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
@@ -94,6 +95,53 @@ def check_element(element, top=True):
         inner = ()
     for e in inner:
         check_element(e, top=False)
+
+
+def create_element(ufl_element):
+    finat_element = _create_element(ufl_element)
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        # Retrieve scalar element
+        finat_element = finat_element.base_element
+    return finat_element
+
+
+def entity_dofs_key(entity_dofs):
+    """Provide a canonical key for an entity_dofs dict.
+
+    :arg entity_dofs: The FInAT entity_dofs.
+    :returns: A tuple of canonicalised entity_dofs (suitable for
+        caching).
+    """
+    key = []
+    for k in sorted(entity_dofs.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_dofs[k]):
+            sub_key.append(tuple(entity_dofs[k][sk]))
+        key.append(tuple(sub_key))
+    key = tuple(key)
+    return key
+
+
+def entity_permutations_key(entity_permutations):
+    """Provide a canonical key for an entity_permutations dict.
+
+    :arg entity_permutations: The FInAT entity_permutations.
+    :returns: A tuple of canonicalised entity_permutations (suitable for
+        caching).
+    """
+    key = []
+    for k in sorted(entity_permutations.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_permutations[k]):
+            subsub_key = [sk]
+            for ssk in sorted(entity_permutations[k][sk]):
+                subsub_key.append((ssk, tuple(entity_permutations[k][sk][ssk])))
+            sub_key.append(tuple(subsub_key))
+        key.append(tuple(sub_key))
+    key = tuple(key)
+    return key
+
+
 
 
 def _mesh_cached(func):
@@ -257,8 +305,7 @@ class WithGeometryBase:
     @property
     def num_work_functions(self):
         r"""The number of checked out work functions."""
-        from firedrake.functionspacedata import get_work_function_cache
-        cache = get_work_function_cache(self.mesh(), self.ufl_element())
+        cache = self.mesh().get_work_function_cache(self.ufl_element())
         return sum(cache.values())
 
     @property
@@ -266,8 +313,7 @@ class WithGeometryBase:
         r"""The maximum number of work functions this :class:`FunctionSpace` supports.
 
         See :meth:`get_work_function` for obtaining work functions."""
-        from firedrake.functionspacedata import get_max_work_functions
-        return get_max_work_functions(self)
+        return self.mesh().get_max_work_functions(self)
 
     @max_work_functions.setter
     def max_work_functions(self, val):
@@ -278,8 +324,7 @@ class WithGeometryBase:
             number of currently checked out work functions.
             """
         # Clear cache
-        from firedrake.functionspacedata import get_work_function_cache, set_max_work_functions
-        cache = get_work_function_cache(self.mesh(), self.ufl_element())
+        cache = self.mesh().get_work_function_cache(self.ufl_element())
         if val < len(cache):
             for k in list(cache.keys()):
                 if not cache[k]:
@@ -287,7 +332,7 @@ class WithGeometryBase:
             if val < len(cache):
                 raise ValueError("Can't set work function cache smaller (%d) than current checked out functions (%d)" %
                                  (val, len(cache)))
-        set_max_work_functions(self, val)
+        self.mesh().set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
         r"""Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
@@ -311,8 +356,7 @@ class WithGeometryBase:
             :meth:`restore_work_function`.
 
         """
-        from firedrake.functionspacedata import get_work_function_cache
-        cache = get_work_function_cache(self.mesh(), self.ufl_element())
+        cache = self.mesh().get_work_function_cache(self.ufl_element())
         for function in cache.keys():
             # Check if we've got a free work function available
             out = cache[function]
@@ -342,15 +386,14 @@ class WithGeometryBase:
            it is the user's responsibility not to use a work function
            after restoring it.
         """
-        from firedrake.functionspacedata import get_work_function_cache
-        cache = get_work_function_cache(self.mesh(), self.ufl_element())
+        cache = self.mesh().get_work_function_cache(self.ufl_element())
         try:
             out = cache[function]
         except KeyError:
-            raise ValueError("Function %s is not a work function" % function)
+            raise ValueError(f"Function {function} is not a work function")
 
         if not out:
-            raise ValueError("Function %s is not checked out, cannot restore" % function)
+            raise ValueError(f"Function {function} is not checked out, cannot restore")
         cache[function] = False
 
     def __eq__(self, other):
@@ -708,13 +751,6 @@ class FunctionSpace:
 
         # initialise collective cached properties
         self.local_section = self._make_local_section()
-
-    @cached_property
-    def offset(self):
-        if isinstance(self.mesh(), ExtrudedMeshTopology):
-            return eutils.calculate_dof_offset(self.finat_element)
-        else:
-            return None
 
     @cached_property
     def cell_boundary_masks(self):

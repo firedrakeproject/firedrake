@@ -2,8 +2,7 @@ import textwrap
 import numpy
 import string
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
-from firedrake.functionspacedata import entity_dofs_key
-from firedrake.functionspaceimpl import FiredrakeDualSpace
+from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree

@@ -3,7 +3,7 @@ from immutabledict import immutabledict as idict
 from fractions import Fraction
 import pyop3 as op3
 from firedrake.utils import IntType
-from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl

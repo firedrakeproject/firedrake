@@ -28,7 +28,6 @@ from firedrake.functionspaceimpl import ProxyFunctionSpace, mask_lgmap
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
-from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack
 from firedrake.petsc import PETSc

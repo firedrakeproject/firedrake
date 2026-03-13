@@ -28,11 +28,10 @@ from textwrap import dedent
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
-from cachetools import cachedmethod
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
-from pyop3.cache import memory_cache, with_self_heavy_cache
+from pyop3.cache import memory_cache, with_self_heavy_cache, cached_method
 from pyop3.pyop2_utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
@@ -454,8 +453,7 @@ class AbstractMeshTopology(abc.ABC):
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
         # A cache of shared function space data on this mesh
-        self._shared_data_cache = defaultdict(dict)
-        self._cache = defaultdict(dict)
+        self._max_work_functions = {}
         # Cell subsets for integration over subregions
         self._subsets = {}
         # A set of weakrefs to meshes that are explicitly labelled as being
@@ -484,6 +482,47 @@ class AbstractMeshTopology(abc.ABC):
     def _add_overlap(self):
         """Add overlap."""
         pass
+
+    @cached_method()
+    def get_work_function_cache(self, ufl_element):
+        """Get the cache for work functions.
+
+        :arg mesh: The mesh to use.
+        :arg ufl_element: The ufl element, used as a key.
+        :returns: A dict.
+
+        :class:`.FunctionSpace` objects sharing the same UFL element (and
+        therefore comparing equal) share a work function cache.
+        """
+        return {}
+
+    def get_max_work_functions(self, V):
+        """Get the maximum number of work functions.
+
+        :arg V: The function space to get the number of work functions for.
+        :returns: The maximum number of work functions.
+
+        This number is shared between all function spaces with the same
+        :meth:`~.FunctionSpace.ufl_element` and
+        :meth:`~FunctionSpace.mesh`.
+
+        The default is 25 work functions per function space.  This can be
+        set using :func:`set_max_work_functions`.
+        """
+        return self._max_work_functions.get(V.ufl_element(), 25)
+
+    def set_max_work_functions(self, V, val):
+        """Set the maximum number of work functions.
+
+        :arg V: The function space to set the number of work functions
+            for.
+        :arg val: The new maximum number of work functions.
+
+        This number is shared between all function spaces with the same
+        :meth:`~.FunctionSpace.ufl_element` and
+        :meth:`~FunctionSpace.mesh`.
+        """
+        self._max_work_functions[V.ufl_element()] = val
 
     @cached_property
     def flat_points(self):
@@ -732,7 +771,7 @@ class AbstractMeshTopology(abc.ABC):
 
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
     # but now returns entity numbering to entity numbering
-    @cachedmethod(lambda self: self._cache["_entity_numbering"])
+    @cached_method()
     def _plex_to_entity_numbering(self, dim):
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         plex_indices = PETSc.IS().createStride(size=p_end-p_start, first=p_start, comm=MPI.COMM_SELF)
@@ -994,7 +1033,7 @@ class AbstractMeshTopology(abc.ABC):
         return op3.Map(closures, name="closure")
 
     # NOTE: Probably better to cache the 'everything' case and then drop as necessary when k is given
-    @cachedmethod(lambda self: self._cache["MeshTopology._star"])
+    @cached_method()
     def _star(self, *, k: int) -> op3.Map:
         def star_func(pt):
             return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
@@ -2499,9 +2538,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         petsctools.cite("McRae2016")
         petsctools.cite("Bercea2016")
-        # A cache of shared function space data on this mesh
-        self._shared_data_cache = defaultdict(dict)
-        self._cache = self._shared_data_cache  # alias, yuck
 
         if not isinstance(layers, numbers.Integral):
             raise TypeError("Variable layer extrusion is no longer supported")
