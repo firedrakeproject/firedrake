@@ -3790,7 +3790,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
     swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
-        mesh, vertexcoords, tolerance=tolerance, redundant=redundant
+        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
@@ -3876,6 +3876,7 @@ def _pic_swarm_in_mesh(
     fields=None,
     tolerance=None,
     redundant=True,
+    exclude_halos=False,
 ):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
@@ -4368,6 +4369,197 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
     extrusion_heights = parent_cell_nums % (parent_layers - 1)
     return base_parent_cell_nums, extrusion_heights
 
+
+@PETSc.Log.EventDecorator()
+def _embedding_star_forest(
+    toranks: np.ndarray,
+    send_offsets: np.ndarray,
+    point_indices: np.ndarray,
+    nroots: int,
+    fromranks: np.ndarray,
+    recv_counts: np.ndarray,
+    comm: MPI.Comm,
+):
+    # Build the star forest for point embedding.
+    # Roots are the points on the original ranks as input by the user,
+    # and the leaves are the candidate points on the ranks which may
+    # contain the parent cell of the root points.
+    n_recv_total = recv_counts.sum()
+    recv_buffer = np.empty(n_recv_total, dtype=IntType)
+
+    # Sparse communication of point indices
+    requests = []
+    recv_offset = 0
+    for source_rank, count in zip(fromranks, recv_counts):
+        buf = recv_buffer[recv_offset:recv_offset + count]
+        requests.append(comm.Irecv(buf, source=source_rank, tag=source_rank))
+        recv_offset += count
+
+    for i, dest_rank in enumerate(toranks):
+        idx_slice = point_indices[send_offsets[i]:send_offsets[i + 1]]
+        send_buf = np.ascontiguousarray(idx_slice, dtype=IntType)
+        requests.append(comm.Isend(send_buf, dest=dest_rank, tag=comm.rank))
+
+    MPI.Request.Waitall(requests)
+
+    remote = np.empty(2 * n_recv_total, dtype=IntType)
+    recv_offset = 0
+    for source_rank, count in zip(fromranks, recv_counts):
+        end = recv_offset + count
+        remote[2 * recv_offset:2 * end:2] = source_rank
+        remote[2 * recv_offset + 1:2 * end:2] = recv_buffer[recv_offset:end]
+        recv_offset = end
+
+    # print(f"Rank {comm.rank} remote:\n{remote}")
+
+    sf = PETSc.SF().create(comm=comm)
+    sf.setGraph(nroots, None, remote)
+    return sf
+
+
+@PETSc.Log.EventDecorator()
+def _parent_mesh_embedding_new(
+    parent_mesh, coords, tolerance, redundant, remove_missing_points
+):
+    """Find the parent mesh cells containing the given coordinates.
+
+    Parameters
+    ----------
+    parent_mesh : ``Mesh``
+        The parent mesh to embed in.
+    coords : ``np.ndarray``
+        The coordinates to embed of (npoints, coordsdim) shape.
+    tolerance : ``float``
+        The relative tolerance (i.e. as defined on the reference cell) for the
+        distance a point can be from a cell and still be considered to be in
+        the cell. Note that this tolerance uses an L1
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh. The default is the parent
+        mesh's ``tolerance`` property. Changing this from default will
+        cause the parent mesh's spatial index to be rebuilt which can take some
+        time.
+    redundant : ``bool``
+        If True, the embedding will be done using only the points specified on
+        MPI rank 0.
+    remove_missing_points : ``bool``
+        If True, any points which are not found in the mesh will be removed
+        from the output arrays. If False, they will be kept on the MPI rank
+        which owns them but will be marked as not being not found in the mesh
+        by setting their associated cell numbers to -1 and their reference
+        coordinates to NaNs. This does not effect the behaviour of
+        ``missing_global_idxs``.
+
+    Returns
+    -------
+    coords_embedded : ``np.ndarray``
+        The coordinates of the points that were embedded on this rank. If
+        ``remove_missing_points`` is False then this will include points that
+        were specified on this rank but not found in the mesh.
+    global_idxs : ``np.ndarray``
+        The global indices of the points on this rank.
+    reference_coords : ``np.ndarray``
+        The reference coordinates of the points that were embedded as given by
+        the local mesh partition. If ``remove_missing_points`` is False then
+        the missing point reference coordinates will be NaNs.
+    parent_cell_nums : ``np.ndarray``
+        The parent cell indices (as given by ``locate_cell``) of the global
+        coordinates that were embedded in the local mesh partition. If
+        ``remove_missing_points`` is False then the missing point numbers
+        will be -1.
+    owned_ranks : ``np.ndarray``
+        The MPI rank of the process that owns the parent cell of each point.
+        By "owns" we mean the mesh partition where the parent cell is not in
+        the halo. If a point is not found in the mesh then the rank is
+        ``parent_mesh.comm.size + 1``.
+    input_ranks : ``np.ndarray``
+        The MPI rank of the process that specified the input ``coords``.
+    input_coords_idx : ``np.ndarray``
+        The indices of the points in the input ``coords`` array that were
+        embedded. If ``remove_missing_points`` is False then this will include
+        points that were specified on this rank but not found in the mesh.
+    missing_global_idxs : ``np.ndarray``
+        The indices of the points in the input coords array that were not
+        embedded on any rank.
+    """
+
+    if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError(
+            "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
+        )
+    gdim = parent_mesh.geometric_dimension
+    comm = parent_mesh.comm
+    rtree = parent_mesh.distributed_rtree
+    toranks, send_offsets, point_indices, fromranks_out, recv_counts_out = rstar.discover_ranks(rtree, coords, comm)
+    nroots = coords.shape[0]
+
+    sf = _embedding_star_forest(toranks, send_offsets, point_indices, nroots, fromranks_out, recv_counts_out, comm)
+
+    # Broadcast point coordinates
+    n_recv_total = recv_counts_out.sum()
+    tdict = MPI._typedict
+    root_coords_flat = np.ascontiguousarray(coords).ravel()
+    # print(f"Rank {comm.rank} broadcasting coords:\n{root_coords_flat}")
+    coords_recv_flat = np.empty(n_recv_total * gdim, dtype=np.float64)
+    point_type = tdict[np.dtype(np.float64).char].Create_contiguous(gdim)
+    point_type.Commit()
+    sf.bcastBegin(point_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
+    sf.bcastEnd(point_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
+    point_type.Free()
+    coords_recv = coords_recv_flat.reshape(n_recv_total, gdim)
+
+    (
+        parent_cell_nums,
+        reference_coords,
+        ref_cell_dists_l1,
+    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_recv, tolerance)
+
+    if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+        # The reference coordinates contain an extra unnecessary dimension
+        # which we can safely delete
+        reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
+
+    # We first set the owning cell to be the one with the minimum L1 distance to the point.
+    # In the case of ties, we pick the highest rank number.
+
+    # We first set the owning cell to be the one with the minimum L1 distance to the point.
+    # In the case of ties, we pick the highest rank number.
+    int_unit = tdict[np.dtype(IntType).char]
+    double_unit = tdict[np.dtype(np.float64).char]
+
+    leaf_source_ranks = np.empty(n_recv_total, dtype=IntType)
+    recv_offset = 0
+    for source_rank, count in zip(fromranks_out, recv_counts_out):
+        leaf_source_ranks[recv_offset:recv_offset + count] = source_rank
+        recv_offset += count
+
+    # find minimum L1 distance for each root
+    ref_cell_dists_min = np.empty(nroots, dtype=np.float64)
+    sf.reduceBegin(double_unit, ref_cell_dists_l1, ref_cell_dists_min, op=MPI.MIN)
+    sf.reduceEnd(double_unit, ref_cell_dists_l1, ref_cell_dists_min, op=MPI.MIN)
+
+    # broadcast root minima back to leaves.
+    min_l1_on_leaves = np.empty(n_recv_total, dtype=np.float64)
+    sf.bcastBegin(double_unit, ref_cell_dists_min, min_l1_on_leaves, MPI.REPLACE)
+    sf.bcastEnd(double_unit, ref_cell_dists_min, min_l1_on_leaves, MPI.REPLACE)
+
+    # tie-break by highest rank among leaves with min L1.
+    is_min = np.isclose(ref_cell_dists_l1, min_l1_on_leaves)
+    candidate_ranks = np.where(is_min, leaf_source_ranks, -1).astype(IntType)
+    winner_ranks = np.empty(nroots, dtype=IntType)
+    sf.reduceBegin(int_unit, candidate_ranks, winner_ranks, op=MPI.MAX)
+    sf.reduceEnd(int_unit, candidate_ranks, winner_ranks, op=MPI.MAX)
+
+    # Broadcast winner rank to leaves, then select corresponding owning cell.
+    winner_rank_on_leaves = np.empty(n_recv_total, dtype=IntType)
+    sf.bcastBegin(int_unit, winner_ranks, winner_rank_on_leaves, MPI.REPLACE)
+    sf.bcastEnd(int_unit, winner_ranks, winner_rank_on_leaves, MPI.REPLACE)
+
+    candidate_cells = np.where(leaf_source_ranks == winner_rank_on_leaves, parent_cell_nums, -1).astype(IntType)
+    winner_cells = np.empty(nroots, dtype=IntType)
+    sf.reduceBegin(int_unit, candidate_cells, winner_cells, op=MPI.MAX)
+    sf.reduceEnd(int_unit, candidate_cells, winner_cells, op=MPI.MAX)
+
+    return winner_cells, reference_coords, winner_ranks, point_indices, fromranks_out, recv_counts_out
 
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
