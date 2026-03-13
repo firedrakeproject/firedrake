@@ -27,14 +27,34 @@ def _ensemble_mpi_dispatch(func):
 
 
 class Ensemble:
-    def __init__(self, comm, M, **kwargs):
+    def __init__(self, comm: MPI.Comm, M: int, **kwargs):
         """
         Create a set of space and ensemble subcommunicators.
 
-        :arg comm: The communicator to split.
-        :arg M: the size of the communicators used for spatial parallelism.
-        :kwarg ensemble_name: string used as communicator name prefix, for debugging.
-        :raises ValueError: if ``M`` does not divide ``comm.size`` exactly.
+        Wrapper methods around many MPI communication functions are
+        provided for sending :class:`.Function` and :class:`.Cofunction`
+        objects between spatial communicators.
+
+        For non-Firedrake objects these wrappers will dispatch to the
+        normal implementations on :class:`mpi4py.MPI.Comm`, which means
+        that the same call site can be used for both Firedrake and
+        non-Firedrake types.
+
+        Parameters
+        ----------
+        comm :
+            The communicator to split.
+        M :
+            The size of the communicators used for spatial parallelism.
+            Must be an integer divisor of the size of ``comm``.
+        kwargs :
+            Can include an ``ensemble_name`` string used as a communicator
+            name prefix, for debugging.
+
+        Raises
+        ------
+        ValueError
+            If ``M`` does not divide ``comm.size`` exactly.
         """
         size = comm.size
 
@@ -64,29 +84,38 @@ class Ensemble:
         # objects created with the communicator will never get cleaned up.
         self._ensemble_comm = internal_comm(self.ensemble_comm, self)
 
-        assert self.comm.size == M
-        assert self.ensemble_comm.size == (size // M)
+        if (self.comm.size != M) or (self.ensemble_comm.size != (size // M)):
+            raise ValueError(f"{M=} does not exactly divide {comm.size=}")
 
     @property
-    def ensemble_size(self):
+    def ensemble_size(self) -> int:
         """The number of ensemble members.
         """
         return self.ensemble_comm.size
 
     @property
-    def ensemble_rank(self):
+    def ensemble_rank(self) -> int:
         """The rank of the local ensemble member.
         """
         return self.ensemble_comm.rank
 
-    def _check_function(self, f, g=None):
+    def _check_function(self, f: Function | Cofunction,
+                        g: Function | Cofunction | None = None):
         """
-        Check if function f (and possibly a second function g) is a
-            valid argument for ensemble mpi routines
+        Check if :class:`.Function` ``f`` (and possibly a second
+        :class:`.Function` ``g``) is a valid argument for ensemble MPI routines
 
-        :arg f: The function to check
-        :arg g: Second function to check
-        :raises ValueError: if function communicators mismatch each other or the ensemble
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to check.
+        g :
+            Second :class:`.Function` to check.
+
+        Raises
+        ------
+        ValueError
+            If ``Function`` communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
         if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
@@ -100,16 +129,35 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def allreduce(self, f, f_reduced, op=MPI.SUM):
+    def allreduce(self, f: Function | Cofunction,
+                  f_reduced: Function | Cofunction | None = None,
+                  op: MPI.Op = MPI.SUM
+                  ) -> Function | Cofunction:
         """
-        Allreduce a function f into f_reduced over ``ensemble_comm`` .
+        Allreduce a :class:`.Function` ``f`` into ``f_reduced``.
 
-        :arg f: The a :class:`.Function` to allreduce.
-        :arg f_reduced: the result of the reduction.
-        :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :raises ValueError: if function communicators mismatch each other or the ensemble
-            spatial communicator, or if the functions are in different spaces
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to allreduce.
+        f_reduced :
+            The result of the reduction. Must be in the same
+            :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
+        op :
+            MPI reduction operator. Defaults to MPI.SUM.
+
+        Returns
+        -------
+        Function | Cofunction :
+            The result of the reduction.
+
+        Raises
+        ------
+        ValueError
+            If Function communicators mismatch each other or the ensemble
+            spatial communicator, or if the Functions are in different spaces
         """
+        f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
         with f_reduced.dat.vec_wo as vout, f.dat.vec_ro as vin:
@@ -118,17 +166,35 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def iallreduce(self, f, f_reduced, op=MPI.SUM):
+    def iallreduce(self, f: Function | Cofunction,
+                   f_reduced: Function | Cofunction | None = None,
+                   op: MPI.Op = MPI.SUM
+                   ) -> list[MPI.Request]:
         """
-        Allreduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` .
+        Allreduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
 
-        :arg f: The a :class:`.Function` to allreduce.
-        :arg f_reduced: the result of the reduction.
-        :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
-        :raises ValueError: if function communicators mismatch each other or the ensemble
-            spatial communicator, or if the functions are in different spaces
+        Parameters
+        ----------
+        f :
+            The a :class:`.Function` to allreduce.
+        f_reduced :
+            The result of the reduction. Must be in the same
+            :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
+        op :
+            MPI reduction operator. Defaults to MPI.SUM.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request] :
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If Function communicators mismatch each other or the ensemble
+            spatial communicator, or if the Functions are in different spaces
         """
+        f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
         return [self._ensemble_comm.Iallreduce(fdat.data, rdat.data, op=op)
@@ -136,17 +202,37 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def reduce(self, f, f_reduced, op=MPI.SUM, root=0):
+    def reduce(self, f: Function | Cofunction,
+               f_reduced: Function | Cofunction | None = None,
+               op: MPI.Op = MPI.SUM, root: int = 0
+               ) -> Function | Cofunction:
         """
-        Reduce a function f into f_reduced over ``ensemble_comm`` to rank root
+        Reduce a :class:`.Function` ``f`` into ``f_reduced``.
 
-        :arg f: The a :class:`.Function` to reduce.
-        :arg f_reduced: the result of the reduction on rank root.
-        :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :arg root: rank to reduce to. Defaults to 0.
-        :raises ValueError: if function communicators mismatch each other or the ensemble
-            spatial communicator, or is the functions are in different spaces
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to reduce.
+        f_reduced :
+            The result of the reduction. Must be in the same
+            :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
+        op :
+            MPI reduction operator. Defaults to MPI.SUM.
+        root :
+            The ensemble rank to reduce to.
+
+        Returns
+        -------
+        Function | Cofunction :
+            The result of the reduction.
+
+        Raises
+        ------
+        ValueError
+            If Function communicators mismatch each other or the ensemble
+            spatial communicator, or if the Functions are in different spaces
         """
+        f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
         if self.ensemble_comm.rank == root:
@@ -160,18 +246,37 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def ireduce(self, f, f_reduced, op=MPI.SUM, root=0):
+    def ireduce(self, f: Function | Cofunction,
+                f_reduced: Function | Cofunction | None = None,
+                op: MPI.Op = MPI.SUM, root: int = 0
+                ) -> list[MPI.Request]:
         """
-        Reduce (non-blocking) a function f into f_reduced over ``ensemble_comm`` to rank root
+        Reduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
 
-        :arg f: The a :class:`.Function` to reduce.
-        :arg f_reduced: the result of the reduction on rank root.
-        :arg op: MPI reduction operator. Defaults to MPI.SUM.
-        :arg root: rank to reduce to. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
-        :raises ValueError: if function communicators mismatch each other or the ensemble
-            spatial communicator, or is the functions are in different spaces
+        Parameters
+        ----------
+        f :
+            The a :class:`.Function` to reduce.
+        f_reduced :
+            The result of the reduction. Must be in the same
+            :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
+        op :
+            MPI reduction operator. Defaults to MPI.SUM.
+        root :
+            The ensemble rank to reduce to.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request]
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If Function communicators mismatch each other or the ensemble
+            spatial communicator, or if the Functions are in different spaces
         """
+        f_reduced = f_reduced or Function(f.function_space())
         self._check_function(f, f_reduced)
 
         return [self._ensemble_comm.Ireduce(fdat.data_ro, rdat.data, op=op, root=root)
@@ -179,13 +284,28 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def bcast(self, f, root=0):
+    def bcast(self, f: Function | Cofunction, root: int = 0
+              ) -> Function | Cofunction:
         """
-        Broadcast a function f over ``ensemble_comm`` from rank root
+        Broadcast a :class:`.Function` ``f`` over ``ensemble_comm``
+        from :attr:`~.Ensemble.ensemble_rank` ``root``.
 
-        :arg f: The :class:`.Function` to broadcast.
-        :arg root: rank to broadcast from. Defaults to 0.
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to broadcast.
+        root :
+            The rank to broadcast from.
+
+        Returns
+        -------
+        Function | Cofunction :
+            The result of the broadcast.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
         with f.dat.vec as vec:
@@ -195,14 +315,28 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def ibcast(self, f, root=0):
+    def ibcast(self, f: Function | Cofunction, root: int = 0
+               ) -> list[MPI.Request]:
         """
-        Broadcast (non-blocking) a function f over ``ensemble_comm`` from rank root
+        Broadcast (non-blocking) a :class:`.Function` ``f`` over
+        ``ensemble_comm`` :attr:`~.Ensemble.ensemble_rank` ``root``.
 
-        :arg f: The :class:`.Function` to broadcast.
-        :arg root: rank to broadcast from. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to broadcast.
+        root :
+            The rank to broadcast from.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request]
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
         return [self._ensemble_comm.Ibcast(dat.data, root=root)
@@ -210,15 +344,24 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def send(self, f, dest, tag=0):
+    def send(self, f: Function | Cofunction, dest: int, tag: int = 0):
         """
-        Send (blocking) a function f over ``ensemble_comm`` to another
-        ensemble rank.
+        Send (blocking) a :class:`.Function` ``f`` over ``ensemble_comm``
+        to another :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg f: The a :class:`.Function` to send
-        :arg dest: the rank to send to
-        :arg tag: the tag of the message. Defaults to 0
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The a :class:`.Function` to send.
+        dest :
+            The :attr:`~.Ensemble.ensemble_rank` to send ``f`` to.
+        tag :
+            The tag of the message.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
         for dat in f.dat:
@@ -226,18 +369,41 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def recv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, statuses=None):
+    def recv(self, f: Function | Cofunction, source: int = MPI.ANY_SOURCE,
+             tag: int = MPI.ANY_TAG, statuses: list[MPI.Status] | MPI.Status = None,
+             ) -> Function | Cofunction:
         """
-        Receive (blocking) a function f over ``ensemble_comm`` from
-        another ensemble rank.
+        Receive (blocking) a :class:`.Function` ``f`` over
+        ``ensemble_comm`` from another :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg f: The a :class:`.Function` to receive into
-        :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
-        :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :arg statuses: MPI.Status objects (one for each of f.subfunctions or None).
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to receive into.
+        source :
+            The :attr:`~.Ensemble.ensemble_rank` to receive ``f`` from.
+        tag :
+            The tag of the message.
+        statuses :
+            The :class:`mpi4py.MPI.Status` of the internal recv calls
+            (one for each of the ``subfunctions`` of ``f``).
+
+        Returns
+        -------
+        Function | Cofunction :
+            ``f`` with the received data.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
+        ValueError
+            If the number of ``statuses`` provided is not the number of
+            subfunctions of ``f``.
         """
         self._check_function(f)
+        if statuses is not None and isinstance(statuses, MPI.Status):
+            statuses = [statuses]
         if statuses is not None and len(statuses) != len(f.dat):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
@@ -246,16 +412,30 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def isend(self, f, dest, tag=0):
+    def isend(self, f: Function | Cofunction, dest: int, tag: int = 0
+              ) -> list[MPI.Request]:
         """
-        Send (non-blocking) a function f over ``ensemble_comm`` to another
-        ensemble rank.
+        Send (non-blocking) a :class:`.Function` ``f`` over ``ensemble_comm``
+        to another :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg f: The a :class:`.Function` to send
-        :arg dest: the rank to send to
-        :arg tag: the tag of the message. Defaults to 0.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The a :class:`.Function` to send.
+        dest :
+            The :attr:`~.Ensemble.ensemble_rank` to send ``f`` to.
+        tag :
+            The tag of the message.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request]
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
         return [self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=tag)
@@ -263,16 +443,32 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def irecv(self, f, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG):
+    def irecv(self, f: Function | Cofunction,
+              source: int = MPI.ANY_SOURCE,
+              tag: int = MPI.ANY_TAG
+              ) -> list[MPI.Request]:
         """
-        Receive (non-blocking) a function f over ``ensemble_comm`` from
-        another ensemble rank.
+        Receive (non-blocking) a :class:`.Function` ``f`` over
+        ``ensemble_comm`` from another :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg f: The a :class:`.Function` to receive into
-        :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
-        :arg tag: the tag of the message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of f.subfunctions).
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        Parameters
+        ----------
+        f :
+            The :class:`.Function` to receive into.
+        source :
+            The :attr:`~.Ensemble.ensemble_rank` to receive ``f`` from.
+        tag :
+            The tag of the message.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request]
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicator mismatches the ``ensemble.comm``.
         """
         self._check_function(f)
         return [self._ensemble_comm.Irecv(dat.data, source=source, tag=tag)
@@ -280,48 +476,108 @@ class Ensemble:
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def sendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG, status=None):
+    def sendrecv(self, fsend: Function | Cofunction, dest: int, sendtag: int = 0,
+                 frecv: Function | Cofunction | None = None, source: int = MPI.ANY_SOURCE,
+                 recvtag: int = MPI.ANY_TAG, statuses: list[MPI.Status] | MPI.Status = None
+                 ) -> Function | Cofunction:
         """
-        Send (blocking) a function fsend and receive a function frecv over ``ensemble_comm`` to another
-        ensemble rank.
+        Send (blocking) a :class:`.Function` ``fsend`` and receive a
+        :class:`.Function` ``frecv`` over ``ensemble_comm`` to/from other
+        :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg fsend: The a :class:`.Function` to send.
-        :arg dest: the rank to send to.
-        :arg sendtag: the tag of the send message. Defaults to 0.
-        :arg frecv: The a :class:`.Function` to receive into.
-        :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
-        :arg recvtag: the tag of the received message. Defaults to MPI.ANY_TAG.
-        :arg status: MPI.Status object or None.
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        ``fsend`` and ``frecv`` do not need to be in the same function space
+        but do need to have the same number of subfunctions.
+
+        Parameters
+        ----------
+        fsend :
+            The a :class:`.Function` to send.
+        dest :
+            The :attr:`~.Ensemble.ensemble_rank` to send ``fsend`` to.
+        sendtag :
+            The tag of the send message.
+        frecv :
+            The :class:`.Function` to receive into.
+        source :
+            The :attr:`~.Ensemble.ensemble_rank` to receive ``frecv`` from.
+        recvtag :
+            The tag of the receive message.
+        statuses :
+            The :class:`mpi4py.MPI.Status` of the internal recv calls
+            (one for each of the ``subfunctions`` of ``frecv``).
+
+        Returns
+        -------
+        Function | Cofunction
+            ``frecv`` with the received data.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicators mismatches each other or the
+            ``ensemble.comm``.
+        ValueError
+            If the number of ``statuses`` provided is not the number of
+            subfunctions of ``f``.
         """
+        frecv = frecv or Function(fsend.function_space())
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
+        if statuses is not None and isinstance(statuses, MPI.Status):
+            statuses = [statuses]
+        if statuses is not None and len(statuses) != len(frecv.dat):
+            raise ValueError("Need to provide enough status objects for all parts of the Function")
         with fsend.dat.vec_ro as sendvec, frecv.dat.vec_wo as recvvec:
             self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                          recvbuf=recvvec, source=source, recvtag=recvtag,
-                                         status=status)
+                                         status=statuses)
         return frecv
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
-    def isendrecv(self, fsend, dest, sendtag=0, frecv=None, source=MPI.ANY_SOURCE, recvtag=MPI.ANY_TAG):
+    def isendrecv(self, fsend: Function | Cofunction, dest: int, sendtag: int = 0,
+                  frecv: Function | Cofunction | None = None,
+                  source: int = MPI.ANY_SOURCE, recvtag: int = MPI.ANY_TAG
+                  ) -> list[MPI.Request]:
         """
-        Send a function fsend and receive a function frecv over ``ensemble_comm`` to another
-        ensemble rank.
+        Send (non-blocking) a :class:`.Function` ``fsend`` and receive a
+        :class:`.Function` ``frecv`` over ``ensemble_comm`` to/from other
+        :attr:`~.Ensemble.ensemble_rank`.
 
-        :arg fsend: The a :class:`.Function` to send.
-        :arg dest: the rank to send to.
-        :arg sendtag: the tag of the send message. Defaults to 0.
-        :arg frecv: The a :class:`.Function` to receive into.
-        :arg source: the rank to receive from. Defaults to MPI.ANY_SOURCE.
-        :arg recvtag: the tag of the received message. Defaults to MPI.ANY_TAG.
-        :returns: list of MPI.Request objects (one for each of fsend.subfunctions and frecv.subfunctions).
-        :raises ValueError: if function communicator mismatches the ensemble spatial communicator.
+        ``fsend`` and ``frecv`` do not need to be in the same function space.
+
+        Parameters
+        ----------
+        fsend :
+            The a :class:`.Function` to send.
+        dest :
+            The :attr:`~.Ensemble.ensemble_rank` to send ``fsend`` to.
+        sendtag :
+            The tag of the send message.
+        frecv :
+            The :class:`.Function` to receive into.
+        source :
+            The :attr:`~.Ensemble.ensemble_rank` to receive ``frecv`` from.
+        recvtag :
+            The tag of the receive message.
+
+        Returns
+        -------
+        list[mpi4py.MPI.Request]
+            Requests one for each of ``f.subfunctions``.
+
+        Raises
+        ------
+        ValueError
+            If the Function communicators mismatches each other or the
+            ``ensemble.comm``.
         """
+        frecv = frecv or Function(fsend.function_space())
         # functions don't necessarily have to match
         self._check_function(fsend)
         self._check_function(frecv)
+
         requests = []
         requests.extend([self._ensemble_comm.Isend(dat.data_ro, dest=dest, tag=sendtag)
                          for dat in fsend.dat])

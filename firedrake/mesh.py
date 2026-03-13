@@ -2386,7 +2386,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # Save the coordinates as a 'CoordinatelessFunction' and as a 'Function'
         self._coordinates = coordinates
-        V = functionspaceimpl.WithGeometry.create(coordinates.function_space(), self)
+        V = functionspaceimpl.WithGeometry(coordinates.function_space(), self)
         self._coordinates_function = function.Function(V, val=coordinates)
 
     def _ufl_signature_data_(self, *args, **kwargs):
@@ -3197,7 +3197,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
                                                                 val=reference_coordinates_data,
                                                                 name=_generate_default_mesh_reference_coordinates_name(name))
-        refCoordV = functionspaceimpl.WithGeometry.create(reference_coordinates_fs, vmesh)
+        refCoordV = functionspaceimpl.WithGeometry(reference_coordinates_fs, vmesh)
         vmesh.reference_coordinates = function.Function(refCoordV, val=reference_coordinates)
     else:
         # We can't do this in 0D so leave it undefined.
@@ -4739,7 +4739,19 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
-    rmesh = make_mesh_from_mesh_topology(tmesh1, name1)
+
+    # Create a new coordinates function with the same values as before but
+    # living on the new topology
+    coordinates_fs = mesh.coordinates.function_space().reconstruct(mesh=tmesh1)
+    relabeled_coordinates = function.CoordinatelessFunction(
+        coordinates_fs,
+        val=mesh.coordinates.dat.data_ro_with_halos,
+        name=_generate_default_mesh_coordinates_name(tmesh1.name),
+    )
+    rmesh = MeshGeometry(relabeled_coordinates)
+    rmesh.name = name1
+    rmesh._tolerance = mesh.tolerance
+
     # Tag the relabeled mesh with the original distribution parameters
     rmesh._distribution_parameters = mesh._distribution_parameters
     rmesh._did_reordering = mesh._did_reordering
