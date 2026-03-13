@@ -256,7 +256,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     cg = flags.get("cg", False)
     nested = flags.get("nested", snap in ["coarse"])
     permutation_tol = flags.get("permutation_tol", 1e-8)
-    location_tol = flags.get("location_tol", 1e-8)
     # Firedrake quantities
     meshes = []
     lgmaps = []
@@ -264,7 +263,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     if mesh.coordinates.function_space().ufl_element().degree() != order[0]:
         coordinates = mesh.curve_field(
             order=order[0],
-            location_tol=location_tol,
             permutation_tol=permutation_tol,
             cg_field=cg,
         )
@@ -329,7 +327,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
             if snap == "geometry":
                 coordinates = mesh.curve_field(
                     order=order[l+1],
-                    location_tol=location_tol,
                     permutation_tol=permutation_tol,
                     cg_field=cg,
                 )

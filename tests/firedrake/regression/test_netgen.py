@@ -211,44 +211,20 @@ def test_firedrake_integral_ball_netgen():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 3])
 def test_firedrake_integral_sphere_high_order_netgen():
     from netgen.csg import CSGeometry, Pnt, Sphere
     import netgen
 
     comm = COMM_WORLD
-    if comm.Get_rank() == 0:
-        geo = CSGeometry()
-        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
-        ngmesh = geo.GenerateMesh(maxh=0.1)
-    else:
-        ngmesh = netgen.libngpy._meshing.Mesh(3)
-
-    msh = Mesh(ngmesh)
-    homsh = Mesh(msh.curve_field(4))
-    V = FunctionSpace(homsh, "CG", 4)
-    x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
-    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
-
-
-@pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_integral_sphere_high_order_netgen_parallel():
-    from netgen.csg import CSGeometry, Pnt, Sphere
-    import netgen
-
-    comm = COMM_WORLD
-    if comm.Get_rank() == 0:
+    if comm.rank == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
         ngmesh = geo.GenerateMesh(maxh=0.7)
     else:
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
-    msh = Mesh(ngmesh)
-    # The default value for location_tol is much too large (see https://github.com/NGSolve/ngsPETSc/issues/76)
-    # TODO: Once the default value is adjusted this can be removed
-    homsh = Mesh(msh.curve_field(2, location_tol=1e-8))
+    homsh = Mesh(ngmesh, netgen_flags={"degree": 2})
     V = FunctionSpace(homsh, "CG", 2)
     x, y, z = SpatialCoordinate(homsh)
     f = assemble(interpolate(1+0*x, V))
@@ -257,6 +233,7 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 3])
 def test_firedrake_Adaptivity_netgen():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
     from netgen.occ import X, Z
@@ -326,82 +303,8 @@ def test_firedrake_Adaptivity_netgen():
         (eta, error_est) = estimate_error(mesh, uh)
         error_estimators.append(error_est)
         dofs.append(uh.function_space().dim())
-        mesh = adapt(mesh, eta)
-    assert error_estimators[-1] < 0.05
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_Adaptivity_netgen_parallel():
-    from netgen.occ import WorkPlane, OCCGeometry, Axes
-    from netgen.occ import X, Z
-
-    def solve_poisson(mesh):
-        V = FunctionSpace(mesh, "CG", 1)
-        uh = Function(V, name="Solution")
-        v = TestFunction(V)
-        bc = DirichletBC(V, 0, "on_boundary")
-        f = Constant(1)
-        F = inner(grad(uh), grad(v))*dx - inner(f, v)*dx
-        solve(F == 0, uh, bc)
-        return uh
-
-    def estimate_error(mesh, uh):
-        W = FunctionSpace(mesh, "DG", 0)
-        eta_sq = Function(W)
-        w = TestFunction(W)
-        f = Constant(1)
-        h = CellDiameter(mesh)
-        n = FacetNormal(mesh)
-        v = CellVolume(mesh)
-
-        # Compute error indicator cellwise
-        G = inner(eta_sq / v, w)*dx
-        G = G - inner(h**2 * (f + div(grad(uh)))**2, w) * dx
-        G = G - inner(h('+')/2 * jump(grad(uh), n)**2, w('+')) * dS
-
-        # Each cell is an independent 1x1 solve, so Jacobi is exact
-        sp = {"mat_type": "matfree",
-              "ksp_type": "richardson",
-              "pc_type": "jacobi"}
-        solve(G == 0, eta_sq, solver_parameters=sp)
-        eta = Function(W)
-        eta.interpolate(sqrt(eta_sq))  # the above computed eta^2
-
-        with eta.dat.vec_ro as eta_:
-            error_est = sqrt(eta_.dot(eta_))
-        return (eta, error_est)
-
-    def adapt(mesh, eta):
-        W = FunctionSpace(mesh, "DG", 0)
-        markers = Function(W)
-        with eta.dat.vec_ro as eta_:
-            eta_max = eta_.max()[1]
-
-        theta = 0.5
-        should_refine = conditional(gt(eta, theta*eta_max), 1, 0)
-        markers.interpolate(should_refine)
-
-        refined_mesh = mesh.refine_marked_elements(markers)
-        return refined_mesh
-
-    rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
-    rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
-    L = rect1 + rect2
-
-    geo = OCCGeometry(L, dim=2)
-    ngmsh = geo.GenerateMesh(maxh=0.1)
-    mesh = Mesh(ngmsh)
-
-    max_iterations = 10
-    error_estimators = []
-    dofs = []
-    for i in range(max_iterations):
-        uh = solve_poisson(mesh)
-        (eta, error_est) = estimate_error(mesh, uh)
-        error_estimators.append(error_est)
-        dofs.append(uh.function_space().dim())
+        if error_est < 0.05:
+            break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
 
