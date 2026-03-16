@@ -4537,6 +4537,14 @@ def _parent_mesh_embedding_new(
     int_unit = tdict[np.dtype(IntType).char]
     double_unit = tdict[np.dtype(np.float64).char]
 
+    if gdim == 1:
+        double_type = double_unit
+        needs_free = False
+    else:
+        double_type = double_unit.Create_contiguous(gdim)
+        double_type.Commit()
+        needs_free = True
+
     # For redundant mode only rank 0's coordinates are embedded; other ranks
     # contribute no root points.
     if redundant and comm.rank != 0:
@@ -4562,11 +4570,8 @@ def _parent_mesh_embedding_new(
     # Broadcast point coordinates to candidate leaf ranks.
     root_coords_flat = np.ascontiguousarray(coords, dtype=np.float64).ravel()
     coords_recv_flat = np.empty(n_recv_total * gdim, dtype=np.float64)
-    point_type = tdict[np.dtype(np.float64).char].Create_contiguous(gdim)
-    point_type.Commit()
-    sf.bcastBegin(point_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
-    sf.bcastEnd(point_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
-    point_type.Free()
+    sf.bcastBegin(double_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
+    sf.bcastEnd(double_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
     coords_recv = coords_recv_flat.reshape(n_recv_total, gdim)
 
     # Locate parent cells for each received candidate on this rank.
@@ -4610,11 +4615,8 @@ def _parent_mesh_embedding_new(
     )
 
     # Tie-break among min candidates by highest rank.
-    # Only owned (non-halo) cells compete: a halo copy on another rank must not
-    # out-vote the rank that actually owns the cell.
-    # For extruded meshes the locator returns extruded cell numbers; divide by
-    # (layers - 1) to map back to base cell numbers before comparing to cell_set.size.
     if parent_mesh.extruded:
+        # Map back to base cell numbers
         base_cell_nums = parent_cell_nums_leaves // (parent_mesh.layers - 1)
         is_owned_cell = base_cell_nums < parent_mesh.cell_set.size
     else:
@@ -4631,19 +4633,7 @@ def _parent_mesh_embedding_new(
     sf.bcastEnd(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
     leaf_is_winner = is_min_candidate & (winner_ranks_on_leaves == comm.rank)
 
-    # Sanity check: at most one winning leaf per root.
-    winner_counts_leaf = leaf_is_winner.astype(IntType)
-    winner_counts_root = np.zeros(nroots, dtype=IntType)
-    sf.reduceBegin(int_unit, winner_counts_leaf, winner_counts_root, op=MPI.SUM)
-    sf.reduceEnd(int_unit, winner_counts_leaf, winner_counts_root, op=MPI.SUM)
-    if np.any(winner_counts_root > 1):
-        raise RuntimeError(
-            "More than one winning leaf selected for at least one embedding root"
-        )
-
-    # Include ALL min-candidates as leaves (owner + halo copies at partition boundaries).
-    # createEmbeddedLeafSF preserves original ilocal positions, so buffers must remain
-    # full-length (n_recv_total), not compacted.
+    # Remove losing candidates from the SF
     selected_leaf_indices = np.flatnonzero(is_min_candidate).astype(IntType)
     embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
@@ -4655,17 +4645,15 @@ def _parent_mesh_embedding_new(
     embedded_sf.reduceBegin(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
     embedded_sf.reduceEnd(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
 
-    # Reduce winner reference coordinates to roots one component at a time.
-    # Avoid Create_contiguous derived types in SF reduce: PETSc's local-only
-    # scatter path (PetscSFLinkUnpackDataWithMPIReduceLocal) only supports
-    # basic scalar MPI types, not derived contiguous types.
-    winner_leaf_indices = np.flatnonzero(leaf_is_winner).astype(IntType)
-    winner_only_sf = sf.createEmbeddedLeafSF(winner_leaf_indices)
     winner_ref_coords = np.zeros((nroots, ref_dim), dtype=np.float64)
-    for i in range(ref_dim):
-        col_leaf = np.ascontiguousarray(reference_coords_leaves[:, i], dtype=np.float64)
-        winner_only_sf.reduceBegin(double_unit, col_leaf, winner_ref_coords[:, i], MPI.SUM)
-        winner_only_sf.reduceEnd(double_unit, col_leaf, winner_ref_coords[:, i], MPI.SUM)
+    ref_coords_buf = np.ascontiguousarray(
+        np.where(leaf_is_winner[:, np.newaxis], reference_coords_leaves, 0.0), dtype=np.float64
+    )
+    embedded_sf.reduceBegin(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceEnd(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
+
+    if needs_free:
+        double_type.Free()
 
     missing_roots = winner_ranks == -1
     winner_ref_coords[missing_roots] = np.nan
