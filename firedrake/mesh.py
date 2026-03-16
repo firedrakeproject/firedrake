@@ -4505,13 +4505,17 @@ def _parent_mesh_embedding_new(
     sf.bcastEnd(point_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
     point_type.Free()
     coords_recv = coords_recv_flat.reshape(n_recv_total, gdim)
+    comm.Barrier()
     print(f"Rank {comm.rank} received coords:\n{coords_recv}")
-
+    comm.Barrier()
     (
         parent_cell_nums,
         reference_coords,
         ref_cell_dists_l1,
     ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_recv, tolerance)
+    print(f"Rank {comm.rank} located parent cells:\n{parent_cell_nums}")
+    comm.Barrier()
+    print(f"Rank {comm.rank} ref_cell_dists_l1:\n{ref_cell_dists_l1}")
 
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
         # The reference coordinates contain an extra unnecessary dimension
@@ -4522,11 +4526,21 @@ def _parent_mesh_embedding_new(
     double_unit = tdict[np.dtype(np.float64).char]
 
     locally_visible = parent_cell_nums != -1
+    comm.Barrier()
+    print(f"Rank {comm.rank} locally_visible:\n{locally_visible}")
+    # if parent_mesh.extruded:
+    #     locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
+    # else:
+    #     locally_visible_cell_nums = parent_cell_nums[locally_visible]
+
     ref_cell_dists_l1_visible = np.array(ref_cell_dists_l1, copy=True)
     ref_cell_dists_l1_visible[~locally_visible] = np.inf
 
     # Root-wise minimum distance over candidate leaves.
-    ref_cell_dists_min = np.zeros(nroots, dtype=np.float64)
+    # Initialise to inf so MPI.MIN is not polluted by the zero-init when the
+    # true minimum is a small positive value (e.g. a point very close to a
+    # cell boundary that lands at dist ~ 1e-16 rather than exactly 0).
+    ref_cell_dists_min = np.full(nroots, np.inf, dtype=np.float64)
     sf.reduceBegin(double_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
     sf.reduceEnd(double_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
     print(f"Rank {comm.rank} root-wise min distances:\n{ref_cell_dists_min}")
@@ -4538,17 +4552,20 @@ def _parent_mesh_embedding_new(
     sf.bcastEnd(double_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
     print(f"Rank {comm.rank} received root-wise min distances:\n{ref_cell_dists_min_on_leaves}")
     comm.Barrier()
-    # Candidate leaves are exactly those that are visible and attain the min.
-    is_min_candidate = locally_visible & np.isclose(
-        ref_cell_dists_l1_visible,
-        ref_cell_dists_min_on_leaves,
-        rtol=1e-14,
-        atol=1e-14,
-    )
+    # Candidate leaves are those that are visible and attain the min.
+    # Use strict equality (not np.isclose): two ranks finding the same point in
+    # adjacent cells may get slightly different distances (e.g. 0 vs 1.67e-16),
+    # and only the globally-minimum distance constitutes a true local copy.
+    is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
     print(f"Rank {comm.rank} is_min_candidate:\n{is_min_candidate}")
     # Tie-break among min candidates by highest rank.
+    # Only own (non-halo) cells compete: halo copies on another rank must not
+    # out-vote the rank that actually owns the cell.
+    is_owned_cell = parent_cell_nums < parent_mesh.cell_set.size
     rank_candidates = np.full(n_recv_total, -1, dtype=IntType)
-    rank_candidates[is_min_candidate] = comm.rank
+    rank_candidates[is_min_candidate & is_owned_cell] = comm.rank
+    comm.Barrier()
+    print(f"Rank {comm.rank} rank candidates:\n{rank_candidates}")
     winner_ranks = np.full(nroots, -1, dtype=IntType)
     sf.reduceBegin(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
     sf.reduceEnd(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
@@ -4571,22 +4588,28 @@ def _parent_mesh_embedding_new(
     if np.any(winner_counts_root > 1):
         raise RuntimeError("More than one winning leaf selected for at least one embedding root")
 
-    selected_leaf_indices = np.flatnonzero(leaf_is_winner).astype(IntType)
+    # Include ALL min-candidates as leaves (owner + halo copies at the boundary).
+    # createEmbeddedLeafSF preserves original ilocal positions, so the buffers
+    # must remain full-length (n_recv_total), not compacted.
+    selected_leaf_indices = np.flatnonzero(is_min_candidate).astype(IntType)
     embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
-    # Gather winners (one leaf per root at most) back to root layout.
+    # Gather winner data back to roots.  Only the single winning leaf per root
+    # should contribute; halo copies send neutral values (-1 / 0.0).
+    winner_cells_buf = np.where(leaf_is_winner, parent_cell_nums, -1).astype(IntType)
     winner_cells = np.full(nroots, -1, dtype=IntType)
-    winner_cells_leaf = parent_cell_nums[leaf_is_winner].astype(IntType, copy=False)
-    embedded_sf.reduceBegin(int_unit, winner_cells_leaf, winner_cells, op=MPI.MAX)
-    embedded_sf.reduceEnd(int_unit, winner_cells_leaf, winner_cells, op=MPI.MAX)
+    embedded_sf.reduceBegin(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
+    embedded_sf.reduceEnd(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
 
     ref_dim = reference_coords.shape[1]
     winner_ref_coords = np.zeros((nroots, ref_dim), dtype=np.float64)
-    winner_ref_coords_leaf = np.ascontiguousarray(reference_coords[leaf_is_winner], dtype=np.float64)
+    ref_coords_buf = np.ascontiguousarray(
+        np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0), dtype=np.float64
+    )
     ref_type = tdict[np.dtype(np.float64).char].Create_contiguous(ref_dim)
     ref_type.Commit()
-    embedded_sf.reduceBegin(ref_type, winner_ref_coords_leaf, winner_ref_coords, op=MPI.SUM)
-    embedded_sf.reduceEnd(ref_type, winner_ref_coords_leaf, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceBegin(ref_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceEnd(ref_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
     ref_type.Free()
 
     missing_roots = winner_ranks == -1
@@ -4731,6 +4754,8 @@ def _parent_mesh_embedding(
         reference_coords,
         ref_cell_dists_l1,
     ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+    parent_mesh.comm.Barrier()
+    print(f"Rank {parent_mesh.comm.rank} located parent cells:\n{parent_cell_nums}\nwith reference coords:\n{reference_coords}\nand L1 distances:\n{ref_cell_dists_l1}")
     assert len(parent_cell_nums) == ncoords_global
     assert len(reference_coords) == ncoords_global
     assert len(ref_cell_dists_l1) == ncoords_global
