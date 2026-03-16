@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.utils import IntType, RealType
+from firedrake.mesh import _pic_swarm_in_mesh
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -154,8 +155,8 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     if exclude_halos:
         pytest.skip("Skip for now")
 
-    if not exclude_halos and parentmesh.comm.size == 1:
-        pytest.skip("Testing halo behaviour in serial isn't worth the time")
+    # if not exclude_halos and parentmesh.comm.size == 1:
+    #     pytest.skip("Testing halo behaviour in serial isn't worth the time")
 
     # Setup
 
@@ -173,9 +174,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields, exclude_halos=exclude_halos)
         else:
-            swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields, exclude_halos=exclude_halos)
         input_rank = 0
         # inputcoordindices is the correct set of input indices for
         # redundant==True but I need to work out where they will be after
@@ -194,7 +195,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant, exclude_halos=exclude_halos)
+        swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant, exclude_halos=exclude_halos)
         input_rank = parentmesh.comm.rank
         input_local_coord_indices = np.arange(len(inputlocalpointcoords))
 
