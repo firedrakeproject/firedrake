@@ -313,7 +313,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
-    return cls.create(new, mixed_mesh_geometry)
+    return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
@@ -331,7 +331,7 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
         An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
-                                                                 boundary_set=boundary_set,
-                                                                 name=name),
-                                    function_space.mesh())
+    return impl.WithGeometry(impl.RestrictedFunctionSpace(function_space,
+                                                          boundary_set=boundary_set,
+                                                          name=name),
+                             function_space.mesh())
