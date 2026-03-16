@@ -2951,7 +2951,7 @@ values from f.)"""
             max_refs = int(mark_np.max())
             for r in range(max_refs):
                 cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
-                cells.NumPy()["refine"] = (mark_np > 0)
+                cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
                 if not refine_faces and dim == 3:
                     netgen_mesh.Elements2D().NumPy()["refine"] = False
                 netgen_mesh.Refine(adaptive=True)
@@ -2959,13 +2959,15 @@ values from f.)"""
                 if r < max_refs - 1:
                     parents = netgen_mesh.parentelements if dim == 3 else netgen_mesh.parentsurfaceelements
                     parents = parents.NumPy().astype(int).flatten()
-                    num_coarse_cells = mark_np.size
+                    cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
+                    num_coarse_cells = len(cells)
                     num_fine_cells = parents.shape[0]
                     indices = np.arange(num_fine_cells, dtype=int)
                     fine_cells = indices > num_coarse_cells
                     indices[fine_cells] = parents[indices[fine_cells]]
                     mark_np = mark_np[indices]
 
+        self.comm.Barrier()
         return Mesh(netgen_mesh,
                     reorder=self._did_reordering,
                     distribution_parameters=self._distribution_parameters,
