@@ -158,8 +158,6 @@ class ASMStarPC(ASMPatchPC):
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
         mesh_dm = mesh_unique.topology_dm
-        if mesh_unique.extruded:
-            warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -219,8 +217,6 @@ class ASMVankaPC(ASMPatchPC):
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
         mesh_dm = mesh_unique.topology_dm
-        if mesh_unique.layers:
-            warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -309,14 +305,15 @@ class ASMLinesmoothPC(ASMPatchPC):
     _prefix = "pc_linesmooth_"
 
     def get_patches(self, V):
-        mesh = V._mesh
+        mesh = V.mesh()
         if len(set(mesh)) == 1:
             mesh_unique = mesh.unique()
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
         assert mesh_unique.extruded
         dm = mesh_unique.topology_dm
-        section = V.dm.getDefaultSection()
+        base_dm = mesh_unique._base_mesh.topology_dm
+        section = V._base_mesh_section
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
@@ -324,15 +321,16 @@ class ASMLinesmoothPC(ASMPatchPC):
         # Build index sets for the patches
         ises = []
         for codim in codim_list:
-            for p in range(*dm.getHeightStratum(codim)):
+            for base_p in range(*base_dm.getHeightStratum(codim)):
                 # Only want to build patches over owned faces
-                if dm.getLabelValue("firedrake_is_ghost", p) != -1:
+                if base_dm.getLabelValue("firedrake_is_ghost", base_p) != -1:
                     continue
-                dof = section.getDof(p)
+
+                dof = section.getDof(base_p)
                 if dof <= 0:
                     continue
-                off = section.getOffset(p)
-                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=utils.IntType)
+                off = section.getOffset(base_p)
+                indices = numpy.arange(off, off+dof, dtype=utils.IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -420,6 +418,7 @@ class ASMExtrudedStarPC(ASMStarPC):
     _prefix = 'pc_star_'
 
     def get_patches(self, V):
+        raise NotImplementedError
         mesh = V.mesh()
         if len(set(mesh)) == 1:
             mesh_unique = mesh.unique()

@@ -1065,6 +1065,28 @@ class FunctionSpace:
         return dm
 
     @cached_property
+    def _base_mesh_section(self):
+        """Return a PETSc section for this function space as seen by the base mesh."""
+        assert isinstance(self.mesh(), ExtrudedMeshTopology)
+        extr_dm = self.mesh().topology_dm
+        base_mesh = self.mesh()._base_mesh
+        base_dm = self.mesh()._base_mesh.topology_dm
+
+        base_point_label = extr_dm.getLabel("base_point")
+
+        extr_section = self.local_section
+        base_section = PETSc.Section().create(comm=self.comm)
+        base_section.setChart(*base_dm.getChart())
+        for base_pt in range(*base_dm.getChart()):
+            ndofs = 0
+            for extr_pt in base_point_label.getStratumIS(base_pt).indices:
+                ndofs += extr_section.getDof(extr_pt)
+            base_section.setDof(base_pt, ndofs)
+        base_section.setPermutation(base_mesh._dm_renumbering)
+        base_section.setUp()
+        return base_section
+
+    @cached_property
     @_with_mesh_heavy_cache
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this set of axes."""
