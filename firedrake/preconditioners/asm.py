@@ -167,7 +167,7 @@ class ASMStarPC(ASMPatchPC):
         depth = opts.getInt("construct_dim", default=0)
         validate_overlap(mesh, depth, "star")
 
-        coloring = opts.getBool("coloring", default=False)
+        use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         # Accessing .indices causes the allocation of a global array,
@@ -175,7 +175,7 @@ class ASMStarPC(ASMPatchPC):
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
         # Build index sets for the patches
-        colors = get_colors(mesh, coloring, depth=depth, distance=1)
+        colors = get_colors(mesh, use_coloring, depth, distance=1)
         ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, self.prefix, color)
                 for color in colors]
         return ises
@@ -218,7 +218,7 @@ class ASMVankaPC(ASMPatchPC):
             raise ValueError(f"{self.prefix}include_type must be either 'star' or 'entity', not {include_type}")
         include_star = include_type == "star"
 
-        coloring = opts.getBool("coloring", default=False)
+        use_coloring = opts.getBool("use_coloring", default=False)
         ordering = opts.getString("mat_ordering_type", default="natural")
 
         def splitting(V):
@@ -231,7 +231,7 @@ class ASMVankaPC(ASMPatchPC):
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
-        colors = get_colors(mesh, coloring, depth=depth, distance=2)
+        colors = get_colors(mesh, use_coloring, depth, distance=2)
         ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
                                     include_star, color) for color in colors]
         return ises
@@ -382,7 +382,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
-        coloring = opts.getBool("coloring", default=False)
+        use_coloring = opts.getBool("use_coloring", default=False)
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -427,9 +427,9 @@ class ASMExtrudedStarPC(ASMStarPC):
             validate_overlap(mesh, base_depth, "star")
 
             num_layer_seeds = nlayers-1 if (periodic or interval_depth) else nlayers
-            num_layer_colors = 2 if coloring else num_layer_seeds
+            num_layer_colors = 2 if use_coloring else num_layer_seeds
 
-            colors = get_colors(mesh, coloring=coloring, depth=base_depth, distance=1)
+            colors = get_colors(mesh, use_coloring, base_depth, distance=1)
             for color in colors:
                 points = get_star_points(mesh_dm, ordering, self.prefix, color)
                 if len(points) == 0:
@@ -503,14 +503,18 @@ def validate_overlap(mesh, patch_dim, patch_type):
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
 
 
-def get_colors(mesh, coloring=False, depth=0, distance=1):
+def get_colors(mesh, use_coloring, depth, distance=1):
+    """For a given entity dimension (depth), constructs a coloring of the
+    entities if use_coloring=True, otherwise returns all entities visible by
+    this process.
+    """
     mesh_dm = mesh.topology_dm
     point_subset = None
     if hasattr(mesh, "netgen_mesh"):
         cell_subset = get_refined_cells(mesh)
         point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
 
-    if coloring:
+    if use_coloring:
         colors = mesh_dm.createColoring(depth=depth, distance=distance)
         if point_subset is not None:
             colors = tuple(numpy.intersect1d(point_subset, color.indices) for color in colors)
@@ -539,7 +543,7 @@ def get_entity_dofs(V, V_local_ises_indices, points):
 
 
 def get_star_points(mesh_dm, ordering, prefix, seed_points):
-    """Get DMPlex points in the star patches."""
+    """Get DMPlex points in the star of each point in seed_points."""
     if isinstance(seed_points, PETSc.IS):
         seed_points = seed_points.indices
     elif numpy.isscalar(seed_points):
