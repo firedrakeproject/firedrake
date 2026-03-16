@@ -382,6 +382,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
+        coloring = opts.getBool("coloring", default=False)
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -424,58 +425,56 @@ class ASMExtrudedStarPC(ASMStarPC):
                 continue
 
             validate_overlap(mesh, base_depth, "star")
-            start, end = mesh_dm.getDepthStratum(base_depth)
-            for seed in range(start, end):
-                # Only build patches over owned DoFs
-                if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
-                    continue
 
-                # Create point list from mesh DM
-                points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-                points = order_points(mesh_dm, points, ordering, self.prefix)
+            num_layer_seeds = nlayers-1 if (periodic or interval_depth) else nlayers
+            num_layer_colors = 2 if coloring else num_layer_seeds
+
+            colors = get_colors(mesh, coloring=coloring, depth=base_depth, distance=1)
+            for color in colors:
+                points = get_star_points(mesh_dm, ordering, self.prefix, color)
+                if len(points) == 0:
+                    continue
+                points = numpy.asarray(points)
                 points -= pstart  # offset by chart start
 
-                num_seeds = nlayers
-                if periodic or interval_depth:
-                    num_seeds -= 1
-                for layer_seed in range(num_seeds):
+                for layer_color in range(num_layer_colors):
                     indices = []
-                    # Get DoF indices for patch
-                    for i, W in enumerate(V):
-                        iset = V_ises[i]
-                        for layer_dim, layer_shift in layer_entities:
-                            layer = layer_seed - layer_shift
-                            if periodic:
-                                # Handle periodic case
-                                layer = layer % (nlayers-1)
-                            elif layer < 0 or (layer + layer_dim) >= nlayers:
-                                # We are out of bounds
-                                continue
-
-                            for p in points:
-                                # How to walk up one layer
-                                blayer_offset = basemeshlayeroffsets[i][p]
-                                if blayer_offset <= 0:
-                                    # In this case we don't have any dofs on
-                                    # this entity.
+                    for layer_seed in range(layer_color, num_layer_seeds, num_layer_colors):
+                        # Get DoF indices for patch
+                        for i, W in enumerate(V):
+                            iset = V_ises[i]
+                            for layer_dim, layer_shift in layer_entities:
+                                layer = layer_seed - layer_shift
+                                if periodic:
+                                    # Handle periodic case
+                                    layer = layer % (nlayers-1)
+                                elif layer < 0 or (layer + layer_dim) >= nlayers:
+                                    # We are out of bounds
                                     continue
-                                # Offset in the global array for the bottom of
-                                # the column
-                                off = basemeshoff[i][p]
-                                # Number of dofs in the interior of the
-                                # vertical interval cell on top of this base
-                                # entity
-                                dof = basemeshdof[i][p]
-                                # Hard-code taking the star
-                                if layer_dim == 0:
-                                    begin = off + layer * blayer_offset
-                                    end = off + layer * blayer_offset + dof
-                                else:
-                                    begin = off + layer * blayer_offset + dof
-                                    end = off + (layer + 1) * blayer_offset
-                                zlice = slice(W.block_size * begin, W.block_size * end)
-                                indices.extend(iset[zlice])
 
+                                for p in points:
+                                    # How to walk up one layer
+                                    blayer_offset = basemeshlayeroffsets[i][p]
+                                    if blayer_offset <= 0:
+                                        # In this case we don't have any dofs on
+                                        # this entity.
+                                        continue
+                                    # Offset in the global array for the bottom of
+                                    # the column
+                                    off = basemeshoff[i][p]
+                                    # Number of dofs in the interior of the
+                                    # vertical interval cell on top of this base
+                                    # entity
+                                    dof = basemeshdof[i][p]
+                                    # Hard-code taking the star
+                                    if layer_dim == 0:
+                                        begin = off + layer * blayer_offset
+                                        end = off + layer * blayer_offset + dof
+                                    else:
+                                        begin = off + layer * blayer_offset + dof
+                                        end = off + (layer + 1) * blayer_offset
+                                    zlice = slice(W.block_size * begin, W.block_size * end)
+                                    indices.extend(iset[zlice])
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
@@ -539,8 +538,8 @@ def get_entity_dofs(V, V_local_ises_indices, points):
     return indices
 
 
-def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
-    """Build index sets for star patches."""
+def get_star_points(mesh_dm, ordering, prefix, seed_points):
+    """Get DMPlex points in the star patches."""
     if isinstance(seed_points, PETSc.IS):
         seed_points = seed_points.indices
     elif numpy.isscalar(seed_points):
@@ -554,7 +553,12 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
         star, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
         star = order_points(mesh_dm, star, ordering, prefix)
         points.extend(star)
+    return points
 
+
+def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
+    """Build index sets for star patches."""
+    points = get_star_points(mesh_dm, ordering, prefix, seed_points)
     indices = get_entity_dofs(V, V_local_ises_indices, points)
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
