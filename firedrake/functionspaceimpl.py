@@ -883,7 +883,7 @@ class FunctionSpace:
                 op3.AxisComponentRegion(unconstrained_dofs_expr),
             ]
 
-        component = op3.AxisComponent(regions, "XXX")
+        component = op3.AxisComponent(regions)
         dof_axis = op3.Axis(component, "dof")
 
         constraint = AxisConstraint(
@@ -893,7 +893,7 @@ class FunctionSpace:
         constraints.append(constraint)
 
         for i, dim in enumerate(self.shape):
-            shape_axis = op3.Axis({"XXX": dim}, f"dim{i}")
+            shape_axis = op3.Axis([op3.AxisComponent(dim)], f"dim{i}")
             constraint = AxisConstraint(shape_axis)
             constraints.append(constraint)
 
@@ -913,17 +913,17 @@ class FunctionSpace:
 
             dim = slice_component.label
             ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
-            subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}")
+            subslice = op3.Slice("dof", [op3.AffineSliceComponent(None, stop=ndofs, label=None)], label=f"dof{slice_component.label}")
             index_tree = index_tree.add_node(path, subslice)
 
             # same as in parloops.py
             if self.shape:
                 shape_slices = op3.IndexTree.from_iterable([
-                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
+                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent(None, label=None)], label=f"dim{i}")
                     for i, dim in enumerate(self.shape)
                 ])
 
-                index_tree = index_tree.add_subtree(path | {subslice.label: "XXX"}, shape_slices)
+                index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
         return self.layout_axes[index_tree]
 
     @cached_property
@@ -937,7 +937,7 @@ class FunctionSpace:
         # Create the axis tree without index information
         axis_tree = self._nodes_axis.as_tree()
         for i, dim in enumerate(self.shape):
-            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
+            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
         assert axis_tree.sf == self.layout_axes.sf
 
         # Now determine the targets mapping the nodes back to mesh
@@ -990,7 +990,7 @@ class FunctionSpace:
             for axis_target in axis_targets:
                 if axis_target.axis == "nodes":
                     mesh_target = op3.AxisTarget("mesh", "mylabel", node_point_map_expr)
-                    dof_target = op3.AxisTarget("dof", "XXX", node_dof_map_expr)
+                    dof_target = op3.AxisTarget("dof", None, node_dof_map_expr)
                     new_axis_targets.extend([mesh_target, dof_target])
                 else:
                     # All other axes (e.g. 'dim0') map directly to the layout axes
@@ -1573,7 +1573,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf)], "nodes")
         axis_tree = op3.AxisTree(node_axis)
         for i, dim in enumerate(self.shape):
-            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
+            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))
 
         # Reuse the targets from the unconstrained space as they do not affect
         # the layout functions.
@@ -2088,12 +2088,12 @@ class RealFunctionSpace(FunctionSpace):
         assert ndofs is not None
 
         dof_axis = op3.Axis(
-            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self.comm, ndofs)),
+            op3.AxisComponent(ndofs, None, sf=op3.single_star_sf(self.comm, ndofs)),
             "dof"
         )
         constraints = [AxisConstraint(dof_axis)]
         for i, dim in enumerate(self.shape):
-            shape_axis = op3.Axis({"XXX": dim}, f"dim{i}")
+            shape_axis = op3.Axis([op3.AxisComponent(dim)], f"dim{i}")
             constraint = AxisConstraint(shape_axis)
             constraints.append(constraint)
         return tuple(constraints)
@@ -2137,13 +2137,13 @@ class RealFunctionSpace(FunctionSpace):
                 if path.keys() != {self._mesh.name}:
                     for axis_target in axis_targets:
                         if axis_target.axis.startswith("dof"):
-                            axis_target = op3.AxisTarget("dof", "XXX", 0)
+                            axis_target = op3.AxisTarget("dof", None, 0)
                         new_axis_targets.append(axis_target)
             else:
                 assert mode == "nodal"
                 for axis_target in axis_targets:
                     if axis_target.axis == "nodes":
-                        axis_target = op3.AxisTarget("dof", "XXX", 0)
+                        axis_target = op3.AxisTarget("dof", None, 0)
                     new_axis_targets.append(axis_target)
             targets[path] = [new_axis_targets]
         targets = utils.freeze(targets)

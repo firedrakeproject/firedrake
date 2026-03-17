@@ -366,7 +366,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         # This gives us the expression 'perm[ort[i0, i1], i2]' that we can
         # now plug into 'packed_dat'
 
-        path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: "XXX"}
+        path = outer_path | idict({point_axis.label: dim_axis_component.label}) | {dof_axis_label: None}
         before = utils.just_one(new_targets[path][0])  # hack to get the right one...
         assert before.axis == "dof"
         new_targets[path] = [[before.__record_init__(

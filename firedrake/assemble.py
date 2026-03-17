@@ -1693,7 +1693,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if component is not None:
             selector = []
             for i, c in enumerate(component):
-                selector.append(op3.ScalarIndex(f"dim{i}", "XXX", c))
+                selector.append(op3.ScalarIndex(f"dim{i}", None, c))
             dat = dat[*selector]
 
         dat[node_set].zero(eager=True)

@@ -367,7 +367,7 @@ class Assigner:
                     if rvalue.size != np.prod(block_shape, dtype=int):
                         raise ValueError("Assignee and assignment values are different shapes")
 
-                    expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
+                    expr_axes = op3.AxisTree.from_iterable((op3.Axis([op3.AxisComponent(dim)], f"dim{i}") for i, dim in enumerate(block_shape)))
                 rvalue = op3.Dat(expr_axes, data=rvalue)
 
                 op3.loop(

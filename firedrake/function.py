@@ -140,7 +140,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
             indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                op3.ScalarIndex(f"dim{i_}", None, j_)
                 for i_, j_ in enumerate(ix)
             ))
             component = type(self)(
