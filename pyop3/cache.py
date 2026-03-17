@@ -31,6 +31,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.collections import AlwaysEmptyDict
 from pyop3.config import config
+from pyop3.constants import _nothing
 from pyop3.exceptions import CacheException
 from pyop3.log import debug, LOGGER
 from pyop3.mpi import (
@@ -111,7 +112,8 @@ def _checked_compute_value(cache_type, get_value, lifetime_objs=None):
     return value
 
 
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, unsafe_refcounts: bool = False):
+# TODO: remove the unsafe refcounts bit
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, unsafe_refcounts: bool = False, multi: bool = False):
     """
     Parameters
     ----------
@@ -124,23 +126,36 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, unsafe_re
     def decorator(func):
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
-            if not hasattr(obj, "_pyop3_cache"):
-                # Use object.__setattr__ to get around frozen dataclasses
-                object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
-            cache = obj._pyop3_cache[func.__qualname__]
-
-            if config.debug_checks and not unsafe_refcounts:
-                key = _checked_get_key(type(cache), lambda: get_key(*args, **kwargs), [obj])
+            if multi:
+                objs = obj
             else:
-                key = get_key(*args, **kwargs)
-            try:
-                return cache[key]
-            except KeyError:
-                if config.debug_checks and not unsafe_refcounts:
-                    value = _checked_compute_value(type(cache), lambda: func(*args, **kwargs), [obj])
-                else:
-                    value = func(*args, **kwargs)
-                return cache.setdefault(key, value)
+                objs = (obj,)
+
+            # Create any missing caches
+            for obj in objs:
+                if not hasattr(obj, "_pyop3_cache"):
+                    # Use object.__setattr__ to get around frozen dataclasses
+                    object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
+
+            key = get_key(*args, **kwargs)
+
+            value = _nothing
+            for obj in objs:
+                cache = obj._pyop3_cache[func.__qualname__]
+                try:
+                    value = cache[key]
+                except KeyError:
+                    pass
+            if value is _nothing:
+                value = func(*args, **kwargs)
+
+            # Store in all of the caches
+            for obj in objs:
+                cache = obj._pyop3_cache[func.__qualname__]
+                if key not in cache:
+                    cache[key] = value
+
+            return value
         return wrapper
     return decorator
 

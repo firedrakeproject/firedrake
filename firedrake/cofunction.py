@@ -17,13 +17,14 @@ from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.petsc import PETSc
 
 
 __all__ = ["Cofunction", "RieszMap"]
 
 
-_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.function_space().mesh().unique().topology)
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.function_space().mesh()))
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):

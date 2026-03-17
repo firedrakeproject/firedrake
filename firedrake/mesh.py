@@ -6827,3 +6827,10 @@ def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
         return frozenset({d.topology for d in extract_domains(expr)})
     except:
         return frozenset()
+
+
+def extract_mesh_topologies(mesh) -> frozenset[MeshTopology]:
+    if isinstance(mesh, MeshSequenceGeometry):
+        return frozenset({m.topology for m in mesh})
+    else:
+        return frozenset({mesh.topology})

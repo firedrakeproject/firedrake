@@ -33,7 +33,7 @@ from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
 
@@ -51,7 +51,7 @@ class _CFunction(ctypes.Structure):
                 ("sidx", c_void_p)]
 
 
-_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.function_space().mesh().unique().topology)
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.function_space().mesh()))
 
 
 class CoordinatelessFunction(ufl.Coefficient):

@@ -24,7 +24,10 @@ def get_values(mat, *nest_indices):
         subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
         return subpetscmat[:, :]
     else:
-        return mat.M[nest_indices].values
+        row_index, column_index = nest_indices
+        row_label = mat.M.row_axes.trees[0].root.component_labels[row_index]
+        column_label = mat.M.column_axes.trees[0].root.component_labels[column_index]
+        return mat.M[row_label, column_label].values
 
 
 def test_submesh_assemble_cell_cell_integral_cell():

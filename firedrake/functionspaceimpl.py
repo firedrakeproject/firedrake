@@ -38,7 +38,7 @@ from firedrake import dmhooks, utils, extrusion_utils as eutils
 from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.cython import extrusion_numbering as extnum
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, get_iteration_spec
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies, get_iteration_spec
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
@@ -145,10 +145,10 @@ def entity_permutations_key(entity_permutations):
 
 
 def _mesh_cached(func):
-    return cached_on(lambda self: self.mesh().topology)(func)
+    return cached_on(lambda self: extract_mesh_topologies(self.mesh()), multi=True)(func)
 
 
-_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: self.mesh().unique().topology)
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.mesh()))
 
 
 @functools.lru_cache()
