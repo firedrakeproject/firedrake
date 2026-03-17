@@ -3794,8 +3794,9 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     )
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
-        if n_missing_points:
-            error = VertexOnlyMeshMissingPointsError(n_missing_points)
+        n_missing_points_global = mesh.comm.allreduce(n_missing_points, op=MPI.SUM)
+        if n_missing_points_global:
+            error = VertexOnlyMeshMissingPointsError(n_missing_points_global)
             if missing_points_behaviour == MissingPointsBehaviour.ERROR:
                 raise error
             elif missing_points_behaviour == MissingPointsBehaviour.WARN:
@@ -3991,8 +3992,7 @@ def _pic_swarm_in_mesh(
     tdim = parent_mesh.topological_dimension
     gdim = parent_mesh.geometric_dimension
     comm = parent_mesh.comm
-    tdict = MPI._typedict
-    int_unit = tdict[np.dtype(IntType).char]
+    int_unit = MPI._typedict[np.dtype(IntType).char]
 
     (
         sf,
@@ -4008,8 +4008,6 @@ def _pic_swarm_in_mesh(
         is_min_candidate,
         winner_ranks_on_leaves,
         coords_recv,
-        fromranks_out,
-        recv_counts_out,
     ) = _parent_mesh_embedding_new(
         parent_mesh, coords, tolerance, redundant, remove_missing_points=False
     )
@@ -4017,36 +4015,31 @@ def _pic_swarm_in_mesh(
     nroots = len(winner_cells)
     n_recv_total = len(parent_cell_nums_leaves)
 
-    # Indices into the n_recv_total leaf buffer for owned and halo particles.
-    # Owned particles come first so swarm local indices are 0..n_owned-1 for
-    # owned and n_owned..n_owned+n_halo-1 for halos.
+    # Indices for owned and halo points.
     owned_indices = np.flatnonzero(leaf_is_winner)
     halo_indices_arr = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
     n_owned = len(owned_indices)
     n_halo = len(halo_indices_arr)
-    active_indices = np.concatenate([owned_indices, halo_indices_arr])
+    all_indices = np.concatenate([owned_indices, halo_indices_arr])
 
-    # Extract inputrank / inputindex for each leaf from the SF remote array.
-    # getGraph() returns remote as shape (n_leaves, 2): each row is (source_rank, point_idx).
+    # Get inputrank / inputindex for each leaf from the SF remote array.
     _, _, leaf_remote = sf.getGraph()
     input_ranks_on_leaves = leaf_remote[:, 0].astype(IntType)
     input_idxs_on_leaves = leaf_remote[:, 1].astype(IntType)
 
-    # Broadcast global_idxs from roots to all leaves so each active particle
-    # knows its global index.
+    # Broadcast global_idxs from roots to leaves.
     global_idxs_on_leaves = np.empty(n_recv_total, dtype=IntType)
     sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
     sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
 
-    # --- Build distributed swarm from leaf-side data ---
-
-    swarm_parent_cell_nums = parent_cell_nums_leaves[active_indices]
-    swarm_reference_coords = reference_coords_leaves[active_indices]
-    swarm_global_idxs = global_idxs_on_leaves[active_indices]
-    swarm_owner_ranks = winner_ranks_on_leaves[active_indices]
-    swarm_input_ranks = input_ranks_on_leaves[active_indices]
-    swarm_input_idxs = input_idxs_on_leaves[active_indices]
-    swarm_physical_coords = coords_recv[active_indices]
+    # Build DMSwarm
+    swarm_parent_cell_nums = parent_cell_nums_leaves[all_indices]
+    swarm_reference_coords = reference_coords_leaves[all_indices]
+    swarm_global_idxs = global_idxs_on_leaves[all_indices]
+    swarm_owner_ranks = winner_ranks_on_leaves[all_indices]
+    swarm_input_ranks = input_ranks_on_leaves[all_indices]
+    swarm_input_idxs = input_idxs_on_leaves[all_indices]
+    swarm_physical_coords = coords_recv[all_indices]
 
     if parent_mesh.extruded:
         if parent_mesh.variable_layers:
@@ -4090,13 +4083,7 @@ def _pic_swarm_in_mesh(
         gdim,
     )
 
-    # --- Build swarm pointSF ---
-    # Owned particles: swarm local indices 0..n_owned-1.
-    # Halo particles: swarm local indices n_owned..n_owned+n_halo-1.
-    #
-    # For each halo particle we need the LOCAL swarm index of its owned copy on
-    # the winner rank.  Use one reduce+bcast on embedded_sf to communicate
-    # those indices from owner leaves back to all min-candidate leaves.
+    # Build swarm point SF
     n_total = n_owned + n_halo
     owner_swarm_idx_buf = np.full(n_recv_total, -1, dtype=IntType)
     owner_swarm_idx_buf[owned_indices] = np.arange(n_owned, dtype=IntType)
@@ -4117,36 +4104,34 @@ def _pic_swarm_in_mesh(
     swarm_psf.setGraph(n_total, sf_halo_local, swarm_remote)
     swarm.setPointSF(swarm_psf)
 
-    # --- Build original_ordering_swarm from root-side data (no Allgatherv) ---
-    # The root-side data already contains the input ordering: winner_cells[i],
-    # winner_ref_coords[i], winner_ranks[i] for point i supplied on this rank.
+    # Build original ordering swarm
     if redundant and comm.rank != 0:
         original_ordering_coords = np.empty((0, gdim), dtype=RealType)
     else:
         original_ordering_coords = coords
 
     if parent_mesh.extruded:
-        oo_base_cells, oo_extrusion_heights = _parent_extrusion_numbering(
+        original_ordering_base_cells, original_ordering_extrusion_heights = _parent_extrusion_numbering(
             winner_cells, parent_mesh.layers
         )
     else:
-        oo_base_cells = None
-        oo_extrusion_heights = None
+        original_ordering_base_cells = None
+        original_ordering_extrusion_heights = None
 
     original_ordering_swarm = _dmswarm_create(
         [],
         comm,
-        swarm,                                            # CellDM = distributed swarm
+        swarm,
         original_ordering_coords,
-        owner_swarm_idx_roots.astype(IntType),            # CellDM cell field: owner's local swarm index
+        owner_swarm_idx_roots.astype(IntType),
         global_idxs,
         winner_ref_coords,
         winner_cells,
         winner_ranks,
-        np.full(nroots, comm.rank, dtype=IntType),        # inputrank
-        np.arange(nroots, dtype=IntType),                 # inputindex
-        oo_base_cells,
-        oo_extrusion_heights,
+        np.full(nroots, comm.rank, dtype=IntType),  # input rank
+        np.arange(nroots, dtype=IntType),  # input index
+        original_ordering_base_cells,
+        original_ordering_extrusion_heights,
         parent_mesh.extruded,
         tdim,
         gdim,
@@ -4456,9 +4441,7 @@ def _parent_mesh_embedding_new(
     """Find the parent mesh cells containing the given coordinates.
 
     Uses a distributed R-tree to identify candidate ranks for each point,
-    then does sparse point-to-rank communication rather than an Allgatherv.
-    Results are returned *root-side*: every output array is indexed by the
-    originating rank's local point index.
+    then assigns owning cells using sparse communication.
 
     Parameters
     ----------
@@ -4466,24 +4449,21 @@ def _parent_mesh_embedding_new(
         The parent mesh to embed in.
     coords : ``np.ndarray`` of shape ``(npoints, coordsdim)``
         The coordinates to embed.  For ``redundant=True`` only rank-0 coords
-        are used; other ranks may pass an empty or arbitrary array.
+        are used.
     tolerance : ``float``
         L1 reference-cell tolerance for point location.
     redundant : ``bool``
         If True, only rank-0's coordinates are embedded.
     remove_missing_points : ``bool``
-        Currently unused (kept for API compatibility with
-        ``_parent_mesh_embedding``).  Missing points are always returned
-        with ``winner_ranks == -1`` and NaN reference coordinates.
 
     Returns
     -------
     sf : ``PETSc.SF``
-        The full embedding star forest (roots = input points on originating
-        ranks, leaves = candidate copies on all candidate ranks).
+        The star forest connecting root points (input points) to leaf points
+        (candidate points on ranks that may own the parent cell).
     embedded_sf : ``PETSc.SF``
-        Sub-SF restricted to min-candidate leaves (owner + any halo copies
-        at partition boundaries).
+        The star forest connecting root points to the 'winning' leaf point(s).
+        Each root may be connected to multiple leaves if the point is in a halo region.
     winner_cells : ``np.ndarray`` of shape ``(nroots,)``
         Firedrake cell number on the winner rank for each root point.
         ``-1`` for missing points.
@@ -4492,9 +4472,9 @@ def _parent_mesh_embedding_new(
     winner_ranks : ``np.ndarray`` of shape ``(nroots,)``
         MPI rank that owns the winning cell.  ``-1`` for missing points.
     global_idxs : ``np.ndarray`` of shape ``(nroots,)``
-        Rank-ordered global indices: rank-offset + ``np.arange(nroots)``.
+        Rank-ordered global indices
     n_missing_points : ``int``
-        Number of root points not found in any mesh cell.
+        Global number of points not found in any mesh cell.
     parent_cell_nums_leaves : ``np.ndarray`` of shape ``(n_recv_total,)``
         Local Firedrake cell numbers as seen on this (leaf) rank for each
         received candidate point.
@@ -4523,92 +4503,79 @@ def _parent_mesh_embedding_new(
     comm = parent_mesh.comm
     tdict = MPI._typedict
     int_unit = tdict[np.dtype(IntType).char]
-    double_unit = tdict[np.dtype(np.float64).char]
+    double_unit = tdict[np.dtype(RealType).char]
 
     if gdim == 1:
         double_type = double_unit
-        needs_free = False
     else:
         double_type = double_unit.Create_contiguous(gdim)
         double_type.Commit()
-        needs_free = True
 
-    # For redundant mode only rank 0's coordinates are embedded; other ranks
-    # contribute no root points.
+    # If redundant then only rank 0's coordinates are embedded.
     if redundant and comm.rank != 0:
-        coords = np.empty((0, gdim), dtype=np.float64)
+        coords = np.empty((0, gdim), dtype=RealType)
     nroots = coords.shape[0]
 
-    # Compute rank-ordered global index offset (exclusive prefix sum).
-    rank_offset = np.zeros(1, dtype=IntType)
-    if comm.size > 1:
-        comm.Exscan(np.array([nroots], dtype=IntType), rank_offset, op=MPI.SUM)
-    global_idxs = (rank_offset[0] + np.arange(nroots, dtype=IntType)).astype(IntType)
+    # Compute rank-ordered global indices.
+    start_idx = comm.exscan(nroots) or 0
+    global_idxs = start_idx + np.arange(nroots, dtype=IntType)
 
+    # Query distributed Rtree to find candidate ranks for each point.
     rtree = parent_mesh.distributed_rtree
     toranks, send_offsets, point_indices, fromranks_out, recv_counts_out = (
         rstar.discover_ranks(rtree, coords, comm)
     )
-    n_recv_total = int(recv_counts_out.sum()) if len(recv_counts_out) > 0 else 0
+
+    # total number of candidate points on this rank
+    # This will be the total number of leaves in the SF on this rank
+    n_recv_total = recv_counts_out.sum()
 
     sf = _embedding_star_forest(
         toranks, send_offsets, point_indices, nroots, fromranks_out, recv_counts_out, comm
     )
 
-    # Broadcast point coordinates to candidate leaf ranks.
-    root_coords_flat = np.ascontiguousarray(coords, dtype=np.float64).ravel()
-    coords_recv_flat = np.empty(n_recv_total * gdim, dtype=np.float64)
-    sf.bcastBegin(double_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
-    sf.bcastEnd(double_type, root_coords_flat, coords_recv_flat, MPI.REPLACE)
+    # Broadcast point coordinates to candidate leaves.
+    coords_flat = coords.ravel()
+    coords_recv_flat = np.empty(n_recv_total * gdim, dtype=RealType)
+    sf.bcastBegin(double_type, coords_flat, coords_recv_flat, MPI.REPLACE)
+    sf.bcastEnd(double_type, coords_flat, coords_recv_flat, MPI.REPLACE)
     coords_recv = coords_recv_flat.reshape(n_recv_total, gdim)
 
     # Locate parent cells for each received candidate on this rank.
     (
-        parent_cell_nums_leaves,
-        reference_coords_leaves,
+        parent_cell_nums,
+        reference_coords,
         ref_cell_dists_l1,
     ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_recv, tolerance)
 
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-        reference_coords_leaves = reference_coords_leaves[:, :parent_mesh.topological_dimension]
+        # We have an extra dimension we can safely drop.
+        reference_coords = reference_coords[:, :parent_mesh.topological_dimension]
 
-    locally_visible = parent_cell_nums_leaves != -1
+    # The point is visible on this rank if it was found in a cell (parent_cell_num != -1).
+    locally_visible = parent_cell_nums != -1
 
     # Root-wise minimum distance over candidate leaves.
-    # PETSc SF's local-only scatter path (PetscSFLinkUnpackDataWithMPIReduceLocal)
-    # fails for MPI.MIN/MAX on float64 (MPI_Reduce_local rejects them on this
-    # build).  Work around with the IEEE-754 bit-view trick: for non-negative
-    # float64 values the int64 bit patterns preserve ordering, so
-    #   min(a, b)  ==  view_f64( min_i64(view_i64(a), view_i64(b)) ).
-    _inf_i64 = np.array(np.inf, dtype=np.float64).view(np.int64).item()
-    int64_unit = tdict[np.dtype(np.int64).char]
-    dist_as_int64 = np.where(locally_visible, ref_cell_dists_l1, np.inf).astype(np.float64).view(np.int64)
-    dist_min_as_int64 = np.full(nroots, _inf_i64, dtype=np.int64)
-    sf.reduceBegin(int64_unit, dist_as_int64, dist_min_as_int64, op=MPI.MIN)
-    sf.reduceEnd(int64_unit, dist_as_int64, dist_min_as_int64, op=MPI.MIN)
-    ref_cell_dists_min = dist_min_as_int64.view(np.float64)
+    ref_cell_dists_min = np.full(nroots, np.inf, dtype=RealType)
+    ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
+    sf.reduceBegin(double_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
+    sf.reduceEnd(double_unit, ref_cell_dists_l1_visible, ref_cell_dists_min, op=MPI.MIN)
 
-    # Send each root's minimum distance back to its leaves.
-    dist_min_on_leaves_as_int64 = np.empty(n_recv_total, dtype=np.int64)
-    sf.bcastBegin(int64_unit, dist_min_as_int64, dist_min_on_leaves_as_int64, MPI.REPLACE)
-    sf.bcastEnd(int64_unit, dist_min_as_int64, dist_min_on_leaves_as_int64, MPI.REPLACE)
-    ref_cell_dists_min_on_leaves = dist_min_on_leaves_as_int64.view(np.float64)
+    # Send each root's min distance back to its leaves.
+    ref_cell_dists_min_on_leaves = np.empty(n_recv_total, dtype=RealType)
+    sf.bcastBegin(double_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
+    sf.bcastEnd(double_unit, ref_cell_dists_min, ref_cell_dists_min_on_leaves, MPI.REPLACE)
 
-    # Candidate leaves are those that are visible and attain the global minimum.
-    # Use strict equality (not np.isclose): two ranks finding the same point in
-    # adjacent cells may get slightly different distances (e.g. 0 vs 1.67e-16),
-    # and only the globally-minimum distance constitutes a genuine local copy.
-    is_min_candidate = locally_visible & (
-        ref_cell_dists_l1 == ref_cell_dists_min_on_leaves
-    )
+    # Candidate leaves are those that are visible and have the minimum L1 distance.
+    is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
-    # Tie-break among min candidates by highest rank.
+    # Tie-break among candidates by highest rank.
     if parent_mesh.extruded:
         # Map back to base cell numbers
-        base_cell_nums = parent_cell_nums_leaves // (parent_mesh.layers - 1)
+        base_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
         is_owned_cell = base_cell_nums < parent_mesh.cell_set.size
     else:
-        is_owned_cell = parent_cell_nums_leaves < parent_mesh.cell_set.size
+        is_owned_cell = parent_cell_nums < parent_mesh.cell_set.size
     rank_candidates = np.full(n_recv_total, -1, dtype=IntType)
     rank_candidates[is_min_candidate & is_owned_cell] = comm.rank
     winner_ranks = np.full(nroots, -1, dtype=IntType)
@@ -4625,27 +4592,21 @@ def _parent_mesh_embedding_new(
     selected_leaf_indices = np.flatnonzero(is_min_candidate).astype(IntType)
     embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
-    # Gather winner cell and reference coords back to roots.
-    # Only the single winning leaf per root contributes; halo copies send neutrals.
-    ref_dim = reference_coords_leaves.shape[1]
-    winner_cells_buf = np.where(leaf_is_winner, parent_cell_nums_leaves, -1).astype(IntType)
+    # Reduce winner cell and reference coords back to roots.
+    ref_dim = reference_coords.shape[1]
+    winner_cells_buf = np.where(leaf_is_winner, parent_cell_nums, -1)
     winner_cells = np.full(nroots, -1, dtype=IntType)
     embedded_sf.reduceBegin(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
     embedded_sf.reduceEnd(int_unit, winner_cells_buf, winner_cells, op=MPI.MAX)
 
-    winner_ref_coords = np.zeros((nroots, ref_dim), dtype=np.float64)
-    ref_coords_buf = np.ascontiguousarray(
-        np.where(leaf_is_winner[:, np.newaxis], reference_coords_leaves, 0.0), dtype=np.float64
-    )
+    winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
+    ref_coords_buf = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
     embedded_sf.reduceBegin(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
     embedded_sf.reduceEnd(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
 
-    if needs_free:
-        double_type.Free()
-
     missing_roots = winner_ranks == -1
     winner_ref_coords[missing_roots] = np.nan
-    n_missing_points = int(np.sum(missing_roots))
+    n_missing_points = np.sum(missing_roots)
 
     return (
         sf,
@@ -4655,14 +4616,12 @@ def _parent_mesh_embedding_new(
         winner_ranks,
         global_idxs,
         n_missing_points,
-        parent_cell_nums_leaves,
-        reference_coords_leaves,
+        parent_cell_nums,
+        reference_coords,
         leaf_is_winner,
         is_min_candidate,
         winner_ranks_on_leaves,
         coords_recv,
-        fromranks_out,
-        recv_counts_out,
     )
 
 
