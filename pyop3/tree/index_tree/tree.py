@@ -805,7 +805,11 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
 
         input_axes = self.index.axes
         axes_ = input_axes.materialize()
-        targets = {}
+        # Intermediate targets don't actually target anything
+        targets = {
+            input_path: ((),)
+            for input_path in input_axes.node_map.keys()
+        }
         for input_leaf_path, input_leaf_targets_per_leaf in zip(input_axes.leaf_paths, collect_leaf_targets(input_axes), strict=True):
             found = False
             for input_target in input_leaf_targets_per_leaf:
@@ -831,16 +835,11 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                     for subtarget_key, subtarget_value in subtargets.items():
                         targets[input_leaf_path | subtarget_key] = subtarget_value
 
-                    # this axis is intermediate, it doesn't target anything
-                    targets[input_leaf_path] = ((),)
-
                     break
 
             assert found
 
         targets = utils.freeze(targets)
-        # if "closure" in str(axes_):
-        #     breakpoint()
         return IndexedAxisTree(axes_.node_map, None, targets=targets)
 
     @property

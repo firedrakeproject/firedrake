@@ -1581,9 +1581,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    # Make sparsity independent of the subdomain of integration
-                    # for better reusability
-                    loop_info = get_iteration_spec(mesh, integral_type)
+                    loop_info = get_iteration_spec(mesh, integral_type, subdomain_id)
                     loops.append((loop_info, local_kernel.indices))
             return tuple(loops)
 

@@ -2483,34 +2483,13 @@ class MeshTopology(AbstractMeshTopology):
         """
         base_mesh = iter_spec.mesh
         base_integral_type = iter_spec.integral_type
-
-        if plex_indices_is := iter_spec.plex_indices:
-            base_plex_points = plex_indices_is.indices
-        else:
-            base_plex_points = np.arange(iter_spec.iterset.local_size, dtype=IntType)
+        base_plex_points = iter_spec.plex_indices.indices
 
         common = self.submesh_youngest_common_ancester(base_mesh)
         if common is None:
             raise NotImplementedError(f"Currently only implemented for (sub)meshes in the same family: got {self} and {base_mesh}")
         elif base_mesh is self:
             raise NotImplementedError("Currently cannot return identity map")
-        # else:
-        #     if base_integral_type == "cell":
-        #         base_subset_points = base_mesh._new_to_old_cell_numbering[base_indices]
-        #     elif base_integral_type in ["interior_facet", "exterior_facet"]:
-        #         if base_integral_type == "interior_facet":
-        #             # IMPORTANT: This probably makes a renumbering error!
-        #             # _interior_facet_numbers, _, _ = base_mesh._interior_facet_numbers_classes_set
-        #             # base_subset_points = base_mesh._new_to_old_interior_facet_numbering[base_indices]
-        #             base_subset_points = base_mesh._interior_facet_plex_indices.indices[base_indices]
-        #             # base_subset_points = _interior_facet_numbers[base_indices]
-        #         else:
-        #             assert base_integral_type == "exterior_facet"
-        #             base_subset_points = base_mesh._exterior_facet_plex_indices.indices[base_indices]
-        #             # _exterior_facet_numbers, _, _ = base_mesh._exterior_facet_numbers_classes_set
-        #             # base_subset_points = _exterior_facet_numbers[base_indices]
-        #     else:
-        #         raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
         composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_plex_points)
         # poor man's reduce
         # return self_map(reduce(operator.call, composed_map, iteration_spec.loop_index))
@@ -6394,6 +6373,7 @@ class IterationSpec:
     iterset: op3.IndexedAxisTree
     plex_indices: PETSc.IS | None
     old_to_new_numbering: PETSc.Section
+    needs_subset: bool
 
     @cached_property
     def loop_index(self) -> op3.LoopIndex:
@@ -6401,7 +6381,7 @@ class IterationSpec:
 
     @cached_property
     def subset(self) -> op3.Slice | Ellipsis:
-        if self.indices is None:
+        if not self.needs_subset:
             return Ellipsis
         else:
             iterset_axis = self.iterset.as_axis()
@@ -6412,16 +6392,14 @@ class IterationSpec:
 
     @cached_property
     def indices(self) -> PETSc.IS | None:
-        if self.plex_indices is None:
-            return None
+        assert self.needs_subset
         # We now have the correct set of indices represented in DMPlex numbering, now
         # we have to convert this to a numbering specific to the iteration set (e.g.
         # map point 12 to interior facet 3).
         localized_indices = dmcommon.section_offsets(self.old_to_new_numbering, self.plex_indices, sort=True)
 
         # Remove ghost points
-        localized_indices = dmcommon.filter_is(localized_indices, 0, self.iterset.local_size)
-        return localized_indices
+        return dmcommon.filter_is(localized_indices, 0, self.iterset.local_size)
 
 
 def _get_iteration_spec_get_obj(mesh, *args, **kwargs):
@@ -6503,8 +6481,10 @@ def get_iteration_spec(
             raise AssertionError(f"Integral type {integral_type} not recognised")
 
     if subdomain_id == "everywhere":
-        plex_indices = None
+        needs_subset = False
+        plex_indices = valid_plex_indices
     else:
+        needs_subset = True
         if subdomain_id == "otherwise":
             subdomain_ids = (all_integer_subdomain_ids or {}).get(integral_type, ())
             complement = True
@@ -6544,7 +6524,7 @@ def get_iteration_spec(
     # is tied to the mesh, things will never be cleaned up.
     mesh_ref = weakref.proxy(mesh)
 
-    return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering)
+    return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering, needs_subset=needs_subset)
 
 
 # NOTE: This is a bit of an abuse of 'cachedmethod' (this isn't a method) but I think
