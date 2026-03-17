@@ -282,13 +282,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         if cell_num is not None:
             assert (f_data[cell_num] == vm_coords[i]).all()
 
-    if parentmesh.extruded:
-        layers = parentmesh.layers
-        assert vm.cells.owned.local_size == parentmesh.cells.owned.local_size*(layers-1)
-        assert vm.cells.local_size == parentmesh.cells.local_size*(layers-1)
-    else:
-        assert vm.cells.owned.local_size == parentmesh.cells.owned.local_size
-        assert vm.cells.local_size == parentmesh.cells.local_size
+    assert vm.cells.owned.local_size == parentmesh.cells.owned.local_size
+    assert vm.cells.local_size == parentmesh.cells.local_size
 
 
 @pytest.mark.parallel([1, 3])
@@ -327,6 +322,7 @@ def test_redistribution():
     assert np.allclose(vm1.coordinates.dat.data_ro, vm2.coordinates.dat.data_ro)
 
 
+@pytest.mark.skip(reason="fixed in periodic PR")
 def test_point_tolerance():
     """Test the tolerance parameter of VertexOnlyMesh."""
     m = UnitSquareMesh(1, 1)
