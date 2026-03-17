@@ -2180,7 +2180,7 @@ class MeshTopology(AbstractMeshTopology):
         map_name = f"{self.name}_submesh_map_{from_set.root.label}_{to_set.root.label}"
         to_label = to_set.as_axis().component.label
         map_axes = op3.AxisTree.from_iterable([
-            from_set.as_axis(), op3.Axis(1, map_name)
+            from_set.as_axis(), op3.Axis([op3.AxisComponent(1, to_label)], map_name)
         ])
         map_dat = op3.Dat(map_axes, data=values.flatten())
         return op3.Map(

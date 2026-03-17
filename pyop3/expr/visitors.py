@@ -887,7 +887,11 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
         assignee_ = assignee[iforest]
 
         if assignee_.size > 0:
-            assignee_.assign(expr, eager=True)
+            assignee_.assign(
+                expr,
+                eager=True,
+                compiler_parameters={"check_negatives": True},
+            )
         else:
             to_skip.add(leaf_path)
 

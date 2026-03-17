@@ -76,7 +76,9 @@ class CodegenContext(abc.ABC):
 
 
 class LoopyCodegenContext(CodegenContext):
-    def __init__(self):
+    def __init__(self, *, check_negatives):
+        self.check_negatives = check_negatives
+
         self._domains = []
         self._instructions = []
         self._arguments = []
@@ -306,7 +308,8 @@ class Executable:
         return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "form" in str(self.code):
+        # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
+        # if "MatSetValues" in str(self.code):
         #     breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         # if len(self.buffer_map) == 5:
@@ -748,7 +751,7 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
     else:
         cs_expr = (insn,)
 
-    context = LoopyCodegenContext()
+    context = LoopyCodegenContext(check_negatives=compiler_parameters.check_negatives)
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -1379,7 +1382,14 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
         offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
 
     indices = maybe_multiindex(buffer, offset_expr, context)
-    return pym.subscript(pym.var(name_in_kernel), indices)
+
+    subscript = pym.subscript(pym.var(name_in_kernel), indices)
+    if context.check_negatives and intent == Intent.READ:
+        idx = indices[-1]  # only the final index has meaning
+        is_negative = pym.primitives.Comparison(idx, "<", 0)
+        return pym.primitives.If(is_negative, -1, subscript)
+    else:
+        return subscript
 
 
 def maybe_multiindex(buffer_ref, offset_expr, context):

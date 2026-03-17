@@ -596,7 +596,7 @@ class AxisComponent(LabelledNodeComponent):
 
 @pyop3.record.frozenrecord()
 class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
-    components: tuple
+    components: tuple[AxisComponent, ...]
     _label: Any
 
     def __init__(
@@ -620,7 +620,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, ParallelAwareObject):
 
     def __post_init__(self) -> None:
         assert isinstance(self.components, tuple)
-        return super().__post_init__()
+        super().__post_init__()
 
     label = pyop3.record.attr("_label")
 

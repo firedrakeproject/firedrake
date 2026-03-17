@@ -20,6 +20,12 @@ from pyop3.insn.visitors import canonicalize_labels
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
 
+    # {{{ implementation options
+
+    check_negatives: bool = False
+
+    # }}}
+
     # {{{ optimisation options
 
     compress_indirection_maps: bool = False
