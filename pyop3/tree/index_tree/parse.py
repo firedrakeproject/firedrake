@@ -5,6 +5,7 @@ import itertools
 import functools
 import numbers
 from collections.abc import Mapping, Sequence
+from types import EllipsisType
 from typing import Any
 
 from immutabledict import immutabledict as idict
@@ -138,9 +139,10 @@ def _(called_map: CalledMap, /) -> OrderedSet:
     return collect_loop_contexts(called_map.index)
 
 
-@collect_loop_contexts.register(numbers.Number)
 @collect_loop_contexts.register(str)
 @collect_loop_contexts.register(slice)
+@collect_loop_contexts.register(EllipsisType)
+@collect_loop_contexts.register(numbers.Number)
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
 @collect_loop_contexts.register(Dat)
@@ -237,6 +239,23 @@ def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
 @functools.singledispatch
 def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@_desugar_index.register(EllipsisType)
+def _(ellipsis: EllipsisType, /, *, axes, path) -> Index:
+    if path is None:
+        raise RuntimeError("Cannot parse integers here due to ambiguity")
+
+    try:
+        axis = axes.node_map[path]
+    except KeyError:
+        raise InvalidIndexTargetException
+
+    return Slice(
+        axis.label,
+        [AffineSliceComponent(component.label, label=component.label) for component in axis.components],
+        label=axis.label,
+    )
 
 
 @_desugar_index.register(UnparsedSlice)
@@ -496,6 +515,7 @@ def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> In
 
 @_as_context_free_indices.register(str)
 @_as_context_free_indices.register(slice)
+@_as_context_free_indices.register(EllipsisType)
 @_as_context_free_indices.register(numbers.Integral)
 @_as_context_free_indices.register(UnparsedSlice)
 def _(obj, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:

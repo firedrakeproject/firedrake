@@ -2417,8 +2417,13 @@ def entity_permutations_key(entity_permutations):
     return key
 
 
+# NOTE: This function is much much more complicated than it appears. Possible permutations are:
+# 1. lgmap for a AIJ mixed system
+# 2. lgmap for a submat of a matnest for a mixed thing
+# Likely we should just be dealing with the function space and mat spec, the other args confuse things
+
 # TODO: make return type and arg consistent
-def mask_lgmap(axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
+def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
     """Return a map from process-local to global DoF numbering.
 
     # update this#
@@ -2450,14 +2455,21 @@ def mask_lgmap(axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         assert lgmap.block_size == numpy.prod(block_shape)
         block_size = lgmap.block_size
 
+    # try:
     dat = op3.Dat(axes.materialize().regionless(), data=indices)
     for bc in bcs:
-        if unblocked:
-            component = bc.function_space().component
-            if component is None:
-                component = Ellipsis
-            dat[bc.node_set, *component].assign(-1, eager=True)
+        if len(V) > 1:
+            field_slice = (Ellipsis,)
         else:
-            dat[bc.node_set].assign(-1, eager=True)
+            field_slice = ()
+
+        if unblocked:
+            component_slice = bc.function_space().component
+            assert component_slice is not None
+        else:
+            component_slice = ()
+        dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
+    # except:
+    #     breakpoint()
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)

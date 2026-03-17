@@ -1895,21 +1895,22 @@ class ParloopBuilder:
         i, j = indices
         row_bcs, column_bcs = self._filter_bcs(i or 0, j or 0)
 
+        row_space = matrix.arguments()[0].function_space()
+        column_space = matrix.arguments()[1].function_space()
+
         if isinstance(mat_spec, numpy.ndarray):
             mat_spec = mat_spec[i, j]
 
-            row_space = matrix.arguments()[0].function_space()
             row_label = row_space.field_axis.component_labels[i]
             row_axes = row_axes[row_label]
-            column_space = matrix.arguments()[1].function_space()
             column_label = column_space.field_axis.component_labels[j]
             column_axes = column_axes[column_label]
 
         masked_row_lgmap = mask_lgmap(
-            row_axes, mat_spec.row_spec.lgmap, row_bcs, mat_spec.row_spec.block_shape
+            row_space, row_axes, mat_spec.row_spec.lgmap, row_bcs, mat_spec.row_spec.block_shape
         )
         masked_column_lgmap = mask_lgmap(
-            column_axes, mat_spec.column_spec.lgmap, column_bcs, mat_spec.column_spec.block_shape
+            column_space, column_axes, mat_spec.column_spec.lgmap, column_bcs, mat_spec.column_spec.block_shape
         )
         return (masked_row_lgmap, masked_column_lgmap)
 
@@ -2212,12 +2213,11 @@ def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
         return
 
     petscmat = mat.handle
+    assert mat.buffer.mat is petscmat
     if petscmat.type == "nest":
         petscmat = petscmat.getNestSubMatrix(*indices)
 
     orig_lgmaps = petscmat.getLGMap()
     petscmat.setLGMap(*lgmaps)
-
     yield
-
-    mat.buffer.mat.setLGMap(*orig_lgmaps)
+    petscmat.setLGMap(*orig_lgmaps)
