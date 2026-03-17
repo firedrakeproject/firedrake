@@ -189,11 +189,18 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 
     solve(a == L, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
 
+    # print(w.dat.data)
+
     f = cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
     g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
+    import pyop3.debug
+    pyop3.debug.enable_conditional_breakpoints()
     sigma, u = w.subfunctions
-    return sqrt(assemble(inner(u - f, u - f) * dx)), sqrt(assemble(inner(sigma - g, sigma - g) * dx))
+    retval = sqrt(assemble(inner(u - f, u - f) * dx)), sqrt(assemble(inner(sigma - g, sigma - g) * dx))
+    breakpoint()
+    print(retval)
+    return retval
 
 
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])

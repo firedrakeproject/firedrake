@@ -308,13 +308,12 @@ class Executable:
         return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "MatSetValues" in str(self.code):
-        # if "MatSetValues" in str(self.code):
-        #     breakpoint()
+        if len(self.code.callables_table) > 1 and "form" in str(self.code):
+            # breakpoint()
+            import pyop3.debug
+            pyop3.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         # if len(self.buffer_map) == 5:
-        # import pyop3.debug
-        # pyop3.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
             if self.compiler_parameters.interleave_comp_comm:

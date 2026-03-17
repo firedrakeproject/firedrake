@@ -231,6 +231,14 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 if i != j:
                     starts[j] = starts[j] + step_size
 
+    INTERESTING, WHY AM I HERE TWICE???
+    # Lastly 'freeze' the offset dats so they can no longer be modified
+    for _, offset_dat in to_tabulate:
+        if offset_dat.name == "dat_247":
+            breakpoint()
+        object.__setattr__(offset_dat.buffer, "_constant", True)
+        offset_dat.buffer._data.flags.writeable = False
+
     return layouts
 
 

@@ -55,6 +55,7 @@ def not_in_flight(func):
 
 def record_modified(func):
     def wrapper(self, *args, **kwargs):
+        assert not self.constant
         self.inc_state()
         return func(self, *args, **kwargs)
     return wrapper
@@ -253,6 +254,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
+        if constant:
+            data.flags.writeable = False
+
+        if name == "dat_247_buffer":
+            breakpoint()
+
         self._lazy_data = data
         self.sf = sf
         self._name = name
@@ -268,6 +275,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             assert self.constant
         if self.ordered:
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
+        if self.constant:
+            assert not self._data.flags.writeable
+        if self.name == "array_2155":
+            breakpoint()
+        if self.name == "dat_247_buffer":
+            breakpoint()
 
     # }}}
 
@@ -458,6 +471,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _data(self):
         if self._lazy_data is None:
             self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
+        if self.name == "array_247_buffer":
+            breakpoint()
         return self._lazy_data
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
