@@ -231,7 +231,6 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
                 if i != j:
                     starts[j] = starts[j] + step_size
 
-    INTERESTING, WHY AM I HERE TWICE???
     # Lastly 'freeze' the offset dats so they can no longer be modified
     for _, offset_dat in to_tabulate:
         if offset_dat.name == "dat_247":
@@ -374,57 +373,7 @@ def _collect_regions(axes: AxisTree):
     return tuple(merged_regions)
 
 
-# TODO: should cache this!!!
-# TODO: I dont really understand why this is so complicated, maybe do something like materialise dats?
-# @functools.singledispatch
-# def _accumulate_step_sizes(obj: Any, axis, comm):
-#     """TODO
-#
-#     This is suitable for ragged expressions where step sizes need to be accumulated
-#     into an offset array.
-#
-#     """
-#     raise TypeError
-#
-#
-# @_accumulate_step_sizes.register(numbers.Number)
-# @_accumulate_step_sizes.register(op3_expr.ScalarBufferExpression)
-# def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
-#     return num
-#
-#
-# @_accumulate_step_sizes.register(op3_expr.Mul)
-# def _(mul: op3_expr.Mul, /, axis: Axis, comm) -> op3_expr.Mul:
-#     return _accumulate_step_sizes(mul.a, axis, comm) * _accumulate_step_sizes(mul.b, axis, comm)
-#
-#
-# @_accumulate_step_sizes.register(op3_expr.Add)
-# def _(add: op3_expr.Add, /, axis: Axis, comm) -> op3_expr.Add:
-#     return _accumulate_step_sizes(add.a, axis, comm) + _accumulate_step_sizes(add.b, axis, comm)
-#
-#
-# @_accumulate_step_sizes.register(op3_expr.Sub)
-# def _(sub: op3_expr.Sub, /, axis: Axis, comm) -> op3_expr.Sub:
-#     return _accumulate_step_sizes(sub.a, axis, comm) - _accumulate_step_sizes(sub.b, axis, comm)
-#
-#
-# @_accumulate_step_sizes.register(op3_expr.Comparison)
-# def _(cond: op3_expr.Comparison, /, axis: Axis, comm) -> op3_expr.Comparison:
-#     return type(cond)(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
-#
-#
-# @_accumulate_step_sizes.register(op3_expr.Conditional)
-# def _(cond: op3_expr.Conditional, /, axis: Axis, comm) -> op3_expr.Conditional:
-#     return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
-#
-#
-# @_accumulate_step_sizes.register(LinearDatBufferExpression)
-# def _(dat_expr: LinearDatBufferExpression, /, axis: Axis, comm) -> LinearDatBufferExpression:
-#     return _accumulate_dat_expr(dat_expr, axis, comm)
-
-
 @memory_cache(heavy=True)
-# def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
 def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
     from pyop3.expr.visitors import get_shape, replace
 
@@ -492,7 +441,8 @@ def _accumulate_step_sizes(size_expr: LinearDatBufferExpression, linear_axis: Ax
 
 
 # This gets the sizes right for a particular dat, then we merge them above
-@memory_cache(heavy=True)
+# NOTE: I can't cache this because the result is mutated
+# @memory_cache(heavy=True)
 def _tabulate_regions(offset_axes, step, comm):
     # Regions are always tabulated using all available free indices (i.e. all
     # parent axes) because they get interleaved.

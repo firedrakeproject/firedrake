@@ -257,9 +257,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if constant:
             data.flags.writeable = False
 
-        if name == "dat_247_buffer":
-            breakpoint()
-
         self._lazy_data = data
         self.sf = sf
         self._name = name
@@ -277,10 +274,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             utils.debug_assert(lambda: utils.is_sorted(self._lazy_data))
         if self.constant:
             assert not self._data.flags.writeable
-        if self.name == "array_2155":
-            breakpoint()
-        if self.name == "dat_247_buffer":
-            breakpoint()
 
     # }}}
 
