@@ -577,41 +577,6 @@ class MatBufferSpec(abc.ABC):
     pass
 
 
-# @pyop3.record.frozenrecord()
-@pyop3.record.record()
-class LGMap:
-    indices: np.ndarray[IntType]
-    axes: AxisTree  # this is unblocked
-    block_shape: tuple[numbers.Integral, ...]
-
-    def __post_init__(self) -> None:
-        assert self.indices.dtype == IntType
-        assert self.axes.blocked(self.block_shape).local_size == self.indices.size
-
-    @property
-    def comm(self):
-        return self.axes.comm
-
-    @property
-    def block_size(self) -> IntType:
-        return np.prod(self.block_shape, dtype=IntType)
-
-    def as_petsc_lgmap(self) -> PETSc.LGMap:
-        return PETSc.LGMap().create(self.indices, bsize=self.block_size, comm=self.comm)
-
-    @cached_property
-    def unblocked_indices(self) -> LGMap:
-        if not self.block_shape:
-            return self.indices
-        else:
-            # expand indices - e.g. [1, 3, 4] (2,) becomes [2, 3, 6, 7, 8, 9]
-            n = self.block_size
-            unblocked_indices = np.repeat(self.indices, n) * n
-            for i in range(n):
-                unblocked_indices[i::n] += i
-            return unblocked_indices
-
-
 class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
     pass
 
@@ -779,7 +744,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             sizes = ((row_spec.size, None), (column_spec.size, None))
             mat.setSizes(sizes)
             mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
-            mat.setLGMap(row_spec.lgmap.as_petsc_lgmap(), column_spec.lgmap.as_petsc_lgmap())
+            mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
 
         mat.setUp()
         return mat

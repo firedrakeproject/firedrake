@@ -53,7 +53,7 @@ from pyop3.tree.axis_tree import (  # noqa: F401
 from pyop3.expr.base import NAN  # noqa: F401
 from pyop3.expr.visitors import collect_axis_vars, replace, replace_terminals  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
-    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, LGMap
+    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.expr.visitors import evaluate  # noqa: F401

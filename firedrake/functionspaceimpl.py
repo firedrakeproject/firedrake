@@ -27,7 +27,7 @@ import pyop3 as op3
 import ufl
 from pyop3 import mpi
 from pyop3.utils import just_one, single_valued
-from pyop3.cache import cached_on, with_heavy_caches
+from pyop3.cache import cached_on, with_heavy_caches, cached_method
 from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
@@ -1114,7 +1114,7 @@ class FunctionSpace:
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        size = self.axes.owned.local_size
+        size = self.axes.unindexed.owned.local_size
         start = self.comm.exscan(size) or 0
         is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
         is_.setBlockSize(self.block_size)
@@ -1122,11 +1122,11 @@ class FunctionSpace:
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
-        is_ = PETSc.IS().createStride(self.axes.local_size, comm=MPI.COMM_SELF)
+        is_ = PETSc.IS().createStride(self.axes.unindexed.local_size, comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
 
-    @cached_on(lambda self: self.mesh().unique().topology)
+    @_mesh_cached
     def _make_local_section(self):
         dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
@@ -1174,20 +1174,20 @@ class FunctionSpace:
 
         return section
 
-    @utils.cached_property
+    @cached_property
     def cell_node_map(self) -> op3.Map:
         return self._iterset_to_node_map("cell")
 
-    @utils.cached_property
+    @cached_property
     def interior_facet_node_map(self) -> op3.Map:
         return self._iterset_to_node_map("interior_facet")
 
-    @utils.cached_property
+    @cached_property
     def exterior_facet_node_map(self) -> op3.Map:
         return self._iterset_to_node_map("exterior_facet")
 
 
-    @utils.cached_method()
+    @cached_method()
     def _iterset_to_node_map(self, iter_type):
         map_dat = self._iterset_to_node_map_dat(iter_type)
 
@@ -1826,9 +1826,9 @@ class MixedFunctionSpace:
         Used when extracting blocks from matrices for solvers."""
         ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.axes.owned.local_size) or 0
+            start = icomm.exscan(self.axes.unindexed.owned.local_size) or 0
         for subspace in self:
-            size = subspace.axes.owned.local_size
+            size = subspace.axes.unindexed.owned.local_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
@@ -1857,7 +1857,7 @@ class MixedFunctionSpace:
         ises = []
         start = 0
         for subspace in self:
-            size = subspace.axes.local_size
+            size = subspace.axes.unindexed.local_size
             is_ = PETSc.IS().createStride(size, first=start, comm=MPI.COMM_SELF)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
@@ -2418,7 +2418,7 @@ def entity_permutations_key(entity_permutations):
 
 
 # TODO: make return type and arg consistent
-def mask_lgmap(lgmap: LGMap, bcs, idxs=()) -> PETSc.LGMap:
+def mask_lgmap(axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
     """Return a map from process-local to global DoF numbering.
 
     # update this#
@@ -2436,29 +2436,28 @@ def mask_lgmap(lgmap: LGMap, bcs, idxs=()) -> PETSc.LGMap:
 
     """
     if not bcs:
-        return lgmap.as_petsc_lgmap()
-
-    # Set constrained values in the lgmap to -1
+        return lgmap
 
     unblocked = any(bc.function_space().component is not None for bc in bcs)
     if unblocked:
-        indices = lgmap.unblocked_indices
-        axes = lgmap.axes
+        # indices = lgmap.unblocked_indices.copy()
+        indices = lgmap.indices.copy()
+        # axes = lgmap.axes
         block_size = 1
     else:
-        indices = lgmap.indices
-        axes = lgmap.axes.blocked(lgmap.block_shape)
+        indices = lgmap.block_indices.copy()
+        axes = axes.blocked(block_shape)
+        assert lgmap.block_size == numpy.prod(block_shape)
         block_size = lgmap.block_size
 
-    indices = indices.copy()
-    dat = op3.Dat(axes, data=indices)
+    dat = op3.Dat(axes.materialize().regionless(), data=indices)
     for bc in bcs:
         if unblocked:
             component = bc.function_space().component
             if component is None:
                 component = Ellipsis
-            dat[*idxs][bc.node_set, *component].assign(-1, eager=True)
+            dat[bc.node_set, *component].assign(-1, eager=True)
         else:
-            dat[*idxs][bc.node_set].assign(-1, eager=True)
+            dat[bc.node_set].assign(-1, eager=True)
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)

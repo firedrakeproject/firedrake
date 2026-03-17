@@ -1886,49 +1886,32 @@ class ParloopBuilder:
         This is only needed when applying boundary conditions to 2-forms.
 
         """
-        if len(self._form.arguments()) == 2 and not self._diagonal:
-            if not self._bcs:
-                return None
-            i, j = indices
-
-            ibc = 0 if i is None else i
-            jbc = 0 if j is None else j
-            row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
-
-            mat_buffer = matrix.M.buffer
-
-            mat_spec = mat_buffer.mat_spec
-            if isinstance(mat_spec, numpy.ndarray):
-                mat_spec = mat_spec[i, j]
-                i = None
-                j = None
-
-            if mat_spec.mat_type in {"rvec", "cvec"}:
-                return None
-
-            if i is None:
-                i = Ellipsis
-            else:
-                i = self._form.arguments()[0].function_space().field_axis.component_labels[i]
-            if j is None:
-                j = Ellipsis
-            else:
-                j = self._form.arguments()[1].function_space().field_axis.component_labels[j]
-
-
-            # rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(mat_spec.row_spec.lgmap, row_bcs)
-            # clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
-            # NOTE: 21/11/25 the following is necessary for
-            # tests/firedrake/submesh/test_submesh_assemble.py::test_submesh_assemble_cell_cell_equation_bc
-            # to pass. I think I need to figure out how this works for mat nests...
-            # rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, ())  # still failing though...
-            # clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, ())
-            # (old)
-            rlgmap = mask_lgmap(mat_spec.row_spec.lgmap, row_bcs, (i,))
-            clgmap = mask_lgmap(mat_spec.column_spec.lgmap, col_bcs, (j,))
-            return (rlgmap, clgmap)
-        else:
+        if not self._bcs or len(self._form.arguments()) != 2 or self._diagonal:
             return None
+
+        mat_spec = matrix.M.buffer.mat_spec
+        row_axes = matrix.M.row_axes
+        column_axes = matrix.M.column_axes
+        i, j = indices
+        row_bcs, column_bcs = self._filter_bcs(i or 0, j or 0)
+
+        if isinstance(mat_spec, numpy.ndarray):
+            mat_spec = mat_spec[i, j]
+
+            row_space = matrix.arguments()[0].function_space()
+            row_label = row_space.field_axis.component_labels[i]
+            row_axes = row_axes[row_label]
+            column_space = matrix.arguments()[1].function_space()
+            column_label = column_space.field_axis.component_labels[j]
+            column_axes = column_axes[column_label]
+
+        masked_row_lgmap = mask_lgmap(
+            row_axes, mat_spec.row_spec.lgmap, row_bcs, mat_spec.row_spec.block_shape
+        )
+        masked_column_lgmap = mask_lgmap(
+            column_axes, mat_spec.column_spec.lgmap, column_bcs, mat_spec.column_spec.block_shape
+        )
+        return (masked_row_lgmap, masked_column_lgmap)
 
     @property
     def _indices(self):
