@@ -30,16 +30,14 @@ except ImportError:
 
 
 def netgen_distribute(V, netgen_data):
-    mesh = V.mesh()
-    plex = mesh.topology_dm
-    sf = mesh.sfBC_orig
-    fstart, fend = plex.getHeightStratum(0)
-
     netgen_data = np.asarray(netgen_data)
-    nshape = netgen_data.shape
-    dtype = netgen_data.dtype
-    shp = V.shape
+    mesh = V.mesh()
+    sf = mesh.sfBC_orig
     if sf is not None:
+        plex = mesh.topology_dm
+        nshape = netgen_data.shape
+        dtype = netgen_data.dtype
+
         section = V.dm.getDefaultSection()
         marked = V.dof_dset.layout_vec
         sfBCInv = sf.createInverse()
@@ -48,26 +46,25 @@ def netgen_distribute(V, netgen_data):
 
         marked0.set(0)
         d = netgen_data
-        for i in np.ndindex(shp):
+        for i in np.ndindex(V.shape):
             di = d[(..., *i)].flatten()
             marked0[:len(di)] = di
             _, marked = plex.distributeField(sf, section0, marked0)
             arr = marked.getArray()
             if plex_data is None:
-                plex_data = np.empty(arr.shape + shp, dtype=dtype)
+                plex_data = np.empty(arr.shape + V.shape, dtype=dtype)
             plex_data[(..., *i)] = arr
+        plex_data = plex_data.reshape(-1, *nshape[1:])
     else:
         plex_data = netgen_data
-    plex_data = plex_data.reshape(-1, *nshape[1:])
     return plex_data
 
 
 def plex_to_netgen_numbering(mesh):
     plex = mesh.topology_dm
     fstart, fend = plex.getHeightStratum(0)
-    cids = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
-    iperm = np.asarray(cids)
-    return iperm
+    cellNum = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
+    return np.asarray(cellNum)
 
 
 @PETSc.Log.EventDecorator()

@@ -3004,11 +3004,10 @@ values from f.)"""
         ng_dimension = len(ng_element)
 
         # Construct the coordinates as a Firedrake function
-        low_order_element = self.coordinates.function_space().ufl_element()
-        ufl_element = low_order_element.reconstruct(degree=order)
+        coords_space = self.coordinates.function_space().reconstruct(degree=order)
+        broken_space = coords_space.broken_space()
         if not cg_field:
-            ufl_element = finat.ufl.BrokenElement(ufl_element)
-        coords_space = FunctionSpace(self, ufl_element)
+            coords_space = broken_space
         new_coordinates = Function(coords_space).interpolate(self.coordinates)
 
         # Compute reference points using fiat
@@ -3042,11 +3041,10 @@ values from f.)"""
         own_curved = np.flatnonzero(own_curved[:num_cells])
 
         # Get numbering
-        iperm = plex_to_netgen_numbering(self)
-        pyop2_index = cell_node_map.values[iperm[own_curved]]
+        cellNum = plex_to_netgen_numbering(self)
+        pyop2_index = cell_node_map.values[cellNum[own_curved]]
 
         # Distribute coordinate data
-        broken_space = coords_space.broken_space()
         own_curved_points = netgen_distribute(broken_space, curved_space_points)[own_curved]
         own_physical_points = netgen_distribute(broken_space, physical_space_points)[own_curved]
 

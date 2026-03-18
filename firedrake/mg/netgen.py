@@ -45,12 +45,10 @@ def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
     else:
         ng_coelement = ngmesh.Elements2D()
 
+    # When we create a netgen mesh from a refined plex,
+    # the netgen mesh represents the local submesh.
+    # Therefore, there is no need to distribute the netgen data
     nodes_to_correct = ng_coelement.NumPy()["nodes"]
-    sf = None
-    if sf is not None:
-        nodes_to_correct = comm.bcast(nodes_to_correct, root=0)
-
-    logger.info(f"\t\t\t[{time.time()}]Point distributed")
     nodes_to_correct = trim_util(nodes_to_correct)
     nodes_to_correct_sorted = np.hstack(nodes_to_correct.reshape((-1, 1)))
     nodes_to_correct_sorted.sort()
@@ -279,21 +277,18 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     no = impl.create_lgmap(cdm)
     o = impl.create_lgmap(mesh.topology_dm)
     lgmaps.append((no, o))
-
     mesh.topology_dm.setRefineLevel(0)
-    ngmesh = mesh.netgen_mesh
     meshes.append(mesh)
+    ngmesh = mesh.netgen_mesh
 
     for l in range(levs):
         # Straighten the mesh
         ngmesh.Curve(1)
         rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
         cdm = rdm
-
         # Snap the mesh to the Netgen mesh
         if snap == "geometry":
             snapToNetgenDMPlex(ngmesh, rdm, comm)
-
         if optMoves:
             # Optimises the mesh, for example smoothing
             if ngmesh.dim == 2:
@@ -341,10 +336,8 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                 and optimisation moves {optMoves}.")
         mesh.topology_dm.setRefineLevel(l+1)
         meshes.append(mesh)
-
     # Populate the coarse to fine map
     coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps)
-
     return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1, nested=nested)
 
 
