@@ -3057,7 +3057,7 @@ values from f.)"""
         self.comm.Barrier()
         # Apply the permutation to each cell in turn
         for i in range(own_curved_points.shape[0]):
-            own_curved_points[i, ...] = own_curved_points[i, permutation[i], ...]
+            own_curved_points[i] = own_curved_points[i, permutation[i]]
 
         # Assign the curved coordinates to the dat
         new_coordinates.dat.data_wo_with_halos[pyop2_index] = own_curved_points

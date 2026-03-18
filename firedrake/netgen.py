@@ -135,7 +135,7 @@ class FiredrakeMesh:
     def __init__(self, mesh, netgen_flags=None, user_comm=fd.COMM_WORLD):
         self.comm = user_comm
         # Parsing netgen flags
-        if netgen_flags is None:
+        if not isinstance(netgen_flags, dict):
             netgen_flags = {}
         split2tets = netgen_flags.get("split_to_tets", False)
         split = netgen_flags.get("split", False)

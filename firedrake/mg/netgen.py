@@ -241,25 +241,25 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     comm = mesh.comm
     # Parse netgen flags
     if not isinstance(flags, dict):
-        flags = {}
+        flags = mesh.netgen_flags
     order = flags.get("degree", 1)
-    logger.info(f"\tOrder of the hierarchy: {order}")
     if isinstance(order, int):
         order = [order]*(levs+1)
+    permutation_tol = flags.get("permutation_tol", 1e-8)
     refType = flags.get("refinement_type", "uniform")
-    logger.info(f"\tRefinement type: {refType}")
     optMoves = flags.get("optimisation_moves", False)
     snap = flags.get("snap_to", "geometry")
     snap_smoothing = flags.get("snap_smoothing", "hyperelastic")
-    logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
     cg = flags.get("cg", not mesh.coordinates.function_space().finat_element.is_dg())
     nested = flags.get("nested", snap in ["coarse"])
-    permutation_tol = flags.get("permutation_tol", 1e-8)
+    logger.info(f"\tOrder of the hierarchy: {order}")
+    logger.info(f"\tRefinement type: {refType}")
+    logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
     # Firedrake quantities
     meshes = []
     lgmaps = []
     # Curve the mesh
-    if mesh.coordinates.function_space().ufl_element().degree() != order[0]:
+    if order[0] != mesh.coordinates.function_space().ufl_element().degree():
         coordinates = mesh.curve_field(
             order=order[0],
             permutation_tol=permutation_tol,
