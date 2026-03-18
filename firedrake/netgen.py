@@ -38,7 +38,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
     Parameters
     ----------
     V
-        The target function space defining the data DMPlex layout.
+        The target function space defining the DMPlex layout.
     netgen_data
         The data in the layout of the underlying netgen mesh.
 
@@ -97,6 +97,7 @@ def find_permutation(points_a: npt.NDArray[np.inexact], points_b: npt.NDArray[np
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
     p = [np.where(cdist(a, b).T < tol)[1] for a, b in zip(points_a, points_b)]
+
     if len(p) == 0:
         return p
 
@@ -145,7 +146,7 @@ class FiredrakeMesh:
     :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
     :arg comm: the MPI communicator.
     '''
-    def __init__(self, mesh, netgen_flags=None, user_comm=COMM_WORLD):
+    def __init__(self, mesh, netgen_flags, user_comm=COMM_WORLD):
         self.comm = user_comm
         # Parsing netgen flags
         if not isinstance(netgen_flags, dict):

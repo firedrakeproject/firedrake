@@ -346,7 +346,7 @@ We can set the degree of the geometry via ``netgen_flags`` keyword argument of t
        ngmesh = OCCGeometry(shape, dim=2).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 3})
+   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 4})
    VTKFile("output/MeshExample5.pvd").write(mesh)
 
 .. figure:: Example5.png
@@ -365,7 +365,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
        ngmesh = OCCGeometry(shape, dim=3).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(3)
-   mesh = Mesh(ngmesh, netgen_flags={"degree": 4})
+   mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
 
    # Solving the Poisson problem
    VTKFile("output/MeshExample6.pvd").write(mesh)
