@@ -2984,12 +2984,12 @@ values from f.)"""
         :arg order: the order of the curved mesh.
         :arg permutation_tol: tolerance used to construct the permutation of the reference element.
         :arg cg_field: return a CG function field representing the mesh, as opposed to a DG field.
+        Defaults to the continuity of the coordinates of the original mesh.
 
         '''
-
         utils.check_netgen_installed()
 
-        from firedrake.netgen import find_permutation, plex_to_netgen_numbering, netgen_distribute
+        from firedrake.netgen import find_permutation, netgen_distribute
         from firedrake.functionspace import FunctionSpace
         from firedrake.function import Function
 
@@ -3013,24 +3013,24 @@ values from f.)"""
         # Compute reference points using fiat
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
         nodes = fiat_element.dual_basis()
-        ref = []
+        ref_pts = []
         for node in nodes:
             # Assert singleton point for each node.
             pt, = node.get_point_dict().keys()
-            ref.append(pt)
-        reference_space_points = np.array(ref)
+            ref_pts.append(pt)
+        reference_points = np.array(ref_pts)
 
         # Construct numpy arrays for physical domain data
-        physical_space_points = np.zeros(
-            (ng_dimension, reference_space_points.shape[0], self.geometric_dimension)
+        physical_points = np.zeros(
+            (ng_dimension, reference_points.shape[0], self.geometric_dimension)
         )
-        curved_space_points = np.zeros(
-            (ng_dimension, reference_space_points.shape[0], self.geometric_dimension)
+        curved_points = np.zeros(
+            (ng_dimension, reference_points.shape[0], self.geometric_dimension)
         )
-        self.netgen_mesh.CalcElementMapping(reference_space_points, physical_space_points)
+        self.netgen_mesh.CalcElementMapping(reference_points, physical_points)
         # NOTE: This will segfault for CSG!
         self.netgen_mesh.Curve(order)
-        self.netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
+        self.netgen_mesh.CalcElementMapping(reference_points, curved_points)
         curved = ng_element.NumPy()["curved"]
 
         # Distribute curved cell data
@@ -3040,18 +3040,19 @@ values from f.)"""
         own_curved = netgen_distribute(DG0, curved)
         own_curved = np.flatnonzero(own_curved[:num_cells])
 
-        # Get numbering
-        cellNum = plex_to_netgen_numbering(self)
-        pyop2_index = cell_node_map.values[cellNum[own_curved]]
-
         # Distribute coordinate data
-        own_curved_points = netgen_distribute(broken_space, curved_space_points)[own_curved]
-        own_physical_points = netgen_distribute(broken_space, physical_space_points)[own_curved]
+        own_curved_points = netgen_distribute(broken_space, curved_points)[own_curved]
+        own_physical_points = netgen_distribute(broken_space, physical_points)[own_curved]
+
+        # Get broken indices
+        cstart, cend = self.topology_dm.getHeightStratum(0)
+        cellNum = np.array(list(map(self._cell_numbering.getOffset, range(cstart, cend))))
+        broken_indices = cell_node_map.values[cellNum[own_curved]]
 
         # Find the correct coordinate permutation for each cell
         permutation = find_permutation(
             own_physical_points,
-            new_coordinates.dat.data_ro_with_halos[pyop2_index].real,
+            new_coordinates.dat.data_ro_with_halos[broken_indices].real,
             tol=permutation_tol,
         )
         self.comm.Barrier()
@@ -3060,7 +3061,7 @@ values from f.)"""
             own_curved_points[i] = own_curved_points[i, permutation[i]]
 
         # Assign the curved coordinates to the dat
-        new_coordinates.dat.data_wo_with_halos[pyop2_index] = own_curved_points
+        new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
 

@@ -5,10 +5,11 @@ This file was copied from ngsPETSc.
 '''
 import numpy as np
 import numpy.typing as npt
-from petsc4py import PETSc
 from scipy.spatial.distance import cdist
 
-import firedrake as fd
+from pyop2.mpi import COMM_WORLD
+from firedrake.petsc import PETSc
+import firedrake
 
 # Netgen and ngsPETSc are not available when the documentation is getting built
 # because they do not have ARM wheels.
@@ -29,42 +30,54 @@ except ImportError:
             Mesh = type(None)
 
 
-def netgen_distribute(V, netgen_data):
+def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
+                      netgen_data: npt.NDArray[np.inexact]):
+    """
+    Distribute data from the netgen layout into the DMPlex layout.
+
+    Parameters
+    ----------
+    V
+        The target function space defining the data DMPlex layout.
+    netgen_data
+        The data in the layout of the underlying netgen mesh.
+
+    Returns
+    -------
+    npt.NDArray[np.inexact]
+        The data in the target DMPlex layout.
+
+    """
     netgen_data = np.asarray(netgen_data)
     mesh = V.mesh()
     sf = mesh.sfBC_orig
-    if sf is not None:
+    if sf is None:
+        # This mesh was not redistributed at construction.
+        # This means that the underlying netgen mesh represents
+        # the local part of the mesh owned by this process.
+        # Therefore the netgen data is already distributed.
+        plex_data = netgen_data
+    else:
         plex = mesh.topology_dm
         nshape = netgen_data.shape
         dtype = netgen_data.dtype
 
-        section = V.dm.getDefaultSection()
-        marked = V.dof_dset.layout_vec
         sfBCInv = sf.createInverse()
-        section0, marked0 = plex.distributeField(sfBCInv, section, marked)
+        section = V.dm.getDefaultSection()
+        vec = V.dof_dset.layout_vec
+        section0, vec0 = plex.distributeField(sfBCInv, section, vec)
+        vec0.set(0)
         plex_data = None
-
-        marked0.set(0)
-        d = netgen_data
         for i in np.ndindex(V.shape):
-            di = d[(..., *i)].flatten()
-            marked0[:len(di)] = di
-            _, marked = plex.distributeField(sf, section0, marked0)
-            arr = marked.getArray()
+            di = netgen_data[(..., *i)].flatten()
+            vec0[:len(di)] = di
+            _, vec = plex.distributeField(sf, section0, vec0)
+            arr = vec.getArray()
             if plex_data is None:
                 plex_data = np.empty(arr.shape + V.shape, dtype=dtype)
             plex_data[(..., *i)] = arr
         plex_data = plex_data.reshape(-1, *nshape[1:])
-    else:
-        plex_data = netgen_data
     return plex_data
-
-
-def plex_to_netgen_numbering(mesh):
-    plex = mesh.topology_dm
-    fstart, fend = plex.getHeightStratum(0)
-    cellNum = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
-    return np.asarray(cellNum)
 
 
 @PETSc.Log.EventDecorator()
@@ -132,7 +145,7 @@ class FiredrakeMesh:
     :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
     :arg comm: the MPI communicator.
     '''
-    def __init__(self, mesh, netgen_flags=None, user_comm=fd.COMM_WORLD):
+    def __init__(self, mesh, netgen_flags=None, user_comm=COMM_WORLD):
         self.comm = user_comm
         # Parsing netgen flags
         if not isinstance(netgen_flags, dict):

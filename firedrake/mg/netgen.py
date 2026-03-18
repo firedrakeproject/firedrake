@@ -280,7 +280,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
     ngmesh = mesh.netgen_mesh
-
     for l in range(levs):
         # Straighten the mesh
         ngmesh.Curve(1)
