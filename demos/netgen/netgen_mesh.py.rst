@@ -225,7 +225,7 @@ It is now time to define the solve, mark and refine loop that is at the heart of
 
 
    for i in range(max_iterations):
-        print("level {}".format(i))
+        print(f"level {i}")
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.refine_marked_elements(mark)
@@ -332,8 +332,7 @@ As usual, we generate a mesh for the described geometry and use the Firedrake-Ne
 High-order Meshes
 ------------------
 It is possible to construct high-order meshes for a geometry constructed in Netgen.
-In order to do so we need to use the ``curve_field`` method of a Firedrake ``Mesh`` object generated from a Netgen mesh.
-In particular, we need to pass the degree of the polynomial field we want to use to parametrise the coordinates of the domain to the ``curve_field`` method, which will return a ``Function`` constructed on a DG space for this purpose. ::
+We can set the degree of the geometry via ``netgen_flags`` keyword argument of the ``Mesh`` constructor. ::
 
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
@@ -347,7 +346,7 @@ In particular, we need to pass the degree of the polynomial field we want to use
        ngmesh = OCCGeometry(shape,dim=2).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(Mesh(ngmesh, comm=COMM_WORLD).curve_field(4))
+   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 3})
    VTKFile("output/MeshExample5.pvd").write(mesh)
 
 .. figure:: Example5.png
@@ -366,7 +365,8 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
        ngmesh = OCCGeometry(shape,dim=3).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(3)
-   mesh = Mesh(Mesh(ngmesh).curve_field(3))
+   mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
+
    # Solving the Poisson problem
    VTKFile("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
@@ -405,7 +405,7 @@ It is also possible to construct high-order meshes using the ``SplineGeometry``,
       ngmesh = geo.GenerateMesh(maxh=0.2)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(Mesh(ngmesh,comm=COMM_WORLD).curve_field(2))
+   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 2})
    VTKFile("output/MeshExample7.pvd").write(mesh)
 
 .. figure:: Example7.png
