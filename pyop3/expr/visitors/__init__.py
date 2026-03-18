@@ -16,7 +16,7 @@ from petsc4py import PETSc
 from pyop3.cache import memory_cache
 from pyop3.config import config
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
-from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer
+from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer, PetscMatBufferSubMat
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
@@ -31,8 +31,10 @@ from pyop3.dtypes import IntType
 
 import pyop3.expr as expr_types
 from pyop3.insn.base import ArrayAccessType, loop_
-from .base import ExpressionT, conditional, loopified_shape
-from .tensor import Dat, Mat
+from pyop3.expr.base import ExpressionT, conditional, loopified_shape
+from pyop3.expr.tensor import Dat, Mat
+
+from .evaluate_arraywise import evaluate_arraywise
 
 if typing.TYPE_CHECKING:
     from pyop3.tree.axis_tree import AxisLabelT
@@ -52,6 +54,7 @@ class ExpressionVisitor(NodeVisitor):
         return idict()
 
 
+# TODO: use overloadedexpressionevaluator
 def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
     if axis_vars is None:
         axis_vars = {}
@@ -890,6 +893,7 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
             assignee_.assign(
                 expr,
                 eager=True,
+                eager_strategy="compile",
                 compiler_parameters={"check_negatives": True},
             )
         else:
@@ -1132,7 +1136,7 @@ class DiskCacheKeyGetter(ExpressionVisitor):
         return (obj,)
 
     @process.register(expr_types.Operator)
-    @NodeCollector.postorder
+    @postorder
     def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
         return (type(op), visited)
 
@@ -1151,7 +1155,7 @@ class DiskCacheKeyGetter(ExpressionVisitor):
         )
 
     @process.register(expr_types.BufferExpression)
-    @ExpressionVisitor.postorder
+    @postorder
     def _(self, expr: expr_types.BufferExpression, visited: Mapping, /) -> Hashable:
         return (
             type(expr),
@@ -1192,7 +1196,7 @@ class ArgumentCollector(NodeCollector):
         return super().process(obj)
 
     @process.register(expr_types.Operator)
-    @NodeCollector.postorder
+    @postorder
     def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(*visited.values())
 
@@ -1232,7 +1236,7 @@ class BufferCollector(NodeCollector):
         return super().process(obj)
 
     @process.register(expr_types.Operator)
-    @NodeCollector.postorder
+    @postorder
     def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(*visited.values())
 
@@ -1269,7 +1273,7 @@ class BufferCollector(NodeCollector):
         return OrderedFrozenSet([dat.buffer])
 
     @process.register(expr_types.LinearDatBufferExpression)
-    @NodeCollector.postorder
+    @postorder
     def _(self, dat_expr: expr_types.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         if self.shallow:
             return OrderedFrozenSet([dat_expr.buffer])
@@ -1277,7 +1281,7 @@ class BufferCollector(NodeCollector):
             return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
 
     @process.register(expr_types.NonlinearDatBufferExpression)
-    @NodeCollector.postorder
+    @postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 1
         if self.shallow:
@@ -1288,7 +1292,7 @@ class BufferCollector(NodeCollector):
             )
 
     @process.register(expr_types.MatPetscMatBufferExpression)
-    @NodeCollector.postorder
+    @postorder
     def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
         if self.shallow:
@@ -1299,7 +1303,7 @@ class BufferCollector(NodeCollector):
             )
 
     @process.register(expr_types.MatArrayBufferExpression)
-    @NodeCollector.postorder
+    @postorder
     def _(self, mat_expr: expr_types.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
         if self.shallow:
@@ -1384,7 +1388,7 @@ class LinearLayoutChecker(ExpressionVisitor):
     @process.register(expr_types.CompositeDat)
     @process.register(expr_types.AxisVar)
     @process.register(expr_types.LoopIndexVar)
-    @ExpressionVisitor.postorder
+    @postorder
     def _(self, obj: ExpressionT, visited, /) -> None:
         pass
 
@@ -1410,7 +1414,7 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
         return self.reuse_if_untouched(expr, **kwargs)
 
     @process.register(expr_types.NonlinearDatBufferExpression)
-    @ExpressionVisitor.postorder
+    @postorder
     def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
         if path is None:
             layout = utils.just_one(dat_expr.leaf_layouts.values())

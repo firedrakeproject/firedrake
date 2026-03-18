@@ -166,7 +166,7 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-def _get_method_cache(obj):
+def get_method_cache(obj):
     if not hasattr(obj, "_pyop3_method_cache"):
         # Use object.__setattr__ to get around frozen dataclasses
         object.__setattr__(obj, "_pyop3_method_cache", collections.defaultdict(dict))
@@ -176,7 +176,7 @@ def _get_method_cache(obj):
 def cached_method(key=default_hashkey):
     def wrapper(func):
         return cachetools.cachedmethod(
-            lambda self: _get_method_cache(self)[func.__qualname__], key
+            lambda self: get_method_cache(self)[func.__qualname__], key
         )(func)
     return wrapper
 

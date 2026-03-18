@@ -12,6 +12,60 @@ from pyop3.cache import memory_cache
 from pyop3.collections import OrderedFrozenSet
 
 
+def postorder(method):
+    """Postorder decorator.
+
+    It is more natural for users to write a post-order singledispatchmethod
+    whose arguments are ``(self, o, *processed_operands, **kwargs)``,
+    while `DAGTraverser` expects one whose arguments are
+    ``(self, o, **kwargs)``.
+    This decorator takes the former and converts to the latter, processing
+    ``o.ufl_operands`` behind the users.
+
+    """
+    @functools.wraps(method)
+    def _postorder_node(self, node, **kwargs):
+        new_children = {}
+        for attr_name, child_attr in self.children(node).items():
+            if isinstance(child_attr, tuple):
+                new_children[attr_name] = tuple(
+                    self(item, **kwargs)
+                    for item in child_attr
+                )
+            elif isinstance(child_attr, idict):
+                new_children[attr_name] = idict({
+                    key: self(value, **kwargs)
+                    for key, value in child_attr.items()
+                })
+            else:
+                new_children[attr_name] = self._call(child_attr, **kwargs)
+        new_children = idict(new_children)
+        return method(self, node, new_children, **kwargs)
+
+    @functools.wraps(method)
+    def _postorder_labelled_tree(self, node, path, **kwargs):
+        visited = []
+        for component_label in node.component_labels:
+            path_ = path | {node.label: component_label}
+            if self._tree.node_map[path_]:
+                visited.append(self._call(path_, **kwargs))
+            else:
+                visited.append(self.EMPTY)
+        visited = tuple(visited)
+        return method(self, node, path, visited, **kwargs)
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if isinstance(self, NodeVisitor):
+            return _postorder_node(self, *args, **kwargs)
+        elif isinstance(self, LabelledTreeVisitor):
+            return _postorder_labelled_tree(self, *args, **kwargs)
+        else:
+            raise TypeError(f"Cannot postorder visit '{utils.pretty_type(self)}'")
+
+    return wrapper
+
+
 # maybe implement __record_init__ here?
 class Node(abc.ABC):
     # bikeshedding, since this is meant to be inherited from it would be good to 'namespace' it
@@ -84,20 +138,6 @@ class Visitor(abc.ABC):
             Processed :py:class:`Expr`.
         """
         raise AssertionError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
-
-    @staticmethod
-    def postorder(method):
-        """Postorder decorator.
-
-        It is more natural for users to write a post-order singledispatchmethod
-        whose arguments are ``(self, o, *processed_operands, **kwargs)``,
-        while `DAGTraverser` expects one whose arguments are
-        ``(self, o, **kwargs)``.
-        This decorator takes the former and converts to the latter, processing
-        ``o.ufl_operands`` behind the users.
-
-        """
-        raise NotImplementedError
 
     # }}}
 
@@ -194,47 +234,10 @@ class LabelledTreeVisitor(Visitor):
     def preprocess_node(self, path: ConcetePathT, /) -> tuple[TreeNode, ConcretePathT]:
         return (self._tree.node_map[path], path)
 
-    @staticmethod
-    def postorder(method):
-        @functools.wraps(method)
-        def wrapper(self, node, path, **kwargs):
-            visited = []
-            for component_label in node.component_labels:
-                path_ = path | {node.label: component_label}
-                if self._tree.node_map[path_]:
-                    visited.append(self._call(path_, **kwargs))
-                else:
-                    visited.append(self.EMPTY)
-            visited = tuple(visited)
-            return method(self, node, path, visited, **kwargs)
-        return wrapper
-
     # }}}
 
 
 class NodeVisitor(Visitor):
-
-    @staticmethod
-    def postorder(method):
-        @functools.wraps(method)
-        def wrapper(self, node, **kwargs):
-            new_children = {}
-            for attr_name, child_attr in self.children(node).items():
-                if isinstance(child_attr, tuple):
-                    new_children[attr_name] = tuple(
-                        self(item, **kwargs)
-                        for item in child_attr
-                    )
-                elif isinstance(child_attr, idict):
-                    new_children[attr_name] = idict({
-                        key: self(value, **kwargs)
-                        for key, value in child_attr.items()
-                    })
-                else:
-                    new_children[attr_name] = self._call(child_attr, **kwargs)
-            new_children = idict(new_children)
-            return method(self, node, new_children, **kwargs)
-        return wrapper
 
     @functools.singledispatchmethod
     def children(self, node, /):
@@ -247,7 +250,7 @@ class NodeVisitor(Visitor):
 
 class NodeTransformer(NodeVisitor, abc.ABC):
 
-    @NodeVisitor.postorder
+    @postorder
     def reuse_if_untouched(self, node: Node, visited, **kwargs) -> Node:
         """Reuse if untouched.
 
@@ -277,6 +280,6 @@ class NodeCollector(NodeVisitor, abc.ABC):
         return super().process(obj)
 
     @process.register(tuple)
-    @NodeVisitor.postorder
+    @postorder
     def _(self, tuple_, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(*visited.values())

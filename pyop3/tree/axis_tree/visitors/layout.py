@@ -233,8 +233,6 @@ def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
     # Lastly 'freeze' the offset dats so they can no longer be modified
     for _, offset_dat in to_tabulate:
-        if offset_dat.name == "dat_247":
-            breakpoint()
         object.__setattr__(offset_dat.buffer, "_constant", True)
         offset_dat.buffer._data.flags.writeable = False
 
@@ -480,7 +478,7 @@ def _tabulate_regions(offset_axes, step, comm):
 
         offset_expr = utils.just_one(regioned_offset_axes.leaf_subst_layouts.values())
 
-        region_offset_dat.assign(offset_expr, eager=True)
+        region_offset_dat.assign(offset_expr, eager=True, eager_strategy="compile")
 
         region_size = regioned_offset_axes.local_size
         locs[ptr:ptr+region_size] = region_offset_dat.data_ro
@@ -494,7 +492,7 @@ def _tabulate_regions(offset_axes, step, comm):
     # because the axes above this have not yet been tabulated so accumulation
     # is not a concern.
     step_dat = Dat.zeros(offset_axes.regionless(), dtype=IntType)
-    step_dat.assign(step, eager=True)
+    step_dat.assign(step, eager=True, eager_strategy="compile")
 
     # But the steps here are in the wrong order since they do not account for
     # the region interleaving. We therefore need to:

@@ -1269,6 +1269,7 @@ def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, 
     return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
 
 
+# TODO: use overloadedexpressionevaluator
 @functools.singledispatch
 def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")

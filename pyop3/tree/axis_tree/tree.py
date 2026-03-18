@@ -1077,7 +1077,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
         size_dat = Dat.empty(axis.linearize(component.label).regionless(), dtype=IntType)
 
-        size_dat.assign(size_expr, eager=True)
+        size_dat.assign(size_expr, eager=True, eager_strategy="compile")
 
         sizes = size_dat.buffer.data_ro
 

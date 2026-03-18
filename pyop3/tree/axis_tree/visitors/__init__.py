@@ -11,7 +11,7 @@ from immutabledict import immutabledict as idict
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 from pyop3.cache import memory_cache
-from pyop3.node import Visitor, LabelledTreeVisitor
+from pyop3.node import Visitor, LabelledTreeVisitor, postorder
 from pyop3.tree.labelled_tree import parent_path
 import pyop3.tree.axis_tree as op3_tree
 
@@ -36,7 +36,7 @@ class DiskCacheKeyGetter(LabelledTreeVisitor):
         return super().process(obj)
 
     @process.register(op3_tree.Axis)
-    @LabelledTreeVisitor.postorder
+    @postorder
     def _(self, axis: op3_tree.Axis, path: ConcretePathT, /, visited) -> Hashable:
         new_label = self._renamer.add(axis)
         key = [type(axis), new_label]
@@ -102,7 +102,7 @@ class BufferCollector(LabelledTreeVisitor):
         return super().process(obj)
 
     @process.register(op3_tree.Axis)
-    @LabelledTreeVisitor.postorder
+    @postorder
     def _(self, axis: op3_tree.Axis, /, path: ConcretePathT, visited: tuple[OrderedFrozenSet, ...]) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(
             *(self._collect_expr_buffers(c.size) for c in axis.components),

@@ -23,7 +23,7 @@ from pyop3.expr.tensor.mat import AggregateMat
 import pyop3.expr.visitors as expr_visitors
 from pyop3 import utils
 
-from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector
+from pyop3.node import NodeTransformer, NodeVisitor, NodeCollector, postorder
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform, TensorTransform
 from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression, MatPetscMatBufferExpression
 from pyop3.tree.axis_tree import AxisTree, AxisForest
@@ -59,7 +59,7 @@ class InstructionTransformer(NodeTransformer):
 
     # Instruction lists have a common pattern
     @process.register(insn_types.InstructionList)
-    @NodeTransformer.postorder
+    @postorder
     def _(self, insn_list: insn_types.InstructionList, /, *insns, **kwargs) -> insn_types.Instruction:
         raise NotImplementedError
         return maybe_enlist(insns)
@@ -764,7 +764,7 @@ class InstructionCacheKeyGetter(NodeVisitor):
 
     @process.register(insn_types.InstructionList)
     @process.register(insn_types.NullInstruction)
-    @NodeVisitor.postorder
+    @postorder
     def _(self, insn: insn_types.Instruction, *visited: Hashable) -> Hashable:
         return (type(insn), *visited)
 
@@ -943,7 +943,7 @@ class BufferCollector(NodeCollector):
         return super().process(obj)
 
     @process.register(insn_types.InstructionList)
-    @NodeCollector.postorder
+    @postorder
     def _(self, insn_list: insn_types.InstructionList, visited, /) -> OrderedFrozenSet:
         return utils.reduce("|", visited.values(), OrderedFrozenSet())
 
@@ -952,7 +952,7 @@ class BufferCollector(NodeCollector):
         return OrderedFrozenSet()
 
     @process.register(insn_types.Loop)
-    @NodeCollector.postorder
+    @postorder
     def _(self, insn: insn_types.Loop, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(
             self._tree_collector(insn.index.iterset),

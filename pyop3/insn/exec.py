@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, Callable
+from typing import Any, Callable, Hashable
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -19,12 +20,6 @@ from pyop3.insn.visitors import canonicalize_labels
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
-
-    # {{{ implementation options
-
-    check_negatives: bool = False
-
-    # }}}
 
     # {{{ optimisation options
 
@@ -46,6 +41,14 @@ class CompilerParameters:
 
     # }}}
 
+    # {{{ other options
+
+    check_negatives: bool = False
+    """Whether to propagate negative values in indirections."""
+
+    # }}}
+
+
 
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
@@ -62,7 +65,10 @@ class ParsedCompilerParameters(CompilerParameters):
     pass
 
 
-def parse_compiler_parameters(compiler_parameters) -> ParsedCompilerParameters:
+CompilerParametersT = CompilerParameters | Mapping[str, Hashable]
+
+
+def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> ParsedCompilerParameters:
     """
     The process of parsing ``compiler_parameters`` is as follows:
 

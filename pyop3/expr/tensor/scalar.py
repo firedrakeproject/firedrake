@@ -105,6 +105,15 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        from pyop3.expr.visitors import evaluate_arraywise
+
+        other_eval = evaluate_arraywise(other)
+        if mode == "write":
+            self.buffer.data_wo[...] = other_eval
+        else:
+            self.buffer.data_rw[...] += other_eval
+
     # }}}
 
     # {{{ class attrs

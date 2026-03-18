@@ -116,6 +116,9 @@ class Mat(Tensor):
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        raise NotImplementedError("Matrix assignment needs special consideration")
+
     # }}}
 
     # {{{ factory methods
@@ -156,7 +159,7 @@ class Mat(Tensor):
 
     # }}}
 
-    # {{{ Array impls
+    # {{{ (more) interface impls (tidy me)
 
     def materialize(self) -> Mat:
         """Return a new "unindexed" array with the same shape."""
@@ -242,10 +245,6 @@ class Mat(Tensor):
 
     def concretize(self):
         raise NotImplementedError
-
-    # }}}
-
-    # {{{ DistributedArray impls
 
     @property
     def buffer(self) -> Any:

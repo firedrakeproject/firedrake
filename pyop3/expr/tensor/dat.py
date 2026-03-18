@@ -5,6 +5,7 @@ import collections
 import contextlib
 import math
 import numbers
+import typing
 from functools import cached_property
 from types import GeneratorType
 from typing import Any, ClassVar, Sequence
@@ -38,6 +39,10 @@ from pyop3.utils import (
     just_one,
     strictly_all,
 )
+
+
+if typing.TYPE_CHECKING:
+    import pyop3.insn
 
 
 # is this used?
@@ -168,6 +173,15 @@ class Dat(Tensor):
         from pyop3.expr.visitors import get_extremum
 
         return get_extremum(self, "min")
+
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        from pyop3.expr.visitors import evaluate_arraywise
+
+        other_eval = evaluate_arraywise(other)
+        if mode == "write":
+            self.data_wo[...] = other_eval
+        else:
+            self.data_rw[...] += other_eval
 
     # }}}
 
@@ -339,6 +353,18 @@ class Dat(Tensor):
     @property
     def dtype(self):
         return self.buffer.dtype
+
+    @PETSc.Log.EventDecorator()
+    def zero(self, *, eager: bool = False) -> pyop3.insn.ArrayAssignment | None:
+        if eager:
+            try:
+            # TODO: sometimes this doesn't work...
+                self.data_wo[...] = 0
+            except FancyIndexWriteException:
+                self.assign(0, eager=True)
+            # TODO: prefer self.data_wo = 0 (no indexing, will always work...)
+        else:
+            return self.assign(0)
 
     @property
     def data_ro(self) -> np.ndarray:
