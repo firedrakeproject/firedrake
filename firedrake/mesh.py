@@ -2975,7 +2975,7 @@ values from f.)"""
                     netgen_flags=netgen_flags)
 
     @PETSc.Log.EventDecorator()
-    def curve_field(self, order, permutation_tol=1e-8, cg_field=False):
+    def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
         '''Return a function containing the curved coordinates of the mesh.
 
         This method requires that the mesh has been constructed from a
@@ -2983,15 +2983,19 @@ values from f.)"""
 
         :arg order: the order of the curved mesh.
         :arg permutation_tol: tolerance used to construct the permutation of the reference element.
-        :arg cg_field: return a CG function field representing the mesh, rather than the
-                       default DG field.
+        :arg cg_field: return a CG function field representing the mesh, as opposed to a DG field.
 
         '''
-        from firedrake.netgen import find_permutation, netgen_to_plex_numbering, netgen_distribute
-        from firedrake.functionspace import VectorFunctionSpace, FunctionSpace
-        from firedrake.function import Function
 
         utils.check_netgen_installed()
+
+        from firedrake.netgen import find_permutation, plex_to_netgen_numbering, netgen_distribute
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.function import Function
+
+        if cg_field is None:
+            cg_field = not self.coordinates.function_space().finat_element.is_dg()
+
         # Check if the mesh is a surface mesh or two dimensional mesh
         if self.topological_dimension == 2:
             ng_element = self.netgen_mesh.Elements2D()
@@ -2999,26 +3003,22 @@ values from f.)"""
             ng_element = self.netgen_mesh.Elements3D()
         ng_dimension = len(ng_element)
 
-        # Construct the mesh as a Firedrake function
-        if cg_field:
-            coords_space = VectorFunctionSpace(self, "CG", order)
-        else:
-            low_order_element = self.coordinates.function_space().ufl_element().sub_elements[0]
-            ufl_element = low_order_element.reconstruct(degree=order)
-            coords_space = VectorFunctionSpace(self, finat.ufl.BrokenElement(ufl_element))
+        # Construct the coordinates as a Firedrake function
+        low_order_element = self.coordinates.function_space().ufl_element()
+        ufl_element = low_order_element.reconstruct(degree=order)
+        if not cg_field:
+            ufl_element = finat.ufl.BrokenElement(ufl_element)
+        coords_space = FunctionSpace(self, ufl_element)
         new_coordinates = Function(coords_space).interpolate(self.coordinates)
 
         # Compute reference points using fiat
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
-        entity_ids = fiat_element.entity_dofs()
         nodes = fiat_element.dual_basis()
         ref = []
-        for dim in entity_ids:
-            for entity in entity_ids[dim]:
-                for dof in entity_ids[dim][entity]:
-                    # Assert singleton point for each node.
-                    pt, = nodes[dof].get_point_dict().keys()
-                    ref.append(pt)
+        for node in nodes:
+            # Assert singleton point for each node.
+            pt, = node.get_point_dict().keys()
+            ref.append(pt)
         reference_space_points = np.array(ref)
 
         # Construct numpy arrays for physical domain data
@@ -3034,37 +3034,35 @@ values from f.)"""
         self.netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
         curved = ng_element.NumPy()["curved"]
 
-        # Get numbering
-        DG0 = FunctionSpace(self, "DG", 0)
-        rstart, rend = DG0.dof_dset.layout_vec.getOwnershipRange()
-        num_cells = rend - rstart
-        _, iperm = netgen_to_plex_numbering(self)
-        iperm -= rstart
-
         # Distribute curved cell data
-        own_curved = netgen_distribute(self, curved)
+        cell_node_map = new_coordinates.cell_node_map()
+        num_cells = cell_node_map.values.shape[0]
+        DG0 = FunctionSpace(self, "DG", 0)
+        own_curved = netgen_distribute(DG0, curved)
         own_curved = np.flatnonzero(own_curved[:num_cells])
 
-        cell_node_map = new_coordinates.cell_node_map()
+        # Get numbering
+        iperm = plex_to_netgen_numbering(self)
         pyop2_index = cell_node_map.values[iperm[own_curved]]
 
         # Distribute coordinate data
-        own_curved_points = netgen_distribute(self, curved_space_points)[own_curved]
-        own_physical_points = netgen_distribute(self, physical_space_points)[own_curved]
+        broken_space = coords_space.broken_space()
+        own_curved_points = netgen_distribute(broken_space, curved_space_points)[own_curved]
+        own_physical_points = netgen_distribute(broken_space, physical_space_points)[own_curved]
 
-        if any(own_curved):
-            # Find the correct coordinate permutation for each cell
-            permutation = find_permutation(
-                own_physical_points,
-                new_coordinates.dat.data[pyop2_index].real,
-                tol=permutation_tol,
-            )
-            # Apply the permutation to each cell in turn
-            for ii, p in enumerate(own_curved_points):
-                own_curved_points[ii] = p[permutation[ii]]
+        # Find the correct coordinate permutation for each cell
+        permutation = find_permutation(
+            own_physical_points,
+            new_coordinates.dat.data_ro_with_halos[pyop2_index].real,
+            tol=permutation_tol,
+        )
+        self.comm.Barrier()
+        # Apply the permutation to each cell in turn
+        for i in range(own_curved_points.shape[0]):
+            own_curved_points[i, ...] = own_curved_points[i, permutation[i], ...]
 
         # Assign the curved coordinates to the dat
-        new_coordinates.dat.data[pyop2_index] = own_curved_points
+        new_coordinates.dat.data_wo_with_halos[pyop2_index] = own_curved_points
         return new_coordinates
 
 

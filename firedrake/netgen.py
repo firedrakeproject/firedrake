@@ -29,70 +29,45 @@ except ImportError:
             Mesh = type(None)
 
 
-def netgen_distribute(mesh, netgen_data):
-    from firedrake import FunctionSpace
-    # Create Netgen to Plex reordering
+def netgen_distribute(V, netgen_data):
+    mesh = V.mesh()
     plex = mesh.topology_dm
     sf = mesh.sfBC_orig
-    perm, iperm = netgen_to_plex_numbering(mesh)
+    fstart, fend = plex.getHeightStratum(0)
+
+    netgen_data = np.asarray(netgen_data)
+    nshape = netgen_data.shape
+    dtype = netgen_data.dtype
+    shp = V.shape
     if sf is not None:
-        netgen_data = np.asarray(netgen_data)
-        dtype = netgen_data.dtype
-        dtype = mesh.comm.bcast(dtype, root=0)
-
-        netgen_data = netgen_data.transpose()
-        shp = netgen_data.shape[:-1]
-        shp = mesh.comm.bcast(shp, root=0)
-        if mesh.comm.rank != 0:
-            netgen_data = np.empty((*shp, 0), dtype=dtype)
-
-        M = FunctionSpace(mesh, "DG", 0)
-        marked = M.dof_dset.layout_vec.copy()
-        marked.set(0)
-
+        section = V.dm.getDefaultSection()
+        marked = V.dof_dset.layout_vec
         sfBCInv = sf.createInverse()
-        section, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
+        section0, marked0 = plex.distributeField(sfBCInv, section, marked)
         plex_data = None
+
+        marked0.set(0)
+        d = netgen_data
         for i in np.ndindex(shp):
-            marked0[:netgen_data.shape[-1]] = netgen_data[i]
-            _, marked = plex.distributeField(sf, section, marked0)
+            di = d[(..., *i)].flatten()
+            marked0[:len(di)] = di
+            _, marked = plex.distributeField(sf, section0, marked0)
             arr = marked.getArray()
             if plex_data is None:
-                plex_data = np.empty(shp + arr.shape, dtype=dtype)
-            plex_data[i] = arr.astype(dtype)
-
-        plex_data = plex_data.transpose()
+                plex_data = np.empty(arr.shape + shp, dtype=dtype)
+            plex_data[(..., *i)] = arr
     else:
         plex_data = netgen_data
+    plex_data = plex_data.reshape(-1, *nshape[1:])
     return plex_data
 
 
-def netgen_to_plex_numbering(mesh):
-    from firedrake import FunctionSpace
-
-    sf = mesh.sfBC_orig
+def plex_to_netgen_numbering(mesh):
     plex = mesh.topology_dm
-    cellNum = plex.getCellNumbering().indices
-    cellNum[cellNum < 0] = -cellNum[cellNum < 0]-1
     fstart, fend = plex.getHeightStratum(0)
     cids = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
-
-    # Create Netgen to Plex reordering
-    M = FunctionSpace(mesh, "DG", 0)
-    marked = M.dof_dset.layout_vec.copy()
-    marked.set(0)
-
-    cstart, cend = marked.getOwnershipRange()
-    iperm = cellNum[cids[:cend-cstart]]
-    marked.setValues(iperm, np.arange(cstart, cend))
-    marked.assemble()
-    marked0 = marked
-    if sf is not None:
-        sfBCInv = sf.createInverse()
-        _, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
-
-    perm = marked0.getArray()[:M.dim()].astype(PETSc.IntType)
-    return perm, iperm
+    iperm = np.asarray(cids)
+    return iperm
 
 
 @PETSc.Log.EventDecorator()
@@ -112,6 +87,9 @@ def find_permutation(points_a: npt.NDArray[np.inexact], points_b: npt.NDArray[np
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
     p = [np.where(cdist(a, b).T < tol)[1] for a, b in zip(points_a, points_b)]
+    if len(p) == 0:
+        return p
+
     try:
         permutation = np.array(p, ndmin=2)
     except ValueError as e:

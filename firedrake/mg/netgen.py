@@ -41,14 +41,15 @@ def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
     '''
     logger.info(f"\t\t\t[{time.time()}]Snapping the DMPlex to NETGEN mesh")
     if len(ngmesh.Elements3D()) == 0:
-        ng_coelement = ngmesh.Elements1D
+        ng_coelement = ngmesh.Elements1D()
     else:
-        ng_coelement = ngmesh.Elements2D
-    if comm.rank == 0:
-        nodes_to_correct = ng_coelement().NumPy()["nodes"]
+        ng_coelement = ngmesh.Elements2D()
+
+    nodes_to_correct = ng_coelement.NumPy()["nodes"]
+    sf = None
+    if sf is not None:
         nodes_to_correct = comm.bcast(nodes_to_correct, root=0)
-    else:
-        nodes_to_correct = comm.bcast(None, root=0)
+
     logger.info(f"\t\t\t[{time.time()}]Point distributed")
     nodes_to_correct = trim_util(nodes_to_correct)
     nodes_to_correct_sorted = np.hstack(nodes_to_correct.reshape((-1, 1)))
@@ -253,7 +254,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     snap = flags.get("snap_to", "geometry")
     snap_smoothing = flags.get("snap_smoothing", "hyperelastic")
     logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
-    cg = flags.get("cg", False)
+    cg = flags.get("cg", not mesh.coordinates.function_space().finat_element.is_dg())
     nested = flags.get("nested", snap in ["coarse"])
     permutation_tol = flags.get("permutation_tol", 1e-8)
     # Firedrake quantities
@@ -289,6 +290,10 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
         cdm = rdm
 
+        # Snap the mesh to the Netgen mesh
+        if snap == "geometry":
+            snapToNetgenDMPlex(ngmesh, rdm, comm)
+
         if optMoves:
             # Optimises the mesh, for example smoothing
             if ngmesh.dim == 2:
@@ -297,10 +302,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                 ngmesh.OptimizeVolumeMesh(MeshingParameters(optimize3d=optMoves))
             else:
                 raise ValueError("Only 2D and 3D meshes can be optimised.")
-
-        # Snap the mesh to the Netgen mesh
-        if snap == "geometry":
-            snapToNetgenDMPlex(ngmesh, rdm, comm)
 
         # We construct a Firedrake mesh from the DMPlex mesh
         parameters = {}
@@ -333,7 +334,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
                 mesh = reconstruct_mesh(mesh, coordinates)
             elif snap == "coarse":
                 mesh = snapToCoarse(meshes[0].coordinates, mesh, order[l+1], snap_smoothing, cg)
-
             toc = time.time()
             logger.info(f"\t\t\tMeshed curved. Time taken: {toc-tic}")
         logger.info(f"\t\tLevel {l+1}: with {ngmesh.Coordinates().shape[0]}\
@@ -344,6 +344,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
 
     # Populate the coarse to fine map
     coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps)
+
     return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1, nested=nested)
 
 
@@ -361,4 +362,5 @@ def reconstruct_mesh(mesh, *args, **kwargs):
     tmesh._did_reordering = mesh._did_reordering
     tmesh.netgen_mesh = mesh.netgen_mesh
     tmesh.netgen_flags = mesh.netgen_flags
+    tmesh.sfBC_orig = mesh.sfBC_orig
     return tmesh

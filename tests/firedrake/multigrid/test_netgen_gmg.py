@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[2, 3])
+@pytest.fixture(params=[3, 2])
 def ngmesh(request):
     dim = request.param
     if dim == 2:
@@ -23,20 +23,25 @@ def ngmesh(request):
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-# @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("netgen_degree", [1, 3, (1, 2, 3)])
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("netgen_degree", [1, 3, (1, 2, 3)], ids=lambda degree: f"{degree=}")
 def test_netgen_mg(ngmesh, netgen_degree):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    mesh = Mesh(ngmesh, distribution_parameters=dparams)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": netgen_degree})
-    mesh = nh[-1]
+    base = Mesh(ngmesh, distribution_parameters=dparams)
+    mh = MeshHierarchy(base, 2, netgen_flags={"degree": netgen_degree})
+    mesh = mh[-1]
     try:
         len(netgen_degree)
     except TypeError:
-        netgen_degree = (netgen_degree,)*len(nh)
+        netgen_degree = (netgen_degree,)*len(mh)
 
-    for m, deg in zip(nh, netgen_degree):
-        assert m.coordinates.function_space().ufl_element().degree() == deg
+    coords_space = base.coordinates.function_space()
+    assert coords_space.ufl_element().degree() == 1
+    assert not coords_space.finat_element.is_dg()
+    for m, deg in zip(mh, netgen_degree):
+        coords_space = m.coordinates.function_space()
+        assert coords_space.ufl_element().degree() == deg
+        assert not coords_space.finat_element.is_dg()
 
     V = FunctionSpace(mesh, "CG", 3)
     u = TrialFunction(V)
@@ -57,7 +62,7 @@ def test_netgen_mg(ngmesh, netgen_degree):
     solve(a == L, uh, bcs=bcs, solver_parameters={
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
-        "ksp_max_it": 12,
+        "ksp_max_it": 14,
         "ksp_rtol": rtol,
         "ksp_monitor": None,
         "pc_type": "mg",
