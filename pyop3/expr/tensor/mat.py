@@ -4,6 +4,7 @@ import abc
 import collections
 import itertools
 import numbers
+import typing
 from functools import cached_property
 from itertools import product
 from typing import Any, ClassVar
@@ -18,7 +19,6 @@ import pyop3.dtypes
 import pyop3.record
 from pyop3 import utils
 from pyop3.cache import cached_method
-from pyop3.typing import KwargsT
 from .base import Tensor, ReshapeTensorTransform, TensorTransform
 from .dat import Dat
 from pyop3.tree.axis_tree import (
@@ -32,13 +32,15 @@ from pyop3.tree.axis_tree import (
 from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
 from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import ScalarType
-from pyop3.typing import PetscSizeT
 from pyop3.utils import (
     just_one,
     single_valued,
     strictly_all,
     unique,
 )
+
+if typing.TYPE_CHECKING:
+    from pyop3.types import *
 
 
 @pyop3.record.record()
@@ -320,7 +322,7 @@ class Mat(Tensor):
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
-                return petscmat[self.row_axes.with_region_labels(regions)._buffer_slice, self.column_axes.with_region_labels(regions)._buffer_slice]
+                return petscmat[self.row_axes.with_region_labels(regions)._flat_buffer_indices, self.column_axes.with_region_labels(regions)._flat_buffer_indices]
         else:
             raise NotImplementedError
 

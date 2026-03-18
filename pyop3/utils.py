@@ -301,6 +301,11 @@ def strict_int(num: numbers.Number) -> IntType:
     return strict_cast(num, IntType)
 
 
+def strict_floordiv(num: numbers.Number, fac):
+    assert num % fac == 0
+    return num // fac
+
+
 def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
     return np.dtype(dtype) if dtype else default
 
@@ -577,3 +582,4 @@ def safe_equals(a, b, /) -> bool:
 @safe_equals.register(np.ndarray)
 def _(a, b, /) -> bool:
     return (a == b).all()
+

@@ -8,13 +8,14 @@ import numbers
 import typing
 from functools import cached_property
 from types import GeneratorType
-from typing import Any, ClassVar, Sequence
+from typing import Any, ClassVar, Literal, Sequence
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.arrayref
 import pyop3.record
 from pyop3 import utils
 from ..base import LoopIndexVar
@@ -43,6 +44,7 @@ from pyop3.utils import (
 
 if typing.TYPE_CHECKING:
     import pyop3.insn
+    from pyop3.types import *
 
 
 # is this used?
@@ -51,10 +53,6 @@ class IncompatibleShapeError(Exception):
 
 
 class AxisMismatchException(Pyop3Exception):
-    pass
-
-
-class FancyIndexWriteException(Exception):
     pass
 
 
@@ -127,10 +125,11 @@ class Dat(Tensor):
         self._buffer = buffer
         self._name = name
         self._transform = transform
-
-        # self._cache = {}
-
         self.__post_init__()
+
+        # Lazily allocated PETSc Vecs (and state tracking)
+        self._work_vec = None
+        self._work_vec_buffer_state = None
 
     def __post_init__(self) -> None:
         pass
@@ -354,18 +353,6 @@ class Dat(Tensor):
     def dtype(self):
         return self.buffer.dtype
 
-    @PETSc.Log.EventDecorator()
-    def zero(self, *, eager: bool = False) -> pyop3.insn.ArrayAssignment | None:
-        if eager:
-            try:
-            # TODO: sometimes this doesn't work...
-                self.data_wo[...] = 0
-            except FancyIndexWriteException:
-                self.assign(0, eager=True)
-            # TODO: prefer self.data_wo = 0 (no indexing, will always work...)
-        else:
-            return self.assign(0)
-
     @property
     def data_ro(self) -> np.ndarray:
         """Return a read-only view of the data stored by the dat."""
@@ -418,27 +405,40 @@ class Dat(Tensor):
     def data_with_halos(self):
         return self.data_rw_with_halos
 
-    def as_array(self, mode, block_shape=(), *, include_ghosts: bool = False) -> np.ndarray:
+    def as_array(
+        self,
+        mode: Literal["ro", "wo", "rw"],
+        block_shape: tuple[numbers.Integral, ...] = (),
+        *,
+        include_ghosts: bool = False,
+    ) -> ArrayT:
+        match mode:
+            case "ro":
+                array = self.buffer.data_ro
+            case "wo":
+                array = self.buffer.data_wo
+            case "rw":
+                array = self.buffer.data_rw
+        array = array.reshape((-1, *block_shape))
         if include_ghosts:
-            selector = self.axes._buffer_slice
+            indices = self.axes._buffer_indices(block_shape)
         else:
-            selector = self.axes.owned._buffer_slice
+            indices = self.axes.owned._buffer_indices(block_shape)
 
-        if mode == "ro":
-            if not isinstance(selector, slice):
-                warning(
-                    "Read-only access to the array is provided with a copy, "
-                    "consider avoiding if possible."
-                )
-            array = self.buffer.data_ro
-        elif mode == "wo":
-            self._check_no_copy_access()
-            array = self.buffer.data_wo
+        # We have to work hard to get around numpy indexing semantics. If we
+        # index the buffer array using an integer array (which we often do)
+        # then just returning 'array[indices]' here will return a copy. This
+        # breaks things when we want to modify the returned array (e.g.
+        # 'dat.data_wo[...] = 666') because the changes only apply to the copy
+        # and are not written back to the original array. To get around this
+        # we hand back an 'array reference' object that preserves the expected
+        # writeback behaviour.
+        if isinstance(indices, slice) or mode == "ro":
+            # Either using a view or readonly, safe to use numpy indexing as
+            # writeback issues are not relevant
+            return array[indices]
         else:
-            assert mode == "rw"
-            self._check_no_copy_access(include_ghost_points=include_ghosts)
-            array = self.buffer.data_rw
-        return array[selector].reshape((-1, *block_shape))
+            return pyop3.arrayref.ArrayReference(array, indices)
 
 
     @property
@@ -446,19 +446,6 @@ class Dat(Tensor):
     def dat_version(self):
         return self.buffer.state
 
-    def _check_no_copy_access(self, *, include_ghost_points=False):
-        if include_ghost_points:
-            buffer_indices = self.axes._buffer_slice
-        else:
-            buffer_indices = self.axes.owned._buffer_slice
-
-        if not isinstance(buffer_indices, slice):
-            raise FancyIndexWriteException(
-                "Writing to the array directly is not supported for "
-                "non-trivially indexed (i.e. sliced) arrays."
-            )
-
-    @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", self.axes.block_shape)
 
@@ -487,63 +474,59 @@ class Dat(Tensor):
                 f"must be '{PETSc.ScalarType}'"
             )
 
-        if isinstance(block_shape, collections.abc.Iterable):
-            bsize = np.prod(block_shape, dtype=int) 
+        # If the dat data is a slice of the underlying buffer then views are
+        # used by numpy as so we can avoid copying back and forth into the vec.
+        is_view = isinstance(self.axes.owned._flat_buffer_indices, slice)
+
+        # Prepare the work vec
+        block_size = np.prod(block_shape, dtype=int) 
+        if self._work_vec is None:
+            size = (self.axes.owned.local_size, self.axes.global_size)
+            if is_view:
+                vec = PETSc.Vec().createWithArray(self.data_ro, size, block_size, self.comm)
+            else:
+                vec = PETSc.Vec().create(self.comm)
+                vec.setSizes(size, block_size)
+            self._work_vec = vec
         else:
-            assert isinstance(block_shape, int)
-            bsize = block_shape
+            # The block size may change between invocations
+            if block_size != self._work_vec.block_size:
+                self._work_vec.setBlockSize(block_size)
 
-        def make_vec(array):
-            return PETSc.Vec().createWithArray(
-                array,
-                size=(array.size, None),
-                bsize=bsize,
-                comm=self.comm,
-            )
+        if is_view:
+            if self._work_vec_buffer_state != self.buffer.state:
+                # Buffer data has changed but PETSc doesn't know this
+                self._work_vec.stateIncrease()
+            yield self._work_vec
+            if mode in {"wo", "rw"}:
+                self.buffer.inc_state()
+                self._work_vec.stateIncrease()
 
-        needs_copy = not isinstance(self.axes.owned._buffer_slice, slice)
-        if mode == "ro":
-            yield make_vec(self.data_ro)
-        elif mode == "wo":
-            yield make_vec(self.data_wo)
         else:
-            assert mode == "rw"
-            yield make_vec(self.data_rw)
+            # Not a view, need to copy in and out
+            if self._work_vec_buffer_state == self.buffer.state:
+                # Buffer data is unchanged so can leave the vec alone
+                yield self._work_vec
+                if mode in {"wo", "rw"}:
+                    self.buffer.inc_state()
+                    self._work_vec.stateIncrease()
 
-            # if needs_copy:
-            #     def copy_out():
-            #         self.data_wo[...] = vec.buffer_r
-            # else:
-            #     def copy_out():
-            #         pass
+            else:
+                # Buffer data != vec data - copy required
+                # Note that state tracking is handled internally for this case
+                match mode:
+                    case "ro":
+                        self._work_vec.array_w[...] = self.data_ro
+                    case "wo":
+                        self._work_vec.array_w[...] = self.data_wo
+                    case "rw":
+                        self._work_vec.array_w[...] = self.data_rw
+                    case _:
+                        raise AssertionError
+                yield self._work_vec
 
-
-        # yield vec
-        # copy_out()
-
-    # def _make_vec(
-    #     self, array: np.ndarray, block_shape: collections.abc.Iterable[int, ...] | int = (),
-    # ) -> PETSc.Vec:
-    #     if array.dtype != PETSc.ScalarType:
-    #         raise RuntimeError(
-    #             f"Cannot create a PETSc Vec with data type '{self.dtype}', "
-    #             f"must be '{PETSc.ScalarType}'"
-    #         )
-    #
-    #     local_size = self.axes.owned.local_size
-    #     global_size = self.axes.global_size
-    #     if isinstance(block_shape, collections.abc.Iterable):
-    #         bsize = np.prod(block_shape, dtype=int) 
-    #     else:
-    #         assert isinstance(block_shape, int)
-    #         bsize = block_shape
-    #
-    #     return PETSc.Vec().createWithArray(
-    #         array,
-    #         size=(local_size, global_size),
-    #         bsize=bsize,
-    #         comm=self.comm,
-    #     )
+        # At this point the vec is synchronised with the buffer
+        self._work_vec_buffer_state = self.buffer.state
 
     def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
         assert self.dtype == IntType

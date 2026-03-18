@@ -1197,22 +1197,26 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     @cached_property
     @memory_cache(heavy=True, get_comm=lambda self: self.comm)
     def _subst_layouts_default(self):
-        # global mycount, myreprs
-        #
-        # mycount+= 1
-        #
-        # if (type(self), str(self)) in myreprs and self not in seen:
-        #     breakpoint()
-        # myreprs.add((type(self), str(self)))
-        # seen.add(self)
-        #
-        # if mycount > 100:
-        #     breakpoint()
         return subst_layouts(self, self._matching_target, self.layouts)
+
+    def _buffer_indices(self, block_shape: tuple[numbers.Integral, ...] = ()):
+        indices = self._flat_buffer_indices
+        if not block_shape:
+            return indices
+
+        stride = np.prod(block_shape, dtype=int)
+
+        def floordiv_or_none(value):
+            return None if value is None else utils.strict_floordiv(value, stride)
+
+        if isinstance(indices, slice):
+            return slice(floordiv_or_none(indices.start), floordiv_or_none(indices.stop), indices.step)
+        else:
+            raise NotImplementedError
 
     @property
     @abc.abstractmethod
-    def _buffer_slice(self) -> slice | np.ndarray[IntType]:
+    def _flat_buffer_indices(self) -> slice | np.ndarray[IntType]:
         pass
 
     def _alloc_size(self, axis=None):
@@ -1414,7 +1418,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return compute_layouts(self)
 
     @cached_property
-    def _buffer_slice(self) -> slice:
+    def _flat_buffer_indices(self) -> slice:
         assert isinstance(self.local_size, numbers.Integral)
         return slice(self.local_size)
 
@@ -1618,7 +1622,7 @@ class IndexedAxisTree(AbstractAxisTree):
     # TODO: how do we know if buffer_slice will produce the same object across all ranks?
     # Need to make forming a slice or a subset an active decision!
     @cached_property
-    def _buffer_slice(self) -> np.ndarray[IntType]:
+    def _flat_buffer_indices(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
         if self.size == 0:
@@ -2055,8 +2059,11 @@ class AxisForest(DistributedObject):
         return type(self)((tree.owned for tree in self.trees))
 
     @property
-    def _buffer_slice(self):
-        return self.trees[0]._buffer_slice
+    def _flat_buffer_indices(self):
+        return self.trees[0]._flat_buffer_indices
+
+    # because I need a proper inheritance hierarchy
+    _buffer_indices = AxisTree._buffer_indices
 
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable, DistributedObject):

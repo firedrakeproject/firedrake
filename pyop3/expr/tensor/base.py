@@ -188,6 +188,7 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
                     self._array_assign(other, mode)
                     return
                 except BaseException as e:
+                    raise e
                     # log a warning and throw a good exception...
                     breakpoint()
                     self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
