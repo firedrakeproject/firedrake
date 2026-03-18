@@ -26,8 +26,7 @@ also be possible to join the tutorial using the cloud. Installing `Paraview <htt
 Registration
 ------------
 
-Registration of £25 covers tea, coffee, and biscuits. `Registration is now open on the Oxford online store <https://www.oxforduniversitystores.co.uk/product-catalogue/mathematical-institute/events/solving-partial-differential-equations-with-firedrake>`__.
-
+Registration of £25 covered tea, coffee, and biscuits. Registration closed on 6 March 2026.
 
 Where and when
 --------------
@@ -62,7 +61,7 @@ Thu Mar 19 (room L4)
 +-------------+-------------------------------------+
 | Time        | Session                             |
 +=============+=====================================+
-| 09:00-10:45 | Surface integrals. Nonlinearity     |
+| 09:00-10:45 | Boundaries. Nonlinearity            |
 +-------------+-------------------------------------+
 | 10:45-11:15 | Coffee break                        |
 +-------------+-------------------------------------+
