@@ -158,7 +158,9 @@ jobs:
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
           else
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+            : # UNDO ME
+            # git clone --depth 1 https://gitlab.com/petsc/petsc.git
+            git clone --depth 1 https://gitlab.com/connorjward/petsc.git@connorjward/more-sparse-localize
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
@@ -412,9 +414,7 @@ jobs:
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
           else
-            : # UNDO ME
-            # git clone --depth 1 https://gitlab.com/petsc/petsc.git
-            git clone --depth 1 https://gitlab.com/connorjward/petsc.git@connorjward/more-sparse-localize
+            git clone --depth 1 https://gitlab.com/petsc/petsc.git
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
