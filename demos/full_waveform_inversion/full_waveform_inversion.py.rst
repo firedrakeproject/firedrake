@@ -257,39 +257,51 @@ Next, the FWI problem is executed with the following steps:
     :align: center
 
 
-To have the step 4, we need first to tape the forward problem. That is done by calling::
+To have the step 4, we need first to tape the forward problem.
+That is done by calling :func:`~.pyadjoint.continue_annotation`.
+
+
+**Steps 2-3**: Solve the wave equation and compute the functional.
+We create a ``ReducedFunctional`` for each source, which for our
+case means one per ensemble member. Creating a ``ReducedFunctional``
+per component that we are parallelising over (i.e. per source) -
+rather than creating one per ensemble member - we can change
+the ensemble parallel partition with minimal changes to the code.::
 
     from firedrake.adjoint import *
-    continue_annotation()
-    get_working_tape().progress_bar = ProgressBar
-
-**Steps 2-3**: Solve the wave equation and compute the functional::
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
     interpolate_receivers = interpolate(u_np1, V_r)
+
+    continue_annotation()
     J_val = 0.0
-    for step in range(total_steps):
-        f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
-        solver.solve()
-        u_nm1.assign(u_n)
-        u_n.assign(u_np1)
-        guess_receiver = assemble(interpolate_receivers)
-        misfit = guess_receiver - true_data_receivers[step]
-        J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
+    with set_working_tape() as tape:
+        for step in range(total_steps):
+            f.assign(ricker_wavelet(step * dt, frequency_peak) * q_s)
+            solver.solve()
+            u_nm1.assign(u_n)
+            u_n.assign(u_np1)
+            guess_receiver = assemble(interpolate_receivers)
+            misfit = guess_receiver - true_data_receivers[step]
+            J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
 
-We now instantiate :class:`~.EnsembleReducedFunctional`::
+        control = Control(c_guess)
+        Jhat_local = ReducedFunctional(J_val, control, tape=tape)
+        tape.progress_bar = ProgressBar
+    pause_annotation()
 
-    J_hat = EnsembleReducedFunctional(J_val,
-                                      Control(c_guess, riesz_map="l2"),
-                                      my_ensemble)
+We now instantiate :class:`~.adjoint.ensemble_reduced_functional.EnsembleReducedFunctional`
+with the local ``ReducedFunctional`` for each source::
+
+    J_hat = EnsembleReducedFunctional(J_val, control, Jhat_local, my_ensemble)
 
 which enables us to recompute :math:`J` and its gradient :math:`\nabla_{\mathtt{c\_guess}} J`,
 where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` are computed in parallel
 based on the ``my_ensemble`` configuration.
 
 
-**Steps 4-6**: The instance of the :class:`~.EnsembleReducedFunctional`, named ``J_hat``,
+**Steps 4-6**: The instance of the :class:`~.adjoint.ensemble_reduced_functional.EnsembleReducedFunctional`, named ``J_hat``,
 is then passed as an argument to the ``minimize`` function. The default ``minimize`` function
 uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunctionalNumPy``
 that handles transferring data between Firedrake and numpy data structures. However, because

@@ -17,8 +17,14 @@ def _ensemble_mpi_dispatch(func):
     """
     @wraps(func)
     def _mpi_dispatch(self, *args, **kwargs):
-        if any(isinstance(arg, (Function, Cofunction))
-               for arg in [*args, *kwargs.values()]):
+        all_args = []
+        for arg in [*args, *kwargs.values()]:
+            if isinstance(arg, (list, tuple)):
+                all_args.extend(arg)
+            else:
+                all_args.append(arg)
+
+        if any(isinstance(arg, (Function, Cofunction)) for arg in all_args):
             return func(self, *args, **kwargs)
         else:
             mpicall = getattr(self._ensemble_comm, func.__name__)
@@ -584,3 +590,60 @@ class Ensemble:
         requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
                          for dat in frecv.dat])
         return requests
+
+    @PETSc.Log.EventDecorator()
+    @_ensemble_mpi_dispatch
+    def allgather(self, fsend: Function | Cofunction | list[Function | Cofunction],
+                  frecv: list[Function | Cofunction],
+                  recvcounts: list[int] | None = None
+                  ) -> list[Function | Cofunction]:
+        """
+        Allgather the :class:`.Function` (or ``list`` of ``Functions``) ``fsend``
+        from all ranks into ``frecv`` on every rank.
+
+        Parameters
+        ----------
+        fsend :
+            The :class:`.Function` on the local rank to gather on all ranks.
+        frecv :
+            The list of :class:`.Function` that ``fsend`` from each ensemble
+            rank will be gathered into.
+        recvcounts :
+            A list with the number of :class:`.Function` in ``fsend`` on each
+            rank. If not provided then it will be calculated using an Allgather
+            before communicating the data in ``fsend``.
+
+        Returns
+        -------
+            list[Function | Cofunction] :
+                The gathered functions ``frecv``.
+
+        Raises
+        ------
+            ValueError
+                If ``recvcounts`` does not have :meth:`.Ensemble.ensemble_size`
+                elements.
+            ValueError
+                If ``sum(recvcounts)`` does not have
+                :meth:`.Ensemble.ensemble_size` elements.
+        """
+        if not isinstance(fsend, (list, tuple)):
+            fsend = [fsend]
+        if recvcounts is None:
+            recvcounts = self.allgather(len(fsend))
+        if len(recvcounts) != self.ensemble_size:
+            raise ValueError(
+                f"Ensemble has {self.ensemble_size} ranks but {len(recvcounts)} recvcounts provided.")
+        if sum(recvcounts) != len(frecv):
+            raise ValueError(
+                f"Need to receive {sum(recvcounts)} items but frecv has length {len(frecv)}")
+
+        # loop over ensemble ranks and bcast local data to all other ranks.
+        idx = 0
+        for root, nsend in enumerate(recvcounts):
+            for i in range(nsend):
+                if self.ensemble_rank == root:
+                    frecv[idx].assign(fsend[i])
+                self.bcast(frecv[idx], root=root)
+                idx += 1
+        return frecv

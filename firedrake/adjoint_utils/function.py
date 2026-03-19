@@ -253,7 +253,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        Function.assign(r, self + other)
+        r += self
+        r += other
         return r
 
     def _ad_dot(self, other, options=None):
