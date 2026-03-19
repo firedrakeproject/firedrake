@@ -160,7 +160,7 @@ jobs:
           else
             : # UNDO ME
             # git clone --depth 1 https://gitlab.com/petsc/petsc.git
-            git clone --depth 1 https://gitlab.com/connorjward/petsc.git@connorjward/more-sparse-localize
+            git clone --depth 1 https://gitlab.com/connorjward/petsc.git --branch connorjward/more-sparse-localize
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
