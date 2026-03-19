@@ -10,15 +10,15 @@
 Solving partial differential equations with Firedrake
 -----------------------------------------------------
 
-We will host a 2.5-day in-person tutorial on Firedrake at the
+We hosted a 2.5-day in-person tutorial on Firedrake at the
 `Mathematical Institute, University of Oxford
-<https://www.maths.ox.ac.uk>`__ from 18-20 March 2026. This training event is kindly supported by the `Collaborative Computational Project on Data-centric Computational Mechanics <https://ccp-dcm.github.io/>`__ and the `Computational Science Centre for Research Communities (CoSeC) <https://www.cosec.ac.uk/>`__.
+<https://www.maths.ox.ac.uk>`__ from 18-20 March 2026. This training event was kindly supported by the `Collaborative Computational Project on Data-centric Computational Mechanics <https://ccp-dcm.github.io/>`__ and the `Computational Science Centre for Research Communities (CoSeC) <https://www.cosec.ac.uk/>`__.
 
 The tutorial is aimed at all levels, from MSc students to senior faculty and those solving partial differential equations in industry. Only a basic passing knowledge of finite elements is necessary, although of course knowing more background is still useful.
 
-The course will cover both the basics of solving stationary and time-dependent problems, as well as various advanced topics like geometric multigrid and 𝑝-multigrid solvers, high-order mesh generation and adaptive mesh refinement with Netgen, nonlinear problems, mixed formulations and block preconditioners, eigenvalue problems, and adjoints.
+The course covers both the basics of solving stationary and time-dependent problems, as well as various advanced topics like geometric multigrid and 𝑝-multigrid solvers, high-order mesh generation and adaptive mesh refinement with Netgen, nonlinear problems, mixed formulations and block preconditioners, eigenvalue problems, and adjoints.
 
-Attendees will need to bring a laptop. Installing Firedrake (see the
+Attendees need to bring a laptop. Installing Firedrake (see the
 :doc:`download page <install>` for details) is optional, as it will be
 also be possible to join the tutorial using the cloud. Installing `Paraview <https://www.paraview.org>`__ for visualisation before the course is recommended.
 
@@ -32,7 +32,7 @@ Registration of £25 covered tea, coffee, and biscuits. Registration closed on 6
 Where and when
 --------------
 
-The conference will take place in the Andrew Wiles Building. Its main entrance
+The conference took place in the Andrew Wiles Building. Its main entrance
 is located on Woodstock Road (`see here for the precise location
 <https://what3words.com/policy.rises.bets>`__). Take some care in navigation, as
 Google Maps sometimes directs people to the old mathematics building on St.
@@ -121,3 +121,11 @@ Organising committee
 
 * `Patrick Farrell <https://pefarrell.org>`__, University of Oxford
 * `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez>`__, University of Oxford
+
+Conference photo
+----------------
+
+.. image:: images/tutorial_mar_26.jpg
+   :width: 100%
+   :align: center
+   :alt: Firedrake March 2026 group photo
