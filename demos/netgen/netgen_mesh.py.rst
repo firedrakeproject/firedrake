@@ -371,7 +371,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
    VTKFile("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
    V = FunctionSpace(mesh, "CG", 3)
-   f = Function(V).interpolate(Constant(1))
+   f = Constant(1)
    u = TrialFunction(V)
    v = TestFunction(V)
    a = inner(grad(u), grad(v)) * dx
