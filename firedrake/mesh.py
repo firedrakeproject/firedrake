@@ -453,6 +453,7 @@ class AbstractMeshTopology(abc.ABC):
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
         # A cache of shared function space data on this mesh
+        self._shared_data_cache = defaultdict(dict)
         self._max_work_functions = {}
         # Cell subsets for integration over subregions
         self._subsets = {}
