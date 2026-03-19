@@ -3352,7 +3352,7 @@ def Mesh(meshfile, **kwargs):
         degree = netgen_flags.get("degree", 1)
         if degree != 1:
             permutation_tol = netgen_flags.get("permutation_tol", 1e-8)
-            cg = netgen_flags.get("cg", False)
+            cg = netgen_flags.get("cg", None)
             coordinates = mesh.curve_field(
                 order=degree,
                 permutation_tol=permutation_tol,
