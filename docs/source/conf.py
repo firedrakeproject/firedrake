@@ -161,6 +161,7 @@ nitpick_ignore_regex = [
 
 # Dodgy links
 linkcheck_ignore = [
+    r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
