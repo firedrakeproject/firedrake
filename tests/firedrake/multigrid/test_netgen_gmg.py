@@ -51,8 +51,8 @@ def test_netgen_mg(ngmesh, netgen_degree):
     labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["surface"]]
 
     x = SpatialCoordinate(mesh)
-    uexact = dot(x, x)
-    bcs = DirichletBC(V, uexact, labels)
+    uexact = 1-dot(x, x)
+    bcs = DirichletBC(V, 0, labels)
     L = a(uexact, v)
     uh = Function(V)
 
