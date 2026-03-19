@@ -4,24 +4,34 @@ import pytest
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 3])
 def test_create_netgen_mesh_high_order():
     from netgen.geom2d import Circle, CSG2d
     geo = CSG2d()
-
-    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
-    geo.Add(circle)
-
+    geo.Add(Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle"))
     ngmesh = geo.GenerateMesh(maxh=0.75)
 
     # Test that setting the degree in netgen_flags produces a high-order mesh
-    mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
-    assert mesh.coordinates.function_space().ufl_element().degree() == 3
+    order = 3
+    mesh1 = Mesh(ngmesh, netgen_flags={"degree": order})
+    assert mesh1.coordinates.function_space().ufl_element().degree() == order
+    dim = mesh1.topological_dimension
+    DG0 = FunctionSpace(mesh1, "DG", 0)
+    markers = Function(DG0)
 
+    # Test mesh refinement: 1 refinement
+    markers.assign(1)
+    mesh2 = mesh1.refine_marked_elements(markers)
+    assert FunctionSpace(mesh1, "DG", 0).dim() * 2**dim == FunctionSpace(mesh2, "DG", 0).dim()
     # Test that refining a high-order mesh gives a high-order mesh
-    DG0 = FunctionSpace(mesh, "DG", 0)
-    markers = Function(DG0).assign(1)
-    mesh2 = mesh.refine_marked_elements(markers)
-    assert mesh2.coordinates.function_space().ufl_element().degree() == 3
+    assert mesh2.coordinates.function_space().ufl_element().degree() == order
+
+    # Test mesh refinement: 2 refinements
+    markers.assign(2)
+    mesh3 = mesh1.refine_marked_elements(markers)
+    assert FunctionSpace(mesh1, "DG", 0).dim() * 4**dim == FunctionSpace(mesh3, "DG", 0).dim()
+    # Test that refining a high-order mesh gives a high-order mesh
+    assert mesh3.coordinates.function_space().ufl_element().degree() == order
 
 
 def square_geometry(h):

@@ -2936,8 +2936,9 @@ values from f.)"""
 
         with mark.dat.vec as mvec:
             if self.sfBC_orig is None:
-                perm = list(map(self._cell_numbering.getOffset, range(mvec.getSize())))
-                mark_np = mvec.getArray()[perm]
+                cstart, cend = self.topology_dm.getHeightStratum(0)
+                cellNum = list(map(self._cell_numbering.getOffset, range(cstart, cend)))
+                mark_np = mvec.getArray()[cellNum]
             else:
                 sfBCInv = self.sfBC_orig.createInverse()
                 _, marked0 = self.topology_dm.distributeField(sfBCInv,
@@ -2945,29 +2946,27 @@ values from f.)"""
                                                               mvec)
                 mark_np = marked0.getArray()
 
+        max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
         netgen_mesh = self.netgen_mesh.Copy()
         refine_faces = netgen_flags.get("refine_faces", False)
-        if self.comm.rank == 0:
-            max_refs = int(mark_np.max())
-            for r in range(max_refs):
-                cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
-                cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
-                if not refine_faces and dim == 3:
-                    netgen_mesh.Elements2D().NumPy()["refine"] = False
-                netgen_mesh.Refine(adaptive=True)
-                mark_np -= 1
-                if r < max_refs - 1:
-                    parents = netgen_mesh.parentelements if dim == 3 else netgen_mesh.parentsurfaceelements
-                    parents = parents.NumPy().astype(int).flatten()
-                    cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
-                    num_coarse_cells = len(cells)
-                    num_fine_cells = parents.shape[0]
-                    indices = np.arange(num_fine_cells, dtype=int)
-                    fine_cells = indices > num_coarse_cells
+        for r in range(max_refs):
+            cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
+            cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
+            if not refine_faces and dim == 3:
+                netgen_mesh.Elements2D().NumPy()["refine"] = False
+            netgen_mesh.Refine(adaptive=True)
+            mark_np -= 1
+            if r < max_refs - 1:
+                parents = netgen_mesh.parentelements if dim == 3 else netgen_mesh.parentsurfaceelements
+                parents = parents.NumPy().astype(int).flatten()
+                num_fine_cells = parents.shape[0]
+                num_coarse_cells = mark_np.size
+                indices = np.arange(num_fine_cells, dtype=int)
+                while (indices >= num_coarse_cells).any():
+                    fine_cells = (indices >= num_coarse_cells)
                     indices[fine_cells] = parents[indices[fine_cells]]
-                    mark_np = mark_np[indices]
+                mark_np = mark_np[indices]
 
-        self.comm.Barrier()
         return Mesh(netgen_mesh,
                     reorder=self._did_reordering,
                     distribution_parameters=self._distribution_parameters,
