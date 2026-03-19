@@ -332,7 +332,7 @@ As usual, we generate a mesh for the described geometry and use the Firedrake-Ne
 High-order Meshes
 ------------------
 It is possible to construct high-order meshes for a geometry constructed in Netgen.
-We can set the degree of the geometry via ``netgen_flags`` keyword argument of the ``Mesh`` constructor. ::
+We can set the degree of the geometry via the ``netgen_flags`` keyword argument of the ``Mesh`` constructor. ::
 
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
