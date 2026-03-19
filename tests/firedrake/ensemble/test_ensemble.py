@@ -383,7 +383,8 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
 
 
 @pytest.mark.parallel(nprocs=6)
-def test_ensemble_sequential(ensemble):
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+def test_ensemble_sequential(ensemble, direction):
     """
     Test that the sequential context manager sends forward
     the correct values after each rank has executed, for both
@@ -394,18 +395,23 @@ def test_ensemble_sequential(ensemble):
     mesh = UnitIntervalMesh(1, comm=ensemble.comm)
     R = FunctionSpace(mesh, "R", 0)
 
+    reverse = direction == "reverse"
+
     idx_i = 0
     idx_f = Function(R).zero()
     two = Function(R).assign(2)
 
-    with ensemble.sequential(idx_i=idx_i, idx_f=idx_f) as ctx:
+    with ensemble.sequential(reverse=reverse, idx_i=idx_i, idx_f=idx_f) as ctx:
         recv_i = float(ctx.idx_i)
         recv_f = float(ctx.idx_f)
 
         ctx.idx_i += 2
         ctx.idx_f += two
 
-    expected = 2*rank
+    if reverse:
+        expected = 2*(ensemble.ensemble_size - 1 - rank)
+    else:
+        expected = 2*rank
 
     parallel_assert(
         recv_i == expected,
