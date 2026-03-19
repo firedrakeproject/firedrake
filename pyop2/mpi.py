@@ -566,7 +566,7 @@ def finalize_safe_debug():
     return debug
 
 
-def safe_comm_branch(comm: MPI.Comm, func: Callable[[], Any], *, root: int = 0) -> Any:
+def safe_noncollective(comm: MPI.Comm, func: Callable[[], Any], *, root: int) -> Any:
     """Run a function on a single rank of ``comm`` in a deadlock safe way.
 
     If an exception is raised on the active rank then this is caught and

@@ -621,7 +621,7 @@ def make_so(compiler, code, extension, comm):
         else:
             return soname
 
-    return mpi.safe_comm_branch(ccomm, compile_single_rank)
+    return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
