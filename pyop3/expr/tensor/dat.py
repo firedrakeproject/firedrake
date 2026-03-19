@@ -446,6 +446,7 @@ class Dat(Tensor):
     def dat_version(self):
         return self.buffer.state
 
+    @property
     def vec_ro(self) -> GeneratorType[PETSc.Vec]:
         return self.as_vec("ro", self.axes.block_shape)
 
@@ -481,9 +482,10 @@ class Dat(Tensor):
         # Prepare the work vec
         block_size = np.prod(block_shape, dtype=int) 
         if self._work_vec is None:
-            size = (self.axes.owned.local_size, self.axes.global_size)
+            array = self.data_ro
+            size = (array.size, None)
             if is_view:
-                vec = PETSc.Vec().createWithArray(self.data_ro, size, block_size, self.comm)
+                vec = PETSc.Vec().createWithArray(array, size, block_size, self.comm)
             else:
                 vec = PETSc.Vec().create(self.comm)
                 vec.setSizes(size, block_size)

@@ -11,6 +11,9 @@ from pyop3.expr.visitors.base import OverloadedExpressionEvaluator
 
 class ArraywiseEvaluator(OverloadedExpressionEvaluator):
 
+    def __init__(self) -> None:
+        super().__init__(compress=False)
+
     @functools.singledispatchmethod
     def process(self, obj: pyop3.expr.ExpressionT, /) -> pyop3.expr.ExpressionT:
         return super().process(obj)
