@@ -139,17 +139,15 @@ def snapToCoarse(coarse, linear, degree, snap_smoothing, cg):
                 dmhooks.push_appctx(dm, ctx)
             solver.solve()
         if not cg:
-            element = ho.function_space().ufl_element().sub_elements[0].reconstruct(degree=degree)
-            space = fd.VectorFunctionSpace(linear, fd.BrokenElement(element))
-            ho = fd.Function(space).interpolate(ho)
+            ho = fd.Function(ho.function_space().broken_space()).interpolate(ho)
     else:
         raise NotImplementedError("Snapping to Netgen meshes is only implemented for 2D meshes.")
-    return fd.Mesh(ho, comm=linear.comm, distribution_parameters=linear._distribution_parameters)
+    return reconstruct_mesh(linear, ho)
 
 
 def uniformRefinementRoutine(ngmesh, cdm):
     '''
-    Routing called inside of NetgenHierarchy to compute refined ngmesh and plex.
+    Routine called inside of NetgenHierarchy to compute refined ngmesh and plex.
     '''
     # We refine the DMPlex mesh uniformly
     logger.info(f"\t\t\t[{time.time()}]Refining the plex")
@@ -235,7 +233,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         the coarse mesh, otherwise, these options override the default.
 
     """
-    if mesh.geometric_dimension > 3:
+    if mesh.geometric_dimension not in {2, 3}:
         raise NotImplementedError("Netgen hierachies are only implemented for 2D and 3D meshes.")
     logger.info(f"Creating a Netgen hierarchy with {levs} levels.")
     comm = mesh.comm
@@ -280,7 +278,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
     ngmesh = mesh.netgen_mesh
-    for l in range(levs):
+    for l in range(1, levs+1):
         # Straighten the mesh
         ngmesh.Curve(1)
         rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
@@ -292,7 +290,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
             # Optimises the mesh, for example smoothing
             if ngmesh.dim == 2:
                 ngmesh.OptimizeMesh2d(MeshingParameters(optimize2d=optMoves))
-            elif mesh.dim == 3:
+            elif ngmesh.dim == 3:
                 ngmesh.OptimizeVolumeMesh(MeshingParameters(optimize3d=optMoves))
             else:
                 raise ValueError("Only 2D and 3D meshes can be optimised.")
@@ -316,24 +314,24 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         lgmaps.append((no, o))
 
         # Curve the mesh
-        if order[l+1] != mesh.coordinates.function_space().ufl_element().degree():
+        if order[l] != mesh.coordinates.function_space().ufl_element().degree():
             logger.info("\t\t\tCurving the mesh ...")
             tic = time.time()
             if snap == "geometry":
                 coordinates = mesh.curve_field(
-                    order=order[l+1],
+                    order=order[l],
                     permutation_tol=permutation_tol,
                     cg_field=cg,
                 )
                 mesh = reconstruct_mesh(mesh, coordinates)
             elif snap == "coarse":
-                mesh = snapToCoarse(meshes[0].coordinates, mesh, order[l+1], snap_smoothing, cg)
+                mesh = snapToCoarse(meshes[0].coordinates, mesh, order[l], snap_smoothing, cg)
             toc = time.time()
             logger.info(f"\t\t\tMeshed curved. Time taken: {toc-tic}")
-        logger.info(f"\t\tLevel {l+1}: with {ngmesh.Coordinates().shape[0]}\
-                vertices, with order {order[l+1]}, snapping to {snap}\
+        logger.info(f"\t\tLevel {l}: with {ngmesh.Coordinates().shape[0]}\
+                vertices, with order {order[l]}, snapping to {snap}\
                 and optimisation moves {optMoves}.")
-        mesh.topology_dm.setRefineLevel(l+1)
+        mesh.topology_dm.setRefineLevel(l)
         meshes.append(mesh)
     # Populate the coarse to fine map
     coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps)

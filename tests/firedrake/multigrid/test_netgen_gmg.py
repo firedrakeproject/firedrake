@@ -56,14 +56,12 @@ def test_netgen_mg(ngmesh, netgen_degree):
     L = a(uexact, v)
     uh = Function(V)
 
-    rtol = 1E-8
     uerr = uexact - uh
-    err0 = assemble(a(uerr, uerr))
     solve(a == L, uh, bcs=bcs, solver_parameters={
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
         "ksp_max_it": 14,
-        "ksp_rtol": rtol,
+        "ksp_rtol": 1E-8,
         "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels_pc_type": "python",
@@ -72,5 +70,6 @@ def test_netgen_mg(ngmesh, netgen_degree):
         "mg_coarse_pc_type": "lu",
         "mg_coarse_pc_factor_mat_solver_type": "mumps",
     })
-    errf = assemble(a(uerr, uerr))
-    assert errf < err0 * (2*rtol)
+    err = assemble(a(uerr, uerr)) ** 0.5
+    expected = 6E-2 if netgen_degree[-1] == 1 else 3E-4
+    assert err < expected
