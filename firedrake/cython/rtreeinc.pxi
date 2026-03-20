@@ -2,12 +2,11 @@ from libc.stddef cimport size_t
 from libc.stdint cimport uint32_t
 
 
-cdef extern from "rstar-capi.h":
+cdef extern from "rtree-capi.h":
     ctypedef enum RTreeError:
         Success
         NullPointer
         InvalidDimension
-        NodeNotLeaf
 
     ctypedef struct RTreeH:
         pass
@@ -26,6 +25,8 @@ cdef extern from "rstar-capi.h":
 
     RTreeError rtree_free(RTreeH *tree)
 
+    RTreeError rtree_free_ids(size_t *ids, size_t n)
+
     RTreeError rtree_locate_all_at_point(
         const RTreeH *tree,
         const double *point,
@@ -43,6 +44,10 @@ cdef extern from "rstar-capi.h":
         RTreeNodeH ***children_out,
         size_t *nchildren_out
     )
+
+    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
+
+    RTreeError rtree_node_free(RTreeNodeH *node)
 
     RTreeError rtree_node_id(
         const RTreeNodeH *node,
