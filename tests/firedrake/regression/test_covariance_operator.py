@@ -32,6 +32,12 @@ def rng():
     return RandomGenerator(PCG64(seed=13))
 
 
+@pytest.fixture(autouse=True)
+def garbage_cleanup():
+    yield
+    PETSc.garbage_cleanup(COMM_WORLD)
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", (1, 2), ids=["degree1", "degree2"])
