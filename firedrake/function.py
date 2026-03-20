@@ -1,4 +1,5 @@
 import numpy as np
+import firedrake_rtree
 import sys
 import ufl
 import warnings
@@ -876,18 +877,14 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    rstar_root = Path(__file__).resolve().parents[2] / "rstar"
-    rstar_include = rstar_root / "rstar-capi" / "include"
-    rstar_lib = rstar_root / "target" / "release"
-    ldargs += [f"-L{rstar_lib}", "-lrstar_capi", f"-Wl,-rpath,{rstar_lib}"]
+    ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
     dll = compilation.load(
         src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}",
-            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-        ],
+            f"-I{firedrake_rtree.get_include()}"
+        ] + [f"-I{d}/include" for d in get_petsc_dir()],
         ldargs=ldargs,
         comm=function.comm
     )
