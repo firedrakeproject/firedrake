@@ -2283,7 +2283,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             )
 
     @staticmethod
-    @PETSc.Log.EventDecorator()
     def _make_input_ordering_sf(swarm, nroots, ilocal):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
@@ -4403,7 +4402,7 @@ def _parent_mesh_embedding(
             input_coords_idxs_local = np.arange(ncoords_local)
             input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
             icomm.Allgatherv(
-                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks),
+                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
             )
             input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
             input_ranks_global = np.empty(ncoords_global, dtype=int)
