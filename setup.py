@@ -13,6 +13,7 @@ import firedrake_rtree
 import numpy as np
 import pybind11
 import petsctools
+import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
@@ -128,6 +129,19 @@ else:
 # Therefore we set the runtime library search path to all the different
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
+
+# libspatialindex
+# example:
+# gcc -I/rtree/include
+# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
+libspatialindex_so = Path(rtree.core.rt._name).absolute()
+spatialindex_ = ExternalDependency(
+    include_dirs=[rtree.finder.get_include()],
+    extra_link_args=[str(libspatialindex_so)],
+    runtime_library_dirs=[
+        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+    ],
+)
 
 # firedrake_rtree
 rtree_ = ExternalDependency(
