@@ -121,9 +121,9 @@ else:
     # Set the library name and hope for the best
     hdf5_ = ExternalDependency(libraries=["hdf5"])
 
-# When we link against rstar-capi or libsupermesh we need to know where
+# When we link against firedrake-rtree or libsupermesh we need to know where
 # the '.so' files end up. Since installation happens in an isolated
-# environment we cannot simply query the currently loaded libraries for the
+# environment we cannot simply query firedrake-rtree and libsupermesh for the
 # current paths as they will not be valid once the installation is complete.
 # Therefore we set the runtime library search path to all the different
 # possible site package locations we can think of.
@@ -193,7 +193,7 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/rstar.pyx: numpy, rstar-capi
+    # firedrake/cython/rstar.pyx: numpy, rtree-capi
     cython_list.append(Extension(
         name="firedrake.cython.rtree",
         language="c",

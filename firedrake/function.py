@@ -12,7 +12,6 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
-from pathlib import Path
 from functools import partial, cached_property
 from typing import Tuple
 
