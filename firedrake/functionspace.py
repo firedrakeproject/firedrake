@@ -49,9 +49,6 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all
     other arguments are ignored and the element is returned immediately.
 
-    As a side effect, this function finalises the initialisation of
-    the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
-    :meth:`.MeshGeometry.init`) as appropriate.
     """
     topology = mesh.topology
     cell = topology.ufl_cell()
@@ -316,7 +313,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
-    return cls.create(new, mixed_mesh_geometry)
+    return cls(new, mixed_mesh_geometry)
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
@@ -334,7 +331,7 @@ def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
         An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
-                                                                 boundary_set=boundary_set,
-                                                                 name=name),
-                                    function_space.mesh())
+    return impl.WithGeometry(impl.RestrictedFunctionSpace(function_space,
+                                                          boundary_set=boundary_set,
+                                                          name=name),
+                             function_space.mesh())

@@ -182,10 +182,6 @@ jobs:
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
 
-          : # Fix for petsc4py+slepc4py build
-          echo 'setuptools<81' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
-
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_BUILD_ARGS=''
             EXTRA_PIP_FLAGS=''
@@ -440,10 +436,6 @@ jobs:
           : # Empty the pip cache to ensure that everything is compiled from scratch
           pip cache purge
 
-          : # Fix for petsc4py+slepc4py build
-          echo 'setuptools<81' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
-
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
           else
@@ -512,6 +504,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean
