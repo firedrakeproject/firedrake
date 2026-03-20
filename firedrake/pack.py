@@ -491,4 +491,4 @@ def iter_space(space: WithGeometry):
     if len(space) == 1:
         yield (Ellipsis, space)
     else:
-        yield from enumerate(space)
+        yield from ((label, subspace) for label, subspace in zip(space._labels, space, strict=True))

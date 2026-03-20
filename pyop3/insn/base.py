@@ -304,6 +304,56 @@ class Function:
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)
 
+    @classmethod
+    def from_c_string(
+        cls,
+        /,
+        name: str,
+        c_code: str,
+        args: Iterable[tuple[str, DTypeT, Intent]],
+        *,
+        preambles=(),
+    ) -> Function:
+        from pyop3 import LOOPY_TARGET, LOOPY_LANG_VERSION
+
+        loopy_insn = lp.CInstruction(
+            (),
+            c_code,
+            frozenset((name for name, _, _ in args)),
+            tuple(name for name, _, intent in args if intent != Intent.READ),
+        )
+        loopy_args = []
+        for name, dtype, intent in args:
+            match intent:
+                case Intent.READ:
+                    is_input = True
+                    is_output = False
+                case Intent.WRITE:
+                    is_input = True  # is this needed?
+                    is_output = True
+                case Intent.INC:
+                    is_input = True
+                    is_output = True
+                case _:
+                    raise NotImplementedError
+            loopy_arg = lp.GlobalArg(name, dtype, is_input=is_input, is_output=is_output)
+            loopy_args.append(loopy_arg)
+        loopy_kernel = lp.make_kernel(
+            [],  # no extra loops
+            [loopy_insn],
+            loopy_args,
+            name=name,
+            preambles=[
+                ("20_petsc", "#include <petsc.h>"),
+                *preambles,
+            ],
+            target=LOOPY_TARGET,
+            lang_version=LOOPY_LANG_VERSION,
+        )
+
+        intents = [intent for _, _, intent in args]
+        return cls(loopy_kernel, intents)
+
     # unfortunately needed because loopy translation units aren't immediately hashable
     def __hash__(self) -> int:
         if not hasattr(self, "_saved_hash"):

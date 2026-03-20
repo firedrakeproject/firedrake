@@ -238,7 +238,6 @@ class WithGeometryBase:
 
     @parent.setter
     def parent(self, val):
-        assert False, "previously had a breakpoint here, do we care?"
         self.cargo.parent = val
 
     @property
@@ -468,6 +467,12 @@ class WithGeometryBase:
             sdkey = as_tuple(sub_domain)
         key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
         return self.get_facet_closure_nodes(self.mesh(), key)
+
+    @utils.deprecated("mask_lgmap")
+    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+        if lgmap is None:
+            lgmap = self._lgmap
+        return mask_lgmap(self, self.axes, lgmap, bcs, self.block_shape)
 
     @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, unsafe_refcounts=True)
     def get_facet_closure_nodes(self, mesh, key):
@@ -1449,12 +1454,12 @@ class FunctionSpace:
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
-        return PETSc.LGMap().create(indices.data_ro, bsize=self.value_size, comm=self.comm)
+        return PETSc.LGMap().create(indices.data_ro, bsize=self.block_size, comm=self.comm)
 
     @utils.cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
-        if self.value_size == 1:
+        if self.block_size == 1:
             return self._lgmap
         else:
             indices = self.axes.global_numbering
@@ -1555,6 +1560,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+        raise NotImplementedError
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -2455,7 +2461,6 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         assert lgmap.block_size == numpy.prod(block_shape)
         block_size = lgmap.block_size
 
-    # try:
     dat = op3.Dat(axes.materialize().regionless(), data=indices)
     for bc in bcs:
         if len(V) > 1:
@@ -2469,7 +2474,5 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         else:
             component_slice = ()
         dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
-    # except:
-    #     breakpoint()
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)

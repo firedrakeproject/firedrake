@@ -66,7 +66,9 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
 # I need to think harder about the legality of this. Should I disallow the comm attr
 # for objects where this happens?
 # @memory_cache(heavy=True, get_comm=lambda self, *a, **kw: self.comm or MPI.COMM_SELF)
-@memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
+# actually just disable this unless we can prove that it's necessary - it generates a
+# lot of cache misses and probably slows up GC
+# @memory_cache(heavy=True, get_comm=lambda *a, **kw: MPI.COMM_SELF)
 def _make_record_maybe_singleton(*args, **kwargs):
     return _make_record(*args, **kwargs)
 

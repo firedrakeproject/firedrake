@@ -1,6 +1,7 @@
 from textwrap import dedent
 from functools import partial
 from itertools import chain, product
+from firedrake.mesh import get_iteration_spec
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
@@ -15,15 +16,16 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
-from firedrake.utils import cached_property
+from firedrake.utils import cached_property, IntType, ScalarType
+from firedrake.pack import pack
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
+import pyop3 as op3
 from pyop3.compile import load
 from pyop3.mpi import COMM_SELF
 # from pyop2.sparsity import get_preallocation  # FIXME
 from pyop3.pyop2_utils import get_petsc_dir, as_tuple
-# from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
@@ -214,7 +216,7 @@ class FDMPC(PCBase):
 
         # Create data structures needed for assembly
         # FIXME: This won't work as there is not mat_spec
-        self.lgmaps = {Vsub: Vsub.mask_lgmap([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], self.allow_repeated) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
@@ -751,14 +753,20 @@ class FDMPC(PCBase):
                                               TripleProductKernel(R0, M, C1),
                                               TripleProductKernel(R0, M, C0))
             coefficients = self.coefficients["cell"]
-            coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
 
+            loop_info = get_iteration_spec(Vrow.mesh(), "cell")
             element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
-            assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                    *element_kernel.make_args(A),
-                                    coefficients_acc,
-                                    *indices_acc)
+            assembler = op3.loop(
+                loop_info.loop_index,
+                kernel(
+                    *element_kernel.make_args(A),
+                    pack(coefficients, loop_info),
+                    *(
+                        pack(idat, loop_info) for idat in indices_acc
+                    ),
+                ),
+            )
             self.assemblers.setdefault(key, assembler)
         if mat_type == "preallocator":
             key = key + ("preallocator",)
@@ -768,6 +776,7 @@ class FDMPC(PCBase):
                 # Determine the global sparsity pattern by inserting a constant sparse element matrix
                 args = assembler.arguments[:2]
                 kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
+                raise NotImplementedError
                 assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
                                         *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
                                         *indices_acc)
@@ -793,7 +802,8 @@ class ElementKernel:
         self.rules = {}
 
     def make_args(self, *mats):
-        return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
+        # return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
+        return (*mats, *self.mats)
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
@@ -841,6 +851,22 @@ class ElementKernel:
         code += self.code % dict(self.rules, name=self.name,
                                  indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
                                  rows=indices[0], cols=indices[-1], addv=addv)
+
+        return op3.Function.from_c_string(
+            self.name,
+            code,
+            [
+                ("A", op3.ir.lower.OpaqueType("Mat"), op3.WRITE),
+                ("B", op3.ir.lower.OpaqueType("Mat"), op3.READ),
+                ("A11", op3.ir.lower.OpaqueType("Mat"), op3.READ),
+                ("A10", op3.ir.lower.OpaqueType("Mat"), op3.READ),
+                ("A01", op3.ir.lower.OpaqueType("Mat"), op3.READ),
+                ("A00", op3.ir.lower.OpaqueType("Mat"), op3.READ),
+                ("coefficients", ScalarType, op3.READ),
+                *((iname, IntType, op3.READ) for iname in indices),
+            ],
+            preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>")],
+        )
         return op2.Kernel(code, self.name)
 
 
@@ -868,18 +894,13 @@ class SchurComplementKernel(ElementKernel):
     """Base class for Schur complement kernel builders."""
     condense_code = ""
     code = dedent("""
-        #include <petscblaslapack.h>
-        PetscErrorCode %(name)s(const Mat A, const Mat B,
-                                const Mat A11, const Mat A10, const Mat A01, const Mat A00,
-                                const PetscScalar *restrict coefficients, %(indices)s) {
-            Mat C;
-            PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
-            PetscCall(MatSetValuesArray(C, coefficients));
-            %(condense)s
-            PetscCall(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
-            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            return PETSC_SUCCESS;
-        }""")
+        Mat C;
+        PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
+        PetscCall(MatSetValuesArray(C, coefficients));
+        %(condense)s
+        PetscCall(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
+        PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
+        return PETSC_SUCCESS;""")
 
     def __init__(self, *kernels, name=None):
         self.children = kernels
@@ -1616,7 +1637,7 @@ def broken_function(V, val):
     return w
 
 
-def mask_local_indices(V, lgmap, allow_repeated):
+def mask_local_indices(V, lgmap, allow_repeated) -> op3.Dat:
     """Return a numpy array with the masked local indices."""
     mask = lgmap.indices
     if allow_repeated:
@@ -1626,9 +1647,7 @@ def mask_local_indices(V, lgmap, allow_repeated):
 
     indices = numpy.arange(mask.size, dtype=PETSc.IntType)
     indices[mask == -1] = -1
-    indices_dat = V.make_dat(val=indices)
-    indices_acc = indices_dat(op2.READ, V.cell_node_map())
-    return indices_acc
+    return Function(V, val=indices, dtype=PETSc.IntType)
 
 
 def unghosted_lgmap(V, lgmap, allow_repeated):
@@ -1752,10 +1771,17 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     preallocator = get_preallocator(comm, sizes, *lgmaps)
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
-    assembler = op2.ParLoop(kernel.kernel(mat_type=mat_type),
-                            Vc.mesh().cell_set,
-                            *kernel.make_args(preallocator),
-                            *indices_acc)
+    loop_info = get_iteration_spec(Vc.mesh(), "cell")
+    assembler = op3.loop(
+        loop_info.loop_index,
+        kernel.kernel(mat_type=mat_type)(
+            *kernel.make_args(preallocator),
+            *(
+                pack(idat, loop_info)
+                for idat in indices_acc
+            ),
+        ),
+    )
     assembler()
     preallocator.assemble()
 

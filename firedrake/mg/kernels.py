@@ -231,28 +231,21 @@ def prolong_kernel(expression, Vf):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()})
 
-    # Now build a pyop3 'Function' wrapping this
-    loopy_kernel = lp.make_kernel(
-        "{ [i]: 0 < i < 1 }",
+    # Now build a pyop3 function wrapping this
+    func = op3.Function.from_c_string(
+        "pyop3_kernel_prolong",
+        c_kernel,
         [
-            lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
+            ("R", ScalarType, op3.WRITE),
+            ("f", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xf", ScalarType, op3.READ),
         ],
-        [
-            lp.GlobalArg("R", ScalarType, None, is_input=True, is_output=True),
-            lp.GlobalArg("f", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("X", ScalarType, None, is_input=True, is_output=False),
-            lp.GlobalArg("Xc", ScalarType, None, is_input=True, is_output=False),
-        ],
-        name="pyop3_kernel_prolong",
         preambles=[
-            ("20_petsc", "#include <petsc.h>"),
             ("20_to_reference_kernel", str(to_reference_kernel)),
             ("20_eval", evaluate_code),
         ],
-        target=tsfc.parameters.target,
-        lang_version=op3.LOOPY_LANG_VERSION,
-        )
-    func = op3.Function(loopy_kernel, [op3.WRITE, op3.READ, op3.READ, op3.READ])
+    )
 
     return cache.setdefault(key, func)
 
