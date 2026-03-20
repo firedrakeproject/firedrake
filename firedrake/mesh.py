@@ -33,7 +33,7 @@ import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.cython.rstar as rstar
+import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red, logger
@@ -42,6 +42,7 @@ from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
 import gem
+import firedrake_rtree
 
 try:
     import netgen
@@ -2609,7 +2610,7 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = rstar.build_from_aabb(coords_min, coords_max)
+            self._spatial_index = rtree.build_from_aabb(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
         return self._spatial_index
 
@@ -2759,23 +2760,19 @@ values from f.)"""
                 }}
             """)
 
-            rstar_root = Path(__file__).resolve().parents[2] / "rstar"
-            rstar_include = rstar_root / "rstar-capi" / "include"
-            rstar_lib = rstar_root / "target" / "release"
             dll = compilation.load(
                 src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}",
-                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-                ],
+                    f"-I{firedrake_rtree.get_include()}"
+                ] + [f"-I{d}/include" for d in get_petsc_dir()],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    f"-L{rstar_lib}",
-                    "-lrstar_capi",
+                    f"-L{firedrake_rtree.get_lib_filename()}",
+                    "-lrtree_capi",
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    f"-Wl,-rpath,{rstar_lib}"
+                    f"-Wl,-rpath,{firedrake_rtree.get_lib_filename()}"
                 ],
                 comm=self.comm
             )

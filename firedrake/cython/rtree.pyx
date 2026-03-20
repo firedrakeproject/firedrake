@@ -11,7 +11,7 @@ cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
 from petsc4py.PETSc cimport CHKERR
 
-include "rstarinc.pxi"
+include "rtreeinc.pxi"
 include "petschdr.pxi"
 
 cdef class RTree(object):

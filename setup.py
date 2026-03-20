@@ -9,6 +9,7 @@ from glob import glob
 from pathlib import Path
 
 import libsupermesh
+import firedrake_rtree
 import numpy as np
 import pybind11
 import petsctools
@@ -128,16 +129,16 @@ else:
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
-# rstar-capi
-rstar_root = Path(__file__).resolve().parents[1] / "rstar"
-rstar_capi_include = rstar_root / "rstar-capi" / "include"
-rstar_capi_libdir = rstar_root / "target" / "release"
-rstar_ = ExternalDependency(
-    include_dirs=[str(rstar_capi_include)],
-    library_dirs=[str(rstar_capi_libdir)],
-    libraries=["rstar_capi"],
-    runtime_library_dirs=[str(rstar_capi_libdir)],
-    extra_link_args=[f"-Wl,-rpath,{rstar_capi_libdir}"],
+# firedrake_rtree
+# The installed .so is named rtree_capi.cpython-XYZ-darwin.so (a maturin cdylib),
+# so -lrtree_capi won't find it. Link by full path via extra_link_args instead.
+rtree_ = ExternalDependency(
+    include_dirs=[firedrake_rtree.get_include()],
+    extra_link_args=[
+        firedrake_rtree.get_lib_filename(),
+        f"-Wl,-rpath,{firedrake_rtree.get_lib()}",
+    ],
+    runtime_library_dirs=[firedrake_rtree.get_lib()],
 )
 
 # libsupermesh
@@ -197,10 +198,10 @@ def extensions():
     ))
     # firedrake/cython/rstar.pyx: numpy, rstar-capi
     cython_list.append(Extension(
-        name="firedrake.cython.rstar",
+        name="firedrake.cython.rtree",
         language="c",
-        sources=[os.path.join("firedrake", "cython", "rstar.pyx")],
-        **(mpi_ + numpy_ + rstar_)
+        sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
+        **(mpi_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
