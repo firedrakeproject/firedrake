@@ -1,6 +1,7 @@
 # Core build dependencies (adapted from pyproject.toml)
 Cython>=3.0
 libsupermesh
+firedrake-rtree
 mpi4py>3; python_version >= '3.13'
 mpi4py; python_version < '3.13'
 numpy
