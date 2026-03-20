@@ -4,7 +4,6 @@ This module contains all the functions related to wrapping NGSolve meshes to Fir
 This file was copied from ngsPETSc.
 '''
 import numpy as np
-import numpy.typing as npt
 from scipy.spatial.distance import cdist
 
 from pyop2.mpi import COMM_WORLD
@@ -31,7 +30,7 @@ except ImportError:
 
 
 def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
-                      netgen_data: npt.NDArray[np.inexact]):
+                      netgen_data: np.ndarray):
     """
     Distribute data from the netgen layout into the DMPlex layout.
 
@@ -44,7 +43,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
 
     Returns
     -------
-    npt.NDArray[np.inexact]
+    ``np.ndarray``
         The data in the target DMPlex layout.
 
     """
@@ -81,7 +80,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
 
 
 @PETSc.Log.EventDecorator()
-def find_permutation(points_a: npt.NDArray[np.inexact], points_b: npt.NDArray[np.inexact],
+def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
                      tol: float = 1e-5):
     """ Find all permutations between a list of two sets of points.
 

@@ -2983,7 +2983,7 @@ values from f.)"""
         :arg order: the order of the curved mesh.
         :arg permutation_tol: tolerance used to construct the permutation of the reference element.
         :arg cg_field: return a CG function field representing the mesh, as opposed to a DG field.
-        Defaults to the continuity of the coordinates of the original mesh.
+            Defaults to the continuity of the coordinates of the original mesh.
 
         '''
         utils.check_netgen_installed()
