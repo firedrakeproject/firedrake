@@ -51,7 +51,7 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
     Returns
     -------
     RTree
-        An RTree object containing the built R*-tree.
+        An RTree object containing the Rtree.
     """    
     cdef:
         RTreeH* rtree
@@ -78,6 +78,6 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
         dim
     )
     if err != Success:
-        raise RuntimeError("RTree_FromArray failed")
+        raise RuntimeError("rtree_bulk_load failed")
 
     return RTree(<uintptr_t>rtree)
