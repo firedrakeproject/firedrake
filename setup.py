@@ -130,15 +130,12 @@ else:
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
 # firedrake_rtree
-# The installed .so is named rtree_capi.cpython-XYZ-darwin.so (a maturin cdylib),
-# so -lrtree_capi won't find it. Link by full path via extra_link_args instead.
 rtree_ = ExternalDependency(
     include_dirs=[firedrake_rtree.get_include()],
-    extra_link_args=[
-        firedrake_rtree.get_lib_filename(),
-        f"-Wl,-rpath,{firedrake_rtree.get_lib()}",
+    extra_link_args=[firedrake_rtree.get_lib_filename()],
+    runtime_library_dirs=[
+        os.path.join(dir, "firedrake_rtree") for dir in sitepackage_dirs
     ],
-    runtime_library_dirs=[firedrake_rtree.get_lib()],
 )
 
 # libsupermesh

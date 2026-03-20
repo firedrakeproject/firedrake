@@ -2769,10 +2769,9 @@ values from f.)"""
                 ] + [f"-I{d}/include" for d in get_petsc_dir()],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    f"-L{firedrake_rtree.get_lib_filename()}",
-                    "-lrtree_capi",
+                    firedrake_rtree.get_lib_filename(),
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    f"-Wl,-rpath,{firedrake_rtree.get_lib_filename()}"
+                    f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
                 ],
                 comm=self.comm
             )

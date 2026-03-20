@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <rstar-capi.h>
+#include <rtree-capi.h>
 #include <float.h>
 #include <evaluate.h>
 
