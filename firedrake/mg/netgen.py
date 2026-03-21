@@ -40,9 +40,13 @@ def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
     This function snaps the coordinates of a DMPlex mesh to the coordinates of a Netgen mesh.
     '''
     logger.info(f"\t\t\t[{time.time()}]Snapping the DMPlex to NETGEN mesh")
-    if len(ngmesh.Elements3D()) == 0:
+
+    tdim = petscPlex.getDimension()
+    if tdim == 1:
+        ng_coelement = ngmesh.Elements0D()
+    elif tdim == 2:
         ng_coelement = ngmesh.Elements1D()
-    else:
+    elif tdim == 3:
         ng_coelement = ngmesh.Elements2D()
 
     # When we create a netgen mesh from a refined plex,
@@ -57,7 +61,7 @@ def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
     tic = time.time()
     ngCoordinates = ngmesh.Coordinates()
     petscCoordinates = petscPlex.getCoordinatesLocal().getArray()
-    petscCoordinates = petscCoordinates.reshape(-1, ngmesh.dim)
+    petscCoordinates = petscCoordinates.reshape(-1, petscPlex.getCoordinateDim())
     petscCoordinates[nodes_to_correct_index] = ngCoordinates[nodes_to_correct_index]
     petscPlexCoordinates = petscPlex.getCoordinatesLocal()
     petscPlexCoordinates.setArray(petscCoordinates.reshape((-1, 1)))

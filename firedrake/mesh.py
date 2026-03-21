@@ -2930,10 +2930,9 @@ values from f.)"""
             raise ValueError("Adaptive refinement requires a netgen mesh.")
         if netgen_flags is None:
             netgen_flags = self.netgen_flags
-        dim = self.geometric_dimension
-        if dim not in {2, 3}:
+        gdim = self.geometric_dimension
+        if gdim not in {2, 3}:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
-
         with mark.dat.vec as mvec:
             if self.sfBC_orig is None:
                 cstart, cend = self.topology_dm.getHeightStratum(0)
@@ -2941,27 +2940,28 @@ values from f.)"""
                 mark_np = mvec.getArray()[cellNum]
             else:
                 sfBCInv = self.sfBC_orig.createInverse()
-                _, marked0 = self.topology_dm.distributeField(sfBCInv,
-                                                              self._cell_numbering,
-                                                              mvec)
-                mark_np = marked0.getArray()
-
+                _, mvec0 = self.topology_dm.distributeField(sfBCInv,
+                                                            self._cell_numbering,
+                                                            mvec)
+                mark_np = mvec0.getArray()
         max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
+        # Create a copy of the netgen mesh
         netgen_mesh = self.netgen_mesh.Copy()
         refine_faces = netgen_flags.get("refine_faces", False)
         for r in range(max_refs):
-            cells = netgen_mesh.Elements3D() if dim == 3 else netgen_mesh.Elements2D()
+            cells = netgen_mesh.Elements3D() if gdim == 3 else netgen_mesh.Elements2D()
             cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
-            if not refine_faces and dim == 3:
-                netgen_mesh.Elements2D().NumPy()["refine"] = False
+            if gdim == 3:
+                faces = netgen_mesh.Elements2D()
+                faces.NumPy()["refine"] = refine_faces
             netgen_mesh.Refine(adaptive=True)
             mark_np -= 1
             if r < max_refs - 1:
-                parents = netgen_mesh.parentelements if dim == 3 else netgen_mesh.parentsurfaceelements
-                parents = parents.NumPy().astype(int).flatten()
+                parents = netgen_mesh.parentelements if gdim == 3 else netgen_mesh.parentsurfaceelements
+                parents = parents.NumPy()["i"]
                 num_fine_cells = parents.shape[0]
                 num_coarse_cells = mark_np.size
-                indices = np.arange(num_fine_cells, dtype=int)
+                indices = np.arange(num_fine_cells, dtype=PETSc.IntType)
                 while (indices >= num_coarse_cells).any():
                     fine_cells = (indices >= num_coarse_cells)
                     indices[fine_cells] = parents[indices[fine_cells]]
@@ -2987,7 +2987,6 @@ values from f.)"""
 
         '''
         utils.check_netgen_installed()
-
         from firedrake.netgen import find_permutation, netgen_distribute
         from firedrake.functionspace import FunctionSpace
         from firedrake.function import Function
