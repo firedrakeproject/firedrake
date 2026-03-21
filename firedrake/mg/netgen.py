@@ -35,27 +35,25 @@ def trim_util(T):
     return T
 
 
-def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
+def snapToNetgenDMPlex(ngmesh, petscPlex):
     '''
     This function snaps the coordinates of a DMPlex mesh to the coordinates of a Netgen mesh.
     '''
     logger.info(f"\t\t\t[{time.time()}]Snapping the DMPlex to NETGEN mesh")
 
-    tdim = petscPlex.getDimension()
-    if tdim == 1:
+    gdim = petscPlex.getCoordinateDim()
+    if gdim == 1:
         ng_coelement = ngmesh.Elements0D()
-    elif tdim == 2:
+    elif gdim == 2:
         ng_coelement = ngmesh.Elements1D()
-    elif tdim == 3:
+    elif gdim == 3:
         ng_coelement = ngmesh.Elements2D()
-
     # When we create a netgen mesh from a refined plex,
     # the netgen mesh represents the local submesh.
     # Therefore, there is no need to distribute the netgen data
     nodes_to_correct = ng_coelement.NumPy()["nodes"]
     nodes_to_correct = trim_util(nodes_to_correct)
-    nodes_to_correct_sorted = np.hstack(nodes_to_correct.reshape((-1, 1)))
-    nodes_to_correct_sorted.sort()
+    nodes_to_correct_sorted = nodes_to_correct.flatten()
     nodes_to_correct_index = np.unique(nodes_to_correct_sorted)
     logger.info(f"\t\t\t[{time.time()}]Nodes have been corrected")
     tic = time.time()
@@ -64,7 +62,7 @@ def snapToNetgenDMPlex(ngmesh, petscPlex, comm):
     petscCoordinates = petscCoordinates.reshape(-1, petscPlex.getCoordinateDim())
     petscCoordinates[nodes_to_correct_index] = ngCoordinates[nodes_to_correct_index]
     petscPlexCoordinates = petscPlex.getCoordinatesLocal()
-    petscPlexCoordinates.setArray(petscCoordinates.reshape((-1, 1)))
+    petscPlexCoordinates.setArray(petscCoordinates.flatten())
     petscPlex.setCoordinatesLocal(petscPlexCoordinates)
     toc = time.time()
     logger.info(f"\t\t\tSnap the DMPlex to NETGEN mesh. Time taken: {toc - tic} seconds")
@@ -237,10 +235,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         the coarse mesh, otherwise, these options override the default.
 
     """
-    if mesh.geometric_dimension not in {2, 3}:
-        raise NotImplementedError("Netgen hierachies are only implemented for 2D and 3D meshes.")
-    logger.info(f"Creating a Netgen hierarchy with {levs} levels.")
-    comm = mesh.comm
+    tdim = mesh.topological_dimension
     # Parse netgen flags
     if not isinstance(flags, dict):
         flags = mesh.netgen_flags
@@ -254,6 +249,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     snap_smoothing = flags.get("snap_smoothing", "hyperelastic")
     cg = flags.get("cg", not mesh.coordinates.function_space().finat_element.is_dg())
     nested = flags.get("nested", snap in ["coarse"])
+    logger.info(f"Creating a Netgen hierarchy with {levs} levels.")
     logger.info(f"\tOrder of the hierarchy: {order}")
     logger.info(f"\tRefinement type: {refType}")
     logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
@@ -268,10 +264,8 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
             cg_field=cg,
         )
         mesh = reconstruct_mesh(mesh, coordinates)
-
     # Make a plex (cdm) without overlap.
     dm_cell_type, = mesh.dm_cell_types
-    tdim = mesh.topology_dm.getDimension()
     cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
     cdm.removeLabel("pyop2_core")
     cdm.removeLabel("pyop2_owned")
@@ -287,17 +281,17 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         ngmesh.Curve(1)
         rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
         cdm = rdm
-        # Snap the mesh to the Netgen mesh
-        if snap == "geometry":
-            snapToNetgenDMPlex(ngmesh, rdm, comm)
         if optMoves:
             # Optimises the mesh, for example smoothing
-            if ngmesh.dim == 2:
+            if tdim == 2:
                 ngmesh.OptimizeMesh2d(MeshingParameters(optimize2d=optMoves))
-            elif ngmesh.dim == 3:
+            elif tdim == 3:
                 ngmesh.OptimizeVolumeMesh(MeshingParameters(optimize3d=optMoves))
             else:
                 raise ValueError("Only 2D and 3D meshes can be optimised.")
+        # Snap the mesh to the Netgen mesh
+        if snap == "geometry":
+            snapToNetgenDMPlex(ngmesh, rdm)
 
         # We construct a Firedrake mesh from the DMPlex mesh
         parameters = {}
