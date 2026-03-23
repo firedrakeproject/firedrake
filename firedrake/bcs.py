@@ -201,7 +201,8 @@ class BCBase:
         for idx in self._indices:
             r = r.sub(idx)
 
-        if r.function_space().axes != self._function_space.axes:
+        # TODO: Only using plex_axes here because nodal_axes isn't matching (for no good reason)
+        if r.function_space().plex_axes != self._function_space.plex_axes:
             raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
         r.zero(subset=self.node_set)

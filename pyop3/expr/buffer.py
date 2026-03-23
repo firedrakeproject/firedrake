@@ -95,30 +95,30 @@ class ScalarBufferExpression(BufferExpression):
     def __add__(self, other: ExpressionT, /) -> ExpressionT:
         if self.buffer.constant:
             if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value+other, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value+other, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
             elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value+other.value, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
         return super().__add__(other)
 
     def __sub__(self, other: ExpressionT, /) -> ExpressionT:
         if self.buffer.constant:
             if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value-other, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value-other, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
             elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value-other.value, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
         return super().__sub__(other)
 
     def __mul__(self, other: ExpressionT, /) -> ExpressionT:
         if self.buffer.constant:
             if isinstance(other, numbers.Number):
-                buffer = ArrayBuffer.from_scalar(self.value*other, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value*other, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
             elif type(other) is type(self) and other.buffer.constant:
-                buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True)
+                buffer = ArrayBuffer.from_scalar(self.value*other.value, constant=True, dtype=self.dtype)
                 return type(self)(buffer)
         return super().__mul__(other)
 

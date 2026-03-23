@@ -402,8 +402,8 @@ class Function:
 
     @property
     def num_flops(self) -> int:
-        import pyop3.extras.debug
-        pyop3.extras.debug.warn_todo("Function.num_flops isn't implemented, returning 666 for now")
+        import pyop3.debug
+        pyop3.debug.warn_todo("Function.num_flops isn't implemented, returning 666 for now")
         return 666
 
 

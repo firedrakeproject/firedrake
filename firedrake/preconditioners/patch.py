@@ -70,23 +70,14 @@ def matrix_funptr(form, state):
         args = []
 
         if kinfo.integral_type == "cell":
-            # subset_size_buffer = op3.ArrayBuffer(data=numpy.empty(1, dtype=IntType))
-            # subset_size = op3.Scalar(buffer=subset_size_buffer)
-            #
-            # # clean this up
-            # # subset_dat = op3.Dat.empty(subset_size, dtype=IntType, buffer_kwargs={"name": "subset"})
-            # subset_axes = op3.AxisTree(op3.Axis([op3.AxisComponent([op3.AxisComponentRegion(subset_size)])]))
-            # subset_dat = op3.Dat.empty(subset_axes, dtype=IntType, buffer_kwargs={"name": "subset"})
-            #
-            # cells = mesh.cells.owned
-            #
-            # subset = op3.Slice(cells.root.label, [op3.Subset(cells.root.component.label, subset_dat)])
-            # loop_index = cells[subset].iter()
-
             loop_info = IterationSpec(
-                mesh, "cell", mesh.cells.owned,
-                PETSc.IS().createGeneral(numpy.empty(1, dtype=IntType), COMM_SELF), mesh._old_to_new_cell_numbering)
-
+                mesh,
+                "cell",
+                iterset=mesh.cells.owned,
+                plex_indices=PETSc.IS().createGeneral(numpy.empty(1, dtype=IntType), COMM_SELF),
+                old_to_new_numbering=mesh._old_to_new_cell_numbering,
+                needs_subset=True,
+            )
             kernels = cell_kernels
         else:
             assert kinfo.integral_type == "interior_facet"
@@ -158,7 +149,8 @@ def matrix_funptr(form, state):
         mod = op3.loop(loop_info.loop_index, kinfo.kernel(*args))
         # wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         # mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(), kinfo))
+        pyop3_compiler_parameters = {}  # for now
+        kernels.append(CompiledKernel(mod._get_execution_context(pyop3_compiler_parameters).compile(), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -552,13 +544,13 @@ def make_c_struct(function, struct, point2facet=None):
         args.append(0)
     else:
         args.append(point2facet)
-    return struct(*args, ctypes.cast(function.executable, ctypes.c_voidp).value)
+    return struct(*args, ctypes.cast(function.executable.callable, ctypes.c_voidp).value)
 
 
 def extract_argument_indices(code):
     # Need to be able to map the signature to the specific bits and pieces coming in. The order is less deterministic now.
     buffers = tuple(
-        buffer_ref.buffer for buffer_ref, _ in code.buffer_map.values()
+        buffer_ref for buffer_ref, _ in code.buffer_map.values()
     )
     # Currently this value is very hard to introspect, use the fact that this is always the
     # first argument. This is very fragile though.
@@ -630,7 +622,7 @@ def select_entity(p, dm=None, exclude=None):
         return dm.getLabelValue(exclude, p) == -1
 
 
-class PlaneSmoother(object):
+class PlaneSmoother:
     @staticmethod
     def coords(dm, p, coordinates):
         coordinatesV = coordinates.function_space()

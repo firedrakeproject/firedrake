@@ -382,7 +382,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
 # @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = _prepare_entity_permutations(space.finat_element, dim_label)
-    perms_array = np.concatenate(perms)
+    perms_array = np.concatenate(perms, dtype=utils.IntType)
     perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)
 
     # Create an buffer expression for the permutations that looks like: 'perm[i_which, i_dof]'

@@ -358,8 +358,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return cls(data, **kwargs)
 
     @classmethod
-    def from_scalar(cls, value: numbers.Number, **kwargs):
-        data = np.array([value])
+    def from_scalar(cls, value: numbers.Number, *, dtype=None, **kwargs):
+        data = np.array([value], dtype=dtype)
         return cls(data, **kwargs)
 
     # }}}
