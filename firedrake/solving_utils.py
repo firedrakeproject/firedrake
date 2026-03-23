@@ -436,6 +436,7 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
+        print("X", X.array_r)
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
         # X may not be the same vector as the vec behind self._x, so

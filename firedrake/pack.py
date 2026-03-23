@@ -356,7 +356,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         #
         #     'perm[i_which, i_dof]'
         # TODO: For some cases can avoid this permutation as it's just identity
-        perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label, axes)
+        perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
         orientation_expr = op3.as_linear_buffer_expression(space.mesh().entity_orientations_dat[cell_index][(slice(None),)*depth+(op3.as_slice(dim_label),)])
@@ -379,8 +379,8 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
     return axes.__record_init__(_targets=new_targets)
 
 
-# @op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
-def _entity_permutation_buffer_expr(space: WithGeometry, dim_label, axes) -> tuple[op3.LinearDatBufferExpression, ...]:
+@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = _prepare_entity_permutations(space.finat_element, dim_label)
     perms_array = np.concatenate(perms, dtype=utils.IntType)
     perms_buffer = op3.ArrayBuffer(perms_array, constant=True, rank_equal=True)

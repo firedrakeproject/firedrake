@@ -62,7 +62,7 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-class ImplicitMatrixContext(object):
+class ImplicitMatrixContext:
     # By default, these matrices will represent diagonal blocks (the
     # (0,0) block of a 1x1 block matrix is on the diagonal).
     on_diag = True

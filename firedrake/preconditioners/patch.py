@@ -753,7 +753,6 @@ class PlaneSmoother:
 class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
-
         ctx = get_appctx(obj.getDM())
         if ctx is None:
             raise ValueError("No context found on form")

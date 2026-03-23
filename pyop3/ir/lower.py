@@ -1083,8 +1083,6 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     # which is what Mat{Get,Set}Values() needs.
     layout_exprs = []
     for layout in [mat.row_layout, mat.column_layout]:
-        # FIXME: this isn't happening for some boundary conditions, composite dats should probably always be nonlinear so they dont throw away info
-        assert isinstance(layout, NonlinearDatBufferExpression)
         subst_sublayout = layout.layouts[idict()]
         subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
         layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
