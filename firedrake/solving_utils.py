@@ -437,11 +437,13 @@ class _SNESContext(object):
         :arg F: the residual at X (a Vec)
         """
         print("X", X.array_r)
+        print("Xhandle", X.handle)
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
+            print("vhandle", v.handle)
             X.copy(v)
 
         if ctx._pre_function_callback is not None:

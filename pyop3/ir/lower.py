@@ -129,6 +129,9 @@ class LoopyCodegenContext(CodegenContext):
         self._domains.append(domain_str)
 
     def add_assignment(self, assignee, expression, prefix="insn"):
+        if "idat_4" in str(expression) and "t_1" in str(assignee):
+            breakpoint()
+
         insn = lp.Assignment(
             assignee,
             expression,

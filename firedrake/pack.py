@@ -57,7 +57,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, nodes=nodes)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -90,7 +90,7 @@ def _pack_dat_nonmixed(
             axes = packed_dat.axes
         depth = [axis.label for axis in axes.axes].index("closure")
     else:
-        raise NotImplementedError
+        return dat[space.cell_node_map(loop_info.loop_index)]
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
@@ -123,7 +123,7 @@ def _(
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
         for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
             packed_mats[ir, ic] = _pack_mat_nonmixed(
-                mat[row_index, column_index], row_subspace, column_subspace, loop_info
+                mat[row_index, column_index], row_subspace, column_subspace, loop_info, nodes=nodes,
             )
 
     if packed_mats.size == 1:
@@ -140,6 +140,11 @@ def _pack_mat_nonmixed(
     *,
     nodes: bool = False,
 ):
+    if nodes:
+        if loop_info.integral_type != "cell":
+            raise NotImplementedError
+        return mat[row_space.cell_node_map(loop_info.loop_index), column_space.cell_node_map(loop_info.loop_index)]
+
     row_map = row_space.entity_node_map(loop_info)
     column_map = column_space.entity_node_map(loop_info)
     packed_mat = mat[row_map, column_map]

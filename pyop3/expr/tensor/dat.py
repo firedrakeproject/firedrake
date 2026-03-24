@@ -479,22 +479,23 @@ class Dat(Tensor):
         # if self.name == "cofunction_8":
         #     breakpoint()
 
-        print(f"Accessing vec for {self.name}")
+        print(f"Accessing vec for {self.name} with mode '{mode}'")
+        print("initial data is:")
+        print(self.data_ro)
 
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
         is_view = isinstance(self.axes.owned._flat_buffer_indices, slice)
 
+        assert is_view
+
         if self._vec_context_is_active:
             assert is_view
             # NOTE: Have to be careful that we aren't violating any 'mode' contracts
-            if self.name.startswith("cofunction"):
-                print(f"initial norm: {self._work_vec.norm()}")
-
             yield self._work_vec
-            if self.name.startswith("cofunction"):
-                print(f"final norm: {self._work_vec.norm()}")
-            print(f"Leaving vec access for {self.name} (early)")
+            print(f"Leaving vec access for {self.name} ({self._work_vec.handle}) (early)")
+            print("final data is:")
+            print(self.data_ro)
             return
 
         # Prepare the work vec
@@ -513,16 +514,14 @@ class Dat(Tensor):
             if block_size != self._work_vec.block_size:
                 self._work_vec.setBlockSize(block_size)
 
+        print(f"handle: {self._work_vec.handle}")
+
         if is_view:
             if self._work_vec_buffer_state != self.buffer.state:
                 # Buffer data has changed but PETSc doesn't know this
                 self._work_vec.stateIncrease()
             self._vec_context_is_active = True
-            if self.name.startswith("cofunction"):
-                print(f"initial norm: {self._work_vec.norm()}")
             yield self._work_vec
-            if self.name.startswith("cofunction"):
-                print(f"final norm: {self._work_vec.norm()}")
             if mode in {"wo", "rw"}:
                 self.buffer.inc_state()
                 self._work_vec.stateIncrease()
@@ -565,6 +564,8 @@ class Dat(Tensor):
         self._work_vec_buffer_state = self.buffer.state
         self._vec_context_is_active = False
         print(f"Leaving vec access for {self.name}")
+        print("final data is:")
+        print(self.data_ro)
 
     def as_lgmap(self, block_shape: tuple[numbers.Integral]) -> PETSc.LGMap:
         assert self.dtype == IntType

@@ -74,7 +74,7 @@ def matrix_funptr(form, state):
                 mesh,
                 "cell",
                 iterset=mesh.cells.owned,
-                plex_indices=PETSc.IS().createGeneral(numpy.empty(1, dtype=IntType), COMM_SELF),
+                plex_indices=PETSc.IS().createGeneral(numpy.zeros(0, dtype=IntType), COMM_SELF),
                 old_to_new_numbering=mesh._old_to_new_cell_numbering,
                 needs_subset=True,
             )
@@ -104,7 +104,7 @@ def matrix_funptr(form, state):
         # The size of the matrix doesn't matter as it's just a pointer
         mat = op3.Mat.empty(test.axes, trial.axes, buffer_kwargs={"name": "out"})
         # arg = pack(mat, test, trial, loop_index, kinfo.integral_type, nodes=True)
-        arg = pack(mat, test, trial, loop_info)
+        arg = pack(mat, test, trial, loop_info, nodes=True)
         args.append(arg)
 
         # NOT IMPLEMENTED
@@ -115,15 +115,15 @@ def matrix_funptr(form, state):
         # statearg = statedat(op2.READ, state_entity_node_map)
 
         for i in kinfo.active_domain_numbers.coordinates:
-            arg = pack(all_meshes[i].coordinates, loop_info)
+            arg = pack(all_meshes[i].coordinates, loop_info, nodes=True)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_orientations:
             c = all_meshes[i].cell_orientations()
-            arg = pack(c, loop_info)
+            arg = pack(c, loop_info, nodes=True)
             args.append(arg)
         for i in kinfo.active_domain_numbers.cell_sizes:
             c = all_meshes[i].cell_sizes
-            arg = pack(c, loop_info)
+            arg = pack(c, loop_info, nodes=True)
             args.append(arg)
         for n, indices in kinfo.coefficient_numbers:
             c = form.coefficients()[n]
@@ -135,7 +135,7 @@ def matrix_funptr(form, state):
                 continue
             for ind in indices:
                 c_ = c.subfunctions[ind]
-                arg = pack(c_, loop_info)
+                arg = pack(c_, loop_info, nodes=True)
                 args.append(arg)
 
         all_constants = extract_firedrake_constants(form)
@@ -149,7 +149,7 @@ def matrix_funptr(form, state):
         mod = op3.loop(loop_info.loop_index, kinfo.kernel(*args))
         # wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         # mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        pyop3_compiler_parameters = {}  # for now
+        pyop3_compiler_parameters = {}  # for now, optimising removes the subset...
         kernels.append(CompiledKernel(mod._get_execution_context(pyop3_compiler_parameters).compile(), kinfo))
     return cell_kernels, int_facet_kernels
 
@@ -461,6 +461,9 @@ PetscErrorCode ComputeJacobian(PC pc,
      whichPoints = pointsArray;
    }}
    ctx->{};
+   MatAssemblyBegin(out, MAT_FINAL_ASSEMBLY);
+   MatAssemblyEnd(out, MAT_FINAL_ASSEMBLY);
+   MatView(out, NULL);
    if (ctx->point2facet) {{
      if (npoints > 128) {{
        ierr = PetscFree(whichPoints);
@@ -824,6 +827,7 @@ class PatchBase(PCSNESBase):
         # Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
         #                                                operator.methodcaller("cell_node_map"))
         code, Struct = make_jacobian_wrapper(Jcell_kernel, Jcell_flops)
+        breakpoint()
         Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
         Jop_struct = make_c_struct(Jcell_kernel.funptr, Struct)
 
@@ -960,7 +964,10 @@ class PatchPC(PCBase, PatchBase):
         patch.setOperators(A, P)
 
     def apply(self, pc, x, y):
+        print()
+        print(f"x ({x.handle}) = ", x.array_r)
         self.patch.apply(x, y)
+        print("y = ", y.array_r)
 
     def applyTranspose(self, pc, x, y):
         self.patch.applyTranspose(x, y)
