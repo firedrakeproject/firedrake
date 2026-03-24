@@ -210,9 +210,6 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
-          : # UNDO ME
-          pip install git+https://github.com/firedrakeproject/fiat.git@connorjward/handle-real -v --no-deps --ignore-installed
-
           firedrake-clean
           pip list
 
