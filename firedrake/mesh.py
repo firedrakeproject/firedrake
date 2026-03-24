@@ -42,7 +42,7 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
-from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+from firedrake.exceptions import EmptyNodeEnvelopeError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
 import gem
 
 try:
@@ -2639,10 +2639,11 @@ values from f.)"""
             Array of shape ``(n_nodes, 2, gdim)`` containing the bounding
             boxes of all nodes at ``max_level``.
         """
-        rtree = self.spatial_index
+        spatial_index = self.spatial_index
         gdim = self.geometric_dimension
-        current_level = [rtree.root_node(rtree)]
+        current_level = [rtree.root_node(spatial_index)]
         for _ in range(max_level):
+            print(f"Level {_}: {len(current_level)} nodes, max level {max_level}")
             next_level = []
             for node in current_level:
                 next_level.extend(rtree.node_children(node))
@@ -2659,18 +2660,14 @@ values from f.)"""
         side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
         return np.prod(side_lengths, axis=1).sum()
     
+    @property
     @PETSc.Log.EventDecorator()
-    def box_ratio_heuristic(self, max_level: int = 10):
+    def box_ratio_heuristic(self):
         """Return partition bounding boxes at some optimal Rtree level.
 
         Descends the local Rtree top-down breadth-first, stopping when the total
         bounding box volume stops decreasing (ratio of next level to current
-        level >= 1) or when ``max_level`` is reached.
-
-        Parameters
-        ----------
-        max_level : int
-            Limit on depth.
+        level >= 1).
 
         Returns
         -------
@@ -2678,19 +2675,21 @@ values from f.)"""
             Array of shape `(n_boxes, 2, gdim)` containing all the bounding boxes
             at the chosen level.
         """
+        tree_depth = rtree.tree_depth(self.spatial_index)
         prev_bboxes = self.bounding_boxes(0)
         prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
-        # TODO: add a function (in cython? or C api?) which descends the tree depth-first
-        # to find total number of levels.
-        for level in range(1, max_level + 1):
-            next_bboxes = self.bounding_boxes(level)
+        for level in range(1, tree_depth):
+            try:
+                next_bboxes = self.bounding_boxes(level)
+            except EmptyNodeEnvelopeError:
+                return prev_bboxes
             next_vol = self.bounding_boxes_total_volume(next_bboxes)
             if next_vol >= prev_vol:
                 break
             prev_vol = next_vol
         return next_bboxes
 
-    @cached_property
+    @property
     @PETSc.Log.EventDecorator()
     def distributed_rtree(self):
         """Build a global Rtree from all ranks' partition bounding boxes.
@@ -2709,7 +2708,7 @@ values from f.)"""
         gdim = self.geometric_dimension
         comm = self.comm
 
-        local_bboxes = self.box_ratio_heuristic() # (n_local, 2, gdim)
+        local_bboxes = self.box_ratio_heuristic  # (n_local, 2, gdim)
         n_local = local_bboxes.shape[0]
 
         # Allgather per-rank box counts

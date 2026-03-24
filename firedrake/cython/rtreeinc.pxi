@@ -16,7 +16,7 @@ cdef extern from "rtree-capi.h":
         Panic
 =======
         InvalidDimension
->>>>>>> 12de8f60f (renaming and use `firedrake_rtree` package):firedrake/cython/rtreeinc.pxi
+        EmptyNodeEnvelope
 
     ctypedef struct RStar_RTree:
         pass
@@ -43,6 +43,8 @@ cdef extern from "rtree-capi.h":
         size_t **ids_out,
         size_t *nids_out
     )
+
+    RTreeError rtree_depth(const RTreeH *tree, size_t *depth_out)
 
     RTreeError rtree_root_node(
         const RTreeH *tree,
