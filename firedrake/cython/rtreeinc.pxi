@@ -21,21 +21,9 @@ cdef extern from "rtree-capi.h":
     ctypedef struct RStar_RTree:
         pass
 
-    void PrintRTreeError(RTreeError error)
+    ctypedef struct RTreeNodeH:
+        pass
 
-<<<<<<< HEAD:firedrake/cython/rstarinc.pxi
-    RTreeError RTree_FromArray(const double *mins,
-                               const double *maxs,
-                               const size_t *ids,
-                               size_t len,
-                               size_t dim,
-                               RStar_RTree **out_tree)
-    RTreeError RTree_Free(RStar_RTree *tree)
-    RTreeError RTree_LocateAllAtPoint(const RStar_RTree *tree,
-                                      const double *point,
-                                      size_t **ids,
-                                      size_t *nids)
-=======
     RTreeError rtree_bulk_load(
         RTreeH **tree,
         const double *mins,
@@ -55,8 +43,6 @@ cdef extern from "rtree-capi.h":
         size_t **ids_out,
         size_t *nids_out
     )
-<<<<<<< HEAD:firedrake/cython/rtreeinc.pxi
-=======
 
     RTreeError rtree_root_node(
         const RTreeH *tree,
@@ -69,6 +55,10 @@ cdef extern from "rtree-capi.h":
         size_t *nchildren_out
     )
 
+    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
+
+    RTreeError rtree_node_free(RTreeNodeH *node)
+
     RTreeError rtree_node_id(
         const RTreeNodeH *node,
         size_t *id_out
@@ -79,10 +69,3 @@ cdef extern from "rtree-capi.h":
         double *mins_out,
         double *maxs_out
     )
-
-    RTreeError rtree_node_free(RTreeNodeH *node)
-
-    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
-
-    RTreeError rtree_free_ids(size_t *ids, size_t n)
->>>>>>> 6f584ab7a (add node interface):firedrake/cython/rstarinc.pxi
