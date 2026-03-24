@@ -139,7 +139,7 @@ spatialindex_ = ExternalDependency(
     include_dirs=[rtree.finder.get_include()],
     extra_link_args=[str(libspatialindex_so)],
     runtime_library_dirs=[
-        *(os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs),
+        *(os.path.join(dir, "rtree.libs") for dir in sitepackage_dirs),
         *(os.path.join(dir, "rtree", "lib") for dir in sitepackage_dirs),
     ],
 )
