@@ -2629,17 +2629,17 @@ values from f.)"""
         """
         rtree = self.spatial_index
         gdim = self.geometric_dimension
-        current_level = [rstar.root_node(rtree)]
+        current_level = [rtree.root_node(rtree)]
         for _ in range(max_level):
             next_level = []
             for node in current_level:
-                next_level.extend(rstar.node_children(node))
+                next_level.extend(rtree.node_children(node))
             if not next_level:
                 break
             current_level = next_level
         envelopes = np.empty((len(current_level), 2, gdim), dtype=utils.RealType)
         for i, node in enumerate(current_level):
-            envelopes[i] = rstar.node_envelope(node, gdim)
+            envelopes[i] = rtree.node_envelope(node, gdim)
         return envelopes
 
     @PETSc.Log.EventDecorator()
@@ -2719,7 +2719,7 @@ values from f.)"""
         # Set the owning rank as the leaf id so queries return rank numbers.
         ids = np.repeat(np.arange(comm.size, dtype=np.uintp), counts)
 
-        return rstar.build_from_aabb(regions_lo, regions_hi, ids)
+        return rtree.build_from_aabb(regions_lo, regions_hi, ids)
 
 
     @PETSc.Log.EventDecorator()
@@ -4523,7 +4523,7 @@ def _parent_mesh_embedding_new(
     # Query distributed Rtree to find candidate ranks for each point.
     rtree = parent_mesh.distributed_rtree
     toranks, send_offsets, point_indices, fromranks_out, recv_counts_out = (
-        rstar.discover_ranks(rtree, coords, comm)
+        rtree.discover_ranks(rtree, coords, comm)
     )
 
     # total number of candidate points on this rank

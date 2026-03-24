@@ -11,7 +11,12 @@ cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
 from petsc4py.PETSc cimport CHKERR
 
+cimport mpi4py.MPI as MPI
+from mpi4py.libmpi cimport MPI_INT
+from petsc4py.PETSc cimport CHKERR
+
 include "rtreeinc.pxi"
+include "petschdr.pxi"
 include "petschdr.pxi"
 
 cdef class RTree(object):
@@ -57,6 +62,7 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
     -------
     RTree
         An RTree object containing the built R*-tree.
+        An RTree object containing the built R*-tree.
     """    
     cdef:
         RTreeH* rtree
@@ -84,49 +90,9 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
     )
     if err != Success:
         raise RuntimeError("RTree_FromArray failed")
+        raise RuntimeError("RTree_FromArray failed")
 
     return RTree(<uintptr_t>rtree)
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def locate_all_at_point(
-        RTree rtree,
-        np.ndarray[np.float64_t, ndim=1, mode="c"] point):
-    """Return the ids of all leaves whose bounding box contains ``point``.
-
-    Parameters
-    ----------
-    rtree : RTree
-        The R*-tree to query.
-    point : (dim,) float64 array
-        The query point. Must have the same dimensionality as the tree.
-
-    Returns
-    -------
-    An array of integer ids corresponding to the leaves whose bounding boxes contain the query point.
-    The array must be freed by the caller using rtree_locate_all_at_point_free.
-    """
-    cdef:
-        size_t *ids_out = NULL
-        size_t nids_out = 0
-        RTreeError err
-        np.ndarray[np.npy_uintp, ndim=1, mode="c"] result
-
-    err = rtree_locate_all_at_point(
-        rtree.tree,
-        <const double *>point.data,
-        &ids_out,
-        &nids_out,
-    )
-    if err != Success:
-        raise RuntimeError("rtree_locate_all_at_point failed")
-
-    result = np.empty(nids_out, dtype=np.uintp)
-    for i in range(nids_out):
-        result[i] = ids_out[i]
-    rtree_free_ids(ids_out, nids_out)
-    return result
-
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -261,8 +227,6 @@ cdef class RTreeNode(object):
     def __dealloc__(self):
         if self.node != <RTreeNodeH*>0:
             rtree_node_free(self.node)
-            self.node = <RTreeNodeH*>0
-
 
 def root_node(RTree rtree):
     """Return the root node of the R*-tree."""
@@ -287,18 +251,6 @@ def node_children(RTreeNode node):
     result = [RTreeNode(<uintptr_t>children[i]) for i in range(nchildren)]
     rtree_node_children_free(children, nchildren)
     return result
-
-
-def node_id(RTreeNode node):
-    """Return the id of a leaf node."""
-    cdef:
-        size_t id_out
-        RTreeError err
-    err = rtree_node_id(node.node, &id_out)
-    if err != Success:
-        raise RuntimeError("rtree_node_id failed (node may not be a leaf)")
-    return id_out
-
 
 def node_envelope(RTreeNode node, size_t dim):
     """Return the (mins, maxs) bounding envelope of an R*-tree node."""
