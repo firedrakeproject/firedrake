@@ -310,11 +310,6 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
     W = FunctionSpace(vm, "DG", 0)
     V = FunctionSpace(parentmesh, "Real", 0)
-    # Remove below when interpolating constant onto Real works for extruded
-    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
-        with pytest.raises(ValueError):
-            assemble(interpolate(Constant(1), V))
-        return
     v = assemble(interpolate(Constant(1), V))
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 1.)

@@ -39,7 +39,7 @@ def rng():
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 @pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
-def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
+def test_white_noise(family, degree, mesh_type, dim, backend_type, rng, garbage_cleanup):
     """Test that white noise generator converges to a mass matrix covariance.
     """
 

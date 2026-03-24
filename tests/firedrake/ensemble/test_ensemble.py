@@ -380,3 +380,43 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     ensemble.allreduce(u_separate, usum)
 
     parallel_assert(errornorm(u_combined, usum) < 1e-8)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+def test_ensemble_sequential(ensemble, direction):
+    """
+    Test that the sequential context manager sends forward
+    the correct values after each rank has executed, for both
+    intrinsic types (float) and Firedrake types (Function).
+    """
+
+    rank = ensemble.ensemble_rank
+    mesh = UnitIntervalMesh(1, comm=ensemble.comm)
+    R = FunctionSpace(mesh, "R", 0)
+
+    reverse = direction == "reverse"
+
+    idx_i = 0
+    idx_f = Function(R).zero()
+    two = Function(R).assign(2)
+
+    with ensemble.sequential(reverse=reverse, idx_i=idx_i, idx_f=idx_f) as ctx:
+        recv_i = float(ctx.idx_i)
+        recv_f = float(ctx.idx_f)
+
+        ctx.idx_i += 2
+        ctx.idx_f += two
+
+    if reverse:
+        expected = 2*(ensemble.ensemble_size - 1 - rank)
+    else:
+        expected = 2*rank
+
+    parallel_assert(
+        recv_i == expected,
+        msg=f"Failed to send int properly. Expecting {expected} but received {recv_i}")
+
+    parallel_assert(
+        abs(float(recv_f)-expected) < 1e-12,
+        msg=f"Failed to send Function properly. Expecting {expected} but received {float(recv_f)}")

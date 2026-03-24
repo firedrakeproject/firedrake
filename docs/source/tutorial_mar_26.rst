@@ -22,6 +22,7 @@ Attendees will need to bring a laptop. Installing Firedrake (see the
 :doc:`download page <install>` for details) is optional, as it will be
 also be possible to join the tutorial using the cloud. Installing `Paraview <https://www.paraview.org>`__ for visualisation before the course is recommended.
 
+The `lecture slides and demo codes are available on github <https://github.com/pefarrell/oxford2026>`__.
 
 Registration
 ------------

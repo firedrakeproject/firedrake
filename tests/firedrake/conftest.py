@@ -9,6 +9,7 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
+from mpi4py import MPI
 from petsctools import get_external_packages
 from pyadjoint.tape import (
     annotate_tape, get_working_tape, set_working_tape,
@@ -256,3 +257,10 @@ class _petsc_raises:
 def petsc_raises():
     # This function is needed because pytest does not support classes as fixtures.
     return _petsc_raises
+
+
+@pytest.fixture
+def garbage_cleanup():
+    """Fixture that runs the parallel garbage collector."""
+    yield
+    PETSc.garbage_cleanup(MPI.COMM_WORLD)
