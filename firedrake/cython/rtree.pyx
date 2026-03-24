@@ -10,6 +10,7 @@ from libc.stdint cimport uintptr_t
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
 from petsc4py.PETSc cimport CHKERR
+from firedrake.exceptions import EmptyNodeEnvelopeError
 
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
@@ -212,6 +213,15 @@ def discover_ranks(
 
     return toranks, send_offsets, point_indices, fromranks_out, recv_counts_out
 
+def tree_depth(RTree rtree):
+    """Return the depth of the R*-tree."""
+    cdef:
+        size_t depth = 0
+
+    err = rtree_depth(rtree.tree, &depth)
+    if err != Success:
+        raise RuntimeError("rtree_depth failed")
+    return depth
 
 cdef class RTreeNode(object):
     """Python class for holding a spatial index node."""
@@ -259,6 +269,8 @@ def node_envelope(RTreeNode node, size_t dim):
         np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
         RTreeError err
     err = rtree_node_envelope(node.node, <double*>mins.data, <double*>maxs.data)
-    if err != Success:
+    if err == EmptyNodeEnvelope:
+        raise EmptyNodeEnvelopeError("Node has no envelope (empty node)")
+    elif err != Success:
         raise RuntimeError("rtree_node_envelope failed")
     return mins, maxs
