@@ -194,7 +194,7 @@ def vectorfunctionspace_tests(vm):
     # num_vertices (globally) times. Note that we get a vertex cell for
     # each geometric dimension so we have to sum over geometric
     # dimension too.
-    R = VectorFunctionSpace(vm, "R", dim=gdim)
+    R = VectorFunctionSpace(vm, "R", 0, dim=gdim)
     ones = Function(R).assign(1)
     f.interpolate(ones)
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
