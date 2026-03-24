@@ -2917,7 +2917,8 @@ values from f.)"""
         This method requires that the mesh has been constructed from a
         netgen mesh.
 
-        :arg mark: the marking function which is a Firedrake DG0 function.
+        :arg mark: the marking function which is a Firedrake DG0 function
+            with the number of refinements on each cell.
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
 
         It includes the option:
