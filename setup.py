@@ -139,7 +139,8 @@ spatialindex_ = ExternalDependency(
     include_dirs=[rtree.finder.get_include()],
     extra_link_args=[str(libspatialindex_so)],
     runtime_library_dirs=[
-        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+        *(os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs),
+        *(os.path.join(dir, "rtree", "lib") for dir in sitepackage_dirs),
     ],
 )
 
@@ -219,7 +220,7 @@ def extensions():
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(mpi_ + petsc_ + numpy_ + libsupermesh_ + spatialindex_)
+        **(mpi_ + petsc_ + numpy_ + libsupermesh_)
     ))
     # pyop2/sparsity.pyx: petsc, numpy,
     cython_list.append(Extension(
