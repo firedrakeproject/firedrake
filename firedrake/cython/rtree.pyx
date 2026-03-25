@@ -24,6 +24,7 @@ cdef class RTree(object):
     """Python class for holding a spatial index."""
 
     cdef RTreeH* tree
+    cdef object __weakref__
 
     def __cinit__(self, uintptr_t tree_handle):
         self.tree = <RTreeH*>0
@@ -231,10 +232,13 @@ def tree_depth(RTree rtree):
 
 
 cdef class RTreeNodeChildren(object):
-    """Owns the array of child node handles returned by ``rtree_node_children``."""
+    """Python class for holding the array of child node handles
+    returned by ``rtree_node_children``.
+    """
 
     cdef RTreeNodeH** children
     cdef size_t nchildren
+    cdef object __weakref__
 
     def __cinit__(self, uintptr_t children_handle, size_t nchildren):
         self.children = <RTreeNodeH**>children_handle
@@ -243,34 +247,45 @@ cdef class RTreeNodeChildren(object):
     def __dealloc__(self):
         if self.children != <RTreeNodeH**>0:
             rtree_node_children_free(self.children, self.nchildren)
+            print(f"Deallocated {self.nchildren} child nodes")
             self.children = <RTreeNodeH**>0
             self.nchildren = 0
 
 cdef class RTreeNode(object):
     """Python class for holding a spatial index node."""
 
-    cdef RTreeNodeH* node
-    cdef bint needs_free
-    cdef object tree_ref
+    cdef RTreeNodeH* node_handle
+    cdef bint is_root
+    cdef object owning_tree
     cdef object children
+    cdef object __weakref__
 
-    def __cinit__(self, uintptr_t node_handle, bint needs_free=True,
-                  tree_ref=None, children_owner_ref=None):
-        self.node = <RTreeNodeH*>0
-        self.needs_free = needs_free
-        self.tree_ref = tree_ref
+    def __cinit__(self, uintptr_t node_handle, bint is_root=False,
+                  owning_tree=None, children_owner_ref=None):
+        self.is_root = is_root
+        self.owning_tree = owning_tree
         self.children = children_owner_ref
         if node_handle == 0:
             raise RuntimeError("invalid node handle")
-        self.node = <RTreeNodeH*>node_handle
+        self.node_handle = <RTreeNodeH*>node_handle
     
     def get_tree_ref(self):
-        return self.tree_ref
+        return self.owning_tree
+    
+    def get_is_root(self):
+        return self.is_root
+    
+    def get_children_ref(self):
+        return self.children
 
     def __dealloc__(self):
-        if self.node != <RTreeNodeH*>0 and self.needs_free:
-            rtree_node_free(self.node)
-            self.node = <RTreeNodeH*>0
+        if self.node_handle != <RTreeNodeH*>0 and self.is_root:
+            # We only free the node if it is the root. Child nodes
+            # must be freed all at once by `rtree_node_children_free`.
+            # The RTreeNodeChildren class facilitates this.
+            rtree_node_free(self.node_handle)
+            self.node_handle = <RTreeNodeH*>0
+            print("node deallocated")
 
 def root_node(RTree rtree):
     """Return the root node of the R*-tree."""
@@ -280,18 +295,18 @@ def root_node(RTree rtree):
     err = rtree_root_node(rtree.tree, &node)
     if err != Success:
         raise RuntimeError("rtree_root_node failed")
-    return RTreeNode(<uintptr_t>node, tree_ref=rtree)
+    return RTreeNode(<uintptr_t>node, is_root=True, owning_tree=rtree)
 
 
 def node_children(RTreeNode node):
     """Return the children of an R-tree node as a list of RTreeNodeHs."""
     cdef:
-        RTreeNodeH** children = <RTreeNodeH**>0
-        size_t nchildren = 0
+        RTreeNodeH** children
+        size_t nchildren
         RTreeError err
         RTreeNodeChildren child_nodes
         list result
-    err = rtree_node_children(node.node, &children, &nchildren)
+    err = rtree_node_children(node.node_handle, &children, &nchildren)
     if err != Success:
         raise RuntimeError("rtree_node_children failed")
 
@@ -300,8 +315,7 @@ def node_children(RTreeNode node):
     result = [
         RTreeNode(
             <uintptr_t>children[i],
-            needs_free=False,
-            tree_ref=node.tree_ref,
+            owning_tree=node.owning_tree,
             children_owner_ref=child_nodes,
         ) for i in range(nchildren)
     ]
@@ -314,7 +328,7 @@ def node_envelope(RTreeNode node, size_t dim):
         np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
         np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
         RTreeError err
-    err = rtree_node_envelope(node.node, <double*>mins.data, <double*>maxs.data)
+    err = rtree_node_envelope(node.node_handle, <double*>mins.data, <double*>maxs.data)
     if err == EmptyNodeEnvelope:
         raise EmptyNodeEnvelopeError("Node has no envelope (empty node)")
     elif err != Success:
