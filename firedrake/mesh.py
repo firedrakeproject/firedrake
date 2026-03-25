@@ -2676,6 +2676,9 @@ values from f.)"""
             at the chosen level.
         """
         tree_depth = rtree.tree_depth(self.spatial_index)
+        if tree_depth == 0:
+            # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
+            return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
         prev_bboxes = self.bounding_boxes(0)
         for level in range(1, tree_depth):
             prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
@@ -4029,7 +4032,15 @@ def _pic_swarm_in_mesh(
 
     # Indices for owned and halo points.
     owned_indices = np.flatnonzero(leaf_is_winner)
-    halo_indices_arr = np.flatnonzero(is_min_candidate & ~leaf_is_winner)
+    # A min-candidate leaf can still correspond to a missing root when no
+    # owned candidate exists on any rank (winner rank/index remains -1).
+    # Those leaves must not enter the swarm point SF remote graph.
+    valid_halo_mask = (
+        is_min_candidate
+        & ~leaf_is_winner
+        & (winner_ranks_on_leaves != -1)
+    )
+    halo_indices_arr = np.flatnonzero(valid_halo_mask)
     n_owned = len(owned_indices)
     n_halo = len(halo_indices_arr)
     all_indices = np.concatenate([owned_indices, halo_indices_arr])
@@ -4107,6 +4118,15 @@ def _pic_swarm_in_mesh(
     owner_swarm_idx_on_leaves = np.full(n_recv_total, -1, dtype=IntType)
     embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
     embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
+
+    # If any halo leaf still has no owner index, drop it from the halo SF.
+    if n_halo:
+        halo_owner_ok = owner_swarm_idx_on_leaves[halo_indices_arr] != -1
+        if not np.all(halo_owner_ok):
+            halo_indices_arr = halo_indices_arr[halo_owner_ok]
+            n_halo = len(halo_indices_arr)
+            all_indices = np.concatenate([owned_indices, halo_indices_arr])
+            n_total = n_owned + n_halo
 
     sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
     swarm_remote = np.empty(2 * n_halo, dtype=IntType)
@@ -4519,9 +4539,11 @@ def _parent_mesh_embedding_new(
 
     if gdim == 1:
         double_type = double_unit
+        needs_free = False
     else:
         double_type = double_unit.Create_contiguous(gdim)
         double_type.Commit()
+        needs_free = True
 
     # If redundant then only rank 0's coordinates are embedded.
     if redundant and comm.rank != 0:
@@ -4533,8 +4555,9 @@ def _parent_mesh_embedding_new(
     global_idxs = start_idx + np.arange(nroots, dtype=IntType)
 
     # Query distributed Rtree to find candidate ranks for each point.
+    distributed_rtree = parent_mesh.distributed_rtree
     toranks, send_offsets, point_indices, fromranks_out, recv_counts_out = (
-        rtree.discover_ranks(parent_mesh.distributed_rtree, coords, comm)
+        rtree.discover_ranks(distributed_rtree, coords, comm)
     )
 
     # total number of candidate points on this rank
@@ -4618,6 +4641,9 @@ def _parent_mesh_embedding_new(
     missing_roots = winner_ranks == -1
     winner_ref_coords[missing_roots] = np.nan
     n_missing_points = np.sum(missing_roots)
+
+    if needs_free:
+        double_type.Free()
 
     return (
         sf,
