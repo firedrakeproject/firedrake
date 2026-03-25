@@ -2665,17 +2665,18 @@ values from f.)"""
         """
         tree_depth = rtree.tree_depth(self.spatial_index)
         prev_bboxes = self.bounding_boxes(0)
-        prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
         for level in range(1, tree_depth):
+            prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
             try:
                 next_bboxes = self.bounding_boxes(level)
             except EmptyNodeEnvelopeError:
                 return prev_bboxes
             next_vol = self.bounding_boxes_total_volume(next_bboxes)
+            prev_bboxes = next_bboxes
             if next_vol >= prev_vol:
                 break
             prev_vol = next_vol
-        return next_bboxes
+        return prev_bboxes
 
     @property
     @PETSc.Log.EventDecorator()
@@ -4520,9 +4521,8 @@ def _parent_mesh_embedding_new(
     global_idxs = start_idx + np.arange(nroots, dtype=IntType)
 
     # Query distributed Rtree to find candidate ranks for each point.
-    rtree = parent_mesh.distributed_rtree
     toranks, send_offsets, point_indices, fromranks_out, recv_counts_out = (
-        rtree.discover_ranks(rtree, coords, comm)
+        rtree.discover_ranks(parent_mesh.distributed_rtree, coords, comm)
     )
 
     # total number of candidate points on this rank
