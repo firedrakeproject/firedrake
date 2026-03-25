@@ -1,6 +1,8 @@
 from functools import wraps
 import weakref
+from contextlib import contextmanager
 from itertools import zip_longest
+from types import SimpleNamespace
 
 from firedrake.petsc import PETSc
 from firedrake.function import Function
@@ -584,3 +586,93 @@ class Ensemble:
         requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
                          for dat in frecv.dat])
         return requests
+
+    @contextmanager
+    def sequential(self, *, synchronise: bool = False, reverse: bool = False, **kwargs):
+        """
+        Context manager for executing code on each ensemble
+        member consecutively (ordered by increasing
+        :attr:`~.Ensemble.ensemble_rank`).
+
+        Any data in ``kwargs`` will be made available in the returned
+        context and will be communicated forward after each ensemble
+        member exits. :class:`.Function` or :class:`.Cofunction`
+        ``kwargs`` will be sent with the corresponding Ensemble methods.
+
+        For example:
+
+        .. code-block:: python3
+
+            with ensemble.sequential(index=0) as ctx:
+                print(ensemble.ensemble_rank, ctx.index)
+                ctx.index += 2
+
+        Would print:
+
+        .. code-block::
+
+            0 0
+            1 2
+            2 4
+            3 6
+            ...
+
+        If ``reverse is True`` then the ensemble ranks will be looped through
+        in decreasing order i.e. ``ensemble_rank == (ensemble_size - 1)`` will
+        run first, then ``ensemble_rank == (ensemble_size - 2)`` etc.
+
+        Parameters
+        ----------
+        synchronise :
+            If True then MPI_Barrier will be called on the ``global_comm``
+            at the beginning and end of this method.
+
+        reverse :
+            If True then will iterate through spatial comms in order of
+            decreasing ``ensemble_rank``.
+
+        kwargs :
+            Data to be passed forward by each rank and made available
+            in the returned ``ctx``.
+        """
+        rank = self.ensemble_rank
+        if reverse:  # send backwards
+            src = rank + 1
+            dst = rank - 1
+            first_rank = (rank == self.ensemble_size - 1)
+            last_rank = (rank == 0)
+        else:  # send forwards
+            src = rank - 1
+            dst = rank + 1
+            first_rank = (rank == 0)
+            last_rank = (rank == self.ensemble_size - 1)
+
+        if synchronise:
+            self.global_comm.Barrier()
+
+        if not first_rank:
+            for i, (k, v) in enumerate(kwargs.items()):
+                if isinstance(v, (Function, Cofunction)):
+                    # Functions are sent in-place, everything else is pickled
+                    recv_args = [kwargs[k]]
+                else:
+                    recv_args = []
+                kwargs[k] = self.recv(*recv_args, source=src, tag=rank+i*100)
+
+        ctx = SimpleNamespace(**kwargs)
+        yield ctx
+
+        if not last_rank:
+            for i, v in enumerate((getattr(ctx, k)
+                                   for k in kwargs.keys())):
+                try:
+                    self.send(v, dest=dst, tag=dst+i*100)
+                except Exception as error:
+                    raise TypeError(
+                        "Failed to send object of type {type(v)__name__}. kwargs for"
+                        " Ensemble.sequential must be Functions, Cofunctions,"
+                        " or acceptable arguments to mpi4py.MPI.Comm.send."
+                    ) from error
+
+        if synchronise:
+            self.global_comm.Barrier()

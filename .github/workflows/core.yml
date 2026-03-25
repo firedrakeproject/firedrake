@@ -504,6 +504,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean
