@@ -23,7 +23,7 @@ def ngmesh(request):
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 3])
+@pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("netgen_degree", [1, 3, (1, 2, 3)], ids=lambda degree: f"{degree=}")
 def test_netgen_mg(ngmesh, netgen_degree):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
