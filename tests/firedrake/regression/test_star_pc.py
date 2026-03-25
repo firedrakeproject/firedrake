@@ -11,7 +11,7 @@ def problem_type(request):
     return request.param
 
 
-@pytest.fixture(params=["petscasm", "tinyasm"])
+@pytest.fixture(params=["petscasm", "tinyasm", "petscasm-coloring"])
 def backend(request):
     return request.param
 
@@ -25,6 +25,10 @@ def filter_warnings(caller):
 def test_star_equivalence(problem_type, backend):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    use_coloring = False
+    if backend.endswith("coloring"):
+        backend, _ = backend.split("-")
+        use_coloring = True
 
     if problem_type == "scalar":
         base = UnitSquareMesh(10, 10, distribution_parameters=distribution_parameters)
@@ -169,6 +173,7 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_mat_type": "aij",
                        "mg_coarse_pc_type": "lu"}
 
+    star_params["mg_levels_pc_star_use_coloring"] = use_coloring
     star_params["mg_levels_pc_star_backend"] = backend
     star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
@@ -182,6 +187,10 @@ def test_star_equivalence(problem_type, backend):
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
+    if use_coloring:
+        l = len(mh) - 1
+        star_patches = len(star_solver.snes.ksp.pc.getMGSmoother(l).pc.getPythonContext().asmpc.getASMSubKSP())
+        assert star_patches < 12
 
 
 def test_vanka_equivalence(problem_type):
