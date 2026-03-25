@@ -189,6 +189,7 @@ jobs:
             : # Install build dependencies
             pip install "$PETSC_DIR"/src/binding/petsc4py
             pip install -r ./firedrake-repo/requirements-build.txt
+            pip install --no-build-isolation "libsupermesh @ git+https://github.com/leo-collins/libsupermesh.git@leo/fix-rtree"
 
             : # Install runtime dependencies that have been removed from the pyproject.toml
             : # because they rely on non-PyPI versions of petsc4py.
@@ -442,6 +443,7 @@ jobs:
             : # Install build dependencies
             pip install "$PETSC_DIR"/src/binding/petsc4py
             pip install -r ./firedrake-repo/requirements-build.txt
+            pip install --no-build-isolation "libsupermesh @ git+https://github.com/leo-collins/libsupermesh.git@leo/fix-rtree"
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_PIP_FLAGS='--no-build-isolation'
