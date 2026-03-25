@@ -27,25 +27,21 @@ SLATE_SUPPORTS_COMPLEX = False
 
 @cache
 def device_matrix_type(warn: bool = False) -> str | None:
-    """Get device matrix type
+    r"""Get device matrix type
 
     Attempt to initialise a GPU device and return the PETSc mat_type
-    compatible with that device, or None if no device is detected
+    compatible with that device, or None if no device is detected.
+    Typical Usage Example:
+    mat_type = device_matrix_type(pc.comm.rank == 0)
 
-    Args:
-        warn: Emit a warning containing the reason a device mat_type
+    :arg warn: Emit a warning containing the reason a device mat_type
         has not been returned. Defaults to False.
 
-    Raises:
-        RuntimeError: Raised when PETSc initialises a GPU device that
+    :raises RuntimeError: Raised when PETSc initialises a GPU device that
         Firedrake does not understand
 
-    Returns:
-        The PETSc mat_type compatible with the GPU device detected on
+    :returns: The PETSc mat_type compatible with the GPU device detected on
         this system or None
-
-    Typical Usage Example:
-        mat_type = device_matrix_type(pc.comm.rank == 0)
 
     """
     _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
