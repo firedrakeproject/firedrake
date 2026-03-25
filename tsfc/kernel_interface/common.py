@@ -320,11 +320,20 @@ def set_quad_rule(params, cell, integral_type, functions):
                         if e.family() in {"Quadrature", "Boundary Quadrature"})
         if len(quad_data) == 0:
             quadrature_degree = params["estimated_polynomial_degree"]
-            if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
-                logger.warning("Estimated quadrature degree %s more "
-                               "than tenfold greater than any "
-                               "argument/coefficient degree (max %s)",
-                               quadrature_degree, max_degree([e.degree() for e in elements]))
+            if "max_quadrature_degree" in params:
+                max_allowed_degree = params["max_quadrature_degree"]
+                if quadrature_degree > max_allowed_degree:
+                    logger.info("Estimated quadrature degree %s greater "
+                                "than maximum allowed degree %s. "
+                                "Using maximum degree %s instead.",
+                                quadrature_degree, max_allowed_degree, max_allowed_degree)
+                    quadrature_degree = max_allowed_degree
+            else:
+                if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
+                    logger.warning("Estimated quadrature degree %s more "
+                                   "than tenfold greater than any "
+                                   "argument/coefficient degree (max %s)",
+                                   quadrature_degree, max_degree([e.degree() for e in elements]))
         else:
             try:
                 (quadrature_degree, quad_rule), = quad_data
