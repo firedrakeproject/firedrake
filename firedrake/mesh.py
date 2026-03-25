@@ -4600,8 +4600,8 @@ def _parent_mesh_embedding_new(
 
     winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
     ref_coords_buf = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
-    embedded_sf.reduceBegin(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
-    embedded_sf.reduceEnd(double_type, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceBegin(double_unit, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceEnd(double_unit, ref_coords_buf, winner_ref_coords, op=MPI.SUM)
 
     missing_roots = winner_ranks == -1
     winner_ref_coords[missing_roots] = np.nan
