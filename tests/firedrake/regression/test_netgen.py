@@ -91,7 +91,7 @@ def poisson3D(h, degree=2):
     return S
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_Poisson_netgen():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
@@ -100,7 +100,7 @@ def test_firedrake_Poisson_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_firedrake_Poisson_netgen_parallel():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
@@ -110,7 +110,7 @@ def test_firedrake_Poisson_netgen_parallel():
     assert (np.array(conv) > 2.8).all()
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_Poisson3D_netgen():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
     print("l2 error norms:", diff)
@@ -119,7 +119,7 @@ def test_firedrake_Poisson3D_netgen():
     assert (np.array(conv) > 2.8).all()
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_integral_2D_netgen():
     from netgen.geom2d import SplineGeometry
     import netgen
@@ -141,7 +141,7 @@ def test_firedrake_integral_2D_netgen():
     assert abs(assemble(f * dx) - (5/6)) < 1.e-10
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_integral_3D_netgen():
     from netgen.csg import CSGeometry, OrthoBrick, Pnt
     import netgen
@@ -166,7 +166,7 @@ def test_firedrake_integral_3D_netgen():
     assert abs(assemble(f * ds) - (2 + 4 + 2 + 5 + 2 + 6)) < 1.e-10
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_integral_ball_netgen():
     from netgen.csg import CSGeometry, Pnt, Sphere
     from netgen.meshing import MeshingParameters
@@ -189,7 +189,7 @@ def test_firedrake_integral_ball_netgen():
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_integral_sphere_high_order_netgen():
     from netgen.csg import CSGeometry, Pnt, Sphere
     import netgen
@@ -210,7 +210,7 @@ def test_firedrake_integral_sphere_high_order_netgen():
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
 
 
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_firedrake_integral_sphere_high_order_netgen_parallel():
     from netgen.csg import CSGeometry, Pnt, Sphere
@@ -235,7 +235,7 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 def test_firedrake_Adaptivity_netgen():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
     from netgen.occ import X, Z
@@ -310,7 +310,7 @@ def test_firedrake_Adaptivity_netgen():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
+# @pytest.mark.skipnetgen
 @pytest.mark.parallel
 def test_firedrake_Adaptivity_netgen_parallel():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
