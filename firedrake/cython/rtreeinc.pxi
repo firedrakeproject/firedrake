@@ -61,11 +61,6 @@ cdef extern from "rtree-capi.h":
 
     RTreeError rtree_node_free(RTreeNodeH *node)
 
-    RTreeError rtree_node_id(
-        const RTreeNodeH *node,
-        size_t *id_out
-    )
-
     RTreeError rtree_node_envelope(
         const RTreeNodeH *node,
         double *mins_out,
