@@ -220,7 +220,7 @@ def extensions():
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(mpi_ + petsc_ + numpy_ + libsupermesh_)
+        **(mpi_ + petsc_ + numpy_ + libsupermesh_ + spatialindex_)
     ))
     # pyop2/sparsity.pyx: petsc, numpy,
     cython_list.append(Extension(
