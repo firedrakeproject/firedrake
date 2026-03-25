@@ -2931,8 +2931,8 @@ values from f.)"""
             raise ValueError("Adaptive refinement requires a netgen mesh.")
         if netgen_flags is None:
             netgen_flags = self.netgen_flags
-        gdim = self.geometric_dimension
-        if gdim not in {2, 3}:
+        tdim = self.topological_dimension
+        if tdim not in {2, 3}:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
         with mark.dat.vec as mvec:
             if self.sfBC_orig is None:
@@ -2950,15 +2950,15 @@ values from f.)"""
         netgen_mesh = self.netgen_mesh.Copy()
         refine_faces = netgen_flags.get("refine_faces", False)
         for r in range(max_refs):
-            cells = netgen_mesh.Elements3D() if gdim == 3 else netgen_mesh.Elements2D()
+            cells = netgen_mesh.Elements3D() if tdim == 3 else netgen_mesh.Elements2D()
             cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
-            if gdim == 3:
+            if tdim == 3:
                 faces = netgen_mesh.Elements2D()
                 faces.NumPy()["refine"] = refine_faces
             netgen_mesh.Refine(adaptive=True)
             mark_np -= 1
             if r < max_refs - 1:
-                parents = netgen_mesh.parentelements if gdim == 3 else netgen_mesh.parentsurfaceelements
+                parents = netgen_mesh.parentelements if tdim == 3 else netgen_mesh.parentsurfaceelements
                 parents = parents.NumPy()["i"]
                 num_fine_cells = parents.shape[0]
                 num_coarse_cells = mark_np.size
