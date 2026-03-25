@@ -52,7 +52,7 @@ class FunctionAssignBlock(Block):
             if isinstance(block_variable.output, AdjFloat):
                 try:
                     # Adjoint of a broadcast is just a sum
-                    return adj_inputs[0].dat.data_ro.sum()
+                    return AdjFloat(adj_inputs[0].dat.data_ro.sum())
                 except AttributeError:
                     # Catch the case where adj_inputs[0] is just a float
                     return adj_inputs[0]

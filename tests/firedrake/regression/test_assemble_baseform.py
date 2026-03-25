@@ -382,3 +382,79 @@ def test_assemble_baseform_return_tensor_if_given():
 
     assert b0 is not b1
     assert b1 is tensor
+
+
+def test_preprocess_form_rank2_simplification(f):
+    """Check case (1) in BaseFormAssembler.preprocess_form."""
+    from firedrake.assemble import BaseFormAssembler
+    from ufl.algorithms import expand_indices, expand_derivatives
+
+    V = f.function_space()
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx
+    M = assemble(a)
+
+    expr = action(action(M, M), f)
+    expr = BaseFormAssembler.preprocess_base_form(expr)
+
+    # Compare preprocessed form with expected result => this requires expanding indices!
+    try:
+        expected = action(M, action(M, f))
+        expected = BaseFormAssembler.preprocess_base_form(expected)
+        assert expand_indices(expr) == expand_indices(expected)
+    except (KeyError, NotImplementedError):
+        # Index expansion doesn't seem to play well with tensor elements.
+        pass
+
+
+def test_preprocess_form_adjoint_simplification(f):
+    """Check cases (1), (2), (4), and (8) in BaseFormAssembler.preprocess_form."""
+    from firedrake.assemble import BaseFormAssembler
+    from ufl.algorithms import expand_indices, expand_derivatives
+
+    V = f.function_space()
+
+    try:
+        # I(f, v*)
+        I = interpolate(f, V)
+    except NotImplementedError:
+        # Interpolation is not implemented for certain spaces.
+        I = f
+
+    # N(I(f); v*)
+    N = point_expr(lambda x: x, function_space=V)
+    N = N(I)
+    # Action(∂N(I(f); v1, v*)/∂I, ∂I/∂f) = Action(∂N(I(f); v1, v*)/∂I, I(v1, v*))
+    dNdf = expand_derivatives(derivative(N, f))
+
+    # F = <u, v> * dx
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    dFdN = inner(u, v) * dx
+
+    # Action(Adjoint(Action(F, dNdf)), df)
+    w = Function(V)
+    expr = action(adjoint(action(dFdN, dNdf)), w)
+
+    # BaseForm preprocessing
+    expr = BaseFormAssembler.preprocess_base_form(expr)
+
+    # Compare preprocessed form with expected result => this requires expanding indices!
+    try:
+        # Expanding indices is needed to match equal (different MultiIndex used for both).
+        dF = action(adjoint(dFdN), w)
+        dN = N._ufl_expr_reconstruct_(I, derivatives=(1,), argument_slots=(expand_indices(dF), v))
+        # Reconstruct the expected preprocessed form
+        expected = I._ufl_expr_reconstruct_(v, dN)
+
+        # Expanding indices for the preprocessed form
+        dN, v = expr.argument_slots()
+        dF, w = dN.argument_slots()
+        dN = dN._ufl_expr_reconstruct_(*dN.ufl_operands, argument_slots=(expand_indices(dF), w))
+        expr = expr._ufl_expr_reconstruct_(v, dN)
+
+        assert expr == expected
+    except (KeyError, NotImplementedError):
+        # Index expansion doesn't seem to play well with tensor elements.
+        pass

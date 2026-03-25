@@ -99,9 +99,12 @@ class PytorchOperator(MLOperator):
             return torch.unsqueeze(inputs, self.inputs_format)
         return inputs
 
-    def _post_forward_callback(self, y_P):
+    def _post_forward_callback(self, y_P, dual=False):
         """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
-        return from_torch(y_P, self.ufl_function_space())
+        space = self.ufl_function_space()
+        if dual:
+            space = space.dual()
+        return from_torch(y_P, space)
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
 
@@ -111,16 +114,28 @@ class PytorchOperator(MLOperator):
     def _vjp(self, y):
         """Implement the vector-Jacobian product (VJP) for a given vector `y`."""
         model = self.model
-        x = self._pre_forward_callback(*self.ufl_operands)
+        x = self._pre_forward_callback(*self.ufl_operands[:-1])
         y_P = self._pre_forward_callback(y)
         _, vjp = torch_func.vjp(lambda x: model(x), x, y_P)
-        vjp_F = self._post_forward_callback(vjp)
+        vjp_F = self._post_forward_callback(vjp, dual=True)
         return vjp_F
+
+    def _backward(self, y):
+        """Implement the backward pass for computing gradients with respect to model parameters."""
+        model = self.model
+        x = self._pre_forward_callback(*self.ufl_operands[:-1])
+        y_P = self._pre_forward_callback(y)
+        with torch.set_grad_enabled(True):
+            output = model(x)
+        output.backward(y_P)
+        dummy_output = self._pre_forward_callback(self.ufl_operands[-1])
+        backward_F = self._post_forward_callback(dummy_output, dual=True)
+        return backward_F
 
     def _jvp(self, z):
         """Implement the Jacobian-vector product (JVP) for a given vector `z`."""
         model = self.model
-        x = self._pre_forward_callback(*self.ufl_operands)
+        x = self._pre_forward_callback(*self.ufl_operands[:-1])
         z_P = self._pre_forward_callback(z)
         _, jvp = torch_func.jvp(lambda x: model(x), x, z_P)
         jvp_F = self._post_forward_callback(jvp)
@@ -131,7 +146,7 @@ class PytorchOperator(MLOperator):
         # Get the model
         model = self.model
         # Don't unsqueeze so that we end up with a rank 2 tensor
-        x = self._pre_forward_callback(*self.ufl_operands, unsqueeze=False)
+        x = self._pre_forward_callback(*self.ufl_operands[:-1], unsqueeze=False)
         jac = torch_func.jacobian(lambda x: model(x), x)
 
         # For big matrices, assembling the Jacobian is not a good idea and one should instead
@@ -151,7 +166,7 @@ class PytorchOperator(MLOperator):
         model = self.model
 
         # Get the input operands
-        ops = self.ufl_operands
+        ops = self.ufl_operands[:-1]
 
         # By default PyTorch annotation is on (i.e. equivalent to `with torch.enable_grad()`)
         with torch.set_grad_enabled(self.torch_grad_enabled):

@@ -382,7 +382,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocation_integral_types(self):
         if self._allocation_integral_types is None:
             # Use the most conservative integration types.
-            test, _ = self._form.arguments()
+            test, *_ = self._form.arguments()
             if test.function_space().mesh().extruded:
                 return ("interior_facet_vert", "interior_facet_horiz")
             else:
@@ -801,6 +801,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                            \
                       dNdu(u; v1, v0*)
 
+            (8) Adjoint(Action(dFdN, dNdu))
+
+                 Adjoint                    Action
+                    |                        /   \
+                 Action       ----->    Adjoint  Adjoint  ----->   Action
+                  /   \                    |       |               /    \
+               dFdN   dNdu              dNdu    dFdN           dNdu*   dFdN*
+
+            where dNdu* and dFdN* are the adjoints of dNdu and dFdN respectively.
+
         It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
         various dag rotations/manipulations in expr.
         """
@@ -812,12 +822,25 @@ class BaseFormAssembler(AbstractFormAssembler):
             # -- Case (1) -- #
             # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
             if isinstance(left, ufl.Action) and is_rank_2(left):
-                return ufl.action(left.left(), ufl.action(left.right(), right))
+                # Handle recursive cases such as `Action(Action(A, Action(B, C)), w)`,
+                # which becomes `Action(A, Action(B, Action(C, w)))`, where `A`, `B` and `C` are BaseForms,
+                # and `w` is a rank-1 object.
+                right = BaseFormAssembler.restructure_base_form(ufl.action(left.right(), right), visited)
+                return ufl.action(left.left(), right)
             # -- Case (2) (except if left has only 1 argument, i.e. we have done case (5)) -- #
             if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right) and len(left.arguments()) != 1:
                 # Retrieve the highest numbered argument
                 arg = max(left.arguments(), key=lambda v: v.number())
-                return ufl.replace(left, {arg: right})
+                # Handle recursive cases such as `Action(B1[v0, v1*], Action(B2[w0, w1*], w))`,
+                # which becomes `B1[v0, B2[w0, w]])`, where `B1` and `B2` are BaseFormOperators,
+                # `v0`, `v1*`, `w0`, `w1*` are appropriate BaseArguments, and `w` is an appropriate rank-1 object.
+                right = BaseFormAssembler.restructure_base_form(right, visited)
+                # Replace arguments in argument slots (and not in operands!)
+                new_args = tuple(ufl.replace(a, {arg: right}) for a in left.argument_slots())
+                if isinstance(left, ufl.Interpolate):
+                    # Different API for Interpolate
+                    return left._ufl_expr_reconstruct_(*reversed(new_args))
+                return left._ufl_expr_reconstruct_(*left.ufl_operands, argument_slots=new_args)
             # -- Case (3) -- #
             if isinstance(left, ufl.Form) and is_rank_1(right):
                 # 1) Replace the highest-numbered argument of left by right when needed
@@ -837,7 +860,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 new_args = [a.reconstruct(number=a.number()-1) for a in other_args]
                 replace_map.update(dict(zip(other_args, new_args)))
                 # Replace arguments
-                return ufl.replace(right, replace_map)
+                argument_slots = tuple(ufl.replace(a, replace_map) for a in right.argument_slots())
+                return right._ufl_expr_reconstruct_(*right.ufl_operands, argument_slots=argument_slots)
 
             # Action(Adjoint(A), w*) -> Action(w*, A)
             if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
@@ -845,16 +869,28 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # `not isinstance(right, firedrake.Function)` check.
                 return ufl.action(right, left.form())
 
-        # -- Case (4) -- #
-        if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
-            B = expr.form()
-            u, v = B.arguments()
-            # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
-            # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = {u: u.reconstruct(number=v.number()),
-                                   v: v.reconstruct(number=u.number())}
-            # Replace arguments in argument slots
-            return ufl.replace(B, reordered_arguments)
+        if isinstance(expr, ufl.Adjoint):
+            form = expr.form()
+            # -- Case (4) -- #
+            if isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
+                u, v = form.arguments()
+                # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
+                # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
+                reordered_arguments = {u: u.reconstruct(number=v.number()),
+                                       v: v.reconstruct(number=u.number())}
+                # Replace arguments in argument slots (and not in operands!)
+                new_args = tuple(ufl.replace(a, reordered_arguments) for a in form.argument_slots())
+                if isinstance(form, ufl.Interpolate):
+                    # Different API for Interpolate
+                    return form._ufl_expr_reconstruct_(*reversed(new_args))
+                return form._ufl_expr_reconstruct_(*form.ufl_operands, argument_slots=new_args)
+            # -- Case (8) -- #
+            # Adjoint(Action(dFdN, dNdu)) -> Action(Adjoint(dNdu), Adjoint(dFdN))
+            if isinstance(form, ufl.Action) and all(len(e.arguments()) == 2 for e in form.ufl_operands):
+                A, B = form.ufl_operands
+                A_adj = BaseFormAssembler.restructure_base_form(firedrake.adjoint(A), visited)
+                B_adj = BaseFormAssembler.restructure_base_form(firedrake.adjoint(B), visited)
+                return ufl.action(B_adj, A_adj)
 
         # -- Case (5) -- #
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and len(expr.arguments()) == 0:
@@ -891,7 +927,12 @@ class BaseFormAssembler(AbstractFormAssembler):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
+            # Some DAGs require multiple traversals to be fully restructured.
+            # Example: `expr = Action(Adjoint(Action(∂F/∂N, Action(∂N/∂I, ∂I/∂u))), w)`
+            # naturally arises when computing the adjoint model of a variational form
+            # containing an external operator `N(I(u); v*)`, where `I` is the interpolation operator.
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
+            expr = BaseFormAssembler.restructure_base_form_postorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
