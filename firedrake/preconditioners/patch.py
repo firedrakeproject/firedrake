@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import abc
-import collections
 import dataclasses
 import itertools
 import textwrap
@@ -19,11 +17,9 @@ from firedrake.ufl_expr import extract_domains
 from typing import Any
 
 import loopy as lp
-from mpi4py import MPI
 
 import ufl
 
-from collections import namedtuple
 import operator
 from itertools import chain
 from functools import cached_property, partial
@@ -38,12 +34,8 @@ import ctypes
 import pyop2.compilation
 from pyop2 import op2
 import pyop2.types
-from pyop2.codegen.builder import Pack, MatPack, DatPack
-from pyop2.codegen.representation import Comparison, Literal
-from pyop2.codegen.rep2loopy import register_petsc_function
 from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
-from pyop2.utils import get_petsc_dir
 
 if typing.TYPE_CHECKING:
     from firedrake import Function, Cofunction
