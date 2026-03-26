@@ -35,7 +35,7 @@ int locate_cell(struct Function *f,
     size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->sidx, x, &ids, &nids);
     if (err != Success) {
-        fputs("ERROR: RTree_LocateAllAtPoint failed in rstar-capi!\n", stderr);
+        fputs("ERROR: rtree_locate_all_at_point failed.\n", stderr);
         rtree_free_ids(ids, nids);
         return -1;
     }
