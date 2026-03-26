@@ -49,16 +49,18 @@ ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
 SUPPORTED_PETSC_VERSION = "v3.24.5"
-# SuperLU_DIST built via PETSc does not support CUDA 13
+# SuperLU_DIST built via PETSc does not support CUDA 13 - can be increased
+# to 13.0 when SUPPORTED_PETSC_VERSION >= v3.25.0. CUDA 13.1 is currently
+# not supported by GPU drivers on Firedrake CI systems.
 SUPPORTED_CUDA_VERSION = "12.9"
 
 
 CUDA_ARCH_MAP = {
     "aarch64": "sbsa"
 }
-# Structure is ( deb_repo_filename, file_contents, GPG_key_URL )
-# A file named /etc/apt/sources.list.d/deb_repo_filename containing file_contents will be created
-# The output of curl -fsSL GPG_Key_URL will be passed to 'apt-key add'
+
+# Contains the URL to a deb package that will enable vendor-specific software development
+# repositories, or an empty string if none are required.
 EXTRA_LINUX_APT_PKG_URL = {
     NO_GPU: "",
     CUDA: f"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/{CUDA_ARCH_MAP.get(platform.machine(), platform.machine())}/cuda-keyring_1.1-1_all.deb",
@@ -104,7 +106,10 @@ Please see https://firedrakeproject.org/install for more information."""
         "--gpu-arch",
         choices=[arch.value for arch in GPUArch],
         default="none",
-        help="Target GPU architecture"
+        help=(
+            "Target GPU architecture. WARNING: This is an experimental feature. "
+            "GPU support in Firedrake is currently very limited."
+        ),
     )
     cmd_group = parser.add_mutually_exclusive_group(required=True)
     cmd_group.add_argument(
@@ -256,7 +261,7 @@ PETSC_EXTRAS_COMMON_APT_PACKAGES = (
     "libscalapack-openmpi-dev",
 )
 
-PETSC_EXTRAS_LINUX_APT_PACKAGES = PETSC_EXTRAS_COMMON_APT_PACKAGES + (
+PETSC_EXTRAS_LINUX_APT_NOGPU_PACKAGES = PETSC_EXTRAS_COMMON_APT_PACKAGES + (
     "libsuitesparse-dev",
     "libsuperlu-dev",
     "libsuperlu-dist-dev",
@@ -277,7 +282,7 @@ PETSC_EXTRAS_LINUX_APT_CUDA_PACKAGES = PETSC_EXTRAS_COMMON_APT_PACKAGES + (
     f"libcublas-dev-{cuda_ver_str}",
 )
 
-LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
+LINUX_APT_PACKAGES_NOGPU = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_NOGPU_PACKAGES
 
 LINUX_APT_PACKAGES_CUDA = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_CUDA_PACKAGES
 
@@ -319,10 +324,10 @@ MINIMAL_SYSTEM_PACKAGES = {
 }
 
 SYSTEM_PACKAGES = {
-    (LINUX_APT_X86_64, ARCH_DEFAULT, NO_GPU): LINUX_APT_PACKAGES,
-    (LINUX_APT_X86_64, ARCH_COMPLEX, NO_GPU): LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_DEFAULT, NO_GPU): LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_COMPLEX, NO_GPU): LINUX_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_DEFAULT, NO_GPU): LINUX_APT_PACKAGES_NOGPU,
+    (LINUX_APT_X86_64, ARCH_COMPLEX, NO_GPU): LINUX_APT_PACKAGES_NOGPU,
+    (LINUX_APT_AARCH64, ARCH_DEFAULT, NO_GPU): LINUX_APT_PACKAGES_NOGPU,
+    (LINUX_APT_AARCH64, ARCH_COMPLEX, NO_GPU): LINUX_APT_PACKAGES_NOGPU,
     (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT, NO_GPU): MACOS_HOMEBREW_PACKAGES,
     (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX, NO_GPU): MACOS_HOMEBREW_PACKAGES,
     (LINUX_APT_X86_64, ARCH_DEFAULT, CUDA): LINUX_APT_PACKAGES_CUDA,

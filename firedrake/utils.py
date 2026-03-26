@@ -9,6 +9,7 @@ from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
 from petsc4py import PETSc
 from functools import cache
+from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
 
 
@@ -34,13 +35,22 @@ def device_matrix_type(warn: bool = False) -> str | None:
     Typical Usage Example:
     mat_type = device_matrix_type(pc.comm.rank == 0)
 
-    :arg warn: Emit a warning containing the reason a device mat_type
+    Parameters
+    ----------
+    warn
+        Emit a warning containing the reason a device mat_type
         has not been returned. Defaults to False.
 
-    :raises RuntimeError: Raised when PETSc initialises a GPU device that
+    Raises
+    ------
+    UnrecognisedDeviceError
+        Raised when PETSc initialises a GPU device that
         Firedrake does not understand
 
-    :returns: The PETSc mat_type compatible with the GPU device detected on
+    Returns
+    -------
+    str | None
+        The PETSc mat_type compatible with the GPU device detected on
         this system or None
 
     """
@@ -58,7 +68,11 @@ def device_matrix_type(warn: bool = False) -> str | None:
     dev_type = dev.getDeviceType()
     dev.destroy()
     if dev_type not in _device_mat_type_map:
-        raise RuntimeError(f"Unknown device type: {dev_type} initialised by PETSc")
+        raise UnrecognisedDeviceError(
+            f"Unknown device type: {dev_type} initialised by PETSc. Firedrake "
+            f"currently understands {', '.join([k for k in _device_mat_type_map if k != 'HOST'])}"
+            "devices"
+        )
 
     if warn:
         if dev_type == "HOST":
