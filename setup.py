@@ -130,20 +130,6 @@ else:
 # possible site package locations we can think of.
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
-# libspatialindex
-# example:
-# gcc -I/rtree/include
-# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
-libspatialindex_so = Path(rtree.core.rt._name).absolute()
-spatialindex_ = ExternalDependency(
-    include_dirs=[rtree.finder.get_include()],
-    extra_link_args=[str(libspatialindex_so)],
-    runtime_library_dirs=[
-        *(os.path.join(dir, "rtree.libs") for dir in sitepackage_dirs),
-        *(os.path.join(dir, "rtree", "lib") for dir in sitepackage_dirs),
-    ],
-)
-
 # firedrake_rtree
 rtree_ = ExternalDependency(
     include_dirs=[firedrake_rtree.get_include()],
