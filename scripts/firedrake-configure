@@ -49,10 +49,8 @@ ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
 SUPPORTED_PETSC_VERSION = "v3.24.5"
-# SuperLU_DIST built via PETSc does not support CUDA 13 - can be increased
-# to 13.0 when SUPPORTED_PETSC_VERSION >= v3.25.0. CUDA 13.1 is currently
-# not supported by GPU drivers on Firedrake CI systems.
-SUPPORTED_CUDA_VERSION = "12.9"
+# CUDA 13.1 is currently not supported by GPU drivers on Firedrake CI systems.
+SUPPORTED_CUDA_VERSION = "13.0"
 
 
 CUDA_ARCH_MAP = {
@@ -429,7 +427,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS_COMMON: PetscSpecsDictType = {
     },
 }
 
-PETSC_EXTERNAL_PACKAGE_SPECS: PetscSpecsDictType = (
+PETSC_EXTERNAL_PACKAGE_SPECS_NOGPU: PetscSpecsDictType = (
     PETSC_EXTERNAL_PACKAGE_SPECS_COMMON
     | {
         "suitesparse": {
@@ -497,7 +495,7 @@ def prepare_external_package_configure_options(
             package_spec = PETSC_DOWNLOAD
         else:
             if gpu_arch == NO_GPU:
-                package_spec = PETSC_EXTERNAL_PACKAGE_SPECS[external_package][package_manager]
+                package_spec = PETSC_EXTERNAL_PACKAGE_SPECS_NOGPU[external_package][package_manager]
             elif gpu_arch == CUDA:
                 package_spec = PETSC_EXTERNAL_PACKAGE_SPECS_CUDA[external_package][package_manager]
 

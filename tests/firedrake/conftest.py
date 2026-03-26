@@ -185,7 +185,7 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if device_matrix_type() is None:
+        if device_matrix_type(False) is None:
             if item.get_closest_marker("skipnogpu") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test requires GPU hardware to run."))
 

@@ -27,7 +27,7 @@ SLATE_SUPPORTS_COMPLEX = False
 
 
 @cache
-def device_matrix_type(warn: bool = False) -> str | None:
+def device_matrix_type(warn: bool = True) -> str | None:
     r"""Get device matrix type
 
     Attempt to initialise a GPU device and return the PETSc mat_type
