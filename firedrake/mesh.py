@@ -4271,65 +4271,68 @@ def _parent_mesh_embedding(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
 
-    with temp_internal_comm(parent_mesh.comm) as icomm:
-        # In parallel, we need to make sure we know which point is which and save
-        # it.
-        if redundant:
-            # rank 0 broadcasts coords to all ranks
-            coords_local = icomm.bcast(coords, root=0)
-            ncoords_local = coords_local.shape[0]
-            coords_global = coords_local
-            ncoords_global = coords_global.shape[0]
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
-            input_coords_idxs_global = input_coords_idxs_local
-            input_ranks_local = np.zeros(ncoords_local, dtype=int)
-            input_ranks_global = input_ranks_local
-        else:
-            # Here, we have to assume that all points we can see are unique.
-            # We therefore gather all points on all ranks in rank order: if rank 0
-            # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
-            # rank 0's points have global numbering 0-9, rank 1's points have
-            # global numbering 10-29, and rank 3's points have global numbering
-            # 30-34.
-            coords_local = coords
-            ncoords_local = coords.shape[0]
-            ncoords_local_allranks = icomm.allgather(ncoords_local)
-            ncoords_global = sum(ncoords_local_allranks)
-            # The below code looks complicated but it's just an allgather of the
-            # (variable length) coords_local array such that they are concatenated.
-            coords_local_size = np.array(coords_local.size)
-            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
-            icomm.Allgatherv(coords_local_size, coords_local_sizes)
-            coords_global = np.empty(
-                (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
-            )
-            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
-            # # ncoords_local_allranks is in rank order so we can just sum up the
-            # # previous ranks to get the starting index for the global numbering.
-            # # For rank 0 we make use of the fact that sum([]) = 0.
-            # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
-            # endidx = startidx + ncoords_local
-            # global_idxs_global = np.arange(startidx, endidx)
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
-            input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
-            )
-            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
-            input_ranks_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_ranks_local, (input_ranks_global, ncoords_local_allranks)
-            )
-    (
-        parent_cell_nums,
-        reference_coords,
-        ref_cell_dists_l1,
-    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
-    assert len(parent_cell_nums) == ncoords_global
-    assert len(reference_coords) == ncoords_global
-    assert len(ref_cell_dists_l1) == ncoords_global
+    with PETSc.Log.Event("_parent_mesh_embedding - gather points"):
+        with temp_internal_comm(parent_mesh.comm) as icomm:
+            # In parallel, we need to make sure we know which point is which and save
+            # it.
+            if redundant:
+                # rank 0 broadcasts coords to all ranks
+                coords_local = icomm.bcast(coords, root=0)
+                ncoords_local = coords_local.shape[0]
+                coords_global = coords_local
+                ncoords_global = coords_global.shape[0]
+                global_idxs_global = np.arange(coords_global.shape[0])
+                input_coords_idxs_local = np.arange(ncoords_local)
+                input_coords_idxs_global = input_coords_idxs_local
+                input_ranks_local = np.zeros(ncoords_local, dtype=int)
+                input_ranks_global = input_ranks_local
+            else:
+                # Here, we have to assume that all points we can see are unique.
+                # We therefore gather all points on all ranks in rank order: if rank 0
+                # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
+                # rank 0's points have global numbering 0-9, rank 1's points have
+                # global numbering 10-29, and rank 3's points have global numbering
+                # 30-34.
+                coords_local = coords
+                ncoords_local = coords.shape[0]
+                ncoords_local_allranks = icomm.allgather(ncoords_local)
+                ncoords_global = sum(ncoords_local_allranks)
+                # The below code looks complicated but it's just an allgather of the
+                # (variable length) coords_local array such that they are concatenated.
+                coords_local_size = np.array(coords_local.size)
+                coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
+                icomm.Allgatherv(coords_local_size, coords_local_sizes)
+                coords_global = np.empty(
+                    (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
+                )
+                icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
+                # # ncoords_local_allranks is in rank order so we can just sum up the
+                # # previous ranks to get the starting index for the global numbering.
+                # # For rank 0 we make use of the fact that sum([]) = 0.
+                # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
+                # endidx = startidx + ncoords_local
+                # global_idxs_global = np.arange(startidx, endidx)
+                global_idxs_global = np.arange(coords_global.shape[0])
+                input_coords_idxs_local = np.arange(ncoords_local)
+                input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+                icomm.Allgatherv(
+                    input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
+                )
+                input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
+                input_ranks_global = np.empty(ncoords_global, dtype=int)
+                icomm.Allgatherv(
+                    input_ranks_local, (input_ranks_global, ncoords_local_allranks)
+                )
+    
+    with PETSc.Log.Event("_parent_mesh_embedding - locate cells"):
+        (
+            parent_cell_nums,
+            reference_coords,
+            ref_cell_dists_l1,
+        ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
+        assert len(parent_cell_nums) == ncoords_global
+        assert len(reference_coords) == ncoords_global
+        assert len(ref_cell_dists_l1) == ncoords_global
 
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
         # The reference coordinates contain an extra unnecessary dimension
@@ -4337,129 +4340,134 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
-    )
-    locally_visible = parent_cell_nums != -1
+    with PETSc.Log.Event("_parent_mesh_embedding - get ownership info"):
+        visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+        visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
+        visible_ranks[parent_mesh.cell_set.size:] = -1
+        # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+        dmcommon.exchange_cell_orientations(
+            parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+        )
+        locally_visible = parent_cell_nums != -1
 
-    if parent_mesh.extruded:
-        # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
-        # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
-        locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
-    else:
-        locally_visible_cell_nums = parent_cell_nums[locally_visible]
+        if parent_mesh.extruded:
+            # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
+            # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
+            locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
+        else:
+            locally_visible_cell_nums = parent_cell_nums[locally_visible]
 
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
     # We first set the owning cell to be the one with the minimum L1 distance to the point.
     # In the case of ties, we pick the highest rank number.
 
-    # Set non-visible L1 distance to np.inf so they don't interfere with the MPI.MIN reduction.
-    ref_cell_dists_l1[~locally_visible] = np.inf
-    owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
-    # The owning cell is the one with the minimum L1 distance to the point.
-    parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
+    with PETSc.Log.Event("_parent_mesh_embedding - resolve ownership"):
+        # Set non-visible L1 distance to np.inf so they don't interfere with the MPI.MIN reduction.
+        ref_cell_dists_l1[~locally_visible] = np.inf
+        owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
+        # The owning cell is the one with the minimum L1 distance to the point.
+        parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
 
-    # Only ranks that achieved the global minimum distance are candidates for
-    # ownership. Among tied candidates (same minimum distance) we pick the
-    # highest rank number using MPI.MAX. Non-visible points are set to -np.inf
-    # so they don't interfere with the MAX reduction.
-    ranks = np.full(ncoords_global, -np.inf)
-    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
-    rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
-    owned_ranks = np.empty_like(rank_candidates)
-    parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
+        # Only ranks that achieved the global minimum distance are candidates for
+        # ownership. Among tied candidates (same minimum distance) we pick the
+        # highest rank number using MPI.MAX. Non-visible points are set to -np.inf
+        # so they don't interfere with the MAX reduction.
+        ranks = np.full(ncoords_global, -np.inf)
+        ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
+        rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
+        owned_ranks = np.empty_like(rank_candidates)
+        parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
 
-    changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
-    changed_ranks = owned_ranks != ranks
+    with PETSc.Log.Event("_parent_mesh_embedding - resolve ownership ties"):
+        changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
+        changed_ranks = owned_ranks != ranks
 
-    # If distance has changed the the point is not in local mesh partition
-    # since some other cell on another rank is closer.
-    locally_visible[changed_ref_cell_dists_l1] = False
-    parent_cell_nums[changed_ref_cell_dists_l1] = -1
-    # If the rank has changed but the distance hasn't then there was a tie
-    # break and we need to search for the point again, this time disallowing
-    # the previously identified cell: if we match the identified owned_rank AND
-    # the distance is the same then we have found the correct cell. If we
-    # cannot make a match to owned_rank and distance then we can't see the
-    # point.
-    changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
-    if any(changed_ranks_tied):
-        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
-        while any(changed_ranks_tied):
-            (
-                parent_cell_nums[changed_ranks_tied],
-                new_reference_coords,
-                ref_cell_dists_l1[changed_ranks_tied],
-            ) = parent_mesh.locate_cells_ref_coords_and_dists(
-                coords_global[changed_ranks_tied],
-                tolerance,
-                cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
-            )
-            # delete extra dimension if necessary
-            if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
-            reference_coords[changed_ranks_tied, :] = new_reference_coords
-            # remove newly lost points
-            locally_visible[changed_ranks_tied] = (
-                parent_cell_nums[changed_ranks_tied] != -1
-            )
-            changed_ranks_tied &= locally_visible
-            # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
-            # disregard the point.
-            locally_visible[changed_ranks_tied] &= (
-                ref_cell_dists_l1[changed_ranks_tied]
-                <= owned_ref_cell_dists_l1[changed_ranks_tied]
-            )
-            changed_ranks_tied &= locally_visible
-            # update the identified rank
-            if parent_mesh.extruded:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
-            else:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
-            ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
-            # if the rank now matches then we have found the correct cell
-            locally_visible[changed_ranks_tied] &= (
-                owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
-            )
-            # remove these rank matches from changed_ranks_tied
-            changed_ranks_tied &= ~locally_visible
-            # add more cells to ignore
-            cells_ignore_T = np.vstack((
-                cells_ignore_T,
-                parent_cell_nums)
-            )
+        # If distance has changed the the point is not in local mesh partition
+        # since some other cell on another rank is closer.
+        locally_visible[changed_ref_cell_dists_l1] = False
+        parent_cell_nums[changed_ref_cell_dists_l1] = -1
+        # If the rank has changed but the distance hasn't then there was a tie
+        # break and we need to search for the point again, this time disallowing
+        # the previously identified cell: if we match the identified owned_rank AND
+        # the distance is the same then we have found the correct cell. If we
+        # cannot make a match to owned_rank and distance then we can't see the
+        # point.
+        changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
+        if any(changed_ranks_tied):
+            cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
+            while any(changed_ranks_tied):
+                (
+                    parent_cell_nums[changed_ranks_tied],
+                    new_reference_coords,
+                    ref_cell_dists_l1[changed_ranks_tied],
+                ) = parent_mesh.locate_cells_ref_coords_and_dists(
+                    coords_global[changed_ranks_tied],
+                    tolerance,
+                    cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
+                )
+                # delete extra dimension if necessary
+                if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+                    new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
+                reference_coords[changed_ranks_tied, :] = new_reference_coords
+                # remove newly lost points
+                locally_visible[changed_ranks_tied] = (
+                    parent_cell_nums[changed_ranks_tied] != -1
+                )
+                changed_ranks_tied &= locally_visible
+                # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
+                # disregard the point.
+                locally_visible[changed_ranks_tied] &= (
+                    ref_cell_dists_l1[changed_ranks_tied]
+                    <= owned_ref_cell_dists_l1[changed_ranks_tied]
+                )
+                changed_ranks_tied &= locally_visible
+                # update the identified rank
+                if parent_mesh.extruded:
+                    _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
+                else:
+                    _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
+                ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
+                # if the rank now matches then we have found the correct cell
+                locally_visible[changed_ranks_tied] &= (
+                    owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
+                )
+                # remove these rank matches from changed_ranks_tied
+                changed_ranks_tied &= ~locally_visible
+                # add more cells to ignore
+                cells_ignore_T = np.vstack((
+                    cells_ignore_T,
+                    parent_cell_nums)
+                )
 
-    # Any ranks which are still -np.inf are not in the mesh
-    missing_global_idxs = np.where(owned_ranks == -np.inf)[0]
+        # Any ranks which are still -np.inf are not in the mesh
+        missing_global_idxs = np.where(owned_ranks == -np.inf)[0]
 
-    if not remove_missing_points:
-        missing_coords_idxs_on_rank = np.where(
-            (owned_ranks == -np.inf) & (input_ranks_global == parent_mesh.comm.rank)
-        )[0]
-        locally_visible[missing_coords_idxs_on_rank] = True
-        parent_cell_nums[missing_coords_idxs_on_rank] = -1
-        reference_coords[missing_coords_idxs_on_rank, :] = np.nan
-        owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
+    with PETSc.Log.Event("_parent_mesh_embedding - handle missing points and halos"):
+        if not remove_missing_points:
+            missing_coords_idxs_on_rank = np.where(
+                (owned_ranks == -np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+            )[0]
+            locally_visible[missing_coords_idxs_on_rank] = True
+            parent_cell_nums[missing_coords_idxs_on_rank] = -1
+            reference_coords[missing_coords_idxs_on_rank, :] = np.nan
+            owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
 
-    if exclude_halos and parent_mesh.comm.size > 1:
-        off_rank_coords_idxs = np.where(
-            (owned_ranks != parent_mesh.comm.rank)
-            & (owned_ranks != parent_mesh.comm.size + 1)
-        )[0]
-        locally_visible[off_rank_coords_idxs] = False
+        if exclude_halos and parent_mesh.comm.size > 1:
+            off_rank_coords_idxs = np.where(
+                (owned_ranks != parent_mesh.comm.rank)
+                & (owned_ranks != parent_mesh.comm.size + 1)
+            )[0]
+            locally_visible[off_rank_coords_idxs] = False
 
-    coords_embedded = np.compress(locally_visible, coords_global, axis=0)
-    global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
-    reference_coords = np.compress(locally_visible, reference_coords, axis=0)
-    parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
-    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
-    input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
-    input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
+    with PETSc.Log.Event("_parent_mesh_embedding - filter to locally visible"):
+        coords_embedded = np.compress(locally_visible, coords_global, axis=0)
+        global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
+        reference_coords = np.compress(locally_visible, reference_coords, axis=0)
+        parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
+        owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
+        input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
+        input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
 
     return (
         coords_embedded,
@@ -4499,142 +4507,148 @@ def _swarm_original_ordering_preserve(
 
     # Gather everything except original_ordering_coords_local from all mpi
     # ranks
-    ncoords_local_allranks = comm.allgather(ncoords_local)
-    ncoords_global = sum(ncoords_local_allranks)
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - allgathers"):
+        ncoords_local_allranks = comm.allgather(ncoords_local)
+        ncoords_global = sum(ncoords_local_allranks)
 
-    parent_cell_nums_global = np.empty(
-        ncoords_global, dtype=parent_cell_nums_local.dtype
-    )
-    comm.Allgatherv(
-        parent_cell_nums_local, (parent_cell_nums_global, ncoords_local_allranks)
-    )
+        parent_cell_nums_global = np.empty(
+            ncoords_global, dtype=parent_cell_nums_local.dtype
+        )
+        comm.Allgatherv(
+            parent_cell_nums_local, (parent_cell_nums_global, ncoords_local_allranks)
+        )
 
-    plex_parent_cell_nums_global = np.empty(
-        ncoords_global, dtype=plex_parent_cell_nums_local.dtype
-    )
-    comm.Allgatherv(
-        plex_parent_cell_nums_local,
-        (plex_parent_cell_nums_global, ncoords_local_allranks),
-    )
+        plex_parent_cell_nums_global = np.empty(
+            ncoords_global, dtype=plex_parent_cell_nums_local.dtype
+        )
+        comm.Allgatherv(
+            plex_parent_cell_nums_local,
+            (plex_parent_cell_nums_global, ncoords_local_allranks),
+        )
 
-    reference_coords_local_size = np.array(reference_coords_local.size)
-    reference_coords_local_sizes = np.empty(comm.size, dtype=int)
-    comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
-    reference_coords_global = np.empty(
-        (ncoords_global, reference_coords_local.shape[1]),
-        dtype=reference_coords_local.dtype,
-    )
-    comm.Allgatherv(
-        reference_coords_local, (reference_coords_global, reference_coords_local_sizes)
-    )
+        reference_coords_local_size = np.array(reference_coords_local.size)
+        reference_coords_local_sizes = np.empty(comm.size, dtype=int)
+        comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
+        reference_coords_global = np.empty(
+            (ncoords_global, reference_coords_local.shape[1]),
+            dtype=reference_coords_local.dtype,
+        )
+        comm.Allgatherv(
+            reference_coords_local, (reference_coords_global, reference_coords_local_sizes)
+        )
 
-    global_idxs_global = np.empty(ncoords_global, dtype=global_idxs_local.dtype)
-    comm.Allgatherv(global_idxs_local, (global_idxs_global, ncoords_local_allranks))
+        global_idxs_global = np.empty(ncoords_global, dtype=global_idxs_local.dtype)
+        comm.Allgatherv(global_idxs_local, (global_idxs_global, ncoords_local_allranks))
 
-    ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
-    comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
+        ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
+        comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
 
-    input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
-    comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
+        input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
+        comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
 
-    input_idxs_global = np.empty(ncoords_global, dtype=input_idxs_local.dtype)
-    comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
+        input_idxs_global = np.empty(ncoords_global, dtype=input_idxs_local.dtype)
+        comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
 
     # Sort by global index, which will be in rank order (they probably already
     # are but we can't rely on that)
-    global_idxs_global_order = np.argsort(global_idxs_global)
-    sorted_parent_cell_nums_global = parent_cell_nums_global[global_idxs_global_order]
-    sorted_plex_parent_cell_nums_global = plex_parent_cell_nums_global[
-        global_idxs_global_order
-    ]
-    sorted_reference_coords_global = reference_coords_global[
-        global_idxs_global_order, :
-    ]
-    sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
-    sorted_ranks_global = ranks_global[global_idxs_global_order]
-    sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
-    sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - sorting"):
+        global_idxs_global_order = np.argsort(global_idxs_global)
+        sorted_parent_cell_nums_global = parent_cell_nums_global[global_idxs_global_order]
+        sorted_plex_parent_cell_nums_global = plex_parent_cell_nums_global[
+            global_idxs_global_order
+        ]
+        sorted_reference_coords_global = reference_coords_global[
+            global_idxs_global_order, :
+        ]
+        sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
+        sorted_ranks_global = ranks_global[global_idxs_global_order]
+        sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
+        sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
     # Check order is correct - we can probably remove this eventually since it's
     # quite expensive
-    if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
-        raise ValueError("Global indexing has not ordered the ranks as expected")
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - checking sorting"):
+        if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
+            raise ValueError("Global indexing has not ordered the ranks as expected")
 
     # get rid of any duplicated global indices (i.e. points in halos)
-    unique_global_idxs, unique_idxs = np.unique(
-        sorted_global_idxs_global, return_index=True
-    )
-    unique_parent_cell_nums_global = sorted_parent_cell_nums_global[unique_idxs]
-    unique_plex_parent_cell_nums_global = sorted_plex_parent_cell_nums_global[
-        unique_idxs
-    ]
-    unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
-    unique_ranks_global = sorted_ranks_global[unique_idxs]
-    unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
-    unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - remove duplicates"):
+        unique_global_idxs, unique_idxs = np.unique(
+            sorted_global_idxs_global, return_index=True
+        )
+        unique_parent_cell_nums_global = sorted_parent_cell_nums_global[unique_idxs]
+        unique_plex_parent_cell_nums_global = sorted_plex_parent_cell_nums_global[
+            unique_idxs
+        ]
+        unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
+        unique_ranks_global = sorted_ranks_global[unique_idxs]
+        unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
+        unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
 
     # save the points on this rank which match the input rank ready for output
-    input_ranks_match = unique_input_ranks_global == comm.rank
-    output_global_idxs = unique_global_idxs[input_ranks_match]
-    output_parent_cell_nums = unique_parent_cell_nums_global[input_ranks_match]
-    output_plex_parent_cell_nums = unique_plex_parent_cell_nums_global[
-        input_ranks_match
-    ]
-    output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
-    output_ranks = unique_ranks_global[input_ranks_match]
-    output_input_ranks = unique_input_ranks_global[input_ranks_match]
-    output_input_idxs = unique_input_idxs_global[input_ranks_match]
-    if extruded:
-        (
-            output_base_parent_cell_nums,
-            output_extrusion_heights,
-        ) = _parent_extrusion_numbering(output_parent_cell_nums, layers)
-    else:
-        output_base_parent_cell_nums = None
-        output_extrusion_heights = None
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - select local points"):
+        input_ranks_match = unique_input_ranks_global == comm.rank
+        output_global_idxs = unique_global_idxs[input_ranks_match]
+        output_parent_cell_nums = unique_parent_cell_nums_global[input_ranks_match]
+        output_plex_parent_cell_nums = unique_plex_parent_cell_nums_global[
+            input_ranks_match
+        ]
+        output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
+        output_ranks = unique_ranks_global[input_ranks_match]
+        output_input_ranks = unique_input_ranks_global[input_ranks_match]
+        output_input_idxs = unique_input_idxs_global[input_ranks_match]
+        if extruded:
+            (
+                output_base_parent_cell_nums,
+                output_extrusion_heights,
+            ) = _parent_extrusion_numbering(output_parent_cell_nums, layers)
+        else:
+            output_base_parent_cell_nums = None
+            output_extrusion_heights = None
 
     # check if the input indices are in order from zero - this can also probably
     # be removed eventually because, again, it's expensive.
-    if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
-        raise ValueError(
-            "Global indexing has not ordered the input indices as expected."
-        )
-    if len(output_global_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_reference_coords) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if extruded:
-        if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
+    with PETSc.Log.Event("_swarm_original_ordering_preserve - checking input idxs"):
+        if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
             raise ValueError(
-                "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+                "Global indexing has not ordered the input indices as expected."
             )
-        if len(output_extrusion_heights) != len(original_ordering_coords_local):
+        if len(output_global_idxs) != len(original_ordering_coords_local):
             raise ValueError(
-                "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
+                "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
             )
+        if len(output_parent_cell_nums) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_reference_coords) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_ranks) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_input_ranks) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if len(output_input_idxs) != len(original_ordering_coords_local):
+            raise ValueError(
+                "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
+            )
+        if extruded:
+            if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
+                raise ValueError(
+                    "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
+                )
+            if len(output_extrusion_heights) != len(original_ordering_coords_local):
+                raise ValueError(
+                    "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
+                )
 
     return _dmswarm_create(
         [],
