@@ -43,22 +43,27 @@ if typing.TYPE_CHECKING:
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
 
-# We need to set C function pointer callbacks for PCPatch to work.
-# Although petsc4py provides a high-level Python wrapper for them,
-# this is very costly when going back and forth from C to Python only
-# to extract function pointers and send them straight back to C. Here,
-# since we know what the calling convention of the C function is, we
-# just wrap up everything as a C function pointer and use that
-# directly.
-
-
 @dataclasses.dataclass(frozen=True)
 class PatchCallable:
+    """Class representing the evaluation of a patch operator or residual.
+
+    When we set the callbacks for PCPatch/SNESPatch, we have to pass a function
+    pointer that executes a patch-wise parloop along with a struct that contains
+    the additional coefficients and cell-node maps that the parloop needs. Given
+    an input local kernel, this class coordinates the generation of these objects
+    (called `ctypes_callable` and `ctypes_struct_address`).
+
+    """
     form: ufl.Form
     kinfo: Any
 
     @cached_property
     def ctypes_callable(self):
+        """Pointer to the compiled evaluation callback function.
+
+        This is the function passed to 'PCPatchSetComputeOperator' and friends.
+
+        """
         cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
         ldargs = [
             *(petsctools.get_petsc_dirs(prefix="-L", subdir="lib")),
@@ -88,6 +93,11 @@ class PatchCallable:
 
     @cached_property
     def ctypes_struct_address(self):
+        """Pointer to the 'context' struct passed to the callback function.
+
+        This is passed to 'PCPatchSetComputeOperator' and friends.
+
+        """
         return ctypes.addressof(self._ctypes_struct)
 
     @cached_property
@@ -849,6 +859,13 @@ class PatchBase(PCSNESBase):
             ghost_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
             global_bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
+        # We need to set C function pointer callbacks for PCPatch to work.
+        # Although petsc4py provides a high-level Python wrapper for them,
+        # this is very costly when going back and forth from C to Python only
+        # to extract function pointers and send them straight back to C. Here,
+        # since we know what the calling convention of the C function is, we
+        # just wrap up everything as a C function pointer and use that
+        # directly.
         (
             jacobian_cell_callable,
             jacobian_interior_facet_callable,
