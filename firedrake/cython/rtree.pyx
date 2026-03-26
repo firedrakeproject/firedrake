@@ -45,8 +45,8 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
         Lower corner coordinates of the bounding boxes, with shape `(n, dim)`.
     coords_max : numpy.ndarray
         Upper corner coordinates of the bounding boxes, with shape `(n, dim)`.
-    ids : numpy.ndarray, optional
-        Integer ids for each box, with shape `(n,)`. If not provided,
+    ids : numpy.ndarray
+        Optional integer ids for each box, with shape `(n,)`. If not provided,
         defaults to `0, 1, ..., n-1`.
 
     Returns
