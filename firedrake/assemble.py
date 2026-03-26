@@ -1860,12 +1860,14 @@ def _as_global_kernel_arg_coefficient(_, self):
     else:
         index = None
 
-    ufl_element = V.ufl_element()
-    if ufl_element.family() == "Real":
+    if V.ufl_element().family() == "Real":
         # Interior facet integrals double Real coefficients for the
         # two sides of the facet, matching the TSFC-generated kernel.
-        s = 2 if self._integral_type.startswith("interior_facet") else 1
-        return op2.GlobalKernelArg((s * V.value_size,))
+        if self._integral_type.startswith("interior_facet"):
+            shape = (2, V.value_size)
+        else:
+            shape = (V.value_size,)
+        return op2.GlobalKernelArg(shape)
     else:
         return self._make_dat_global_kernel_arg(V, index=index)
 
