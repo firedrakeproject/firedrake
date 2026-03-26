@@ -166,7 +166,7 @@ for (int32_t {node_index}=0; {node_index}<{num_nodes}; {node_index}++)
 
 
 @dataclasses.dataclass(frozen=True)
-class PatchCallable:
+class PatchCallable(abc.ABC):
     context: PatchCallableGeneratorContext
 
     @cached_property
