@@ -13,7 +13,6 @@ import firedrake_rtree
 import numpy as np
 import pybind11
 import petsctools
-import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
