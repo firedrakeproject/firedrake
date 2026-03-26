@@ -32,6 +32,7 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from functools import cached_property
 
+from pyop2.types.glob import Global
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 
 
@@ -1861,7 +1862,10 @@ def _as_global_kernel_arg_coefficient(_, self):
 
     ufl_element = V.ufl_element()
     if ufl_element.family() == "Real":
-        return op2.GlobalKernelArg((V.value_size,))
+        # Interior facet integrals double Real coefficients for the
+        # two sides of the facet, matching the TSFC-generated kernel.
+        s = 2 if self._integral_type.startswith("interior_facet") else 1
+        return op2.GlobalKernelArg((s * V.value_size,))
     else:
         return self._make_dat_global_kernel_arg(V, index=index)
 
@@ -2211,6 +2215,14 @@ def _as_parloop_arg_cell_sizes(_, self):
 def _as_parloop_arg_coefficient(arg, self):
     coeff = next(self._active_coefficients)
     if coeff.ufl_element().family() == "Real":
+        if self._integral_type.startswith("interior_facet"):
+            # The TSFC kernel expects the Real value on both facet
+            # sides so we tile the underlying data into a new Global.
+            data = numpy.tile(coeff.dat.data_ro, 2)
+            return op2.GlobalParloopArg(
+                Global(data.shape, data, coeff.dat.dtype,
+                       name=coeff.dat.name, comm=coeff.dat.comm)
+            )
         return op2.GlobalParloopArg(coeff.dat)
     else:
         m = self._get_map(coeff.function_space())

@@ -369,6 +369,22 @@ def test_real_interpolate():
     assert np.allclose(float(a_int), 1.0)
 
 
+@pytest.mark.skipcomplex
+def test_real_interior_facet():
+    """Real coefficient inside jump() should not be facet-doubled."""
+    mesh = UnitSquareMesh(2, 2)
+    K = FunctionSpace(mesh, "DG", 1)
+    R = FunctionSpace(mesh, "Real", 0)
+
+    q = Function(K)
+    v = TestFunction(K)
+    c = Function(R)
+    c.assign(1.0)
+
+    F = jump(c * q) * jump(v) * dS
+    assemble(F)
+
+
 def test_real_space_hex():
     mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
     DG = FunctionSpace(mesh, "DQ", 0)
