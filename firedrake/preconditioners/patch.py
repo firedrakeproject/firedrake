@@ -170,17 +170,17 @@ class PatchCallable:
         temp_name = f"t_{next(temp_counter)}"
         spaces = map(operator.methodcaller("function_space"), self.form.arguments())
         if len(self.form.arguments()) == 2:
-            row_space, column_space = spaces
+            sizes = []
+            for space in spaces:
+                map_ = self._get_map(space)
+                size = sum(
+                    map_.arity*dset.cdim
+                    for map_, dset in zip(map_, space.dof_dset, strict=True)
+                )
+                sizes.append(size)
+            row_size, column_size = sizes
 
-            row_arity = self._get_map(row_space).arity
-            row_cdim = row_space.dof_dset.cdim
-            column_arity = self._get_map(column_space).arity
-            column_cdim = column_space.dof_dset.cdim
-
-            temps.append((temp_name, (row_arity, column_arity, row_cdim, column_cdim)))
-
-            row_size = row_arity * row_cdim
-            column_size = column_arity * column_cdim
+            temps.append((temp_name, (row_size, column_size)))
 
             pack_insn = f"""\
 for (int32_t k=0; k<{row_size}*{column_size}; k++)
