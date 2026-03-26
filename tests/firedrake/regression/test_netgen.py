@@ -4,8 +4,8 @@ import pytest
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 3])
-def test_create_netgen_mesh_high_order():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_mesh_high_order():
     from netgen.geom2d import Circle, CSG2d
     geo = CSG2d()
     geo.Add(Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle"))
@@ -123,7 +123,8 @@ def poisson3D(h, degree=2):
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_Poisson_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_poisson_2d():
     diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -132,17 +133,8 @@ def test_firedrake_Poisson_netgen():
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_firedrake_Poisson_netgen_parallel():
-    diff = np.array([poisson(h)[0] for h in [1/2, 1/4, 1/8]])
-    print("l2 error norms:", diff)
-    conv = np.log2(diff[:-1] / diff[1:])
-    print("convergence order:", conv)
-    assert (np.array(conv) > 2.8).all()
-
-
-@pytest.mark.skipnetgen
-def test_firedrake_Poisson3D_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_poisson_3d():
     diff = np.array([poisson3D(h) for h in [1, 1/2, 1/4]])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
@@ -151,7 +143,7 @@ def test_firedrake_Poisson3D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_2D_netgen():
+def test_netgen_csg_2d_integral():
     from netgen.geom2d import SplineGeometry
     import netgen
 
@@ -173,7 +165,7 @@ def test_firedrake_integral_2D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_3D_netgen():
+def test_netgen_csg_3d_integral():
     from netgen.csg import CSGeometry, OrthoBrick, Pnt
     import netgen
 
@@ -198,14 +190,15 @@ def test_firedrake_integral_3D_netgen():
 
 
 @pytest.mark.skipnetgen
-def test_firedrake_integral_ball_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_manifold():
     from netgen.csg import CSGeometry, Pnt, Sphere
     from netgen.meshing import MeshingParameters
     from netgen.meshing import MeshingStep
     import netgen
 
     comm = COMM_WORLD
-    if comm.Get_rank() == 0:
+    if comm.rank == 0:
         geo = CSGeometry()
         geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
         mp = MeshingParameters(maxh=0.05, perfstepsend=MeshingStep.MESHSURFACE)
@@ -214,15 +207,48 @@ def test_firedrake_integral_ball_netgen():
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
     msh = Mesh(ngmesh)
+    assert msh.topological_dimension == 2
+    assert msh.geometric_dimension == 3
+
     V = FunctionSpace(msh, "CG", 3)
-    x, y, z = SpatialCoordinate(msh)
-    f = assemble(interpolate(1+0*x, V))
+    f = assemble(interpolate(Constant(1), V))
     assert abs(assemble(f * dx) - 4*np.pi) < 1.e-2
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 3])
-def test_firedrake_integral_sphere_high_order_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_occ_manifold():
+    from netgen.occ import Pnt, SplineApproximation, Face, Wire, Axis, OCCGeometry, Z
+    from netgen.meshing import MeshingStep
+    R = 3.0
+    r = 1.5
+    surface_area = R*r*(2*pi)**2
+
+    def Curve(t):
+        return Pnt(0, R+r*np.cos(t), r*np.sin(t))
+
+    n = 100
+    pnts = [Curve(2*np.pi*t/n) for t in range(n+1)]
+
+    spline = SplineApproximation(pnts)
+    f = Face(Wire(spline))
+
+    torus = f.Revolve(Axis((0, 0, 0), Z), 360)
+    geo = OCCGeometry(torus, dim=3)
+    ngmesh = geo.GenerateMesh(maxh=0.5, perfstepsend=MeshingStep.MESHSURFACE)
+
+    msh = Mesh(ngmesh)
+    assert msh.topological_dimension == 2
+    assert msh.geometric_dimension == 3
+
+    V = FunctionSpace(msh, "CG", 3)
+    f = assemble(interpolate(Constant(1), V))
+    assert abs(assemble(f * dx) - surface_area)/surface_area < 5.e-3
+
+
+@pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
+def test_netgen_csg_high_order_integral():
     from netgen.csg import CSGeometry, Pnt, Sphere
     import netgen
 
@@ -236,15 +262,14 @@ def test_firedrake_integral_sphere_high_order_netgen():
 
     homsh = Mesh(ngmesh, netgen_flags={"degree": 2})
     V = FunctionSpace(homsh, "CG", 2)
-    x, y, z = SpatialCoordinate(homsh)
-    f = assemble(interpolate(1+0*x, V))
+    f = assemble(interpolate(Constant(1), V))
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-@pytest.mark.parallel([1, 3])
-def test_firedrake_Adaptivity_netgen():
+@pytest.mark.parallel([1, 2])
+def test_netgen_occ_adaptivity():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
     from netgen.occ import X, Z
 
@@ -317,29 +342,3 @@ def test_firedrake_Adaptivity_netgen():
             break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
-
-
-def test_netgen_manifold():
-    from netgen.meshing import MeshingStep
-    from netgen.occ import Pnt, SplineApproximation, Face, Wire, Axis, OCCGeometry, Z
-    # Ellipsoid with center (0,R,0) with Y-radius a, Z-radius b
-    R = 3.0
-    a = 1.5
-    b = 1.6
-
-    def Curve(t):
-        return Pnt(0, R+a*np.cos(t), b*np.sin(t))
-
-    n = 100
-    pnts = [Curve(2*np.pi*t/n) for t in range(n+1)]
-
-    spline = SplineApproximation(pnts)
-    f = Face(Wire(spline))
-
-    torus = f.Revolve(Axis((0, 0, 0), Z), 360)
-    geo = OCCGeometry(torus, dim=3)
-    ngmesh = geo.GenerateMesh(maxh=0.5, perfstepsend=MeshingStep.MESHSURFACE)
-    mesh = Mesh(ngmesh)
-
-    assert mesh.topological_dimension == 2
-    assert mesh.geometric_dimension == 3
