@@ -424,8 +424,6 @@ PetscErrorCode ComputeJacobian(PC pc,
             assert self.kinfo.integral_type == "interior_facet"
             point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
 
-        # breakpoint()
-
         struct_args = [
             *(arg for dat in self._dats for arg in dat._kernel_args_),
             *(arg for map_ in self._maps for arg in map_._kernel_args_),
@@ -982,6 +980,10 @@ class PatchBase(PCSNESBase):
                     jacobian_interior_facet_callable.ctypes_callable,
                     jacobian_interior_facet_callable.ctypes_struct_address,
                 )
+
+        # Store a reference to the callables to prevent them getting cleaned up
+        self.jacobian_cell_callable = jacobian_cell_callable
+        self.jacobian_interior_facet_callable = jacobian_interior_facet_callable
 
         set_residual = hasattr(ctx, "F") and isinstance(obj, PETSc.SNES)
         if set_residual:
