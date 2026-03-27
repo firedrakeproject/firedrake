@@ -97,10 +97,11 @@ class GlobalKernelArg:
     """
 
     dim: Tuple[int, ...]
+    double: bool = False
 
     @property
     def cache_key(self):
-        return type(self), self.dim
+        return type(self), self.dim, self.double
 
     @property
     def maps(self):
