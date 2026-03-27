@@ -44,7 +44,6 @@ if typing.TYPE_CHECKING:
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
-myrefs = []
 
 @dataclasses.dataclass(frozen=True)
 class PatchCallable:
@@ -59,6 +58,7 @@ class PatchCallable:
     """
     form: ufl.Form
     kinfo: Any
+    state: Any
 
     @cached_property
     def ctypes_callable(self):
@@ -75,7 +75,6 @@ class PatchCallable:
             "-lm",
         ]
         comm = self.form.arguments()[0].function_space().comm
-        # breakpoint()
         dll = pyop2.compilation.load(
             self._callback_code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm
         )
@@ -105,39 +104,34 @@ class PatchCallable:
         return ctypes.addressof(self._ctypes_struct)
 
     @cached_property
-    def _args(self) -> dict[op2.Dat | op2.Global | op2.Constant, tuple[str, tuple[op2.Map, str] | None] | str]:
-        args = {}
-        dat_names: dict[op2.Dat, str] = {}
+    def _args_and_names(self) -> tuple[list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant], dict[Any, str]]:
+        args: list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant] = []
+        names: dict[Any, str] = {}
+
         dat_name_counter = itertools.count()
-        map_names: dict[op2.Map, str] = {}
-        map_name_counter = itertools.count()
-        glob_names: dict[op2.Global | op2.Constant, str] = {}
         glob_name_counter = itertools.count()
+        map_name_counter = itertools.count()
 
         def add_dat(dat, map_):
-            try:
-                dat_name = dat_names[dat]
-            except KeyError:
-                dat_name = dat_names.setdefault(dat, f"dat_{next(dat_name_counter)}")
-
-            if map_ is None:
-                args[dat] = (dat_name, None)
-            else:
-                try:
-                    map_name = map_names[map_]
-                except KeyError:
-                    map_name = map_names.setdefault(map_, f"map_{next(map_name_counter)}")
-                args[dat] = (dat_name, (map_, map_name))
+            if dat not in names:
+                names[dat] = f"dat_{next(dat_name_counter)}"
+            if map_ is not None and map_ not in names:
+                names[map_] = f"map_{next(map_name_counter)}"
+            args.append((dat, map_))
 
         def add_glob(glob):
-            try:
-                glob_name = glob_names[glob]
-            except KeyError:
-                glob_name = glob_names.setdefault(glob, f"glob_{next(glob_name_counter)}")
-            args[glob] = glob_name
+            if glob not in names:
+                names[glob] = f"glob_{next(glob_name_counter)}"
+            args.append(glob)
 
         def add_coeff(coeff):
             add_dat(coeff.dat, self._get_map(coeff.function_space()))
+
+        # Register the state map immediately. We don't need to store the coefficient
+        # because we set that up separately.
+        if self.state is not None:
+            state_map = self._get_map(self.state.function_space())
+            names[state_map] = f"map_{next(map_name_counter)}"
 
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
@@ -153,12 +147,14 @@ class PatchCallable:
 
         for coeff_number, coeff_indices in self.kinfo.coefficient_numbers:
             coeff = self.form.coefficients()[coeff_number]
-            # if c is state:
-            #     raise NotImplementedError
-            #     if indices != (0, ):
-            #         raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
-            #     args.append(statearg)
-            #     continue
+            if coeff is self.state:
+                if coeff_indices != (0,):
+                    raise ValueError(
+                        f"Active indices of state function must be '(0,)', not '{coeff_indices}'"
+                    )
+                # state coefficient is provided separately
+                continue
+
             for coeff_index in coeff_indices:
                 add_coeff(coeff.subfunctions[coeff_index])
 
@@ -169,32 +165,36 @@ class PatchCallable:
         if self.kinfo.integral_type == "interior_facet":
             add_dat(self._mesh.interior_facets.local_facet_dat, None)
 
-        return args
+        return args, names
+
+    @property
+    def _args(self):
+        return self._args_and_names[0]
+
+    @property
+    def _names(self):
+        return self._args_and_names[1]
 
     @cached_property
-    def _dats(self) -> dict[op2.Dat, tuple[str, tuple[op2.Map, str] | None]]:
-        dats = {}
-        for arg, arg_info in self._args.items():
-            if isinstance(arg, op2.Dat):
-                dats[arg] = arg_info
-        return dats
+    def _dats(self) -> tuple[op2.Dat]:
+        return tuple(
+            obj for obj in self._names.keys()
+            if isinstance(obj, op2.Dat)
+        )
 
     @cached_property
-    def _maps(self) -> dict[op2.Map, str]:
-        maps = {}
-        for _, map_spec in self._dats.values():
-            if map_spec is not None:
-                map_, map_name = map_spec
-                maps[map_] = map_name
-        return maps
+    def _maps(self) -> tuple[op2.Map]:
+        return tuple(
+            obj for obj in self._names.keys()
+            if isinstance(obj, op2.Map)
+        )
 
     @cached_property
-    def _globs(self) -> dict[op2.Global | op2.Constant, str]:
-        globs = {}
-        for arg, arg_info in self._args.items():
-            if isinstance(arg, op2.Global | op2.Constant):
-                globs[arg] = arg_info
-        return globs
+    def _globs(self) -> tuple[op2.Global | op2.Constant]:
+        return tuple(
+            obj for obj in self._names.keys()
+            if isinstance(obj, op2.Global | op2.Constant)
+        )
 
     @cached_property
     def _mesh(self):
@@ -242,20 +242,36 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
             raise NotImplementedError
             # unpack_insn = ???
 
+        # possible state argument
+        if self.state is not None:
+            state_map = self._get_map(self.state.function_space())
+            state_map_name = self._names[state_map]
+            temp_name = f"t_{next(temp_counter)}"
+            arity = state_map.arity
+            cdim = self.state.dat.dataset.cdim
+            temps.append((temp_name, (arity, cdim)))
+
+            local_kernel_args.append(temp_name)
+
+            pack_insn = f"""\
+for (int32_t k=0; k<{arity}; k++)
+  for (int32_t l=0; l<{cdim}; l++)
+    {temp_name}[{cdim}*k+l] = state[{state_map_name}[j*{arity}+k]*{cdim}+l];"""
+            pack_insns.append(pack_insn)
+
         # now handle the other arguments
-        for arg, arg_info in self._args.items():
+        for arg in self._args:
             if isinstance(arg, op2.Global | op2.Constant):
-                glob_name = arg_info
-                local_kernel_args.append(glob_name)
+                local_kernel_args.append(self._names[arg])
             else:
-                assert isinstance(arg, op2.Dat)
-                dat = arg
-                dat_name, map_info = arg_info
-                if map_info is None:
+                dat, map_ = arg
+                assert isinstance(dat, op2.Dat)
+                dat_name = self._names[dat]
+                if map_ is None:
                     local_kernel_args.append(f"&({dat_name}[j])")
                 else:
-                    map_, map_name = map_info
                     temp_name = f"t_{next(temp_counter)}"
+                    map_name = self._names[map_]
                     arity = map_.arity
                     cdim = dat.dataset.cdim
                     temps.append((temp_name, (arity, cdim)))
@@ -278,8 +294,29 @@ for (int32_t k=0; k<{arity}; k++)
             f"{self.kinfo.kernel.name}({', '.join(local_kernel_args)});"
         )
 
+        # wrapper kernel signature
+        out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar *__restrict__ F"
+        default_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
+        if self.state is not None:
+            default_sig = f"{default_sig}, const PetscScalar *__restrict__ state"
+
+        dat_sigs = [
+            f"const {as_cstr(dat.dtype)} *__restrict__ {self._names[dat]}" for dat in self._dats
+        ]
+        map_sigs = [
+            f"const PetscInt *__restrict__ {self._names[map_]}" for map_ in self._maps
+        ]
+        glob_sigs = [
+            f"const {as_cstr(glob.dtype)} *__restrict__ {self._names[glob]}" for glob in self._globs
+        ]
+        extra_sigs = ", ".join((*dat_sigs, *map_sigs, *glob_sigs))
+        if extra_sigs:
+            wrapper_kernel_args_sig = f"{default_sig}, {extra_sigs}"
+        else:
+            wrapper_kernel_args_sig = default_sig
+
         return f"""\
-void wrapper_kernel({self._wrapper_kernel_args_sig})
+void wrapper_kernel({wrapper_kernel_args_sig})
 {{
 {'\n'.join(textwrap.indent(temp_decl, " "*2) for temp_decl in temp_decls)}
   PetscInt j;
@@ -372,33 +409,16 @@ PetscErrorCode ComputeJacobian(PC pc,
         return lp.generate_code_v2(self.kinfo.kernel.code).device_code()
 
     @property
-    def _wrapper_kernel_args_sig(self) -> str:
-        out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar * restrict F"
-        default_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
-
-        dat_sigs = [
-            f"const {as_cstr(dat.dtype)} *__restrict__ {dat_name}" for dat, (dat_name, _) in self._dats.items()
-        ]
-        map_sigs = [
-            f"const PetscInt *__restrict__ {map_name}" for map_name in self._maps.values()
-        ]
-        glob_sigs = [
-            f"const {as_cstr(glob.dtype)} *__restrict__ {glob_name}" for glob, glob_name in self._globs.items()
-        ]
-        extra_sigs = ", ".join((*dat_sigs, *map_sigs, *glob_sigs))
-        if extra_sigs:
-            return f"{default_sig}, {extra_sigs}"
-        else:
-            return default_sig
-
-    @property
     def _wrapper_kernel_call_insn(self) -> str:
         out_name = "J"if len(self.form.arguments()) == 2 else "F"
         default_args = f"npoints, whichPoints, {out_name}, dofArray"
 
-        dat_args = [f"ctx->{dat_name}" for dat_name, _ in self._dats.values()]
-        map_args = [f"ctx->{map_name}" for map_name in self._maps.values()]
-        glob_args = [f"ctx->{glob_name}" for glob_name in self._globs.values()]
+        if self.state is not None:
+            default_args = f"{default_args}, state"
+
+        dat_args = [f"ctx->{self._names[dat]}" for dat in self._dats]
+        map_args = [f"ctx->{self._names[map_]}" for map_ in self._maps]
+        glob_args = [f"ctx->{self._names[glob]}" for glob in self._globs]
         extra_args = ", ".join((*dat_args, *map_args, *glob_args))
 
         if extra_args:
@@ -409,9 +429,9 @@ PetscErrorCode ComputeJacobian(PC pc,
     @cached_property
     def _ctypes_struct(self) -> ctypes.Structure:
         fields = [
-            *((dat_name, ctypes.c_voidp) for dat_name, _ in self._dats.values()),
-            *((map_name, ctypes.c_voidp) for map_name in self._maps.values()),
-            *((glob_name, ctypes.c_voidp) for glob_name in self._globs.values()),
+            *((self._names[dat], ctypes.c_voidp) for dat in self._dats),
+            *((self._names[map_], ctypes.c_voidp) for map_ in self._maps),
+            *((self._names[glob], ctypes.c_voidp) for glob in self._globs),
             ("point2facet", ctypes.c_voidp),
         ]
 
@@ -434,15 +454,9 @@ PetscErrorCode ComputeJacobian(PC pc,
 
     @cached_property
     def _struct_code(self) -> str:
-        dat_decls = [
-            f"const {as_cstr(dat.dtype)} *{dat_name};" for dat, (dat_name, _) in self._dats.items()
-        ]
-        map_decls = [
-            f"const PetscInt *{map_name};" for map_name in self._maps.values()
-        ]
-        glob_decls = [
-            f"const {as_cstr(glob.dtype)} *{glob_name};" for glob, glob_name in self._globs.items()
-        ]
+        dat_decls = [f"const {as_cstr(dat.dtype)} *{self._names[dat]};" for dat in self._dats]
+        map_decls = [f"const PetscInt *{self._names[map_]};" for map_ in self._maps]
+        glob_decls = [f"const {as_cstr(glob.dtype)} *{self._names[glob]};" for glob in self._globs]
         decls = "\n".join((*dat_decls, *map_decls, *glob_decls))
 
         return f"""\
@@ -459,7 +473,6 @@ def make_jacobian_callables(form, state):
         raise NotImplementedError("Only for matching test and trial spaces")
 
     if state is not None:
-        raise NotImplementedError
         dont_split = (state,)
     else:
         dont_split = ()
@@ -473,7 +486,7 @@ def make_jacobian_callables(form, state):
         if kinfo.integral_type not in {"cell", "interior_facet"}:
             raise NotImplementedError("Only for cell or interior facet integrals")
 
-        callable = PatchCallable(form, kinfo)
+        callable = PatchCallable(form, kinfo, state)
         if kinfo.integral_type == "cell":
             assert cell_callable is None, "Only a single cell callable allowed"
             cell_callable = callable
