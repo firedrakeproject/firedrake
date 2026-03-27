@@ -73,10 +73,7 @@ class KernelBuilderBase(KernelInterface):
         f = {None: 0, '+': 0, '-': 1}[restriction]
         co_int = self._cell_orientations[domain][f]
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
-                               gem.Literal(-1),
-                               gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
-                                               gem.Literal(1),
-                                               gem.Literal(numpy.nan)))
+                               gem.Literal(-1), gem.Literal(1))
 
     def cell_size(self, domain, restriction):
         if not hasattr(self, "_cell_sizes"):
