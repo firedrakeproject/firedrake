@@ -396,7 +396,7 @@ class GlobalKernel:
     def _ldargs(self):
         ldargs = [f"-L{d}/lib" for d in get_petsc_dir()]
         ldargs.extend(f"-Wl,-rpath,{d}/lib" for d in get_petsc_dir())
-        ldargs.extend(["-lpetsc", "-lm"])
+        ldargs.extend(["-lpetsc", "-lm", "-lgsl", "-lgslcblas"])
         ldargs.extend(self.local_kernel.ldargs)
         return tuple(ldargs)
 

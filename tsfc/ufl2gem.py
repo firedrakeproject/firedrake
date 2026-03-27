@@ -81,6 +81,9 @@ class Mixin(object):
     def atan2(self, o, y, x):
         return MathFunction("atan2", y, x)
 
+    def hypergeometric2_f1(self, o, a, b, c, arg):
+        return MathFunction(o._name, a, b, c, arg)
+
     def bessel_i(self, o, nu, arg):
         return MathFunction(o._name, nu, arg)
 

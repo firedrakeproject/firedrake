@@ -480,7 +480,11 @@ def _expression_mathfunction(expr, ctx):
                 else:
                     return p.Variable(f"{name}n")(nu_, arg_)
     else:
-        if expr.name == "ln":
+        if expr.name == "hyp2f1":
+            assert isinstance(ctx.target, lp.target.c.CWithGNULibcTarget)
+            # Generate right functions calls to gsl hypergeometric function
+            name = "hyperg_2F1"
+        elif expr.name == "ln":
             name = "log"
         else:
             name = expr.name
