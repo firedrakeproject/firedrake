@@ -32,7 +32,6 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from functools import cached_property
 
-from pyop2.types.glob import Global
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 
 
