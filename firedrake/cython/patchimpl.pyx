@@ -15,6 +15,12 @@ def pcpatch_set_compute_operator_interior_facets(patch, function, ctx):
                                                    <void *><uintptr_t>ctx))
 
 
+def pcpatch_set_compute_operator_exterior_facets(patch, function, ctx):
+    CHKERR(PCPatchSetComputeOperatorExteriorFacets((<PETSc.PC?>patch).pc,
+                                                   <PetscPCPatchComputeOperator><uintptr_t>function,
+                                                   <void *><uintptr_t>ctx))
+
+
 def pcpatch_set_compute_function(patch, function, ctx):
     CHKERR(PCPatchSetComputeFunction((<PETSc.PC?>patch).pc,
                                      <PetscPCPatchComputeFunction><uintptr_t>function,
@@ -23,6 +29,12 @@ def pcpatch_set_compute_function(patch, function, ctx):
 
 def pcpatch_set_compute_function_interior_facets(patch, function, ctx):
     CHKERR(PCPatchSetComputeFunctionInteriorFacets((<PETSc.PC?>patch).pc,
+                                                   <PetscPCPatchComputeFunction><uintptr_t>function,
+                                                   <void *><uintptr_t>ctx))
+
+
+def pcpatch_set_compute_function_exterior_facets(patch, function, ctx):
+    CHKERR(PCPatchSetComputeFunctionExteriorFacets((<PETSc.PC?>patch).pc,
                                                    <PetscPCPatchComputeFunction><uintptr_t>function,
                                                    <void *><uintptr_t>ctx))
 

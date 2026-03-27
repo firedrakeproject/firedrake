@@ -1,105 +1,75 @@
 import pytest
-
 from firedrake import *
 
 
-def create_netgen_mesh_circle():
-    from netgen.geom2d import Circle, CSG2d
-    geo = CSG2d()
-
-    circle = Circle(center=(0, 0), radius=1.0, mat="mat1", bc="circle")
-    geo.Add(circle)
-
+@pytest.fixture(params=[3, 2])
+def ngmesh(request):
+    dim = request.param
+    if dim == 2:
+        from netgen.occ import Circle, OCCGeometry
+        circle = Circle((0, 0), 1.0).Face()
+        circle.edges.name = "surface"
+        geo = OCCGeometry(circle, dim=2)
+    elif dim == 3:
+        from netgen.occ import Sphere, OCCGeometry
+        sphere = Sphere((0, 0, 0), 1.0)
+        sphere.faces.name = "surface"
+        geo = OCCGeometry(sphere, dim=3)
+    else:
+        raise ValueError(f"Unexpected dimension {dim}")
     ngmesh = geo.GenerateMesh(maxh=0.75)
     return ngmesh
 
 
-@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
 @pytest.mark.skipcomplex
 @pytest.mark.skipnetgen
-def test_netgen_mg_circle():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
-    mesh = nh[-1]
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("netgen_degree", [1, 3, (1, 2, 3)], ids=lambda degree: f"{degree=}")
+def test_netgen_mg(ngmesh, netgen_degree):
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = Mesh(ngmesh, distribution_parameters=dparams)
+    mh = MeshHierarchy(base, 2, netgen_flags={"degree": netgen_degree})
+    mesh = mh[-1]
+    try:
+        len(netgen_degree)
+    except TypeError:
+        netgen_degree = (netgen_degree,)*len(mh)
+
+    coords_space = base.coordinates.function_space()
+    assert coords_space.ufl_element().degree() == 1
+    assert not coords_space.finat_element.is_dg()
+    for m, deg in zip(mh, netgen_degree):
+        coords_space = m.coordinates.function_space()
+        assert coords_space.ufl_element().degree() == deg
+        assert not coords_space.finat_element.is_dg()
 
     V = FunctionSpace(mesh, "CG", 3)
-
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = inner(grad(u), grad(v))*dx
-    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["circle"]]
-    bcs = DirichletBC(V, zero(), labels)
-    x, y = SpatialCoordinate(mesh)
+    a = inner(grad(u), grad(v)) * dx
+    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["surface"]]
 
-    f = 4+0*x
-    L = f*v*dx
-    exact = (1-x**2-y**2)
+    x = SpatialCoordinate(mesh)
+    uexact = 1-dot(x, x)
+    bcs = DirichletBC(V, 0, labels)
+    L = a(uexact, v)
+    uh = Function(V)
 
-    u = Function(V)
-    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
-                                                 "pc_type": "mg"})
-    expect = Function(V).interpolate(exact)
-    assert (norm(assemble(u - expect)) <= 1e-6)
-
-
-@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
-@pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
-def test_netgen_mg_circle_non_uniform_degree():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": [1, 2, 3]})
-    mesh = nh[-1]
-
-    V = FunctionSpace(mesh, "CG", 3)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    a = inner(grad(u), grad(v))*dx
-    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["circle"]]
-    bcs = DirichletBC(V, zero(), labels)
-    x, y = SpatialCoordinate(mesh)
-
-    f = 4+0*x
-    L = f*v*dx
-    exact = (1-x**2-y**2)
-
-    u = Function(V)
-    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
-                                                 "pc_type": "mg"})
-    expect = Function(V).interpolate(exact)
-    assert (norm(assemble(u - expect)) <= 1e-6)
-
-
-@pytest.mark.skip(reason="See https://github.com/firedrakeproject/firedrake/issues/4784")
-@pytest.mark.skipcomplex
-@pytest.mark.skipnetgen
-@pytest.mark.parallel
-def test_netgen_mg_circle_parallel():
-    ngmesh = create_netgen_mesh_circle()
-    mesh = Mesh(ngmesh)
-    nh = MeshHierarchy(mesh, 2, netgen_flags={"degree": 3})
-    mesh = nh[-1]
-
-    V = FunctionSpace(mesh, "CG", 3)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    a = inner(grad(u), grad(v))*dx
-    labels = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(codim=1)) if name in ["circle"]]
-    bcs = DirichletBC(V, zero(), labels)
-    x, y = SpatialCoordinate(mesh)
-
-    f = 4+0*x
-    L = f*v*dx
-    exact = (1-x**2-y**2)
-
-    u = Function(V)
-    solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "cg",
-                                                 "pc_type": "mg"})
-    expect = Function(V).interpolate(exact)
-    assert norm(assemble(u - expect)) <= 1e-6
+    uerr = uexact - uh
+    solve(a == L, uh, bcs=bcs, solver_parameters={
+        "ksp_type": "cg",
+        "ksp_norm_type": "natural",
+        "ksp_max_it": 14,
+        "ksp_rtol": 1E-8,
+        "ksp_monitor": None,
+        "pc_type": "mg",
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.ASMStarPC",
+        "mg_levels_pc_star_backend": "tinyasm",
+        "mg_coarse_pc_type": "lu",
+        "mg_coarse_pc_factor_mat_solver_type": "mumps",
+    })
+    err = assemble(a(uerr, uerr)) ** 0.5
+    expected = 6E-2 if netgen_degree[-1] == 1 else 3E-4
+    assert err < expected

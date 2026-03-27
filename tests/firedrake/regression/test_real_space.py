@@ -369,6 +369,28 @@ def test_real_interpolate():
     assert np.allclose(float(a_int), 1.0)
 
 
+@pytest.mark.skipcomplex
+def test_real_interior_facet():
+    mesh = UnitSquareMesh(2, 2)
+    K = FunctionSpace(mesh, "DG", 1)
+    R = FunctionSpace(mesh, "Real", 0)
+
+    x, y = SpatialCoordinate(mesh)
+
+    q = Function(K).interpolate(x*y)
+    v = TestFunction(K)
+    c1 = Function(R).assign(1.0)
+    c2 = Constant(1.0)
+
+    F1 = avg(c1) * jump(v) * dS
+    F2 = c2 * jump(v) * dS
+    assert np.allclose(assemble(F1).dat.data_ro, assemble(F2).dat.data_ro)
+
+    F1 = jump(c1*q) * jump(v) * dS
+    F2 = jump(c2*q) * jump(v) * dS
+    assert np.allclose(assemble(F1).dat.data_ro, assemble(F2).dat.data_ro)
+
+
 def test_real_space_hex():
     mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
     DG = FunctionSpace(mesh, "DQ", 0)

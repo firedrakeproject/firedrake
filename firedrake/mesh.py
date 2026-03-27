@@ -543,6 +543,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
         self.submesh_parent = submesh_parent
+        self.sfBC_orig = None
         # User comm
         self.user_comm = comm
         dmcommon.label_facets(self.topology_dm)
@@ -1145,6 +1146,7 @@ class MeshTopology(AbstractMeshTopology):
             sfBC = plex.distribute(overlap=0)
             plex.setName(original_name)
             self.sfBC = sfBC
+            self.sfBC_orig = sfBC
             # plex carries a new dm after distribute, which
             # does not inherit partitioner from the old dm.
             # It probably makes sense as chaco does not work
@@ -1343,7 +1345,8 @@ class MeshTopology(AbstractMeshTopology):
                                      self._cell_numbering,
                                      self.cell_closure)
 
-        point2facetnumber = np.full(facets.max(initial=0)+1, -1, dtype=IntType)
+        _, pEnd = dm.getChart()
+        point2facetnumber = np.full(pEnd, -1, dtype=IntType)
         point2facetnumber[facets] = np.arange(len(facets), dtype=IntType)
         obj = _Facets(self, facets, classes, set_, kind,
                       facet_cell, local_facet_number,
@@ -2915,54 +2918,65 @@ values from f.)"""
         This method requires that the mesh has been constructed from a
         netgen mesh.
 
-        :arg mark: the marking function which is a Firedrake DG0 function.
+        :arg mark: the marking function which is a Firedrake DG0 function
+            with the number of refinements on each cell.
         :arg netgen_flags: the dictionary of flags to be passed to ngsPETSc.
 
         It includes the option:
             - refine_faces, which is a boolean specifying if you want to refine faces.
 
         """
-        import firedrake as fd
-
         utils.check_netgen_installed()
 
+        if not hasattr(self, "netgen_mesh"):
+            raise ValueError("Adaptive refinement requires a netgen mesh.")
         if netgen_flags is None:
-            netgen_flags = {}
-        DistParams = self._distribution_parameters
-        els = {2: self.netgen_mesh.Elements2D, 3: self.netgen_mesh.Elements3D}
-        dim = self.geometric_dimension
-        refine_faces = netgen_flags.get("refine_faces", False)
-        if dim in [2, 3]:
-            with mark.dat.vec as marked:
-                marked0 = marked
-                getIdx = self._cell_numbering.getOffset
-                if self.sfBC is not None:
-                    sfBCInv = self.sfBC.createInverse()
-                    getIdx = lambda x: x
-                    _, marked0 = self.topology_dm.distributeField(sfBCInv,
-                                                                  self._cell_numbering,
-                                                                  marked)
-                if self.comm.Get_rank() == 0:
-                    mark = marked0.getArray()
-                    max_refs = np.max(mark)
-                    for _ in range(int(max_refs)):
-                        for i, el in enumerate(els[dim]()):
-                            if mark[getIdx(i)] > 0:
-                                el.refine = True
-                            else:
-                                el.refine = False
-                        if not refine_faces and dim == 3:
-                            self.netgen_mesh.Elements2D().NumPy()["refine"] = 0
-                        self.netgen_mesh.Refine(adaptive=True)
-                        mark = mark-np.ones(mark.shape)
-                    return fd.Mesh(self.netgen_mesh, distribution_parameters=DistParams, comm=self.comm)
-                return fd.Mesh(netgen.libngpy._meshing.Mesh(dim),
-                               distribution_parameters=DistParams, comm=self.comm)
-        else:
+            netgen_flags = self.netgen_flags
+        tdim = self.topological_dimension
+        if tdim not in {2, 3}:
             raise NotImplementedError("No implementation for dimension other than 2 and 3.")
+        with mark.dat.vec as mvec:
+            if self.sfBC_orig is None:
+                cstart, cend = self.topology_dm.getHeightStratum(0)
+                cellNum = list(map(self._cell_numbering.getOffset, range(cstart, cend)))
+                mark_np = mvec.getArray()[cellNum]
+            else:
+                sfBCInv = self.sfBC_orig.createInverse()
+                _, mvec0 = self.topology_dm.distributeField(sfBCInv,
+                                                            self._cell_numbering,
+                                                            mvec)
+                mark_np = mvec0.getArray()
+        max_refs = 0 if mark_np.size == 0 else int(mark_np.max())
+        # Create a copy of the netgen mesh
+        netgen_mesh = self.netgen_mesh.Copy()
+        refine_faces = netgen_flags.get("refine_faces", False)
+        for r in range(max_refs):
+            cells = netgen_mesh.Elements3D() if tdim == 3 else netgen_mesh.Elements2D()
+            cells.NumPy()["refine"] = (mark_np[:len(cells)] > 0)
+            if tdim == 3:
+                faces = netgen_mesh.Elements2D()
+                faces.NumPy()["refine"] = refine_faces
+            netgen_mesh.Refine(adaptive=True)
+            mark_np -= 1
+            if r < max_refs - 1:
+                parents = netgen_mesh.parentelements if tdim == 3 else netgen_mesh.parentsurfaceelements
+                parents = parents.NumPy()["i"]
+                num_fine_cells = parents.shape[0]
+                num_coarse_cells = mark_np.size
+                indices = np.arange(num_fine_cells, dtype=PETSc.IntType)
+                while (indices >= num_coarse_cells).any():
+                    fine_cells = (indices >= num_coarse_cells)
+                    indices[fine_cells] = parents[indices[fine_cells]]
+                mark_np = mark_np[indices]
+
+        return Mesh(netgen_mesh,
+                    reorder=self._did_reordering,
+                    distribution_parameters=self._distribution_parameters,
+                    comm=self.comm,
+                    netgen_flags=netgen_flags)
 
     @PETSc.Log.EventDecorator()
-    def curve_field(self, order, permutation_tol=1e-8, location_tol=1e-1, cg_field=False):
+    def curve_field(self, order, permutation_tol=1e-8, cg_field=None):
         '''Return a function containing the curved coordinates of the mesh.
 
         This method requires that the mesh has been constructed from a
@@ -2970,115 +2984,87 @@ values from f.)"""
 
         :arg order: the order of the curved mesh.
         :arg permutation_tol: tolerance used to construct the permutation of the reference element.
-        :arg location_tol: tolerance used to locate the cell a point belongs to.
-        :arg cg_field: return a CG function field representing the mesh, rather than the
-                       default DG field.
+        :arg cg_field: return a CG function field representing the mesh, as opposed to a DG field.
+            Defaults to the continuity of the coordinates of the original mesh.
 
         '''
-        import firedrake as fd
-
         utils.check_netgen_installed()
+        from firedrake.netgen import find_permutation, netgen_distribute
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.function import Function
 
-        from firedrake.netgen import find_permutation
+        if not hasattr(self, "netgen_mesh"):
+            raise ValueError("Cannot curve a mesh that has not been generated by netgen.")
+
+        if cg_field is None:
+            cg_field = not self.coordinates.function_space().finat_element.is_dg()
 
         # Check if the mesh is a surface mesh or two dimensional mesh
-        if len(self.netgen_mesh.Elements3D()) == 0:
-            ng_element = self.netgen_mesh.Elements2D
+        if self.topological_dimension == 2:
+            ng_element = self.netgen_mesh.Elements2D()
         else:
-            ng_element = self.netgen_mesh.Elements3D
-        ng_dimension = len(ng_element())
-        geom_dim = self.geometric_dimension
+            ng_element = self.netgen_mesh.Elements3D()
+        ng_dimension = len(ng_element)
 
-        # Construct the mesh as a Firedrake function
-        if cg_field:
-            firedrake_space = fd.VectorFunctionSpace(self, "CG", order)
-        else:
-            low_order_element = self.coordinates.function_space().ufl_element().sub_elements[0]
-            ufl_element = low_order_element.reconstruct(degree=order)
-            firedrake_space = fd.VectorFunctionSpace(self, fd.BrokenElement(ufl_element))
-        new_coordinates = fd.assemble(fd.interpolate(self.coordinates, firedrake_space))
+        # Construct the coordinates as a Firedrake function
+        coords_space = self.coordinates.function_space().reconstruct(degree=order)
+        broken_space = coords_space.broken_space()
+        if not cg_field:
+            coords_space = broken_space
+        new_coordinates = Function(coords_space).interpolate(self.coordinates)
 
         # Compute reference points using fiat
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
-        entity_ids = fiat_element.entity_dofs()
         nodes = fiat_element.dual_basis()
-        ref = []
-        for dim in entity_ids:
-            for entity in entity_ids[dim]:
-                for dof in entity_ids[dim][entity]:
-                    # Assert singleton point for each node.
-                    pt, = nodes[dof].get_point_dict().keys()
-                    ref.append(pt)
-        reference_space_points = np.array(ref)
+        ref_pts = []
+        for node in nodes:
+            # Assert singleton point for each node.
+            pt, = node.get_point_dict().keys()
+            ref_pts.append(pt)
+        reference_points = np.array(ref_pts)
 
-        # Curve the mesh on rank 0 only
-        if self.comm.rank == 0:
-            # Construct numpy arrays for physical domain data
-            physical_space_points = np.zeros(
-                (ng_dimension, reference_space_points.shape[0], geom_dim)
-            )
-            curved_space_points = np.zeros(
-                (ng_dimension, reference_space_points.shape[0], geom_dim)
-            )
-            self.netgen_mesh.CalcElementMapping(reference_space_points, physical_space_points)
-            # NOTE: This will segfault!
-            self.netgen_mesh.Curve(order)
-            self.netgen_mesh.CalcElementMapping(reference_space_points, curved_space_points)
-            curved = ng_element().NumPy()["curved"]
-            # Broadcast a boolean array identifying curved cells
-            curved = self.comm.bcast(curved, root=0)
-            physical_space_points = physical_space_points[curved]
-            curved_space_points = curved_space_points[curved]
-        else:
-            curved = self.comm.bcast(None, root=0)
-            # Construct numpy arrays as buffers to receive physical domain data
-            ncurved = np.sum(curved)
-            physical_space_points = np.zeros(
-                (ncurved, reference_space_points.shape[0], geom_dim)
-            )
-            curved_space_points = np.zeros(
-                (ncurved, reference_space_points.shape[0], geom_dim)
-            )
+        # Construct numpy arrays for physical domain data
+        physical_points = np.zeros(
+            (ng_dimension, reference_points.shape[0], self.geometric_dimension)
+        )
+        curved_points = np.zeros(
+            (ng_dimension, reference_points.shape[0], self.geometric_dimension)
+        )
+        self.netgen_mesh.CalcElementMapping(reference_points, physical_points)
+        # NOTE: This will segfault for MeshHierarchy on a netgen CSG geometry
+        self.netgen_mesh.Curve(order)
+        self.netgen_mesh.CalcElementMapping(reference_points, curved_points)
+        curved = ng_element.NumPy()["curved"]
 
-        # Broadcast curved cell point data
-        self.comm.Bcast(physical_space_points, root=0)
-        self.comm.Bcast(curved_space_points, root=0)
+        # Distribute curved cell data
         cell_node_map = new_coordinates.cell_node_map()
+        num_cells = cell_node_map.values.shape[0]
+        DG0 = FunctionSpace(self, "DG", 0)
+        own_curved = netgen_distribute(DG0, curved)
+        own_curved = np.flatnonzero(own_curved[:num_cells])
 
-        # Select only the points in curved cells
-        barycentres = np.average(physical_space_points, axis=1)
-        ng_index = [*map(lambda x: self.locate_cell(x, tolerance=location_tol), barycentres)]
+        # Distribute coordinate data
+        own_curved_points = netgen_distribute(broken_space, curved_points)[own_curved]
+        own_physical_points = netgen_distribute(broken_space, physical_points)[own_curved]
 
-        # Select only the indices of points owned by this rank
-        owned = [(0 <= ii < len(cell_node_map.values)) if ii is not None else False for ii in ng_index]
-
-        # Select only the points owned by this rank
-        physical_space_points = physical_space_points[owned]
-        curved_space_points = curved_space_points[owned]
-        barycentres = barycentres[owned]
-        ng_index = [idx for idx, o in zip(ng_index, owned) if o]
-
-        # Get the PyOP2 indices corresponding to the netgen indices
-        pyop2_index = []
-        for ngidx in ng_index:
-            pyop2_index.extend(cell_node_map.values[ngidx])
+        # Get broken indices
+        cstart, cend = self.topology_dm.getHeightStratum(0)
+        cellNum = np.array(list(map(self._cell_numbering.getOffset, range(cstart, cend))))
+        broken_indices = cell_node_map.values[cellNum[own_curved]]
 
         # Find the correct coordinate permutation for each cell
         permutation = find_permutation(
-            physical_space_points,
-            new_coordinates.dat.data[pyop2_index].real.reshape(
-                physical_space_points.shape
-            ),
-            tol=permutation_tol
+            own_physical_points,
+            new_coordinates.dat.data_ro_with_halos[broken_indices].real,
+            tol=permutation_tol,
         )
-
+        self.comm.Barrier()
         # Apply the permutation to each cell in turn
-        for ii, p in enumerate(curved_space_points):
-            curved_space_points[ii] = p[permutation[ii]]
+        for i in range(own_curved_points.shape[0]):
+            own_curved_points[i] = own_curved_points[i, permutation[i]]
 
         # Assign the curved coordinates to the dat
-        new_coordinates.dat.data[pyop2_index] = curved_space_points.reshape(-1, geom_dim)
-
+        new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
 
@@ -3364,6 +3350,30 @@ def Mesh(meshfile, **kwargs):
 
     if from_netgen:
         mesh.netgen_mesh = netgen_firedrake_mesh.meshMap.ngMesh
+        mesh.netgen_flags = netgen_flags
+
+        # Curve the mesh, if requested
+        degree = netgen_flags.get("degree", 1)
+        if degree != 1:
+            permutation_tol = netgen_flags.get("permutation_tol", 1e-8)
+            cg = netgen_flags.get("cg", None)
+            coordinates = mesh.curve_field(
+                order=degree,
+                permutation_tol=permutation_tol,
+                cg_field=cg,
+            )
+            # Do not redistribute the mesh
+            reorder_noop = None
+            temp = Mesh(coordinates,
+                        reorder=reorder_noop,
+                        perm_is=mesh._dm_renumbering,
+                        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+                        comm=mesh.comm)
+            temp.netgen_mesh = mesh.netgen_mesh
+            temp.netgen_flags = mesh.netgen_flags
+            temp._distribution_parameters = mesh._distribution_parameters
+            temp._did_reordering = mesh._did_reordering
+            mesh = temp
 
     mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
