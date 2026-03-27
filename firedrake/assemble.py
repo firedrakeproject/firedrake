@@ -36,6 +36,33 @@ from pyop2.types.glob import Global
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 
 
+class _TiledGlobalParloopArg(op2.GlobalParloopArg):
+    """A GlobalParloopArg that lazily tiles a Real coefficient's data
+    for interior facet integrals.
+
+    Instead of snapshotting the data at construction time, this reads
+    from the source dat each time the kernel arguments are requested,
+    so cached parloops always see the current coefficient value.
+    """
+
+    def __init__(self, source_dat):
+        tiled = numpy.tile(source_dat.data_ro, 2)
+        tiled_global = Global(
+            tiled.shape, tiled, source_dat.dtype,
+            name=source_dat.name, comm=source_dat.comm,
+        )
+        super().__init__(tiled_global)
+        self._source_dat = source_dat
+        self._tiled_buf = tiled
+
+    @property
+    def _kernel_args_(self):
+        n = self._source_dat.cdim
+        self._tiled_buf[:n] = self._source_dat.data_ro
+        self._tiled_buf[n:] = self._source_dat.data_ro
+        return self.data._kernel_args_
+
+
 __all__ = "assemble",
 
 
@@ -2218,13 +2245,7 @@ def _as_parloop_arg_coefficient(arg, self):
     coeff = next(self._active_coefficients)
     if coeff.ufl_element().family() == "Real":
         if self._integral_type.startswith("interior_facet"):
-            # The TSFC kernel expects the Real value on both facet
-            # sides so we tile the underlying data into a new Global.
-            data = numpy.tile(coeff.dat.data_ro, 2)
-            return op2.GlobalParloopArg(
-                Global(data.shape, data, coeff.dat.dtype,
-                       name=coeff.dat.name, comm=coeff.dat.comm)
-            )
+            return _TiledGlobalParloopArg(coeff.dat)
         return op2.GlobalParloopArg(coeff.dat)
     else:
         m = self._get_map(coeff.function_space())
