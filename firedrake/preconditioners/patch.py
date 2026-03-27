@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import itertools
 import textwrap
 import typing
@@ -9,12 +10,13 @@ from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 import firedrake.cython.patchimpl
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import complex_mode, IntType
+from firedrake.utils import complex_mode, IntType, ScalarType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form
 from firedrake.ufl_expr import extract_domains
 from typing import Any
+from pyop2.datatypes import as_cstr
 
 import loopy as lp
 
@@ -38,17 +40,18 @@ from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
 
 if typing.TYPE_CHECKING:
-    from firedrake import Function, Cofunction
+    from firedrake import Constant, Function, Cofunction
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
+myrefs = []
 
 @dataclasses.dataclass(frozen=True)
 class PatchCallable:
     """Class representing the evaluation of a patch operator or residual.
 
     When we set the callbacks for PCPatch/SNESPatch, we have to pass a function
-    pointer that executes a patch-wise parloop along with a struct that contains
+    pointer that executes a patch-wise parloop, along with a struct that contains
     the additional coefficients and cell-node maps that the parloop needs. Given
     an input local kernel, this class coordinates the generation of these objects
     (called `ctypes_callable` and `ctypes_struct_address`).
@@ -72,6 +75,7 @@ class PatchCallable:
             "-lm",
         ]
         comm = self.form.arguments()[0].function_space().comm
+        # breakpoint()
         dll = pyop2.compilation.load(
             self._callback_code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm
         )
@@ -101,13 +105,39 @@ class PatchCallable:
         return ctypes.addressof(self._ctypes_struct)
 
     @cached_property
-    def _coeffs(self) -> dict[Function | Cofunction, str]:
-        coeffs = {}
-        coeff_name_counter = itertools.count()
+    def _args(self) -> dict[op2.Dat | op2.Global | op2.Constant, tuple[str, tuple[op2.Map, str] | None] | str]:
+        args = {}
+        dat_names: dict[op2.Dat, str] = {}
+        dat_name_counter = itertools.count()
+        map_names: dict[op2.Map, str] = {}
+        map_name_counter = itertools.count()
+        glob_names: dict[op2.Global | op2.Constant, str] = {}
+        glob_name_counter = itertools.count()
+
+        def add_dat(dat, map_):
+            try:
+                dat_name = dat_names[dat]
+            except KeyError:
+                dat_name = dat_names.setdefault(dat, f"dat_{next(dat_name_counter)}")
+
+            if map_ is None:
+                args[dat] = (dat_name, None)
+            else:
+                try:
+                    map_name = map_names[map_]
+                except KeyError:
+                    map_name = map_names.setdefault(map_, f"map_{next(map_name_counter)}")
+                args[dat] = (dat_name, (map_, map_name))
+
+        def add_glob(glob):
+            try:
+                glob_name = glob_names[glob]
+            except KeyError:
+                glob_name = glob_names.setdefault(glob, f"glob_{next(glob_name_counter)}")
+            args[glob] = glob_name
 
         def add_coeff(coeff):
-            coeff_name = f"coeff_{next(coeff_name_counter)}"
-            coeffs[coeff] = coeff_name
+            add_dat(coeff.dat, self._get_map(coeff.function_space()))
 
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
@@ -134,25 +164,37 @@ class PatchCallable:
 
         all_constants = extract_firedrake_constants(self.form)
         for constant_index in self.kinfo.constant_numbers:
-            raise NotImplementedError
-            args.append(all_constants[constant_index].dat)
+            add_glob(all_constants[constant_index].dat)
 
         if self.kinfo.integral_type == "interior_facet":
-            raise NotImplementedError
-            arg = mesh.interior_facets.local_facet_dat
-            args.append(arg)
+            add_dat(self._mesh.interior_facets.local_facet_dat, None)
 
-        return coeffs
+        return args
 
     @cached_property
-    def _coeff_maps(self) -> dict[op2.Map, str]:
+    def _dats(self) -> dict[op2.Dat, tuple[str, tuple[op2.Map, str] | None]]:
+        dats = {}
+        for arg, arg_info in self._args.items():
+            if isinstance(arg, op2.Dat):
+                dats[arg] = arg_info
+        return dats
+
+    @cached_property
+    def _maps(self) -> dict[op2.Map, str]:
         maps = {}
-        map_name_counter = itertools.count()
-        for coeff in self._coeffs:
-            map_ = self._get_map(coeff.function_space())
-            if map_ not in maps:
-                maps[map_] = f"map_{next(map_name_counter)}"
+        for _, map_spec in self._dats.values():
+            if map_spec is not None:
+                map_, map_name = map_spec
+                maps[map_] = map_name
         return maps
+
+    @cached_property
+    def _globs(self) -> dict[op2.Global | op2.Constant, str]:
+        globs = {}
+        for arg, arg_info in self._args.items():
+            if isinstance(arg, op2.Global | op2.Constant):
+                globs[arg] = arg_info
+        return globs
 
     @cached_property
     def _mesh(self):
@@ -167,6 +209,7 @@ class PatchCallable:
 
         temps: list[tuple[str, tuple[int, ...]]] = []
         pack_insns: list[str] = []
+        local_kernel_args: list[str] = []
 
         # handle the output temporary
         temp_name = f"t_{next(temp_counter)}"
@@ -189,6 +232,8 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
   {temp_name}[k] = 0.0;"""
             pack_insns.append(pack_insn)
 
+            local_kernel_args.append(temp_name)
+
             unpack_insn = (
                 f"MatSetValues(J, {row_size}, &(dofArray[{row_size}*i]), {column_size}, &(dofArray[{column_size}*i]), {temp_name}, ADD_VALUES);"
             )
@@ -197,28 +242,40 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
             raise NotImplementedError
             # unpack_insn = ???
 
-        # now handle the coefficients
-        for coeff, coeff_name in self._coeffs.items():
-            temp_name = f"t_{next(temp_counter)}"
-            map_ = self._get_map(coeff.function_space())
-            map_name = self._coeff_maps[map_]
-            arity = map_.arity
-            cdim = coeff.function_space().dof_dset.cdim
-            temps.append((temp_name, (arity, cdim)))
+        # now handle the other arguments
+        for arg, arg_info in self._args.items():
+            if isinstance(arg, op2.Global | op2.Constant):
+                glob_name = arg_info
+                local_kernel_args.append(glob_name)
+            else:
+                assert isinstance(arg, op2.Dat)
+                dat = arg
+                dat_name, map_info = arg_info
+                if map_info is None:
+                    local_kernel_args.append(f"&({dat_name}[j])")
+                else:
+                    map_, map_name = map_info
+                    temp_name = f"t_{next(temp_counter)}"
+                    arity = map_.arity
+                    cdim = dat.dataset.cdim
+                    temps.append((temp_name, (arity, cdim)))
 
-            pack_insn = f"""\
+                    local_kernel_args.append(temp_name)
+
+                    pack_insn = f"""\
 for (int32_t k=0; k<{arity}; k++)
   for (int32_t l=0; l<{cdim}; l++)
-    {temp_name}[{cdim}*k+l] = {coeff_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
-            pack_insns.append(pack_insn)
+    {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
+                    pack_insns.append(pack_insn)
 
+        # generate the rest
         temp_decls = []
         for temp_name, temp_shape in temps:
             temp_decl = f"PetscScalar {temp_name}[{'*'.join(map(str, temp_shape))}];"
             temp_decls.append(temp_decl)
 
         local_kernel_call_insn = (
-            f"{self.kinfo.kernel.name}({', '.join((name for name, _ in temps))});"
+            f"{self.kinfo.kernel.name}({', '.join(local_kernel_args)});"
         )
 
         return f"""\
@@ -316,55 +373,83 @@ PetscErrorCode ComputeJacobian(PC pc,
 
     @property
     def _wrapper_kernel_args_sig(self) -> str:
-        coeff_sigs = ", ".join(
-            f"const PetscScalar *__restrict__ {coeff_name}" for coeff_name in self._coeffs.values()
-        )
-        map_sigs = ", ".join(
-            f"const PetscInt *__restrict__ {map_name}" for map_name in self._coeff_maps.values()
-        )
         out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar * restrict F"
-        return (
-            f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, {coeff_sigs}, const PetscInt *__restrict__ dofArray, {map_sigs}"
-        )
+        default_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
+
+        dat_sigs = [
+            f"const {as_cstr(dat.dtype)} *__restrict__ {dat_name}" for dat, (dat_name, _) in self._dats.items()
+        ]
+        map_sigs = [
+            f"const PetscInt *__restrict__ {map_name}" for map_name in self._maps.values()
+        ]
+        glob_sigs = [
+            f"const {as_cstr(glob.dtype)} *__restrict__ {glob_name}" for glob, glob_name in self._globs.items()
+        ]
+        extra_sigs = ", ".join((*dat_sigs, *map_sigs, *glob_sigs))
+        if extra_sigs:
+            return f"{default_sig}, {extra_sigs}"
+        else:
+            return default_sig
 
     @property
     def _wrapper_kernel_call_insn(self) -> str:
-        coeff_args = ", ".join(f"ctx->{coeff_name}" for coeff_name in self._coeffs.values())
-        map_args = ", ".join(f"ctx->{map_name}" for map_name in self._coeff_maps.values())
         out_name = "J"if len(self.form.arguments()) == 2 else "F"
-        return f"wrapper_kernel(npoints, whichPoints, {out_name}, {coeff_args}, dofArray, {map_args})"
+        default_args = f"npoints, whichPoints, {out_name}, dofArray"
+
+        dat_args = [f"ctx->{dat_name}" for dat_name, _ in self._dats.values()]
+        map_args = [f"ctx->{map_name}" for map_name in self._maps.values()]
+        glob_args = [f"ctx->{glob_name}" for glob_name in self._globs.values()]
+        extra_args = ", ".join((*dat_args, *map_args, *glob_args))
+
+        if extra_args:
+            return f"wrapper_kernel({default_args}, {extra_args})"
+        else:
+            return f"wrapper_kernel({default_args})"
 
     @cached_property
     def _ctypes_struct(self) -> ctypes.Structure:
         fields = [
-            *((coeff_name, ctypes.c_voidp) for coeff_name in self._coeffs.values()),
-            *((map_name, ctypes.c_voidp) for map_name in self._coeff_maps.values()),
+            *((dat_name, ctypes.c_voidp) for dat_name, _ in self._dats.values()),
+            *((map_name, ctypes.c_voidp) for map_name in self._maps.values()),
+            *((glob_name, ctypes.c_voidp) for glob_name in self._globs.values()),
             ("point2facet", ctypes.c_voidp),
         ]
 
         class Struct(ctypes.Structure):
             _fields_ = fields
 
+        if self.kinfo.integral_type == "cell":
+            point2facet = 0
+        else:
+            assert self.kinfo.integral_type == "interior_facet"
+            point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+
+        # breakpoint()
+
         struct_args = [
-            *(arg for coeff in self._coeffs for arg in coeff.dat._kernel_args_),
-            *(arg for map_ in self._coeff_maps for arg in map_._kernel_args_),
-            0,  # point2facet (for now)
+            *(arg for dat in self._dats for arg in dat._kernel_args_),
+            *(arg for map_ in self._maps for arg in map_._kernel_args_),
+            *(arg for glob in self._globs for arg in glob._kernel_args_),
+            point2facet,
         ]
         return Struct(*struct_args)
 
     @cached_property
     def _struct_code(self) -> str:
-        coeff_decls = ";\n".join(
-            f"const PetscScalar *{coeff_name}" for coeff_name in self._coeffs.values()
-        )
-        map_decls = ";\n".join(
-            f"const PetscInt *{map_name}" for map_name in self._coeff_maps.values()
-        )
+        dat_decls = [
+            f"const {as_cstr(dat.dtype)} *{dat_name};" for dat, (dat_name, _) in self._dats.items()
+        ]
+        map_decls = [
+            f"const PetscInt *{map_name};" for map_name in self._maps.values()
+        ]
+        glob_decls = [
+            f"const {as_cstr(glob.dtype)} *{glob_name};" for glob, glob_name in self._globs.items()
+        ]
+        decls = "\n".join((*dat_decls, *map_decls, *glob_decls))
 
         return f"""\
 typedef struct {{
-{textwrap.indent(coeff_decls, "  ")};
-{textwrap.indent(map_decls, "  ")};
+{textwrap.indent(decls, "  ")}
   const PetscInt *point2facet;
 }} UserCtx;"""
 
@@ -376,6 +461,7 @@ def make_jacobian_callables(form, state):
         raise NotImplementedError("Only for matching test and trial spaces")
 
     if state is not None:
+        raise NotImplementedError
         dont_split = (state,)
     else:
         dont_split = ()
@@ -866,12 +952,14 @@ class PatchBase(PCSNESBase):
         # since we know what the calling convention of the C function is, we
         # just wrap up everything as a C function pointer and use that
         # directly.
+
+        # TODO: can tidy this bit up
+
         (
             jacobian_cell_callable,
             jacobian_interior_facet_callable,
         ) = make_jacobian_callables(J, Jstate)
 
-        # self.Jop_struct = Jop_struct  # why?
         if is_snes:
             firedrake.cython.patchimpl.snespatch_set_compute_operator(
                 patch,
@@ -886,32 +974,14 @@ class PatchBase(PCSNESBase):
             )
 
         if jacobian_interior_facet_callable is not None:
-            raise NotImplementedError
-
-        # Jcell_kernels, Jint_facet_kernels = matrix_funptr(J, Jstate)
-        # Jcell_kernel, = Jcell_kernels
-        # Jcell_flops = Jcell_kernel.kinfo.kernel.num_flops
-        # # Jop_data_args, Jop_map_args = make_c_arguments(J, Jcell_kernel, Jstate,
-        # #                                                operator.methodcaller("cell_node_map"))
-        # code, Struct = make_jacobian_wrapper(Jcell_kernel, Jcell_flops)
-        # Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
-        # Jop_struct = make_c_struct(Jcell_kernel.funptr, Struct)
-        #
-        # Jhas_int_facet_kernel = False
-        # if len(Jint_facet_kernels) > 0:
-        #     raise NotImplementedError
-        #     Jint_facet_kernel, = Jint_facet_kernels
-        #     Jhas_int_facet_kernel = True
-        #     Jint_facet_flops = Jint_facet_kernel.kinfo.kernel.num_flops
-        #     facet_Jop_data_args, facet_Jop_map_args = make_c_arguments(J, Jint_facet_kernel, Jstate,
-        #                                                                "interior_facet",
-        #                                                                require_facet_number=True)
-        #     code, Struct = make_jacobian_wrapper(facet_Jop_data_args, facet_Jop_map_args, Jint_facet_flops)
-        #     facet_Jop_function = load_c_function(code, "ComputeJacobian", mesh.comm)
-        #     point2facet = mesh_unique.interior_facets.point2facetnumber.ctypes.data
-        #     facet_Jop_struct = make_c_struct(facet_Jop_data_args, facet_Jop_map_args,
-        #                                      Jint_facet_kernel.funptr, Struct,
-        #                                      point2facet=point2facet)
+            if is_snes:
+                raise NotImplementedError("Interior facet operators not implemented for SNESPatch")
+            else:
+                firedrake.cython.patchimpl.pcpatch_set_compute_operator_interior_facets(
+                    patch,
+                    jacobian_interior_facet_callable.ctypes_callable,
+                    jacobian_interior_facet_callable.ctypes_struct_address,
+                )
 
         set_residual = hasattr(ctx, "F") and isinstance(obj, PETSc.SNES)
         if set_residual:
@@ -957,12 +1027,7 @@ class PatchBase(PCSNESBase):
                                          offsets,
                                          ghost_bc_nodes,
                                          global_bc_nodes)
-        # if Jhas_int_facet_kernel:
-        #     raise NotImplementedError
-        #     self.facet_Jop_struct = facet_Jop_struct
-        #     set_patch_jacobian(patch, ctypes.cast(facet_Jop_function, ctypes.c_voidp).value,
-        #                        ctypes.addressof(facet_Jop_struct), is_snes=is_snes,
-        #                        interior_facets=True)
+
         if set_residual:
             raise NotImplementedError
             self.Fop_struct = Fop_struct
