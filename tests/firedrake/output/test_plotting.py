@@ -13,6 +13,11 @@ except ImportError:
     pass
 
 
+@pytest.fixture(autouse=True)
+def autouse_clear_pyplot_figures(clear_pyplot_figures):
+    pass
+
+
 @pytest.mark.skipplot
 def test_plotting_1d():
     mesh = UnitIntervalMesh(32)
@@ -355,7 +360,7 @@ def test_tripcolor_movie():
     def animate(time):
         t.assign(time)
         q.interpolate(expr)
-        colors.set_array(fn_plotter(q))
+        colors.set_array(fn_plotter(q).real)
 
     duration = 6
     fps = 24
@@ -363,3 +368,6 @@ def test_tripcolor_movie():
     interval = 1e3 / fps
     movie = FuncAnimation(fig, animate, frames=frames, interval=interval)
     assert movie is not None
+
+    # Use a method of the animation to prevent warning about it being unused
+    movie.to_jshtml()

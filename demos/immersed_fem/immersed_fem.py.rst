@@ -207,7 +207,7 @@ and can be set globally or for individual surfaces.
 For more information see the `Gmsh algorithm overview <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
 
 When writing the mesh to file, the format is determined by the file extension. For example,
-`.msh2` for Gmsh 2.x, `.msh` for GMSH 4.x. ::
+``.msh2`` for Gmsh 2.x, ``.msh`` for GMSH 4.x. ::
 
    gmsh.option.setNumber("Mesh.Algorithm", 6)
    gmsh.option.setNumber("Mesh.MshFileVersion", 4.1)

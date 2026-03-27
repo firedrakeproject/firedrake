@@ -1,5 +1,4 @@
 import pytest
-import os
 from firedrake import *
 import numpy as np
 from mpi4py import MPI
@@ -21,11 +20,6 @@ def degree(request):
 @pytest.fixture(params=["CG"])
 def fs(request):
     return request.param
-
-
-@pytest.fixture
-def dumpfile(dumpdir):
-    return os.path.join(dumpdir, "dump")
 
 
 @pytest.fixture(scope="module")

@@ -179,6 +179,8 @@ cdef extern from "petscpc.h" nogil:
    PetscErrorCode PCPatchSetComputeFunctionInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
    PetscErrorCode PCPatchSetComputeOperator(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
    PetscErrorCode PCPatchSetComputeOperatorInteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeOperatorExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeOperator, void *)
+   PetscErrorCode PCPatchSetComputeFunctionExteriorFacets(PETSc.PetscPC, PetscPCPatchComputeFunction, void *)
 
 cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT

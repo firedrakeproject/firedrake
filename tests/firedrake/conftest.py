@@ -9,6 +9,7 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
+from mpi4py import MPI
 from petsctools import get_external_packages
 from pyadjoint.tape import (
     annotate_tape, get_working_tape, set_working_tape,
@@ -16,6 +17,17 @@ from pyadjoint.tape import (
 )
 
 from firedrake.petsc import PETSc
+
+
+# Use a non-interactive backend for matplotlib if DISPLAY is undefined. This
+# prevents test failures when developing remotely.
+try:
+    import matplotlib
+except ImportError:
+    pass
+else:
+    if os.environ.get("DISPLAY", "") == "":
+        matplotlib.use("Agg")
 
 
 @functools.cache
@@ -200,6 +212,15 @@ def set_test_tape():
     pause_annotation()
 
 
+@pytest.fixture
+def clear_pyplot_figures():
+    """Destroy all pyplot figures to prevent leaks."""
+    import matplotlib.pyplot as plt
+
+    yield
+    plt.close("all")
+
+
 class _petsc_raises:
     """Context manager for catching PETSc-raised exceptions.
 
@@ -236,3 +257,10 @@ class _petsc_raises:
 def petsc_raises():
     # This function is needed because pytest does not support classes as fixtures.
     return _petsc_raises
+
+
+@pytest.fixture
+def garbage_cleanup():
+    """Fixture that runs the parallel garbage collector."""
+    yield
+    PETSc.garbage_cleanup(MPI.COMM_WORLD)

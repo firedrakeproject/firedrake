@@ -235,7 +235,7 @@ class HybridizationPC(SCBase):
 
         # Set the dm for the trace solver
         trace_ksp.setDM(trace_dm)
-        trace_ksp.setDMActive(False)
+        trace_ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         trace_ksp.setOptionsPrefix(prefix)
         trace_ksp.setOperators(Smat, Smat)
 

@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_array
 import petsctools
 from firedrake import *
 from firedrake.adjoint import (
@@ -21,7 +21,7 @@ def petsc2numpy_mat(petsc_mat):
     comm = petsc_mat.getComm()
     local_mat = petsc_mat.getRedundantMatrix(
         comm.size, PETSc.COMM_SELF)
-    return csr_matrix(
+    return csr_array(
         local_mat.getValuesCSR()[::-1],
         shape=local_mat.getSize()
     ).todense()
@@ -39,7 +39,7 @@ def rng():
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
 @pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
-def test_white_noise(family, degree, mesh_type, dim, backend_type, rng):
+def test_white_noise(family, degree, mesh_type, dim, backend_type, rng, garbage_cleanup):
     """Test that white noise generator converges to a mass matrix covariance.
     """
 
