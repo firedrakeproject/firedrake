@@ -292,21 +292,19 @@ for (int32_t k=0; k<{arity}; k++)
 
         # wrapper kernel signature
         out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar *__restrict__ F"
-        default_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
+        args_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
         if self.state is not None:
-            default_sig = f"{default_sig}, const PetscScalar *__restrict__ state, const PetscInt *__restrict__ dofArrayWithAll"
+            args_sig += ", const PetscScalar *__restrict__ state, const PetscInt *__restrict__ dofArrayWithAll"
 
-        extra_sigs = ", ".join((
-            f"const {as_cstr(arg.dtype)} *__restrict__ {self._names[arg]}"
-            for arg in self._flat_args
-        ))
-        if extra_sigs:
-            wrapper_kernel_args_sig = f"{default_sig}, {extra_sigs}"
-        else:
-            wrapper_kernel_args_sig = default_sig
+        if self._flat_args:
+            extra_sigs = ", ".join((
+                f"const {as_cstr(arg.dtype)} *__restrict__ {self._names[arg]}"
+                for arg in self._flat_args
+            ))
+            args_sig += f", {extra_sigs}"
 
         return f"""\
-void wrapper_kernel({wrapper_kernel_args_sig})
+void wrapper_kernel({args_sig})
 {{
 {'\n'.join(textwrap.indent(temp_decl, " "*2) for temp_decl in temp_decls)}
   PetscInt j;
@@ -478,19 +476,17 @@ PetscErrorCode ComputeResidual(PC pc,
     @property
     def _wrapper_kernel_call_insn(self) -> str:
         out_name = "J"if len(self.form.arguments()) == 2 else "Fdat"
-        default_args = f"npoints, whichPoints, {out_name}, dofArray"
+        args = f"npoints, whichPoints, {out_name}, activeDofsArray"
 
         if self.state is not None:
-            default_args = f"{default_args}, state, dofArrayWithAll"
+            args += ", state, dofArrayWithAll"
+        if self._flat_args:
+            extra_args = ", ".join(
+                (f"ctx->{self._names[arg]}" for arg in self._flat_args)
+            )
+            args += f", {extra_args}"
 
-        extra_args = ", ".join(
-            (f"ctx->{self._names[arg]}" for arg in self._flat_args)
-        )
-
-        if extra_args:
-            return f"wrapper_kernel({default_args}, {extra_args})"
-        else:
-            return f"wrapper_kernel({default_args})"
+        return f"wrapper_kernel({args})"
 
     @cached_property
     def _ctypes_struct(self) -> ctypes.Structure:
