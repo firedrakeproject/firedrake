@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
 import itertools
 import textwrap
-import typing
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
 import firedrake.cython.patchimpl
 from firedrake.solving_utils import _SNESContext
-from firedrake.utils import complex_mode, IntType, ScalarType
+from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form
@@ -23,11 +21,9 @@ import loopy as lp
 import ufl
 
 import operator
-from itertools import chain
 from functools import cached_property, partial
 import numpy
 from finat.ufl import VectorElement, MixedElement
-from ufl.domain import extract_unique_domain
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 import petsctools
@@ -36,11 +32,7 @@ import ctypes
 import pyop2.compilation
 from pyop2 import op2
 import pyop2.types
-from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
-
-if typing.TYPE_CHECKING:
-    from firedrake import Constant, Function, Cofunction
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -106,7 +98,7 @@ class PatchCallable:
     @cached_property
     def _args_and_names(self) -> tuple[list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant], dict[Any, str]]:
         args: list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant] = []
-        names: dict[Any, str] = {}
+        names: dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str] = {}
 
         dat_name_counter = itertools.count()
         glob_name_counter = itertools.count()
@@ -127,12 +119,6 @@ class PatchCallable:
         def add_coeff(coeff):
             add_dat(coeff.dat, self._get_map(coeff.function_space()))
 
-        # Register the state map immediately. We don't need to store the coefficient
-        # because we set that up separately.
-        if self.state is not None:
-            state_map = self._get_map(self.state.function_space())
-            names[state_map] = f"map_{next(map_name_counter)}"
-
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
             add_coeff(all_meshes[domain_number].coordinates)
@@ -152,7 +138,10 @@ class PatchCallable:
                     raise ValueError(
                         f"Active indices of state function must be '(0,)', not '{coeff_indices}'"
                     )
-                # state coefficient is provided separately
+                # state coefficient is provided separately but we have to
+                # record its location so we know where to insert it in the
+                # local kernel call instruction
+                args.append(None)
                 continue
 
             for coeff_index in coeff_indices:
@@ -164,6 +153,8 @@ class PatchCallable:
 
         if self.kinfo.integral_type == "interior_facet":
             add_dat(self._mesh.interior_facets.local_facet_dat, None)
+        elif self.kinfo.integral_type == "exterior_facet":
+            add_dat(self._mesh.exterior_facets.local_facet_dat, None)
 
         return args, names
 
@@ -176,25 +167,21 @@ class PatchCallable:
         return self._args_and_names[1]
 
     @cached_property
-    def _dats(self) -> tuple[op2.Dat]:
-        return tuple(
-            obj for obj in self._names.keys()
-            if isinstance(obj, op2.Dat)
-        )
-
-    @cached_property
-    def _maps(self) -> tuple[op2.Map]:
-        return tuple(
-            obj for obj in self._names.keys()
-            if isinstance(obj, op2.Map)
-        )
-
-    @cached_property
-    def _globs(self) -> tuple[op2.Global | op2.Constant]:
-        return tuple(
-            obj for obj in self._names.keys()
-            if isinstance(obj, op2.Global | op2.Constant)
-        )
+    def _flat_args(self):
+        flat_args = []
+        maps = []
+        for arg in self._args:
+            if arg is None:
+                # skip state coefficient
+                continue
+            elif isinstance(arg, tuple):  # (dat, map)
+                dat, map_ = arg
+                flat_args.append(dat)
+                if map_ is not None and map_ not in maps:
+                    maps.append(map_)
+            else:
+                flat_args.append(arg)
+        return tuple(flat_args + maps)
 
     @cached_property
     def _mesh(self):
@@ -253,28 +240,22 @@ for (int32_t k=0; k<{size}; k++)
 for (int32_t k=0; k<{size}; k++)
   F[dofArray[{size}*i+k]] += {temp_name}[k];"""
 
-        # possible state argument
-        if self.state is not None:
-            state_map = self._get_map(self.state.function_space())
-            state_map_name = self._names[state_map]
-            temp_name = f"t_{next(temp_counter)}"
-            arity = state_map.arity
-            cdim = self.state.dat.dataset.cdim
-            temps.append((temp_name, (arity, cdim)))
-
-            local_kernel_args.append(temp_name)
-
-            pack_insn = f"""\
-for (int32_t k=0; k<{arity}; k++)
-  for (int32_t l=0; l<{cdim}; l++)
-    {temp_name}[{cdim}*k+l] = state[{state_map_name}[j*{arity}+k]*{cdim}+l];"""
-            pack_insns.append(pack_insn)
-
         # now handle the other arguments
         for arg in self._args:
-            if isinstance(arg, op2.Global | op2.Constant):
-                local_kernel_args.append(self._names[arg])
-            else:
+            if arg is None:
+                # possible state argument, can be any of the coefficients
+                temp_name = f"t_{next(temp_counter)}"
+                size = sizes[0]
+                temps.append((temp_name, (size,)))
+
+                local_kernel_args.append(temp_name)
+
+                pack_insn = f"""\
+for (int32_t k=0; k<{size}; k++)
+  {temp_name}[k] = state[dofArrayWithAll[i*{size}+k]];"""
+                pack_insns.append(pack_insn)
+
+            elif isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 assert isinstance(dat, op2.Dat)
                 dat_name = self._names[dat]
@@ -295,6 +276,10 @@ for (int32_t k=0; k<{arity}; k++)
     {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
                     pack_insns.append(pack_insn)
 
+            else:
+                assert isinstance(arg, op2.Global | op2.Constant)
+                local_kernel_args.append(self._names[arg])
+
         # generate the rest
         temp_decls = []
         for temp_name, temp_shape in temps:
@@ -309,18 +294,12 @@ for (int32_t k=0; k<{arity}; k++)
         out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar *__restrict__ F"
         default_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
         if self.state is not None:
-            default_sig = f"{default_sig}, const PetscScalar *__restrict__ state"
+            default_sig = f"{default_sig}, const PetscScalar *__restrict__ state, const PetscInt *__restrict__ dofArrayWithAll"
 
-        dat_sigs = [
-            f"const {as_cstr(dat.dtype)} *__restrict__ {self._names[dat]}" for dat in self._dats
-        ]
-        map_sigs = [
-            f"const PetscInt *__restrict__ {self._names[map_]}" for map_ in self._maps
-        ]
-        glob_sigs = [
-            f"const {as_cstr(glob.dtype)} *__restrict__ {self._names[glob]}" for glob in self._globs
-        ]
-        extra_sigs = ", ".join((*dat_sigs, *map_sigs, *glob_sigs))
+        extra_sigs = ", ".join((
+            f"const {as_cstr(arg.dtype)} *__restrict__ {self._names[arg]}"
+            for arg in self._flat_args
+        ))
         if extra_sigs:
             wrapper_kernel_args_sig = f"{default_sig}, {extra_sigs}"
         else:
@@ -339,7 +318,7 @@ void wrapper_kernel({wrapper_kernel_args_sig})
 
     {local_kernel_call_insn}
 
-{textwrap.indent(unpack_insn, " "*4}
+{textwrap.indent(unpack_insn, " "*4)}
   }}
 }}
 """
@@ -502,12 +481,11 @@ PetscErrorCode ComputeResidual(PC pc,
         default_args = f"npoints, whichPoints, {out_name}, dofArray"
 
         if self.state is not None:
-            default_args = f"{default_args}, state"
+            default_args = f"{default_args}, state, dofArrayWithAll"
 
-        dat_args = [f"ctx->{self._names[dat]}" for dat in self._dats]
-        map_args = [f"ctx->{self._names[map_]}" for map_ in self._maps]
-        glob_args = [f"ctx->{self._names[glob]}" for glob in self._globs]
-        extra_args = ", ".join((*dat_args, *map_args, *glob_args))
+        extra_args = ", ".join(
+            (f"ctx->{self._names[arg]}" for arg in self._flat_args)
+        )
 
         if extra_args:
             return f"wrapper_kernel({default_args}, {extra_args})"
@@ -517,35 +495,35 @@ PetscErrorCode ComputeResidual(PC pc,
     @cached_property
     def _ctypes_struct(self) -> ctypes.Structure:
         fields = [
-            *((self._names[dat], ctypes.c_voidp) for dat in self._dats),
-            *((self._names[map_], ctypes.c_voidp) for map_ in self._maps),
-            *((self._names[glob], ctypes.c_voidp) for glob in self._globs),
+            *((self._names[arg], ctypes.c_voidp) for arg in self._flat_args),
             ("point2facet", ctypes.c_voidp),
         ]
 
         class Struct(ctypes.Structure):
             _fields_ = fields
 
-        if self.kinfo.integral_type == "cell":
-            point2facet = 0
-        else:
-            assert self.kinfo.integral_type == "interior_facet"
-            point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+        match self.kinfo.integral_type:
+            case "cell":
+                point2facet = 0
+            case "interior_facet":
+                point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+            case "exterior_facet":
+                point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
+            case _:
+                raise AssertionError
 
         struct_args = [
-            *(arg for dat in self._dats for arg in dat._kernel_args_),
-            *(arg for map_ in self._maps for arg in map_._kernel_args_),
-            *(arg for glob in self._globs for arg in glob._kernel_args_),
+            *(karg for arg in self._flat_args for karg in arg._kernel_args_),
             point2facet,
         ]
         return Struct(*struct_args)
 
     @cached_property
     def _struct_code(self) -> str:
-        dat_decls = [f"const {as_cstr(dat.dtype)} *{self._names[dat]};" for dat in self._dats]
-        map_decls = [f"const PetscInt *{self._names[map_]};" for map_ in self._maps]
-        glob_decls = [f"const {as_cstr(glob.dtype)} *{self._names[glob]};" for glob in self._globs]
-        decls = "\n".join((*dat_decls, *map_decls, *glob_decls))
+        decls = "\n".join((
+            f"const {as_cstr(arg.dtype)} *{self._names[arg]};"
+            for arg in self._flat_args
+        ))
 
         return f"""\
 typedef struct {{
@@ -582,66 +560,6 @@ def make_patch_callables(form, state):
             assert exterior_facet_callable is None, "Only a single exterior facet callable allowed"
             exterior_facet_callable = callable
     return cell_callable, interior_facet_callable, exterior_facet_callable
-
-
-def make_residual_wrapper(coeffs, maps, flops):
-    struct_decl, pyop2_call, struct = make_struct(coeffs, maps, jacobian=False)
-
-
-
-def make_c_arguments(form, kernel, state, integral_type, require_state=False,
-                     require_facet_number=False):
-    all_meshes = extract_domains(form)
-    mesh = all_meshes[kernel.kinfo.domain_number]
-    coeffs = []
-    coeffs.extend([all_meshes[i].coordinates for i in kernel.kinfo.active_domain_numbers.coordinates])
-    coeffs.extend([all_meshes[i].cell_orientations() for i in kernel.kinfo.active_domain_numbers.cell_orientations])
-    coeffs.extend([all_meshes[i].cell_sizes for i in kernel.kinfo.active_domain_numbers.cell_sizes])
-    for n, indices in kernel.kinfo.coefficient_numbers:
-        c = form.coefficients()[n]
-        if c is state:
-            if indices != (0, ):
-                raise ValueError(f"Active indices of state (dont_split) function must be (0, ), not {indices}")
-            coeffs.append(c)
-        else:
-            coeffs.extend([c.subfunctions[ind] for ind in indices])
-    if require_state:
-        assert state in coeffs, "Couldn't find state vector in form coefficients"
-    data_args = []
-    map_args = []
-    seen = set()
-    for c in coeffs:
-        if c is state:
-            data_args.append(None)
-            map_args.append(None)
-        else:
-            data_args.extend(c.dat._kernel_args_)
-        map_ = get_map(c.function_space(), mesh, integral_type)
-        if map_ is not None:
-            for k in map_._kernel_args_:
-                if k not in seen:
-                    map_args.append(k)
-                    seen.add(k)
-
-    all_constants = extract_firedrake_constants(form)
-    for constant_index in kernel.kinfo.constant_numbers:
-        data_args.extend(all_constants[constant_index].dat._kernel_args_)
-
-    if require_facet_number:
-        if integral_type == "interior_facet":
-            data_args.extend(mesh.interior_facets.local_facet_dat._kernel_args_)
-        elif integral_type == "exterior_facet":
-            data_args.extend(mesh.exterior_facets.local_facet_dat._kernel_args_)
-    return data_args, map_args
-
-
-def make_c_struct(data_args, map_args, function, struct, point2facet=None):
-    args = [a for a in chain(data_args, map_args) if a is not None]
-    if point2facet is None:
-        args.append(0)
-    else:
-        args.append(point2facet)
-    return struct(*args, ctypes.cast(function, ctypes.c_voidp).value)
 
 
 def bcdofs(bc, ghost=True):
