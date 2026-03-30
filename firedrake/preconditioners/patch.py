@@ -820,19 +820,12 @@ class PatchBase(PCSNESBase):
 
         jacobian_patch_callables = make_patch_callables(J, state)
         # save a reference to prevent premature cleanup
-        # self._jacobian_patch_callables = jacobian_patch_callables
+        self._jacobian_patch_callables = jacobian_patch_callables
         (
             jacobian_cell_callable,
             jacobian_interior_facet_callable,
             jacobian_exterior_facet_callable,
         ) = jacobian_patch_callables
-
-        if jacobian_cell_callable:
-            self.a = jacobian_cell_callable._ctypes_struct
-        if jacobian_interior_facet_callable:
-            self.b = jacobian_interior_facet_callable._ctypes_struct
-        if jacobian_exterior_facet_callable:
-            self.c = jacobian_interior_facet_callable._ctypes_struct
 
         if is_snes:
             if jacobian_cell_callable:
@@ -873,14 +866,12 @@ class PatchBase(PCSNESBase):
 
             residual_patch_callables = make_patch_callables(ctx.F, state)
             # save a reference to prevent premature cleanup
-            # self._residual_patch_callables = residual_patch_callables
+            self._residual_patch_callables = residual_patch_callables
             (
                 residual_cell_callable,
                 residual_interior_facet_callable,
                 residual_exterior_facet_callable,
             ) = residual_patch_callables
-
-            self.d = residual_cell_callable._ctypes_struct
 
             if is_snes:
                 if residual_cell_callable:
