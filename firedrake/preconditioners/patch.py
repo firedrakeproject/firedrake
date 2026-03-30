@@ -237,8 +237,10 @@ for (int32_t k=0; k<{size}; k++)
             local_kernel_args.append(temp_name)
 
             unpack_insn = f"""\
-for (int32_t k=0; k<{size}; k++)
-  F[activeDofsArray[{size}*i+k]] += {temp_name}[k];"""
+for (int32_t k=0; k<{size}; k++) {{
+  if (activeDofsArray[{size}*i+k] >= 0)
+    F[activeDofsArray[{size}*i+k]] += {temp_name}[k];
+}}"""
 
         # now handle the other arguments
         for arg in self._args:
@@ -285,6 +287,9 @@ for (int32_t k=0; k<{arity}; k++)
         for temp_name, temp_shape in temps:
             temp_decl = f"PetscScalar {temp_name}[{'*'.join(map(str, temp_shape))}];"
             temp_decls.append(temp_decl)
+        temp_decls = "\n".join(temp_decls)
+
+        pack_insns: str = "\n".join(pack_insns)
 
         local_kernel_call_insn = (
             f"{self.kinfo.kernel.name}({', '.join(local_kernel_args)});"
@@ -306,13 +311,13 @@ for (int32_t k=0; k<{arity}; k++)
         return f"""\
 void wrapper_kernel({args_sig})
 {{
-{'\n'.join(textwrap.indent(temp_decl, " "*2) for temp_decl in temp_decls)}
+{textwrap.indent(temp_decls, " "*2)}
   PetscInt j;
 
   for (int32_t i=0; i<n; i++)
   {{
     j = subset[i];
-{'\n'.join(textwrap.indent(pack_insn, " "*4) for pack_insn in pack_insns)}
+{textwrap.indent(pack_insns, " "*4)}
 
     {local_kernel_call_insn}
 
