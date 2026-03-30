@@ -21,7 +21,9 @@ from gem import (
     Variable,
 )
 from gem import indices as make_indices
-from gem import view
+from gem import (
+    view,
+)
 from gem.node import Memoizer
 from gem.node import pre_traversal as traverse_dags
 from ufl.corealg.multifunction import MultiFunction
