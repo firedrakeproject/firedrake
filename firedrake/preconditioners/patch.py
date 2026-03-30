@@ -222,7 +222,7 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
             local_kernel_args.append(temp_name)
 
             unpack_insn = (
-                f"MatSetValues(J, {row_size}, &(dofArray[{row_size}*i]), {column_size}, &(dofArray[{column_size}*i]), {temp_name}, ADD_VALUES);"
+                f"MatSetValues(J, {row_size}, &(activeDofsArray[{row_size}*i]), {column_size}, &(activeDofsArray[{column_size}*i]), {temp_name}, ADD_VALUES);"
             )
         else:
             size, = sizes
@@ -238,7 +238,7 @@ for (int32_t k=0; k<{size}; k++)
 
             unpack_insn = f"""\
 for (int32_t k=0; k<{size}; k++)
-  F[dofArray[{size}*i+k]] += {temp_name}[k];"""
+  F[activeDofsArray[{size}*i+k]] += {temp_name}[k];"""
 
         # now handle the other arguments
         for arg in self._args:
@@ -258,14 +258,14 @@ for (int32_t k=0; k<{size}; k++)
             elif isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 assert isinstance(dat, op2.Dat)
+                cdim = dat.dataset.cdim
                 dat_name = self._names[dat]
                 if map_ is None:
-                    local_kernel_args.append(f"&({dat_name}[j])")
+                    local_kernel_args.append(f"&({dat_name}[{cdim}*j])")
                 else:
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
                     arity = map_.arity
-                    cdim = dat.dataset.cdim
                     temps.append((temp_name, (arity, cdim)))
 
                     local_kernel_args.append(temp_name)
@@ -292,7 +292,7 @@ for (int32_t k=0; k<{arity}; k++)
 
         # wrapper kernel signature
         out_sig = "Mat J" if len(self.form.arguments()) == 2 else "PetscScalar *__restrict__ F"
-        args_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ dofArray"
+        args_sig = f"PetscInt n, const PetscInt *__restrict__ subset, {out_sig}, const PetscInt *__restrict__ activeDofsArray"
         if self.state is not None:
             args_sig += ", const PetscScalar *__restrict__ state, const PetscInt *__restrict__ dofArrayWithAll"
 
@@ -820,12 +820,19 @@ class PatchBase(PCSNESBase):
 
         jacobian_patch_callables = make_patch_callables(J, state)
         # save a reference to prevent premature cleanup
-        self._jacobian_patch_callables = jacobian_patch_callables
+        # self._jacobian_patch_callables = jacobian_patch_callables
         (
             jacobian_cell_callable,
             jacobian_interior_facet_callable,
             jacobian_exterior_facet_callable,
         ) = jacobian_patch_callables
+
+        if jacobian_cell_callable:
+            self.a = jacobian_cell_callable._ctypes_struct
+        if jacobian_interior_facet_callable:
+            self.b = jacobian_interior_facet_callable._ctypes_struct
+        if jacobian_exterior_facet_callable:
+            self.c = jacobian_interior_facet_callable._ctypes_struct
 
         if is_snes:
             if jacobian_cell_callable:
@@ -866,12 +873,14 @@ class PatchBase(PCSNESBase):
 
             residual_patch_callables = make_patch_callables(ctx.F, state)
             # save a reference to prevent premature cleanup
-            self._residual_patch_callables = residual_patch_callables
+            # self._residual_patch_callables = residual_patch_callables
             (
                 residual_cell_callable,
                 residual_interior_facet_callable,
                 residual_exterior_facet_callable,
             ) = residual_patch_callables
+
+            self.d = residual_cell_callable._ctypes_struct
 
             if is_snes:
                 if residual_cell_callable:
@@ -887,27 +896,6 @@ class PatchBase(PCSNESBase):
                 if residual_exterior_facet_callable:
                     raise NotImplementedError(
                         "Exterior facet residual functions not implemented for SNESPatch"
-                    )
-
-            else:
-                assert False, "surely not hit"
-                if residual_cell_callable:
-                    firedrake.cython.patchimpl.pcpatch_set_compute_function(
-                        patch,
-                        residual_cell_callable.ctypes_callable,
-                        residual_cell_callable.ctypes_struct_address,
-                    )
-                if residual_interior_facet_callable:
-                    firedrake.cython.patchimpl.pcpatch_set_compute_function_interior_facets(
-                        patch,
-                        residual_interior_facet_callable.ctypes_callable,
-                        residual_interior_facet_callable.ctypes_struct_address,
-                    )
-                if residual_exterior_facet_callable:
-                    firedrake.cython.patchimpl.pcpatch_set_compute_function_exterior_facets(
-                        patch,
-                        residual_exterior_facet_callable.ctypes_callable,
-                        residual_exterior_facet_callable.ctypes_struct_address,
                     )
 
         patch.setDM(self.plex)
@@ -927,7 +915,7 @@ class PatchBase(PCSNESBase):
         patch.incrementTabLevel(1, parent=obj)
         patch.setFromOptions()
         patch.setUp()
-        self.patch = patch  # why?
+        self.patch = patch
 
     def destroy(self, obj):
         # In this destructor we clean up the __firedrake_mesh__ we set
