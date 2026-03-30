@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import dataclasses
 import itertools
 import textwrap
+import typing
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
@@ -11,9 +11,8 @@ from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
 from firedrake.interpolation import interpolate
-from firedrake.tsfc_interface import compile_form
+from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
-from typing import Any
 from pyop2.datatypes import as_cstr
 
 import loopy as lp
@@ -34,10 +33,13 @@ from pyop2 import op2
 import pyop2.types
 from pyop2.mpi import COMM_SELF
 
+if typing.TYPE_CHECKING:
+    from firedrake import Function
+
+
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
 
-@dataclasses.dataclass(frozen=True)
 class PatchCallable:
     """Class representing the evaluation of a patch operator or residual.
 
@@ -48,9 +50,15 @@ class PatchCallable:
     (called `ctypes_callable` and `ctypes_struct_address`).
 
     """
-    form: ufl.Form
-    kinfo: Any
-    state: Any
+    def __init__(self, form: ufl.Form, kinfo: KernelInfo, state: Function):
+        self.form = form
+        self.kinfo = kinfo
+        self.state = state
+
+        args, names, state_index = self._set_up()
+        self._args = args
+        self._names = names
+        self._state_index = state_index
 
     @cached_property
     def ctypes_callable(self):
@@ -95,10 +103,31 @@ class PatchCallable:
         """
         return ctypes.addressof(self._ctypes_struct)
 
-    @cached_property
-    def _args_and_names(self) -> tuple[list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant], dict[Any, str]]:
+    def _set_up(self) -> tuple[
+        list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant],
+        dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str],
+        int | None,
+    ]:
+        """Process ``form``, ``kinfo`` and ``state``.
+
+        Returns
+        -------
+        args
+            List of PyOP2 objects that are used in the wrapper kernel. The
+            order matches the order that arguments are passed into the local
+            kernel. The output tensor and optional state dat are not included.
+            Dats are included as a 2-tuple of ``(dat, map)`` where ``map``
+            can be `None`.
+        names
+            Mapping from PyOP2 objects to their names in the wrapper kernel.
+        state_index
+            Index of the state coefficient in the local kernel. `None` if
+            state is not provided.
+
+        """
         args: list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant] = []
         names: dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str] = {}
+        state_index: int | None = None
 
         dat_name_counter = itertools.count()
         glob_name_counter = itertools.count()
@@ -124,12 +153,10 @@ class PatchCallable:
             add_coeff(all_meshes[domain_number].coordinates)
 
         for i in self.kinfo.active_domain_numbers.cell_orientations:
-            raise NotImplementedError
-            # c = all_meshes[i].cell_orientations()
+            add_coeff(all_meshes[i].cell_orientations())
 
         for i in self.kinfo.active_domain_numbers.cell_sizes:
-            raise NotImplementedError
-            # c = all_meshes[i].cell_sizes
+            add_coeff(all_meshes[i].cell_sizes)
 
         for coeff_number, coeff_indices in self.kinfo.coefficient_numbers:
             coeff = self.form.coefficients()[coeff_number]
@@ -141,7 +168,7 @@ class PatchCallable:
                 # state coefficient is provided separately but we have to
                 # record its location so we know where to insert it in the
                 # local kernel call instruction
-                args.append(None)
+                state_index = len(args) + 1  # add 1 because the output tensor is always first
                 continue
 
             for coeff_index in coeff_indices:
@@ -156,25 +183,20 @@ class PatchCallable:
         elif self.kinfo.integral_type == "exterior_facet":
             add_dat(self._mesh.exterior_facets.local_facet_dat, None)
 
-        return args, names
-
-    @property
-    def _args(self):
-        return self._args_and_names[0]
-
-    @property
-    def _names(self):
-        return self._args_and_names[1]
+        return args, names, state_index
 
     @cached_property
-    def _flat_args(self):
+    def _wrapper_kernel_args(self):
+        """Arguments that are passed to the wrapper kernel.
+
+        This function 'explodes' the ``_args`` attribute by placing the maps
+        used by dats at the end.
+
+        """
         flat_args = []
         maps = []
         for arg in self._args:
-            if arg is None:
-                # skip state coefficient
-                continue
-            elif isinstance(arg, tuple):  # (dat, map)
+            if isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 flat_args.append(dat)
                 if map_ is not None and map_ not in maps:
@@ -244,20 +266,7 @@ for (int32_t k=0; k<{size}; k++) {{
 
         # now handle the other arguments
         for arg in self._args:
-            if arg is None:
-                # possible state argument, can be any of the coefficients
-                temp_name = f"t_{next(temp_counter)}"
-                size = sizes[0]
-                temps.append((temp_name, (size,)))
-
-                local_kernel_args.append(temp_name)
-
-                pack_insn = f"""\
-for (int32_t k=0; k<{size}; k++)
-  {temp_name}[k] = state[dofArrayWithAll[i*{size}+k]];"""
-                pack_insns.append(pack_insn)
-
-            elif isinstance(arg, tuple):  # (dat, map)
+            if isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 assert isinstance(dat, op2.Dat)
                 cdim = dat.dataset.cdim
@@ -282,15 +291,27 @@ for (int32_t k=0; k<{arity}; k++)
                 assert isinstance(arg, op2.Global | op2.Constant)
                 local_kernel_args.append(self._names[arg])
 
+        # optional state, can be any of the coefficients
+        if self.state is not None:
+            assert self._state_index is not None
+            temp_name = f"t_{next(temp_counter)}"
+            size = sizes[0]
+            temps.append((temp_name, (size,)))
+
+            local_kernel_args.insert(self._state_index, temp_name)
+
+            pack_insn = f"""\
+for (int32_t k=0; k<{size}; k++)
+  {temp_name}[k] = state[dofArrayWithAll[i*{size}+k]];"""
+            pack_insns.append(pack_insn)
+
         # generate the rest
         temp_decls = []
         for temp_name, temp_shape in temps:
             temp_decl = f"PetscScalar {temp_name}[{'*'.join(map(str, temp_shape))}];"
             temp_decls.append(temp_decl)
-        temp_decls = "\n".join(temp_decls)
-
-        pack_insns: str = "\n".join(pack_insns)
-
+        temp_decls_str = "\n".join(temp_decls)
+        pack_insns_str = "\n".join(pack_insns)
         local_kernel_call_insn = (
             f"{self.kinfo.kernel.name}({', '.join(local_kernel_args)});"
         )
@@ -301,23 +322,23 @@ for (int32_t k=0; k<{arity}; k++)
         if self.state is not None:
             args_sig += ", const PetscScalar *__restrict__ state, const PetscInt *__restrict__ dofArrayWithAll"
 
-        if self._flat_args:
+        if self._wrapper_kernel_args:
             extra_sigs = ", ".join((
                 f"const {as_cstr(arg.dtype)} *__restrict__ {self._names[arg]}"
-                for arg in self._flat_args
+                for arg in self._wrapper_kernel_args
             ))
             args_sig += f", {extra_sigs}"
 
         return f"""\
 void wrapper_kernel({args_sig})
 {{
-{textwrap.indent(temp_decls, " "*2)}
+{textwrap.indent(temp_decls_str, " "*2)}
   PetscInt j;
 
   for (int32_t i=0; i<n; i++)
   {{
     j = subset[i];
-{textwrap.indent(pack_insns, " "*4)}
+{textwrap.indent(pack_insns_str, " "*4)}
 
     {local_kernel_call_insn}
 
@@ -326,8 +347,9 @@ void wrapper_kernel({args_sig})
 }}
 """
 
-    @property
+    @cached_property
     def _callback_code(self) -> str:
+        """Return the code that gets compiled and used for the PETSc callback."""
         if len(self.form.arguments()) == 2:
             return self._make_jacobian_callback_code()
         else:
@@ -485,9 +507,9 @@ PetscErrorCode ComputeResidual(PC pc,
 
         if self.state is not None:
             args += ", state, dofArrayWithAll"
-        if self._flat_args:
+        if self._wrapper_kernel_args:
             extra_args = ", ".join(
-                (f"ctx->{self._names[arg]}" for arg in self._flat_args)
+                (f"ctx->{self._names[arg]}" for arg in self._wrapper_kernel_args)
             )
             args += f", {extra_args}"
 
@@ -495,26 +517,25 @@ PetscErrorCode ComputeResidual(PC pc,
 
     @cached_property
     def _ctypes_struct(self) -> ctypes.Structure:
+        """Return a struct containing additional wrapper kernel arguments."""
         fields = [
-            *((self._names[arg], ctypes.c_voidp) for arg in self._flat_args),
+            *((self._names[arg], ctypes.c_voidp) for arg in self._wrapper_kernel_args),
             ("point2facet", ctypes.c_voidp),
         ]
 
         class Struct(ctypes.Structure):
             _fields_ = fields
 
-        match self.kinfo.integral_type:
-            case "cell":
-                point2facet = 0
-            case "interior_facet":
-                point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
-            case "exterior_facet":
-                point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
-            case _:
-                raise AssertionError
+        if self.kinfo.integral_type == "cell":
+            point2facet = 0
+        elif self.kinfo.integral_type == "interior_facet":
+            point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+        else:
+            assert self.kinfo.integral_type == "exterior_facet"
+            point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
 
         struct_args = [
-            *(karg for arg in self._flat_args for karg in arg._kernel_args_),
+            *(karg for arg in self._wrapper_kernel_args for karg in arg._kernel_args_),
             point2facet,
         ]
         return Struct(*struct_args)
@@ -523,7 +544,7 @@ PetscErrorCode ComputeResidual(PC pc,
     def _struct_code(self) -> str:
         decls = "\n".join((
             f"const {as_cstr(arg.dtype)} *{self._names[arg]};"
-            for arg in self._flat_args
+            for arg in self._wrapper_kernel_args
         ))
 
         return f"""\
@@ -533,7 +554,10 @@ typedef struct {{
 }} UserCtx;"""
 
 
-def make_patch_callables(form, state):
+def make_patch_callables(form: ufl.Form, state: Function | None) -> tuple[
+    PatchCallable | None, PatchCallable | None, PatchCallable | None
+]:
+    """Return 3 patch callables for cells and interior and exterior facets."""
     if state is not None:
         dont_split = (state,)
     else:
