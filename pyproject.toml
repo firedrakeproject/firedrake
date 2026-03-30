@@ -194,3 +194,24 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+
+[tool.isort]
+profile = "black"  # black compatibility
+# Separate imports for packages that we control that aren't in this repository
+known_owned = [
+  "FIAT",
+  "finat",
+  "gem",
+  "petsctools",
+  "pyadjoint",
+  "pytest_mpi",
+  "ufl",
+]
+sections = [
+  "FUTURE",
+  "STDLIB",
+  "THIRDPARTY",
+  "OWNED",
+  "FIRSTPARTY",
+  "LOCALFOLDER",
+]
