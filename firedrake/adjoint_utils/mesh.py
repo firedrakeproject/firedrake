@@ -1,4 +1,5 @@
 from functools import wraps
+
 from pyadjoint.overloaded_type import OverloadedType
 from pyadjoint.tape import no_annotations
 
@@ -9,6 +10,7 @@ class MeshGeometryMixin(OverloadedType):
         @wraps(init)
         def wrapper(self, *args, **kwargs):
             from firedrake.mesh import ExtrudedMeshTopology
+
             from .blocks import MeshInputBlock, MeshOutputBlock
 
             OverloadedType.__init__(self, *args, **kwargs)

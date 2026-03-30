@@ -1,12 +1,12 @@
-from functools import wraps
 import weakref
 from contextlib import contextmanager
+from functools import wraps
 from itertools import zip_longest
 from types import SimpleNamespace
 
-from firedrake.petsc import PETSc
-from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.petsc import PETSc
 from pyop2.mpi import MPI, internal_comm
 
 

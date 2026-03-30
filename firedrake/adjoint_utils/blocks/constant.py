@@ -1,7 +1,8 @@
-from pyadjoint import Block, OverloadedType
 import numpy
 
+from pyadjoint import Block, OverloadedType
 from pyadjoint.reduced_functional_numpy import gather
+
 from .block_utils import isconstant
 
 

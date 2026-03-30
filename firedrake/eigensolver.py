@@ -1,12 +1,15 @@
 """Specify and solve finite element eigenproblems."""
+from functools import cached_property
+
 from petsctools import OptionsManager, flatten_parameters
+from ufl import dx, inner, replace
+
 from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
-from firedrake.function import Function
-from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.exceptions import ConvergenceError
-from ufl import replace, inner, dx
-from functools import cached_property
+from firedrake.function import Function
+from firedrake.ufl_expr import TestFunction, TrialFunction
+
 try:
     from slepc4py import SLEPc
 except ImportError:

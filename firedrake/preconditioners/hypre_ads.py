@@ -1,13 +1,14 @@
+from finat.ufl import FiniteElement, TensorElement, VectorElement
+from ufl import SpatialCoordinate, curl, grad
+
+from firedrake.dmhooks import get_function_space
+from firedrake.function import Function
+from firedrake.interpolation import interpolate
+from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-from firedrake.petsc import PETSc
-from firedrake.function import Function
-from firedrake.ufl_expr import TrialFunction
-from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
-from firedrake.interpolation import interpolate
-from finat.ufl import FiniteElement, TensorElement, VectorElement
-from ufl import grad, curl, SpatialCoordinate
+from firedrake.ufl_expr import TrialFunction
 from pyop2.utils import as_tuple
 
 __all__ = ("HypreADS",)

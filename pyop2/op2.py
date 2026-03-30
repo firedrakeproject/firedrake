@@ -37,26 +37,71 @@ import atexit
 
 from pyop2.configuration import configuration
 from pyop2.datatypes import OpaqueType  # noqa: F401
-from pyop2.logger import debug, info, warning, error, critical, set_log_level
-from pyop2.mpi import MPI, COMM_WORLD, collective
-
-from pyop2.types import (  # noqa: F401
-    Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
-    Map, MixedMap, PermutedMap, ComposedMap, Sparsity, Halo,
-    Global, Constant, GlobalDataSet,
-    Dat, MixedDat, DatView, Mat
+from pyop2.global_kernel import (  # noqa: F401
+    DatKernelArg,
+    GlobalKernel,
+    GlobalKernelArg,
+    MapKernelArg,
+    MatKernelArg,
+    MixedDatKernelArg,
+    MixedMatKernelArg,
 )
-from pyop2.types import (READ, WRITE, RW, INC, MIN, MAX,
-                         ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL)
-
-from pyop2.local_kernel import CStringLocalKernel, LoopyLocalKernel, Kernel  # noqa: F401
-from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,  # noqa: F401
-                                 MatKernelArg, MixedMatKernelArg, MapKernelArg, GlobalKernel)
-from pyop2.parloop import (GlobalParloopArg, DatParloopArg, MixedDatParloopArg,  # noqa: F401
-                           MatParloopArg, MixedMatParloopArg, PassthroughArg, Parloop, parloop, par_loop)
-from pyop2.parloop import (GlobalLegacyArg, DatLegacyArg, MixedDatLegacyArg,  # noqa: F401
-                           MatLegacyArg, MixedMatLegacyArg, LegacyParloop, ParLoop)
-
+from pyop2.local_kernel import (  # noqa: F401
+    CStringLocalKernel,
+    Kernel,
+    LoopyLocalKernel,
+)
+from pyop2.logger import critical, debug, error, info, set_log_level, warning
+from pyop2.mpi import COMM_WORLD, MPI, collective
+from pyop2.parloop import (  # noqa: F401
+    DatLegacyArg,
+    DatParloopArg,
+    GlobalLegacyArg,
+    GlobalParloopArg,
+    LegacyParloop,
+    MatLegacyArg,
+    MatParloopArg,
+    MixedDatLegacyArg,
+    MixedDatParloopArg,
+    MixedMatLegacyArg,
+    MixedMatParloopArg,
+    Parloop,
+    ParLoop,
+    PassthroughArg,
+    par_loop,
+    parloop,
+)
+from pyop2.types import (  # noqa: F401
+    ALL,
+    INC,
+    MAX,
+    MIN,
+    ON_BOTTOM,
+    ON_INTERIOR_FACETS,
+    ON_TOP,
+    READ,
+    RW,
+    WRITE,
+    ComposedMap,
+    Constant,
+    Dat,
+    DataSet,
+    DatView,
+    ExtrudedSet,
+    Global,
+    GlobalDataSet,
+    Halo,
+    Map,
+    Mat,
+    MixedDat,
+    MixedDataSet,
+    MixedMap,
+    MixedSet,
+    PermutedMap,
+    Set,
+    Sparsity,
+    Subset,
+)
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',

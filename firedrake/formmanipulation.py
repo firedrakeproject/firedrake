@@ -1,21 +1,21 @@
 
-import numpy
 import collections
 
+import numpy
+
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
-from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.classes import FixedIndex, ListTensor, Zero, ZeroBaseForm
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from firedrake.cofunction import Cofunction
+from firedrake.functionspace import MixedFunctionSpace
+from firedrake.matrix import AssembledMatrix
+from firedrake.petsc import PETSc
+from firedrake.ufl_expr import Coargument
 from pyop2 import MixedDat
 from pyop2.utils import as_tuple
-
-from firedrake.petsc import PETSc
-from firedrake.functionspace import MixedFunctionSpace
-from firedrake.cofunction import Cofunction
-from firedrake.ufl_expr import Coargument
-from firedrake.matrix import AssembledMatrix
 
 
 def subspace(V, indices):

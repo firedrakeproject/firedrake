@@ -1,13 +1,16 @@
-from functools import cached_property
 from contextlib import contextmanager
+from functools import cached_property
 
-from pyop2 import MixedDat
-from firedrake.petsc import PETSc
-from firedrake.ensemble.ensemble_functionspace import (
-    EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
+from firedrake.ensemble.ensemble_functionspace import (
+    EnsembleDualSpace,
+    EnsembleFunctionSpace,
+    EnsembleFunctionSpaceBase,
+)
 from firedrake.function import Function
 from firedrake.norms import norm
+from firedrake.petsc import PETSc
+from pyop2 import MixedDat
 
 
 class EnsembleFunctionBase(EnsembleFunctionMixin):

@@ -1,20 +1,21 @@
 from functools import cached_property
-import numpy as np
-import ufl
 
-from ufl.form import BaseForm
-from pyop2 import op2
-from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
+import numpy as np
+
+import ufl
 from finat.ufl import MixedElement
+from pyadjoint.tape import annotate_tape, get_working_tape, stop_annotating
+from ufl.form import BaseForm
+
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake import utils, ufl_expr
-from firedrake.utils import ScalarType
-from firedrake.adjoint_utils.function import CofunctionMixin
-from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake import ufl_expr, utils
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
+from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.petsc import PETSc
-
+from firedrake.utils import ScalarType
+from pyop2 import op2
 
 __all__ = ["Cofunction", "RieszMap"]
 
@@ -351,7 +352,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        from firedrake import interpolate, assemble
+        from firedrake import assemble, interpolate
         v, = self.arguments()
         interp = interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
@@ -460,7 +461,7 @@ class RieszMap:
             if str(sobolev_space) == "l2":
                 inner_product = "l2"
             else:
-                from firedrake import TrialFunction, TestFunction
+                from firedrake import TestFunction, TrialFunction
                 u = TrialFunction(function_space)
                 v = TestFunction(function_space)
                 inner_product = RieszMap._inner_product_form(
@@ -477,7 +478,7 @@ class RieszMap:
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
-        from firedrake import inner, dx, grad
+        from firedrake import dx, grad, inner
         inner_products = {
             "L2": lambda u, v: inner(u, v)*dx,
             "H1": lambda u, v: inner(u, v)*dx + inner(grad(u), grad(v))*dx
@@ -490,8 +491,12 @@ class RieszMap:
 
     @cached_property
     def _solver(self):
-        from firedrake import (LinearVariationalSolver,
-                               LinearVariationalProblem, Function, Cofunction)
+        from firedrake import (
+            Cofunction,
+            Function,
+            LinearVariationalProblem,
+            LinearVariationalSolver,
+        )
         rhs = Cofunction(self._function_space.dual())
         soln = Function(self._function_space)
         lvp = LinearVariationalProblem(
@@ -506,7 +511,7 @@ class RieszMap:
 
     def __call__(self, value):
         """Return the Riesz representer of a Function or Cofunction."""
-        from firedrake import Function, Cofunction
+        from firedrake import Cofunction, Function
 
         if ufl.duals.is_dual(value):
             if value.function_space().dual() != self._function_space:

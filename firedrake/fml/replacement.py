@@ -2,10 +2,13 @@
 Generic routines for replacing functions using FML.
 """
 
-import ufl
-from .form_manipulation_language import Term, subject
-from firedrake import split, MixedElement, Function, Argument
 from typing import Callable, Optional, Union
+
+import ufl
+
+from firedrake import Argument, Function, MixedElement, split
+
+from .form_manipulation_language import Term, subject
 
 __all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 

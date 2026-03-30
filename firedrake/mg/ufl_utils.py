@@ -1,18 +1,24 @@
+from functools import partial, singledispatch
+
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import as_domain, extract_unique_domain
 from ufl.duals import is_dual
 
-from functools import singledispatch, partial
 import firedrake
+from firedrake.dmhooks import (
+    add_hook,
+    get_appctx,
+    get_parent,
+    get_transfer_manager,
+    pop_appctx,
+    push_appctx,
+)
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
-from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, add_hook)
 
 from . import utils
-
 
 __all__ = ["coarsen"]
 

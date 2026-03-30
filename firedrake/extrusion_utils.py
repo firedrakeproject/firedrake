@@ -1,18 +1,20 @@
 import collections
 import itertools
-import numpy
+
 import islpy as isl
+import loopy as lp
+import numpy
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 
 import finat
-from pyop2 import op2
-from pyop2.caching import serial_cache
+from finat.element_factory import create_element
+from ufl.domain import extract_unique_domain
+
+from firedrake.parameters import target
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
-from finat.element_factory import create_element
-import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from firedrake.parameters import target
-from ufl.domain import extract_unique_domain
+from pyop2 import op2
+from pyop2.caching import serial_cache
 
 
 @PETSc.Log.EventDecorator()
@@ -332,6 +334,7 @@ def entity_closures(cell):
 
 def make_offset_key(finat_element):
     from firedrake.functionspacedata import entity_dofs_key
+
     # scalar-valued elements only
     if isinstance(finat_element, finat.TensorFiniteElement):
         finat_element = finat_element.base_element

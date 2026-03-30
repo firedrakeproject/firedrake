@@ -1,16 +1,14 @@
-import itertools
 import functools
+import itertools
 import numbers
+from functools import cached_property
 
 import numpy as np
 
-from pyop2 import (
-    caching,
-    datatypes as dtypes,
-    exceptions as ex,
-    utils
-)
-from functools import cached_property
+from pyop2 import caching
+from pyop2 import datatypes as dtypes
+from pyop2 import exceptions as ex
+from pyop2 import utils
 from pyop2.types.set import GlobalSet, MixedSet, Set
 
 

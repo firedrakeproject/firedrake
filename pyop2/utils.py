@@ -34,15 +34,16 @@
 """Common utility classes/functions."""
 
 
+import argparse
 import os
 import sys
-import numpy as np
-from decorator import decorator
-import argparse
-import petsc4py
 
-from pyop2.exceptions import DataTypeError, DataValueError
+import numpy as np
+import petsc4py
+from decorator import decorator
+
 from pyop2.configuration import configuration
+from pyop2.exceptions import DataTypeError, DataValueError
 
 
 def as_tuple(item, type=None, length=None, allow_none=False):

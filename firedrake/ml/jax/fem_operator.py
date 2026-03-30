@@ -1,4 +1,5 @@
 import os
+
 try:
     import jax
     import jax.numpy as jnp
@@ -17,18 +18,18 @@ except ImportError:
         raise ImportError("JAX is not installed and is required to use the FiredrakeJaxOperator.")
 
 import collections
-import numpy as np
 from functools import partial
-from typing import Union, Optional
+from typing import Optional, Union
+
+import numpy as np
 
 import petsctools
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.functionspaceimpl import WithGeometry
-from firedrake.constant import Constant
-
 from pyadjoint.reduced_functional import ReducedFunctional
 
+from firedrake.cofunction import Cofunction
+from firedrake.constant import Constant
+from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry
 
 __all__ = ['FiredrakeJaxOperator', 'fem_operator', 'to_jax', 'from_jax']
 

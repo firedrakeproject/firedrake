@@ -1,12 +1,12 @@
-from functools import partial
 import types
+from functools import partial
 
 from ufl.constantvalue import as_ufl
 
 import firedrake.ufl_expr as ufl_expr
 from firedrake.assemble import assemble
-from firedrake.interpolation import interpolate
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
+from firedrake.interpolation import interpolate
 
 
 class PointexprOperator(AbstractExternalOperator):

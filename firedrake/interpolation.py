@@ -1,53 +1,60 @@
-import numpy
+import abc
 import os
 import tempfile
-import abc
-
-from functools import cached_property, partial
-from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import asdict, dataclass
+from functools import cached_property, partial
 from numbers import Number
+from typing import Callable, Hashable, Iterable, Literal
 
-from ufl.algorithms import extract_arguments, replace
-from ufl.domain import extract_unique_domain
-from ufl.classes import Expr
-from ufl.duals import is_dual
-from ufl.constantvalue import zero, as_ufl
-from ufl.form import ZeroBaseForm, BaseForm
-from ufl.core.interpolate import Interpolate as UFLInterpolate
-
-from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache
-
-from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
-from finat.element_factory import create_element
-
-from tsfc.driver import compile_expression_dual_evaluation
-from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
-
-from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
-from firedrake.pointeval_utils import runtime_quadrature_element
-from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
-from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
-from firedrake.petsc import PETSc
-from firedrake.halo import _get_mtype
-from firedrake.functionspaceimpl import WithGeometry
-from firedrake.matrix import MatrixBase, AssembledMatrix
-from firedrake.bcs import DirichletBC
-from firedrake.formmanipulation import split_form
-from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
-from firedrake.constant import Constant
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.exceptions import (
-    DofNotDefinedError, VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError,
-    DofTypeError,
-)
-
+import numpy
 from mpi4py import MPI
 
-from pyadjoint.tape import stop_annotating, no_annotations
+from finat.element_factory import create_element
+from finat.ufl import FiniteElementBase, MixedElement, TensorElement, VectorElement
+from pyadjoint.tape import no_annotations, stop_annotating
+from ufl.algorithms import extract_arguments, replace
+from ufl.classes import Expr
+from ufl.constantvalue import as_ufl, zero
+from ufl.core.interpolate import Interpolate as UFLInterpolate
+from ufl.domain import extract_unique_domain
+from ufl.duals import is_dual
+from ufl.form import BaseForm, ZeroBaseForm
+
+from firedrake.bcs import DirichletBC
+from firedrake.cofunction import Cofunction
+from firedrake.constant import Constant
+from firedrake.exceptions import (
+    DofNotDefinedError,
+    DofTypeError,
+    NonUniqueMeshSequenceError,
+    VertexOnlyMeshMissingPointsError,
+)
+from firedrake.formmanipulation import split_form
+from firedrake.function import Function
+from firedrake.functionspace import (
+    FunctionSpace,
+    TensorFunctionSpace,
+    VectorFunctionSpace,
+)
+from firedrake.functionspaceimpl import WithGeometry
+from firedrake.halo import _get_mtype
+from firedrake.matrix import AssembledMatrix, MatrixBase
+from firedrake.mesh import (
+    MeshGeometry,
+    MeshTopology,
+    MissingPointsBehaviour,
+    VertexOnlyMesh,
+    VertexOnlyMeshTopology,
+)
+from firedrake.petsc import PETSc
+from firedrake.pointeval_utils import runtime_quadrature_element
+from firedrake.tsfc_interface import _cachedir, extract_numbered_coefficients
+from firedrake.ufl_expr import Argument, Coargument, TestFunction, TrialFunction, action
+from firedrake.utils import IntType, ScalarType, known_pyop2_safe, tuplify
+from pyop2 import op2
+from pyop2.caching import memory_and_disk_cache
+from tsfc.driver import compile_expression_dual_evaluation
+from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 __all__ = (
     "interpolate",

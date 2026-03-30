@@ -1,14 +1,16 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+
 from decorator import decorator
-from pyop2.datatypes import ScalarType, as_cstr
-from pyop2.datatypes import RealType     # noqa: F401
-from pyop2.datatypes import IntType      # noqa: F401
-from pyop2.datatypes import as_ctypes    # noqa: F401
-from pyop2.mpi import MPI
+
 import petsctools
 
+from pyop2.datatypes import IntType  # noqa: F401
+from pyop2.datatypes import RealType  # noqa: F401
+from pyop2.datatypes import as_ctypes  # noqa: F401
+from pyop2.datatypes import ScalarType, as_cstr
+from pyop2.mpi import MPI
 
 # MPI key value for storing a per communicator universal identifier
 FIREDRAKE_UID = MPI.Comm.Create_keyval()
@@ -36,8 +38,8 @@ def _init():
     for themselves. The result of this is that the user need only call
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the debug or log level."""
-    from pyop2 import op2
     from firedrake.parameters import parameters
+    from pyop2 import op2
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
 

@@ -1,8 +1,10 @@
-from pyadjoint.overloaded_type import OverloadedType
-from firedrake.petsc import PETSc
-from .checkpointing import disk_checkpointing
-
 from functools import wraps
+
+from pyadjoint.overloaded_type import OverloadedType
+
+from firedrake.petsc import PETSc
+
+from .checkpointing import disk_checkpointing
 
 
 class EnsembleFunctionMixin(OverloadedType):
@@ -56,7 +58,7 @@ class EnsembleFunctionMixin(OverloadedType):
         raise NotImplementedError
 
     def _ad_init_zero(self, dual=False):
-        from firedrake import EnsembleFunction, EnsembleCofunction
+        from firedrake import EnsembleCofunction, EnsembleFunction
         if dual:
             return EnsembleCofunction(self.function_space().dual())
         else:

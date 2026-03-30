@@ -1,21 +1,34 @@
 from collections import OrderedDict
-
-from ufl.corealg.multifunction import MultiFunction
-
-from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
-                 Solve, Inverse, Variable, view, Delta, Index, Division)
-from gem import indices as make_indices
-from gem.node import Memoizer
-from gem.node import pre_traversal as traverse_dags
-
 from functools import singledispatch
-import firedrake.slate.slate as sl
+
 import loopy as lp
 from loopy.transform.callable import merge
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+from petsc4py import PETSc
+
+from gem import (
+    ComponentTensor,
+    Delta,
+    Division,
+    Index,
+    Indexed,
+    IndexSum,
+    Inverse,
+    Literal,
+    Product,
+    Solve,
+    Sum,
+    Variable,
+)
+from gem import indices as make_indices
+from gem import view
+from gem.node import Memoizer
+from gem.node import pre_traversal as traverse_dags
+from ufl.corealg.multifunction import MultiFunction
+
+import firedrake.slate.slate as sl
 from firedrake.parameters import target
 from tsfc.loopy import profile_insns
-from petsc4py import PETSc
 
 
 class RemoveRestrictions(MultiFunction):
@@ -242,8 +255,9 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
                                      lang_version=(2018, 2), preambles=preamble)
 
     # Generate program from kernel, so that one can register kernels
-    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
     from loopy.kernel.function_interface import CallableKernel
+
+    from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
 
     for tsfc_loopy in tsfc_kernels:
         slate_wrapper = merge([slate_wrapper, tsfc_loopy])

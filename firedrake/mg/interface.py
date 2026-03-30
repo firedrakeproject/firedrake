@@ -1,13 +1,12 @@
+from ufl.duals import is_dual
+
+from firedrake import dmhooks, ufl_expr
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.petsc import PETSc
 from pyop2 import op2
 
-from firedrake import ufl_expr, dmhooks
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.petsc import PETSc
-from ufl.duals import is_dual
-from . import utils
-from . import kernels
-
+from . import kernels, utils
 
 __all__ = ["prolong", "restrict", "inject"]
 

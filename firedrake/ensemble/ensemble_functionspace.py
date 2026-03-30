@@ -1,11 +1,12 @@
 from functools import cached_property
 from typing import Collection
 
-from ufl.duals import is_primal, is_dual
-from pyop2.mpi import MPI
-from firedrake.petsc import PETSc
+from ufl.duals import is_dual, is_primal
+
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
+from firedrake.petsc import PETSc
+from pyop2.mpi import MPI
 
 
 def _is_primal_or_dual(local_spaces, ensemble):

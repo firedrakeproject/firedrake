@@ -14,32 +14,27 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
-from abc import ABCMeta, abstractproperty, abstractmethod
 import functools
-from collections import OrderedDict, namedtuple, defaultdict
-
-from ufl import Constant
-from ufl.coefficient import BaseCoefficient
-
-from firedrake.formmanipulation import ExtractSubBlock, subspace
-from firedrake.function import Function, Cofunction
-from firedrake.ufl_expr import TestFunction
-from firedrake.utils import unique
-
+import hashlib
+from abc import ABCMeta, abstractmethod, abstractproperty
+from collections import OrderedDict, defaultdict, namedtuple
 from functools import cached_property
 from itertools import chain, count
 
-from pyop2.utils import as_tuple
-
+from ufl import Constant
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
+from ufl.coefficient import BaseCoefficient
+from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import join_domains, sort_domains
 from ufl.form import BaseForm, Form, ZeroBaseForm
-import hashlib
 
+from firedrake.formmanipulation import ExtractSubBlock, subspace
+from firedrake.function import Cofunction, Function
+from firedrake.ufl_expr import TestFunction
+from firedrake.utils import unique
+from pyop2.utils import as_tuple
 from tsfc.ufl_utils import extract_firedrake_constants
-
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',

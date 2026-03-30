@@ -1,8 +1,9 @@
 # cython: language_level=3
 
 import numpy
+
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, ScalarType, RealType
+from firedrake.utils import IntType, RealType, ScalarType
 
 cimport numpy
 cimport petsc4py.PETSc as PETSc

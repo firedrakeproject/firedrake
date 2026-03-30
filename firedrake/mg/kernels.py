@@ -1,38 +1,43 @@
-import numpy
 import string
-from pyop2 import op2
-from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
-from firedrake.functionspacedata import entity_dofs_key
-from firedrake.functionspaceimpl import FiredrakeDualSpace
-from firedrake.mg import utils
-
-from ufl.algorithms import estimate_total_polynomial_degree
-from ufl.domain import extract_unique_domain
 
 import loopy as lp
+import numpy
 import pymbolic as pym
 
 import gem
 import gem.impero_utils as impero_utils
-
 import ufl
-import tsfc
-
-import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
-
-from tsfc.loopy import generate as generate_loopy
-from tsfc import fem, ufl_utils, spectral
-from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
-from tsfc.kernel_interface.common import lower_integral_type
-from tsfc.parameters import default_parameters
-
-from finat.ufl import MixedElement
 from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
-from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
-from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
+from finat.ufl import MixedElement
+from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.domain import extract_unique_domain
+
+import tsfc
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
+from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
+from firedrake.mg import utils
 from firedrake.pointeval_utils import runtime_quadrature_element
+from firedrake.pointquery_utils import (
+    X_isub_dX,
+    celldist_l1_c_expr,
+    dX_norm_square,
+    init_X,
+    inside_check,
+    is_affine,
+)
+from firedrake.pointquery_utils import (
+    to_reference_coords_newton_step as to_reference_coords_newton_step_body,
+)
+from firedrake.utils import IntType, ScalarType, as_cstr, complex_mode
+from pyop2 import op2
+from pyop2.utils import as_tuple
+from tsfc import fem, spectral, ufl_utils
+from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
+from tsfc.kernel_interface.common import lower_integral_type
+from tsfc.loopy import generate as generate_loopy
+from tsfc.parameters import default_parameters
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -397,7 +402,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
 
 def dg_injection_kernel(Vf, Vc, ncell):
-    from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
+    from firedrake import AssembledVector, Tensor, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")

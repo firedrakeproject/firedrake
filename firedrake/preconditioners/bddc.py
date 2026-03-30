@@ -1,25 +1,30 @@
+from functools import cached_property
 from itertools import repeat
 
-from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.facet_split import get_restriction_indices
-from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_function_space, get_appctx
-from firedrake.ufl_expr import TestFunction, TrialFunction
+import numpy
+
+from finat.ufl import BrokenElement
+from ufl import H1, H2, Form, JacobianDeterminant, dx, inner, replace
+
+from firedrake.bcs import DirichletBC
+from firedrake.dmhooks import get_appctx, get_function_space
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.functionspace import (
+    FunctionSpace,
+    TensorFunctionSpace,
+    VectorFunctionSpace,
+)
+from firedrake.mesh import Submesh
+from firedrake.parloops import INC, READ, par_loop
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.facet_split import get_restriction_indices
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from functools import cached_property
-
-from firedrake.parloops import par_loop, INC, READ
-from firedrake.bcs import DirichletBC
-from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
-from finat.ufl import BrokenElement
+from firedrake.preconditioners.patch import bcdofs
+from firedrake.ufl_expr import TestFunction, TrialFunction
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
-import numpy
 
 __all__ = ("BDDCPC",)
 

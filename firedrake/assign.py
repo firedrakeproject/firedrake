@@ -1,13 +1,13 @@
 import functools
 import operator
-
-import numpy as np
 from functools import cached_property
 
-from pyadjoint.tape import annotate_tape
-from pyop2 import op2
+import numpy as np
 import pytools
+from mpi4py import MPI
+
 import finat.ufl
+from pyadjoint.tape import annotate_tape
 from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.map_dag import map_expr_dag
@@ -19,8 +19,7 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, split_by
-
-from mpi4py import MPI
+from pyop2 import op2
 
 
 def _isconstant(expr):

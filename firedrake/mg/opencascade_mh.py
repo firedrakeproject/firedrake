@@ -1,12 +1,13 @@
-from firedrake import *
-from .mesh import MeshHierarchy, HierarchyBase
-from .interface import prolong
-
-import numpy
-import subprocess
 import os
+import subprocess
 import warnings
 
+import numpy
+
+from firedrake import *
+
+from .interface import prolong
+from .mesh import HierarchyBase, MeshHierarchy
 
 __all__ = ("OpenCascadeMeshHierarchy",)
 
@@ -131,9 +132,9 @@ Mesh.CharacteristicLengthMax = %s;
 
 def project_mesh_to_cad_3d(mesh, cad):
 
-    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve, GeomAPI_ProjectPointOnSurf
     from OCC.Core.gp import gp_Pnt
-    from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf, GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
     ids = mesh.exterior_facets.unique_markers
@@ -207,8 +208,8 @@ def project_mesh_to_cad_3d(mesh, cad):
 def project_mesh_to_cad_2d(mesh, cad):
 
     from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
-    from OCC.Core.gp import gp_Pnt
     from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
+    from OCC.Core.gp import gp_Pnt
 
     coorddata = mesh.coordinates.dat.data
     ids = mesh.exterior_facets.unique_markers

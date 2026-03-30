@@ -1,27 +1,34 @@
 # Code for projections and other fun stuff involving supermeshes.
-import firedrake
 import ctypes
 import pathlib
-import libsupermesh
-from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
-from firedrake.mg.utils import get_level
-from firedrake.petsc import PETSc
-from firedrake.mg.kernels import to_reference_coordinates, compile_element, _make_kernel_args
-from firedrake.utility_meshes import UnitTriangleMesh, UnitTetrahedronMesh
-from firedrake.functionspace import FunctionSpace
-from firedrake.assemble import assemble
-from firedrake.ufl_expr import TestFunction, TrialFunction
-import firedrake.mg.utils as utils
-from firedrake.utils import complex_mode, ScalarType
-import ufl
-from ufl import inner, dx
-import numpy
-from pyop2.sparsity import get_preallocation
-from pyop2.compilation import load
-from pyop2.mpi import COMM_SELF
-from pyop2.utils import get_petsc_dir
 from collections import defaultdict
 
+import libsupermesh
+import numpy
+
+import ufl
+from ufl import dx, inner
+
+import firedrake
+import firedrake.mg.utils as utils
+from firedrake.assemble import assemble
+from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm
+from firedrake.cython.supermeshimpl import intersection_finder
+from firedrake.functionspace import FunctionSpace
+from firedrake.mg.kernels import (
+    _make_kernel_args,
+    compile_element,
+    to_reference_coordinates,
+)
+from firedrake.mg.utils import get_level
+from firedrake.petsc import PETSc
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.utility_meshes import UnitTetrahedronMesh, UnitTriangleMesh
+from firedrake.utils import ScalarType, complex_mode
+from pyop2.compilation import load
+from pyop2.mpi import COMM_SELF
+from pyop2.sparsity import get_preallocation
+from pyop2.utils import get_petsc_dir
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 

@@ -1,8 +1,10 @@
-from gem.node import MemoizerArg
+from collections import namedtuple
 from functools import singledispatch
 from itertools import repeat
+
+from gem.node import MemoizerArg
+
 from firedrake.slate.slate import *
-from collections import namedtuple
 from firedrake.ufl_expr import adjoint
 
 """ ActionBag class

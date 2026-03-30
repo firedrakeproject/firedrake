@@ -1,19 +1,19 @@
+from functools import cached_property
 from itertools import chain
 
 import numpy
+
 import ufl
 
-from pyop2 import op2
 from firedrake import dmhooks
-from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
-from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
-from functools import cached_property
-
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.function import Function
 from firedrake.logging import warning
+from firedrake.matrix import MatrixBase
+from firedrake.petsc import DEFAULT_KSP_PARAMETERS, PETSc
+from pyop2 import op2
 
 
 def _make_reasons(reasons):
@@ -356,8 +356,8 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
+        from firedrake import as_vector, replace, split, zero
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(tuple(fields))

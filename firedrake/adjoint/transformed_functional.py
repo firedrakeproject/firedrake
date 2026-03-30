@@ -4,15 +4,16 @@ from numbers import Real
 from operator import itemgetter
 from typing import Optional, Union
 
-import firedrake as fd
-from firedrake.adjoint import Control, ReducedFunctional, Tape
-from firedrake.functionspaceimpl import WithGeometry
 import finat
 import pyadjoint
+import ufl
 from pyadjoint import no_annotations
 from pyadjoint.enlisting import Enlist
 from pyadjoint.reduced_functional import AbstractReducedFunctional
-import ufl
+
+import firedrake as fd
+from firedrake.adjoint import Control, ReducedFunctional, Tape
+from firedrake.functionspaceimpl import WithGeometry
 
 __all__ = \
     [

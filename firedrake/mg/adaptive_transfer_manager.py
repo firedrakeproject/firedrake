@@ -2,10 +2,9 @@
 This module contains the AdaptiveTransferManager used to perform
 transfer operations on AdaptiveMeshHierarchies
 """
-from firedrake.mg.embedded import TransferManager
-from firedrake.ufl_expr import action, TrialFunction
 from firedrake.interpolation import interpolate
-
+from firedrake.mg.embedded import TransferManager
+from firedrake.ufl_expr import TrialFunction, action
 
 __all__ = ("AdaptiveTransferManager",)
 

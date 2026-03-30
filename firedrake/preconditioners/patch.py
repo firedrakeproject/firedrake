@@ -1,33 +1,34 @@
-from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
-from firedrake.preconditioners.asm import validate_overlap
-from firedrake.petsc import PETSc
-from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
-from firedrake.solving_utils import _SNESContext
-from firedrake.utils import complex_mode, IntType
-from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.interpolation import interpolate
-from firedrake.ufl_expr import extract_domains
-
-from collections import namedtuple
-import operator
-from itertools import chain
-from functools import cached_property, partial
-import numpy
-from finat.ufl import VectorElement, MixedElement
-from ufl.domain import extract_unique_domain
-from tsfc.ufl_utils import extract_firedrake_constants
-import weakref
-
 import ctypes
-from pyop2 import op2
+import operator
+import weakref
+from collections import namedtuple
+from functools import cached_property, partial
+from itertools import chain
+
+import numpy
+
+from finat.ufl import MixedElement, VectorElement
+from ufl.domain import extract_unique_domain
+
 import pyop2.types
-from pyop2.compilation import load
-from pyop2.codegen.builder import Pack, MatPack, DatPack
-from pyop2.codegen.representation import Comparison, Literal
+from firedrake.cython.patchimpl import set_patch_jacobian, set_patch_residual
+from firedrake.dmhooks import get_appctx, pop_appctx, push_appctx
+from firedrake.interpolation import interpolate
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.asm import validate_overlap
+from firedrake.preconditioners.base import PCBase, PCSNESBase, SNESBase
+from firedrake.solving_utils import _SNESContext
+from firedrake.ufl_expr import extract_domains
+from firedrake.utils import IntType, complex_mode
+from pyop2 import op2
+from pyop2.codegen.builder import DatPack, MatPack, Pack
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.codegen.representation import Comparison, Literal
+from pyop2.compilation import load
 from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
+from tsfc.ufl_utils import extract_firedrake_constants
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 

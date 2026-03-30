@@ -1,5 +1,5 @@
-from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
 
 __all__ = ("PCDPC", )
 
@@ -40,8 +40,16 @@ class PCDPC(PCBase):
        but sub-optimal for in and outflow boundaries.
     """
     def initialize(self, pc):
-        from firedrake import (TrialFunction, TestFunction, dx, inner,
-                               grad, split, Constant, parameters)
+        from firedrake import (
+            Constant,
+            TestFunction,
+            TrialFunction,
+            dx,
+            grad,
+            inner,
+            parameters,
+            split,
+        )
         from firedrake.assemble import assemble, get_assembler
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")

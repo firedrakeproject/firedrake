@@ -1,11 +1,12 @@
 """A language for manipulating forms using labels."""
 
-import ufl
 import functools
 import operator
-from firedrake import Constant, Function
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
+import ufl
+
+from firedrake import Constant, Function
 
 __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
            "keep", "subject", "name_label"]

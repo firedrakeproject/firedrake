@@ -5,32 +5,48 @@ from functools import singledispatch
 import numpy
 
 import ufl
+from gem.node import MemoizerArg
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
-from ufl.algorithms.analysis import extract_arguments, extract_coefficients, extract_type
-from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
+from ufl.algorithms.analysis import (
+    extract_arguments,
+    extract_coefficients,
+    extract_type,
+)
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
+from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms.apply_restrictions import apply_restrictions
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.algorithms.signature import compute_expression_signature
+from ufl.classes import (
+    Abs,
+    Argument,
+    CellOrientation,
+    CellVolume,
+    Division,
+    Expr,
+    FacetArea,
+    FloatValue,
+    Product,
+    ScalarValue,
+    Sqrt,
+    Zero,
+)
 from ufl.corealg.multifunction import MultiFunction
-from ufl.geometry import QuadratureWeight
-from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl.classes import (Abs, Argument, CellOrientation,
-                         Expr, FloatValue, Division,
-                         Product,
-                         ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
-from ufl.utils.sorting import sorted_by_count
 from ufl.domain import extract_unique_domain
+from ufl.geometry import (
+    Jacobian,
+    JacobianDeterminant,
+    JacobianInverse,
+    QuadratureWeight,
+)
+from ufl.utils.sorting import sorted_by_count
 
-from gem.node import MemoizerArg
-
-from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
-
+from tsfc.modified_terminals import analyse_modified_terminal, is_modified_terminal
 
 preserve_geometry_types = (CellVolume, FacetArea)
 

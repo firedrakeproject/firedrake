@@ -1,7 +1,7 @@
 import abc
 
-from firedrake.preconditioners import PCBase
 from firedrake.petsc import PETSc
+from firedrake.preconditioners import PCBase
 
 
 class SCBase(PCBase):

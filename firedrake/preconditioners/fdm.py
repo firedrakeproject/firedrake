@@ -1,40 +1,43 @@
-from textwrap import dedent
+import ctypes
 from functools import cached_property, partial
 from itertools import chain, product
-from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase
-from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
-                                           evaluate_dual,
-                                           get_permutation_to_nodal_elements,
-                                           cache_generate_code)
-from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
-from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.parloops import par_loop
-from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+from textwrap import dedent
+
+import numpy
+
+import FIAT
+import finat
+import finat.ufl
+import petsctools
+import ufl
+from finat.element_factory import create_element
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
-from finat.element_factory import create_element
+
+import firedrake.dmhooks as dmhooks
+from firedrake.cofunction import Cofunction
+from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.parloops import par_loop
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
+from firedrake.preconditioners.patch import bcdofs
+from firedrake.preconditioners.pmg import (
+    cache_generate_code,
+    evaluate_dual,
+    get_permutation_to_nodal_elements,
+    prolongation_matrix_matfree,
+)
+from firedrake.tsfc_interface import compile_form
+from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+from pyop2 import op2
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir, as_tuple
-from pyop2 import op2
+from pyop2.utils import as_tuple, get_petsc_dir
 from tsfc.ufl_utils import extract_firedrake_constants
-from firedrake.tsfc_interface import compile_form
-
-import firedrake.dmhooks as dmhooks
-import petsctools
-import ufl
-import finat.ufl
-import FIAT
-import finat
-import numpy
-import ctypes
-
 
 __all__ = ("FDMPC", "PoissonFDMPC")
 

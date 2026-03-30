@@ -1,12 +1,13 @@
-from firedrake import dx, assemble, LinearSolver
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.functionspace import FunctionSpace
-from firedrake.parloops import par_loop, READ, RW, MIN, MAX
-from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.slope_limiter.limiter import Limiter
-from firedrake import utils
 from ufl import inner
+
+from firedrake import LinearSolver, assemble, dx, utils
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
+from firedrake.parloops import MAX, MIN, READ, RW, par_loop
+from firedrake.slope_limiter.limiter import Limiter
+from firedrake.ufl_expr import TestFunction, TrialFunction
+
 __all__ = ("VertexBasedLimiter",)
 
 

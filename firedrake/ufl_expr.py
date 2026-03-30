@@ -1,16 +1,17 @@
-import ufl
-import ufl.argument
-from ufl.duals import is_dual
-from ufl.core.base_form_operator import BaseFormOperator
-from ufl.split_functions import split
-from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.domain import as_domain
-import firedrake
-from firedrake import function, cofunction
-from firedrake.constant import Constant
-from firedrake.petsc import PETSc
 from functools import cached_property
 
+import ufl
+import ufl.argument
+from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.core.base_form_operator import BaseFormOperator
+from ufl.domain import as_domain
+from ufl.duals import is_dual
+from ufl.split_functions import split
+
+import firedrake
+from firedrake import cofunction, function
+from firedrake.constant import Constant
+from firedrake.petsc import PETSc
 
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',

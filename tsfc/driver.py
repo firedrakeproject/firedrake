@@ -1,30 +1,27 @@
 import collections
-import time
 import sys
+import time
 from itertools import chain
-from finat.physically_mapped import NeedsCoordinateMappingElement
 
+import finat
+import gem
+import gem.impero_utils as impero_utils
 import ufl
+from finat.element_factory import as_fiat_cell
+from finat.physically_mapped import NeedsCoordinateMappingElement
 from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain, extract_domains
+from ufl.domain import extract_domains, extract_unique_domain
 
-import gem
-import gem.impero_utils as impero_utils
-
-import finat
-from finat.element_factory import as_fiat_cell
-
+import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
 from tsfc import fem, ufl_utils
+from tsfc.exceptions import MismatchingDomainError
 from tsfc.logging import logger
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
-import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-from tsfc.exceptions import MismatchingDomainError
-
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -264,7 +261,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # Initialise kernel builder
     if interface is None:
         # Delayed import, loopy is a runtime dependency
-        from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
+        from tsfc.kernel_interface.firedrake_loopy import (
+            ExpressionKernelBuilder as interface,
+        )
 
     builder = interface(parameters["scalar_type"])
     arguments = expression.arguments()

@@ -1,15 +1,12 @@
 import collections
-
 from functools import partial
+
+from ufl import Form
+from ufl.algorithms.map_integrands import map_integrand_dags
 
 from firedrake.slate.slac.utils import RemoveRestrictions
 from firedrake.tsfc_interface import compile_form as tsfc_compile
-
 from tsfc.ufl_utils import extract_firedrake_constants
-
-from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl import Form
-
 
 ContextKernel = collections.namedtuple("ContextKernel",
                                        ["tensor",

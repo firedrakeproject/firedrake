@@ -1,12 +1,11 @@
+import weakref
+
 import petsctools
 
-from firedrake.preconditioners.base import SNESBase
-from firedrake import dmhooks
+from firedrake import dmhooks, dx, inner
 from firedrake.dmhooks import get_appctx
 from firedrake.petsc import PETSc
-from firedrake import inner, dx
-
-import weakref
+from firedrake.preconditioners.base import SNESBase
 
 __all__ = ['DeflatedSNES', 'Deflation']
 
@@ -198,8 +197,9 @@ class Deflation:
 
     def deriv(self, y):
         """Evaluate the derivative of the deflation operator, at the current guess y."""
-        from firedrake import assemble, derivative
         from numpy import prod
+
+        from firedrake import assemble, derivative
 
         p = self.power
         factors = []

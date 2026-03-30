@@ -1,4 +1,5 @@
 import os
+
 try:
     import jax
     import jax.numpy as jnp
@@ -19,17 +20,18 @@ except ImportError:
 
 import warnings
 from functools import partial
-from typing import Union, Optional, Callable
+from typing import Callable, Optional, Union
 
 import petsctools
 import ufl
-from firedrake.external_operators import MLOperator
+
 from firedrake import utils
-from firedrake.functionspaceimpl import WithGeometryBase
-from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.external_operators import MLOperator
+from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometryBase
 from firedrake.matrix import MatrixBase
-from firedrake.ml.jax import to_jax, from_jax
+from firedrake.ml.jax import from_jax, to_jax
 from firedrake.petsc import PETSc
 
 

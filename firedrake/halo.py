@@ -1,11 +1,12 @@
-from pyop2 import op2
-from mpi4py import MPI
-import numpy
-from functools import partial, cached_property
+from functools import cached_property, partial
 
+import numpy
+from mpi4py import MPI
+
+import firedrake.cython.dmcommon as dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, complex_mode
-import firedrake.cython.dmcommon as dmcommon
+from pyop2 import op2
 
 _MPI_types = {}
 

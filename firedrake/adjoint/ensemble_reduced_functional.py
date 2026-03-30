@@ -1,9 +1,9 @@
-from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
 from pyadjoint.enlisting import Enlist
-from pyop2.mpi import MPI
+from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
 
-from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from pyop2.mpi import MPI
 
 
 class EnsembleReducedFunctional(AbstractReducedFunctional):

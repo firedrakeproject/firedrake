@@ -1,6 +1,5 @@
 import petsctools
 
-
 petsctools.add_citation("Rathgeber2016", """
 @Article{Rathgeber2016,
   author =       {Florian Rathgeber and David A. Ham and Lawrence

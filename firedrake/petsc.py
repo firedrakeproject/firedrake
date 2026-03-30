@@ -4,13 +4,13 @@ from types import MappingProxyType
 from typing import Any
 from warnings import warn
 
-import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop2 import mpi
+
+import petsctools
 
 from firedrake import utils
-
+from pyop2 import mpi
 
 __all__ = (
     "PETSc",

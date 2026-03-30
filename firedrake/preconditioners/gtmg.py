@@ -1,14 +1,14 @@
 """Non-nested multigrid preconditioner"""
 
 import petsctools
+
+import firedrake.dmhooks as dmhooks
+from firedrake.interpolation import interpolate
+from firedrake.matrix_free.operators import ImplicitMatrixContext
+from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.parameters import parameters
-from firedrake.interpolation import interpolate
 from firedrake.solving_utils import _SNESContext
-from firedrake.matrix_free.operators import ImplicitMatrixContext
-import firedrake.dmhooks as dmhooks
-
 
 __all__ = ['GTMGPC']
 

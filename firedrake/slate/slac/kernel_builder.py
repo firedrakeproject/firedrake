@@ -1,23 +1,20 @@
-import numpy as np
+from collections import OrderedDict, namedtuple
 from itertools import count
 
-from collections import OrderedDict, namedtuple
-
-from finat.ufl import MixedElement
 import loopy
-
-from loopy.symbolic import SubArrayRef
+import numpy as np
 import pymbolic.primitives as pym
-
-from firedrake.constant import Constant
-import firedrake.slate.slate as slate
-from firedrake.slate.slac.tsfc_driver import compile_terminal_form
-
-from tsfc import kernel_args
-from finat.element_factory import create_element
-from tsfc.loopy import create_domains, assign_dtypes
-
+from loopy.symbolic import SubArrayRef
 from pytools import UniqueNameGenerator
+
+from finat.element_factory import create_element
+from finat.ufl import MixedElement
+
+import firedrake.slate.slate as slate
+from firedrake.constant import Constant
+from firedrake.slate.slac.tsfc_driver import compile_terminal_form
+from tsfc import kernel_args
+from tsfc.loopy import assign_dtypes, create_domains
 
 CoefficientInfo = namedtuple("CoefficientInfo",
                              ["space_index",

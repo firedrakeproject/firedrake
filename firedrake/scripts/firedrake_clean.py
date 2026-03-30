@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import os
 import shutil
-from firedrake.configuration import setup_cache_dirs
-from pyop2.compilation import clear_compiler_disk_cache as pyop2_clear_cache
-from firedrake.tsfc_interface import clear_cache as tsfc_clear_cache
+
 import platformdirs
+
+from firedrake.configuration import setup_cache_dirs
+from firedrake.tsfc_interface import clear_cache as tsfc_clear_cache
+from pyop2.compilation import clear_compiler_disk_cache as pyop2_clear_cache
 
 
 def main():

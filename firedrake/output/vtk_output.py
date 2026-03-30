@@ -1,16 +1,19 @@
 import collections
 import itertools
-import numpy
 import os
-import ufl
-import finat.ufl
-from ufl.domain import extract_unique_domain
 from itertools import chain
-from pyop2.mpi import COMM_WORLD, temp_internal_comm
-from pyop2.utils import as_tuple
+
+import numpy
+
+import finat.ufl
+import ufl
 from pyadjoint import no_annotations
+from ufl.domain import extract_unique_domain
+
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+from pyop2.mpi import COMM_WORLD, temp_internal_comm
+from pyop2.utils import as_tuple
 
 from .paraview_reordering import *
 
@@ -451,8 +454,13 @@ class VTKFile:
 
     @no_annotations
     def _prepare_output(self, function, max_elem):
-        from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function, Cofunction
+        from firedrake import (
+            Cofunction,
+            Function,
+            FunctionSpace,
+            TensorFunctionSpace,
+            VectorFunctionSpace,
+        )
 
         name = function.name()
         # Need to project/interpolate?
@@ -493,7 +501,7 @@ class VTKFile:
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _write_vtu(self, *functions):
-        from firedrake import Function, Cofunction
+        from firedrake import Cofunction, Function
 
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):

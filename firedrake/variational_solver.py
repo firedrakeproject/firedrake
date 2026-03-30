@@ -1,21 +1,30 @@
 from __future__ import annotations
 
-import ufl
-from itertools import chain
 from contextlib import ExitStack
+from functools import cached_property
+from itertools import chain
 from types import MappingProxyType
+
+import ufl
 from petsctools import OptionsManager, flatten_parameters
+from ufl import Form, replace
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.adjoint_utils import (
+    NonlinearVariationalProblemMixin,
+    NonlinearVariationalSolverMixin,
+)
+from firedrake.bcs import (
+    DirichletBC,
+    EquationBC,
+    extract_subdomain_ids,
+    restricted_function_space,
+)
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
-from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import replace, Form
-from functools import cached_property
+from firedrake.petsc import DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS, PETSc
+from firedrake.ufl_expr import TestFunction, TrialFunction
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",

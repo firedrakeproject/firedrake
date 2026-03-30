@@ -5,16 +5,14 @@ API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
 import itertools
-import ufl
-import finat.ufl
+import numbers
 
-from pyop2.utils import flatten
+import finat.ufl
+import ufl
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
-
-import numbers
-
+from pyop2.utils import flatten
 
 __all__ = ("MixedFunctionSpace", "FunctionSpace",
            "VectorFunctionSpace", "TensorFunctionSpace", "RestrictedFunctionSpace")

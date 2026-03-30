@@ -1,5 +1,7 @@
 import os
+
 import numpy as np
+
 try:
     import torch
     import torch.autograd.functional as torch_func
@@ -18,12 +20,13 @@ except ImportError:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 
-from functools import partial, cached_property
+from functools import cached_property, partial
 
 import petsctools
-from firedrake.external_operators import MLOperator
+
 from firedrake import utils
-from firedrake.ml.pytorch import to_torch, from_torch
+from firedrake.external_operators import MLOperator
+from firedrake.ml.pytorch import from_torch, to_torch
 from firedrake.petsc import PETSc
 
 

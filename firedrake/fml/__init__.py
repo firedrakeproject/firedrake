@@ -1,7 +1,16 @@
 from firedrake.fml.form_manipulation_language import (  # noqa F401
-    Label, Term, LabelledForm, identity, drop, all_terms,
-    keep, subject, name_label
+    Label,
+    LabelledForm,
+    Term,
+    all_terms,
+    drop,
+    identity,
+    keep,
+    name_label,
+    subject,
 )
 from firedrake.fml.replacement import (  # noqa F401
-    replace_test_function, replace_trial_function, replace_subject
+    replace_subject,
+    replace_test_function,
+    replace_trial_function,
 )

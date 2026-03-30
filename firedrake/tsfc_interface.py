@@ -4,28 +4,27 @@ transforms the TSFC-generated code to make it suitable for
 passing to the backends.
 
 """
-from os import path, environ, getuid, makedirs
-import tempfile
 import collections
+import tempfile
+from os import environ, getuid, makedirs, path
 
-import ufl
 import finat.ufl
-from ufl import conj, Form, ZeroBaseForm
-from .ufl_expr import TestFunction, extract_domains
+import ufl
+from ufl import Form, ZeroBaseForm, conj
 
-from tsfc import compile_form as original_tsfc_compile_form
-from tsfc.parameters import PARAMETERS as tsfc_default_parameters
-from tsfc.ufl_utils import extract_firedrake_constants
-from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
-
-from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
-from pyop2.mpi import COMM_WORLD
-
+from firedrake import utils
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
 from firedrake.petsc import PETSc
-from firedrake import utils
+from pyop2 import op2
+from pyop2.caching import default_parallel_hashkey, memory_and_disk_cache
+from pyop2.mpi import COMM_WORLD
+from tsfc import compile_form as original_tsfc_compile_form
+from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
+from tsfc.parameters import PARAMETERS as tsfc_default_parameters
+from tsfc.ufl_utils import extract_firedrake_constants
+
+from .ufl_expr import TestFunction, extract_domains
 
 # Set TSFC default scalar type at load time
 tsfc_default_parameters["scalar_type"] = utils.ScalarType

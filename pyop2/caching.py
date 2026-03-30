@@ -32,30 +32,28 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Provides common base classes for cached objects."""
-import cachetools
 import functools
 import hashlib
 import os
 import pickle
 import weakref
-from collections.abc import Mapping, MutableMapping
-from pathlib import Path
-from warnings import warn  # noqa F401
 from collections import defaultdict
-from itertools import count
+from collections.abc import Mapping, MutableMapping
 from functools import wraps
+from itertools import count
+from pathlib import Path
 from tempfile import mkstemp
 from typing import Any, Callable, Hashable
+from warnings import warn  # noqa F401
+
+import cachetools
+import pytools
+from petsc4py import PETSc
 
 from pyop2.configuration import configuration
 from pyop2.exceptions import CachingError, HashError  # noqa: F401
 from pyop2.logger import debug
-from pyop2.mpi import (
-    MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
-)
-import pytools
-from petsc4py import PETSc
-
+from pyop2.mpi import COMM_WORLD, MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = count()
 _KNOWN_CACHES = []

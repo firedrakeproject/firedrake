@@ -1,25 +1,22 @@
 import loopy as lp
-from firedrake.utils import IntType, as_cstr
-
-from finat.element_factory import as_fiat_cell
-from finat.point_set import UnknownPointSet
-from finat.quadrature import QuadratureRule
-from finat.ufl import MixedElement, FiniteElement, TensorElement
-
-from ufl.corealg.map_dag import map_expr_dags
-from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.domain import extract_unique_domain
 
 import gem
 import ufl
+from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import FiniteElement, MixedElement, TensorElement
+from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.corealg.map_dag import map_expr_dags
+from ufl.domain import extract_unique_domain
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
-from tsfc.loopy import generate as generate_loopy
-from tsfc.parameters import default_parameters
-
 from firedrake import utils
 from firedrake.petsc import PETSc
+from firedrake.utils import IntType, as_cstr
+from tsfc.loopy import generate as generate_loopy
+from tsfc.parameters import default_parameters
 
 
 def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):

@@ -1,11 +1,13 @@
-import firedrake
-import ufl
-import finat.ufl
 import weakref
 from enum import IntEnum
-from firedrake.petsc import PETSc
-from firedrake.embedding import get_embedding_dg_element
+
+import finat.ufl
+import ufl
 from finat.element_factory import create_element
+
+import firedrake
+from firedrake.embedding import get_embedding_dg_element
+from firedrake.petsc import PETSc
 
 __all__ = ("TransferManager", )
 

@@ -1,26 +1,23 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+import itertools
+from functools import cached_property, partial, reduce
+
 import numpy as np
 
-from functools import partial, reduce, cached_property
-import itertools
-
-import ufl
-from ufl import as_ufl, as_tensor
-from finat.ufl import VectorElement
 import finat
-
-import pyop2 as op2
-from pyop2 import exceptions
-from pyop2.utils import as_tuple
+import ufl
+from finat.ufl import VectorElement
+from ufl import as_tensor, as_ufl
 
 import firedrake
 import firedrake.matrix as matrix
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
-from firedrake.formmanipulation import ExtractSubBlock
+import pyop2 as op2
+from firedrake import slate, solving, ufl_expr
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.petsc import PETSc
+from pyop2 import exceptions
+from pyop2.utils import as_tuple
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 

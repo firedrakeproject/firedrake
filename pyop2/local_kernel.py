@@ -1,14 +1,14 @@
 import abc
+import hashlib
 from dataclasses import dataclass
 from functools import cached_property
-import hashlib
 from typing import Union
 
 import loopy as lp
-from loopy.kernel import LoopKernel
-from loopy.translation_unit import TranslationUnit
-from loopy.tools import LoopyKeyBuilder
 import numpy as np
+from loopy.kernel import LoopKernel
+from loopy.tools import LoopyKeyBuilder
+from loopy.translation_unit import TranslationUnit
 
 from pyop2.configuration import configuration
 from pyop2.datatypes import ScalarType

@@ -1,16 +1,17 @@
-import numpy as np
-from fractions import Fraction
 from collections import defaultdict
-
-from pyop2.datatypes import IntType
-
-import petsctools
-import firedrake
-import firedrake.cython.dmcommon as dmcommon
+from fractions import Fraction
 from functools import cached_property
 
+import numpy as np
+
+import petsctools
+
+import firedrake
+import firedrake.cython.dmcommon as dmcommon
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
+from pyop2.datatypes import IntType
+
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",

@@ -32,9 +32,8 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from petsc4py import PETSc
 from decorator import decorator
-
+from petsc4py import PETSc
 
 timed_stage = PETSc.Log.Stage
 """Enter a code Stage, this is a PETSc log Stage.

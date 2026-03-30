@@ -1,15 +1,15 @@
 import abc
 
-from pyop2.datatypes import IntType
-from firedrake.preconditioners.base import PCBase
-from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_function_space
-from firedrake.mesh import DistributedMeshOverlapType
-from firedrake.logging import warning
-from tinyasm import _tinyasm as tinyasm
-from mpi4py import MPI
 import numpy
+from mpi4py import MPI
 
+from firedrake.dmhooks import get_function_space
+from firedrake.logging import warning
+from firedrake.mesh import DistributedMeshOverlapType
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from pyop2.datatypes import IntType
+from tinyasm import _tinyasm as tinyasm
 
 __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
 

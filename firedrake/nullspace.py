@@ -1,12 +1,10 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD
-
 from firedrake import function
 from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-
+from pyop2.mpi import COMM_WORLD
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
 

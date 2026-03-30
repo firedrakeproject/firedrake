@@ -1,9 +1,11 @@
 import ufl
-import firedrake
+from pyadjoint import AdjFloat, Block, create_overloaded_object
 from ufl.domain import as_domain
 from ufl.formatting.ufl2unicode import ufl2unicode
-from pyadjoint import Block, AdjFloat, create_overloaded_object
+
+import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
+
 from .block_utils import isconstant
 
 

@@ -1,7 +1,9 @@
 import numbers
 from functools import wraps
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
+
 from pyadjoint.overloaded_type import create_overloaded_object
+from pyadjoint.tape import annotate_tape, get_working_tape, stop_annotating
+
 from firedrake.adjoint_utils.blocks import AssembleBlock
 
 
@@ -29,8 +31,8 @@ def annotate_assemble(assemble):
                 kwargs['is_base_form_preprocessed'] = True
             output = assemble(form, *args, **kwargs)
 
-        from firedrake.function import Function
         from firedrake.cofunction import Cofunction
+        from firedrake.function import Function
         if isinstance(output, (numbers.Complex, Function, Cofunction)):
             # Assembling a 0-form or 1-form (e.g. Form or BaseFormOperator)
             if not annotate:

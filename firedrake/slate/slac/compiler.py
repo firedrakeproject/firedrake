@@ -7,39 +7,36 @@ the Two-Stage Form Compiler (TSFC) and loopy. TSFC provides this
 compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
+import copy
 import time
+from itertools import chain
 from typing import Hashable
 
-from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
+import loopy
+import numpy as np
+from petsc4py import PETSc
 
-from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
-from firedrake.slate.slac.utils import slate_to_gem, merge_loopy
-from firedrake.slate.slac.optimise import optimise
+import gem
+import petsctools
+from gem import impero_utils
+from gem import indices as make_indices
 
+import firedrake.slate.slate as slate
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
+from firedrake.slate.slac.kernel_builder import LocalLoopyKernelBuilder
+from firedrake.slate.slac.optimise import optimise
+from firedrake.slate.slac.utils import merge_loopy, slate_to_gem
+from firedrake.tsfc_interface import KernelInfo, SplitKernel, TSFCKernel
 from firedrake.utils import complex_mode
-from gem import impero_utils
-from itertools import chain
-
-from pyop2.utils import get_petsc_dir
-from pyop2.mpi import COMM_WORLD
-from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 from pyop2.caching import memory_and_disk_cache
-
-import firedrake.slate.slate as slate
-import numpy as np
-import loopy
-import gem
-import petsctools
-from gem import indices as make_indices
-from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
-from tsfc.loopy import generate as generate_loopy
+from pyop2.codegen.rep2loopy import INVCallable, SolveCallable
+from pyop2.mpi import COMM_WORLD
+from pyop2.utils import get_petsc_dir
+from tsfc.kernel_args import CoefficientKernelArg, OutputKernelArg
 from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
-import copy
-
-from petsc4py import PETSc
+from tsfc.loopy import generate as generate_loopy
 
 __all__ = ['compile_expression']
 

@@ -1,26 +1,31 @@
 from os import path
+
+import loopy as lp
 import numpy
 import sympy
 from sympy.printing.c import ccode
-import loopy as lp
 
-from pyop2 import op2
-from pyop2.parloop import generate_single_cell_wrapper
-
-from firedrake.mesh import MeshGeometry
-from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
-
-import ufl
 import finat.ufl
-from ufl.corealg.map_dag import map_expr_dag
-
 import gem
 import gem.impero_utils as impero_utils
+import ufl
+from ufl.corealg.map_dag import map_expr_dag
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
+from firedrake.mesh import MeshGeometry
+from firedrake.petsc import PETSc
+from firedrake.utils import (
+    IntType,
+    RealType_c,
+    ScalarType,
+    ScalarType_c,
+    as_cstr,
+    complex_mode,
+)
+from pyop2 import op2
+from pyop2.parloop import generate_single_cell_wrapper
 
 
 def make_args(function):

@@ -1,7 +1,14 @@
-from pyop2.codegen.node import traversal, reuse_if_untouched, Memoizer
 from functools import singledispatch
-from pyop2.codegen.representation import (Index, RuntimeIndex, Node,
-                                          FunctionCall, Variable, Argument)
+
+from pyop2.codegen.node import Memoizer, reuse_if_untouched, traversal
+from pyop2.codegen.representation import (
+    Argument,
+    FunctionCall,
+    Index,
+    Node,
+    RuntimeIndex,
+    Variable,
+)
 
 
 def collect_indices(expressions):

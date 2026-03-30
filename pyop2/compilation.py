@@ -32,32 +32,38 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from abc import ABC
+import ctypes
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
-import ctypes
-import shlex
-from hashlib import md5
-from packaging.version import Version, InvalidVersion
-from textwrap import dedent
-from functools import partial
-from pathlib import Path
+from abc import ABC
 from contextlib import contextmanager
-from tempfile import gettempdir, mkstemp
-from typing import Hashable
+from functools import partial
+from hashlib import md5
+from pathlib import Path
 from random import randint
+from tempfile import gettempdir, mkstemp
+from textwrap import dedent
+from typing import Hashable
 
+from packaging.version import InvalidVersion, Version
+from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
+from pyop2.caching import (
+    DictLikeDiskAccess,
+    as_hexdigest,
+    default_parallel_hashkey,
+    memory_cache,
+    parallel_cache,
+)
 from pyop2.configuration import configuration
-from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
+from pyop2.logger import INFO, debug, progress, warning
 from pyop2.utils import get_petsc_variables
-from petsc4py import PETSc
 
 
 def _check_hashes(x, y, datatype):

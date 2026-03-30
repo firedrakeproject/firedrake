@@ -1,21 +1,22 @@
 import abc
-import numpy
-
-import petsctools
-from pyop2.utils import as_tuple
-from firedrake.bcs import DirichletBC
-from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase
-from firedrake.ufl_expr import TestFunction, TrialFunction
-from firedrake.preconditioners.hypre_ams import chop
-from firedrake.parameters import parameters
-from firedrake.interpolation import interpolate
-from ufl.algorithms.ad import expand_derivatives
-import firedrake.dmhooks as dmhooks
-import ufl
-import finat.ufl
 from functools import cached_property
 
+import numpy
+
+import finat.ufl
+import petsctools
+import ufl
+from ufl.algorithms.ad import expand_derivatives
+
+import firedrake.dmhooks as dmhooks
+from firedrake.bcs import DirichletBC
+from firedrake.interpolation import interpolate
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from firedrake.preconditioners.hypre_ams import chop
+from firedrake.ufl_expr import TestFunction, TrialFunction
+from pyop2.utils import as_tuple
 
 __all__ = ("TwoLevelPC", "HiptmairPC")
 
@@ -185,6 +186,7 @@ class HiptmairPC(TwoLevelPC):
         zero_beta = opts.getBool("zero_beta_poisson", True)
         if zero_beta:
             from firedrake.assemble import assemble
+
             # Remove coarse nodes where beta is zero
             coarse_diagonal = assemble(coarse_operator, diagonal=True)
             diag = numpy.abs(coarse_diagonal.dat.data_ro_with_halos)

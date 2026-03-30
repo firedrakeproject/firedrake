@@ -1,13 +1,13 @@
 
 import logging
-from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
-# Ensure that the relevant loggers have been created.
-import tsfc.logging             # noqa: F401
-import pyop2.logger             # noqa: F401
+from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING
 
+import pyop2.logger  # noqa: F401
+
+# Ensure that the relevant loggers have been created.
+import tsfc.logging  # noqa: F401
 from pyop2.configuration import configuration
 from pyop2.mpi import COMM_WORLD
-
 
 __all__ = ('set_level', 'set_log_level', 'set_log_handlers',
            'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL',

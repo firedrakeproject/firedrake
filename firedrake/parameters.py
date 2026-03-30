@@ -1,8 +1,10 @@
 """The parameters dictionary contains global parameter settings."""
-from pyop2.configuration import configuration, target as pyop2_target
-from tsfc import default_parameters
 import sys
+
 from firedrake.utils import ScalarType, ScalarType_c
+from pyop2.configuration import configuration
+from pyop2.configuration import target as pyop2_target
+from tsfc import default_parameters
 
 max_float = sys.float_info[0]
 

@@ -1,10 +1,10 @@
 import collections.abc
 import ctypes
+import itertools
+import os
 from dataclasses import dataclass
 from functools import cached_property
-import os
 from typing import Optional, Tuple
-import itertools
 
 import loopy as lp
 import numpy as np
@@ -13,12 +13,12 @@ from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import memory_cache, disk_only_cache
+from pyop2.caching import disk_only_cache, memory_cache
+from pyop2.codegen.rep2loopy import generate
 from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
-from pyop2.codegen.rep2loopy import generate
-from pyop2.types import IterationRegion, Constant, READ
+from pyop2.types import READ, Constant, IterationRegion
 from pyop2.utils import get_petsc_dir
 
 

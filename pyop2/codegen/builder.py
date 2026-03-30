@@ -4,21 +4,60 @@ from collections import OrderedDict
 from functools import cached_property, reduce
 
 import numpy
-from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
-                                 MatKernelArg, MixedMatKernelArg, PermutedMapKernelArg, ComposedMapKernelArg, PassthroughKernelArg)
-from pyop2.codegen.representation import (Accumulate, Argument, Comparison, Conditional,
-                                          DummyInstruction, Extent, FixedIndex,
-                                          FunctionCall, Index, Indexed,
-                                          KernelInst, Literal, LogicalAnd,
-                                          Materialise, Max, Min, MultiIndex,
-                                          NamedLiteral, PackInst,
-                                          PreUnpackInst, Product, RuntimeIndex,
-                                          Sum, Symbol, UnpackInst, Variable,
-                                          When, Zero)
-from pyop2.datatypes import IntType, OpaqueType
-from pyop2.op2 import (ALL, INC, MAX, MIN, ON_BOTTOM, ON_INTERIOR_FACETS,
-                       ON_TOP, READ, RW, WRITE)
 
+from pyop2.codegen.representation import (
+    Accumulate,
+    Argument,
+    Comparison,
+    Conditional,
+    DummyInstruction,
+    Extent,
+    FixedIndex,
+    FunctionCall,
+    Index,
+    Indexed,
+    KernelInst,
+    Literal,
+    LogicalAnd,
+    Materialise,
+    Max,
+    Min,
+    MultiIndex,
+    NamedLiteral,
+    PackInst,
+    PreUnpackInst,
+    Product,
+    RuntimeIndex,
+    Sum,
+    Symbol,
+    UnpackInst,
+    Variable,
+    When,
+    Zero,
+)
+from pyop2.datatypes import IntType, OpaqueType
+from pyop2.global_kernel import (
+    ComposedMapKernelArg,
+    DatKernelArg,
+    GlobalKernelArg,
+    MatKernelArg,
+    MixedDatKernelArg,
+    MixedMatKernelArg,
+    PassthroughKernelArg,
+    PermutedMapKernelArg,
+)
+from pyop2.op2 import (
+    ALL,
+    INC,
+    MAX,
+    MIN,
+    ON_BOTTOM,
+    ON_INTERIOR_FACETS,
+    ON_TOP,
+    READ,
+    RW,
+    WRITE,
+)
 
 MatType = OpaqueType("Mat")
 

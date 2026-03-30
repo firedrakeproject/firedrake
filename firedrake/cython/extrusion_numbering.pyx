@@ -184,19 +184,22 @@ This is guaranteed to pick up all the nodes in the closure of the
 facet column.
 """
 import cython
-import firedrake.extrusion_utils as eutils
 import numpy
-from firedrake.petsc import PETSc
-from firedrake.cython.dmcommon import count_labelled_points
 from mpi4py import MPI
-from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
-                            MPI_User_function)
-from pyop2 import op2
-from firedrake.utils import IntType
+
+import firedrake.extrusion_utils as eutils
+from firedrake.cython.dmcommon import count_labelled_points
+from firedrake.petsc import PETSc
+
+from mpi4py.libmpi cimport MPI_OP_NULL, MPI_Op_create, MPI_Op_free, MPI_User_function
+
 from finat.element_factory import as_fiat_cell
 
-cimport numpy
+from firedrake.utils import IntType
+from pyop2 import op2
+
 cimport mpi4py.MPI as MPI
+cimport numpy
 cimport petsc4py.PETSc as PETSc
 
 numpy.import_array()

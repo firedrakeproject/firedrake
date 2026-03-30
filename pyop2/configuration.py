@@ -35,6 +35,7 @@
 
 import os
 from tempfile import gettempdir
+
 from loopy.target.c import CWithGNULibcTarget
 
 from pyop2.exceptions import ConfigurationError

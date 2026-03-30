@@ -1,9 +1,16 @@
 import copy
 from functools import wraps
-from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
-from firedrake.ufl_expr import derivative, adjoint
+
+from pyadjoint.tape import (
+    annotate_tape,
+    get_working_tape,
+    no_annotations,
+    stop_annotating,
+)
 from ufl import replace
+
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake.ufl_expr import adjoint, derivative
 
 
 class NonlinearVariationalProblemMixin:
@@ -137,7 +144,8 @@ class NonlinearVariationalSolverMixin:
     @no_annotations
     def _ad_adj_lvs_problem(self, block, adj_F):
         """Create the adjoint variational problem."""
-        from firedrake import Function, Cofunction, LinearVariationalProblem
+        from firedrake import Cofunction, Function, LinearVariationalProblem
+
         # Homogeneous boundary conditions for the adjoint problem
         # when Dirichlet boundary conditions are applied.
         bcs = block._homogenize_bcs()

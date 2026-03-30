@@ -3,12 +3,12 @@ import functools
 import ufl
 
 import firedrake.dmhooks as dmhooks
-from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
+from firedrake.parloops import INC, READ, par_loop
 from firedrake.petsc import PETSc
-from firedrake.parloops import par_loop, READ, INC
-from firedrake.slate.slate import Tensor, AssembledVector
+from firedrake.slate.slate import AssembledVector, Tensor
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
+from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.ufl_expr import adjoint
 
 __all__ = ['HybridizationPC', 'SchurComplementBuilder']
@@ -35,11 +35,18 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Cofunction, Function,
-                               TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC)
-        from firedrake.assemble import get_assembler
         from ufl.algorithms.replace import replace
+
+        from firedrake import (
+            Cofunction,
+            DirichletBC,
+            Function,
+            FunctionSpace,
+            TestFunction,
+            TrialFunction,
+            TrialFunctions,
+        )
+        from firedrake.assemble import get_assembler
 
         # Extract the problem context
         prefix = (pc.getOptionsPrefix() or "") + "hybridization_"

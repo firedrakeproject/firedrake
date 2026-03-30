@@ -1,7 +1,9 @@
 from functools import wraps
+
 from pyadjoint.overloaded_type import FloatingType
+from pyadjoint.tape import annotate_tape, stop_annotating
+
 from .blocks import DirichletBCBlock
-from pyadjoint.tape import stop_annotating, annotate_tape
 
 
 class DirichletBCMixin(FloatingType):

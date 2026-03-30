@@ -1,8 +1,14 @@
 from functools import wraps
-from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape
 
-from firedrake.adjoint_utils.blocks import SolveVarFormBlock, SolveLinearSystemBlock, GenericSolveBlock, ProjectBlock
 import ufl
+from pyadjoint.tape import annotate_tape, get_working_tape, stop_annotating
+
+from firedrake.adjoint_utils.blocks import (
+    GenericSolveBlock,
+    ProjectBlock,
+    SolveLinearSystemBlock,
+    SolveVarFormBlock,
+)
 
 
 def annotate_solve(solve):

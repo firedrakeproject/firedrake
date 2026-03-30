@@ -1,6 +1,13 @@
 from firedrake.pyplot.mpl import (
-    plot, triplot, tricontourf, tricontour, trisurf, tripcolor, quiver,
-    streamplot, FunctionPlotter
+    FunctionPlotter,
+    plot,
+    quiver,
+    streamplot,
+    tricontour,
+    tricontourf,
+    tripcolor,
+    triplot,
+    trisurf,
 )
 from firedrake.pyplot.pgf import pgfplot
 

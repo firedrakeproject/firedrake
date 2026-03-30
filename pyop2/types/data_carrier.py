@@ -1,13 +1,10 @@
 import abc
+from functools import cached_property
 
 import numpy as np
 
-from pyop2 import (
-    datatypes as dtypes,
-    mpi,
-    utils
-)
-from functools import cached_property
+from pyop2 import datatypes as dtypes
+from pyop2 import mpi, utils
 from pyop2.types.access import Access
 
 

@@ -1,29 +1,40 @@
-from functools import cached_property, partial
-from itertools import chain
-from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
-                               add_hook, get_parent, push_parent, pop_parent,
-                               get_function_space, set_function_space)
-from firedrake.petsc import PETSc
-from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
-from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
-from firedrake.solving_utils import _SNESContext
-from firedrake.tsfc_interface import extract_numbered_coefficients
-from firedrake.utils import IntType_c
-from tsfc import compile_expression_dual_evaluation
-from pyop2 import op2
-from pyop2.caching import serial_cache
-from pyop2.utils import as_tuple
-
-import firedrake
-import finat
-import FIAT
-import ufl
-import finat.ufl
-import loopy
-import numpy
 import os
 import tempfile
 import weakref
+from functools import cached_property, partial
+from itertools import chain
+
+import loopy
+import numpy
+
+import FIAT
+import finat
+import finat.ufl
+import ufl
+
+import firedrake
+from firedrake.dmhooks import (
+    add_hook,
+    attach_hooks,
+    get_appctx,
+    get_function_space,
+    get_parent,
+    pop_appctx,
+    pop_parent,
+    push_appctx,
+    push_parent,
+    set_function_space,
+)
+from firedrake.nullspace import MixedVectorSpaceBasis, VectorSpaceBasis
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase, PCSNESBase, SNESBase
+from firedrake.solving_utils import _SNESContext
+from firedrake.tsfc_interface import extract_numbered_coefficients
+from firedrake.utils import IntType_c
+from pyop2 import op2
+from pyop2.caching import serial_cache
+from pyop2.utils import as_tuple
+from tsfc import compile_expression_dual_evaluation
 
 __all__ = ("PMGPC", "PMGSNES")
 
@@ -1246,7 +1257,7 @@ class StandaloneInterpolationMatrix(object):
             return self._build_custom_interpolators()
 
     def _build_native_interpolators(self):
-        from firedrake.interpolation import interpolate, get_interpolator
+        from firedrake.interpolation import get_interpolator, interpolate
         P = get_interpolator(interpolate(self.uc, self.Vf))
         prolong = partial(P.assemble, tensor=self.uf)
 
@@ -1448,7 +1459,7 @@ class StandaloneInterpolationMatrix(object):
             return;
         }}
         """
-        from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
+        from firedrake.slate.slac.compiler import BLASLAPACK_INCLUDE, BLASLAPACK_LIB
         prolong_kernel = op2.Kernel(kernel_code, "prolongation", include_dirs=BLASLAPACK_INCLUDE.split(),
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),

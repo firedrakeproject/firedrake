@@ -6,23 +6,22 @@ classes for attaching extra information to instances of these.
 
 import warnings
 from collections import OrderedDict
+from functools import cached_property
 
 import numpy
 
-import ufl
 import finat.ufl
+import ufl
 from finat.quadrature import QuadratureRule
-
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop2 import op2
-from pyop2.utils import as_tuple
 
 from firedrake import dmhooks
-from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
-from firedrake.functionspacedata import get_shared_data, create_element
+from firedrake.functionspacedata import create_element, get_shared_data
+from firedrake.mesh import MeshGeometry, MeshSequenceGeometry, MeshSequenceTopology
 from firedrake.petsc import PETSc
-from functools import cached_property
+from pyop2 import op2
+from pyop2.utils import as_tuple
 
 
 def check_element(element, top=True):
@@ -215,7 +214,10 @@ class WithGeometryBase:
             number of currently checked out work functions.
             """
         # Clear cache
-        from firedrake.functionspacedata import get_work_function_cache, set_max_work_functions
+        from firedrake.functionspacedata import (
+            get_work_function_cache,
+            set_max_work_functions,
+        )
         cache = get_work_function_cache(self.mesh(), self.ufl_element())
         if val < len(cache):
             for k in list(cache.keys()):

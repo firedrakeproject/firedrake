@@ -14,25 +14,24 @@ ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
-import numpy
-import finat.ufl
-import finat
-from decorator import decorator
 from functools import partial
 
+import numpy
+from decorator import decorator
+
+import finat
+import finat.ufl
 from finat.element_factory import create_element as _create_element
 
-from pyop2 import op2
-from firedrake.utils import IntType
-from pyop2.utils import as_tuple
-
-from firedrake.cython import extrusion_numbering as extnum
-from firedrake.cython import dmcommon
+from firedrake import extrusion_utils as eutils
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
-from firedrake import extrusion_utils as eutils
+from firedrake.cython import dmcommon
+from firedrake.cython import extrusion_numbering as extnum
 from firedrake.petsc import PETSc
-
+from firedrake.utils import IntType
+from pyop2 import op2
+from pyop2.utils import as_tuple
 
 __all__ = ("get_shared_data", )
 

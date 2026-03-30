@@ -1,6 +1,6 @@
 from functools import reduce
 
-from gem import index_sum, Sum
+from gem import Sum, index_sum
 from gem.optimise import unroll_indexsum
 from gem.unconcatenate import unconcatenate
 

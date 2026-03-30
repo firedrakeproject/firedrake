@@ -1,11 +1,14 @@
-import numpy
 from fractions import Fraction
-from pyop2 import op2
-from firedrake.utils import IntType
-from firedrake.functionspacedata import entity_dofs_key
+
+import numpy
+
 import finat.ufl
+
 import firedrake
 from firedrake.cython import mgimpl as impl
+from firedrake.functionspacedata import entity_dofs_key
+from firedrake.utils import IntType
+from pyop2 import op2
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):

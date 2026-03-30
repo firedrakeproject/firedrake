@@ -13,11 +13,32 @@ from pyop2 import mpi, profiling
 from pyop2.configuration import configuration
 from pyop2.datatypes import as_numpy_dtype
 from pyop2.exceptions import KernelTypeError, MapValueError, SetTypeError
-from pyop2.global_kernel import (GlobalKernelArg, DatKernelArg, MixedDatKernelArg,
-                                 MatKernelArg, MixedMatKernelArg, PassthroughKernelArg, GlobalKernel)
-from pyop2.local_kernel import LocalKernel, CStringLocalKernel, LoopyLocalKernel
-from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
-                         MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
+from pyop2.global_kernel import (
+    DatKernelArg,
+    GlobalKernel,
+    GlobalKernelArg,
+    MatKernelArg,
+    MixedDatKernelArg,
+    MixedMatKernelArg,
+    PassthroughKernelArg,
+)
+from pyop2.local_kernel import CStringLocalKernel, LocalKernel, LoopyLocalKernel
+from pyop2.types import (
+    AbstractDat,
+    Access,
+    ComposedMap,
+    Dat,
+    DatView,
+    ExtrudedSet,
+    Global,
+    Map,
+    Mat,
+    MixedDat,
+    MixedMap,
+    MixedSet,
+    Set,
+    Subset,
+)
 from pyop2.types.data_carrier import DataCarrier
 
 
@@ -778,9 +799,10 @@ def generate_single_cell_wrapper(iterset, args, forward_args=(),
 
     :return: string containing the C code for the single-cell wrapper
     """
+    from loopy.types import OpaqueType
+
     from pyop2.codegen.builder import WrapperBuilder
     from pyop2.codegen.rep2loopy import generate
-    from loopy.types import OpaqueType
 
     accs = tuple(a.access for a in args)
     dtypes = tuple(a.data.dtype for a in args)

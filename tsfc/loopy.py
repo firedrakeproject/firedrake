@@ -2,26 +2,23 @@
 
 This is the final stage of code generation in TSFC."""
 
-from numbers import Integral
-import numpy
+from collections import OrderedDict, defaultdict
+from contextlib import contextmanager
 from functools import singledispatch
-from collections import defaultdict, OrderedDict
-
-from gem import gem, impero as imp
-from gem.node import Memoizer
+from numbers import Integral
 
 import islpy as isl
 import loopy as lp
-
+import numpy
 import pymbolic.primitives as p
 from loopy.symbolic import SubArrayRef
-
 from pytools import UniqueNameGenerator
 
-from tsfc.parameters import is_complex
+from gem import gem
+from gem import impero as imp
+from gem.node import Memoizer
 
-from contextlib import contextmanager
-from tsfc.parameters import target
+from tsfc.parameters import is_complex, target
 
 
 def profile_insns(kernel_name, instructions, log=False):

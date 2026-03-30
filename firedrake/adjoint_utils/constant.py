@@ -1,12 +1,13 @@
 from functools import wraps
-from pyadjoint.adjfloat import AdjFloat
-from pyadjoint.tape import get_working_tape, annotate_tape
-from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
-
-from firedrake.functionspace import FunctionSpace
-from firedrake.adjoint_utils.blocks import ConstantAssignBlock
 
 import numpy
+
+from pyadjoint.adjfloat import AdjFloat
+from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
+from pyadjoint.tape import annotate_tape, get_working_tape
+
+from firedrake.adjoint_utils.blocks import ConstantAssignBlock
+from firedrake.functionspace import FunctionSpace
 
 
 class ConstantMixin(OverloadedType):

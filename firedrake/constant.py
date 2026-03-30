@@ -1,28 +1,30 @@
 import numbers
 from collections.abc import Sequence
-import numpy as np
-import ufl
+from functools import cached_property
 
-from tsfc.ufl_utils import TSFCConstantMixin
-from pyop2 import op2
-from pyop2.exceptions import DataTypeError, DataValueError
-from pyop2.mpi import collective
-from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType
-from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
+import numpy as np
+
+import ufl
+from ufl.classes import all_ufl_classes, terminal_classes, ufl_classes
 from ufl.core.ufl_type import UFLType
 from ufl.corealg.multifunction import MultiFunction
 from ufl.formatting.ufl2unicode import (
-    Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
+    UC,
+    Expression2UnicodeHandler,
+    PrecedenceRules,
     colorama,
+    subscript_number,
 )
-from functools import cached_property
 from ufl.utils.counted import Counted
-
 
 import firedrake.utils as utils
 from firedrake.adjoint_utils.constant import ConstantMixin
-
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType
+from pyop2 import op2
+from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.mpi import collective
+from tsfc.ufl_utils import TSFCConstantMixin
 
 __all__ = ['Constant']
 

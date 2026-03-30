@@ -1,11 +1,12 @@
 import functools
-import firedrake.dmhooks as dmhooks
+
 import numpy as np
-from firedrake.slate.static_condensation.sc_base import SCBase
+
+import firedrake.dmhooks as dmhooks
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
-
+from firedrake.slate.static_condensation.sc_base import SCBase
 
 __all__ = ['SCPC']
 
@@ -28,13 +29,14 @@ class SCPC(SCBase):
         variables are recovered via back-substitution.
         """
 
+        from ufl import dx
+
         from firedrake.assemble import get_assembler
         from firedrake.bcs import DirichletBC
-        from firedrake.function import Function
         from firedrake.cofunction import Cofunction
+        from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
-        from firedrake.parloops import par_loop, INC
-        from ufl import dx
+        from firedrake.parloops import INC, par_loop
 
         prefix = (pc.getOptionsPrefix() or "") + "condensed_field_"
         A, P = pc.getOperators()
@@ -182,7 +184,9 @@ class SCPC(SCBase):
         :arg pc: a Preconditioner instance.
         """
 
-        from firedrake.slate.static_condensation.la_utils import condense_and_forward_eliminate
+        from firedrake.slate.static_condensation.la_utils import (
+            condense_and_forward_eliminate,
+        )
 
         return condense_and_forward_eliminate(A, rhs, elim_fields, prefix, pc)
 

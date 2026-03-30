@@ -3,12 +3,14 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
+
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
+
 np.import_array()
 
 include "petschdr.pxi"

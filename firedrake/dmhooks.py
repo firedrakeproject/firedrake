@@ -38,12 +38,13 @@ advance.
 """
 
 import weakref
-import numpy
 from functools import partial
 
+import numpy
+
 import firedrake
-from firedrake.petsc import PETSc
 from firedrake.mesh import MeshSequenceGeometry
+from firedrake.petsc import PETSc
 
 
 @PETSc.Log.EventDecorator()
@@ -479,7 +480,8 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     :arg section: Optional PETSc Section object describing the DM's
         data layout.
     """
-    from firedrake.mg.ufl_utils import create_interpolation, create_injection
+    from firedrake.mg.ufl_utils import create_injection, create_interpolation
+
     # Data layout
     if sf is not None:
         dm.setPointSF(sf)

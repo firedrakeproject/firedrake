@@ -1,5 +1,7 @@
-from firedrake.interpolation import interpolate as interpolate_default, Interpolator as Interpolator_default
 import warnings
+
+from firedrake.interpolation import Interpolator as Interpolator_default
+from firedrake.interpolation import interpolate as interpolate_default
 
 
 def interpolate(expr, V, *args, **kwargs):

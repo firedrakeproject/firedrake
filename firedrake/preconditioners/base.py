@@ -1,10 +1,11 @@
 import abc
 
 import petsctools
-from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
-from firedrake.bcs import BCBase
 import ufl
+
+from firedrake.bcs import BCBase
+from firedrake.dmhooks import get_appctx
+from firedrake.petsc import PETSc
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -140,8 +141,8 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         -------
         A new `_SNESContext`
         """
-        from firedrake.variational_solver import LinearVariationalProblem
         from firedrake.function import Function
+        from firedrake.variational_solver import LinearVariationalProblem
 
         u = Function(Jp.arguments()[-1].function_space())
         L = 0

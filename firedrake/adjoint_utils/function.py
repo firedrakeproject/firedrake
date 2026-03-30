@@ -1,13 +1,27 @@
 from functools import wraps
-from pyop2.mpi import temp_internal_comm
+
 import ufl
+from pyadjoint.overloaded_type import FloatingType, create_overloaded_object
+from pyadjoint.tape import annotate_tape, get_working_tape, stop_annotating
 from ufl.domain import extract_unique_domain
-from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
+
 import firedrake
-from .checkpointing import disk_checkpointing, CheckpointFunction, \
-    CheckpointBase, checkpoint_init_data, DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.blocks import (
+    FunctionAssignBlock,
+    FunctionMergeBlock,
+    ProjectBlock,
+    SubfunctionBlock,
+    SupermeshProjectBlock,
+)
+from pyop2.mpi import temp_internal_comm
+
+from .checkpointing import (
+    CheckpointBase,
+    CheckpointFunction,
+    DelegatedFunctionCheckpoint,
+    checkpoint_init_data,
+    disk_checkpointing,
+)
 
 
 class FunctionMixin(FloatingType):
@@ -223,7 +237,7 @@ class FunctionMixin(FloatingType):
         return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_init_zero(self, dual=False):
-        from firedrake import Function, Cofunction
+        from firedrake import Cofunction, Function
         if dual:
             return Cofunction(self.function_space().dual())
         else:
@@ -257,7 +271,7 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
-        from firedrake import assemble, action, Cofunction
+        from firedrake import Cofunction, action, assemble
 
         if isinstance(other, Cofunction):
             return assemble(action(other, self))

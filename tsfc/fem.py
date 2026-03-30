@@ -5,45 +5,72 @@ import collections
 import itertools
 from functools import cached_property, singledispatch
 
-import gem
 import numpy
+
+import gem
 import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
-from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
-from FIAT.reference_element import TensorProductCell
-from finat.physically_mapped import (NeedsCoordinateMappingElement,
-                                     PhysicalGeometry)
+from FIAT.reference_element import (
+    TensorProductCell,
+    UFCHexahedron,
+    UFCQuadrilateral,
+    UFCSimplex,
+    make_affine_mapping,
+)
+from finat.element_factory import as_fiat_cell, create_element
+from finat.physically_mapped import NeedsCoordinateMappingElement, PhysicalGeometry
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
-from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
-from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
-                         CellFacetJacobian, CellOrientation, CellOrigin,
-                         CellVertices, CellVolume, Coefficient, FacetArea,
-                         FacetCoordinate, GeometricQuantity, Jacobian,
-                         JacobianDeterminant, NegativeRestricted,
-                         PositiveRestricted, QuadratureWeight,
-                         ReferenceCellEdgeVectors, ReferenceCellVolume,
-                         ReferenceFacetVolume, ReferenceNormal,
-                         SpatialCoordinate)
+from ufl.algorithms import extract_arguments
+from ufl.classes import (
+    Argument,
+    CellCoordinate,
+    CellEdgeVectors,
+    CellFacetJacobian,
+    CellOrientation,
+    CellOrigin,
+    CellVertices,
+    CellVolume,
+    Coefficient,
+    FacetArea,
+    FacetCoordinate,
+    GeometricQuantity,
+    Jacobian,
+    JacobianDeterminant,
+    NegativeRestricted,
+    PositiveRestricted,
+    QuadratureWeight,
+    ReferenceCellEdgeVectors,
+    ReferenceCellVolume,
+    ReferenceFacetVolume,
+    ReferenceNormal,
+    SpatialCoordinate,
+)
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
-from ufl.algorithms import extract_arguments
 
+from pyop2.caching import serial_cache
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.kernel_interface.common import lower_integral_type
-from tsfc.modified_terminals import (analyse_modified_terminal,
-                                     construct_modified_terminal)
+from tsfc.modified_terminals import (
+    analyse_modified_terminal,
+    construct_modified_terminal,
+)
 from tsfc.parameters import is_complex
-from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
-                            TSFCConstantMixin, entity_avg, one_times,
-                            preprocess_expression, simplify_abs)
-
-from pyop2.caching import serial_cache
+from tsfc.ufl_utils import (
+    ModifiedTerminalMixin,
+    PickRestriction,
+    TSFCConstantMixin,
+    entity_avg,
+    one_times,
+    preprocess_expression,
+    simplify_abs,
+)
 
 
 class ContextBase(ProxyKernelInterface):
@@ -549,8 +576,7 @@ def translate_reference_normal(terminal, mt, ctx):
 
 @translate.register(ReferenceCellEdgeVectors)
 def translate_reference_cell_edge_vectors(terminal, mt, ctx):
-    from FIAT.reference_element import \
-        TensorProductCell as fiat_TensorProductCell
+    from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
     fiat_cell = ctx.fiat_cell
     if isinstance(fiat_cell, fiat_TensorProductCell):
         raise NotImplementedError("ReferenceCellEdgeVectors not implemented on TensorProductElements yet")

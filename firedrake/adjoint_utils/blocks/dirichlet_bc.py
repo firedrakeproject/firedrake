@@ -1,6 +1,8 @@
 import ufl
-import firedrake
 from pyadjoint import Block, OverloadedType, no_annotations
+
+import firedrake
+
 from .block_utils import isconstant
 
 

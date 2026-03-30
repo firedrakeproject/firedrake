@@ -1,7 +1,7 @@
-from ufl import inner, div, grad, curl, dx
+from ufl import curl, div, dx, grad, inner
 
-from firedrake.assemble import assemble
 from firedrake import function
+from firedrake.assemble import assemble
 from firedrake.logging import warning
 from firedrake.petsc import PETSc
 

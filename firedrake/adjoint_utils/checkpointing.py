@@ -1,14 +1,17 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
-from pyadjoint.tape import TapePackageData
-from pyop2.mpi import COMM_WORLD
-import tempfile
+import atexit
 import os
 import shutil
-import atexit
+import tempfile
 import warnings
 from abc import ABC, abstractmethod
 from numbers import Number
+
+from pyadjoint import OverloadedType, disk_checkpointing_callback, get_working_tape
+from pyadjoint.tape import TapePackageData
+
+from pyop2.mpi import COMM_WORLD
+
 _enable_disk_checkpoint = False
 _checkpoint_init_data = False
 disk_checkpointing_callback["firedrake"] = "Please call enable_disk_checkpointing() "\

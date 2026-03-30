@@ -1,7 +1,9 @@
 import enum
 import math
+
 import numpy as np
 import numpy.random as randomgen
+
 try:
     import matplotlib.pyplot as plt
 except ModuleNotFoundError as e:
@@ -9,22 +11,34 @@ except ModuleNotFoundError as e:
         "Error importing matplotlib, you may need to install by executing\n\t"
         "pip install matplotlib"
     ) from e
+from math import factorial
+
 import matplotlib.colors
 import matplotlib.patches
 import matplotlib.tri
-from matplotlib.path import Path
-from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection, PolyCollection
 import mpl_toolkits.mplot3d
+from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.lines import Line2D
+from matplotlib.path import Path
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
-from math import factorial
-from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
-                       FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry
-from firedrake.petsc import PETSc
+
 from ufl.domain import extract_unique_domain
 
+from firedrake import (
+    Constant,
+    Function,
+    FunctionSpace,
+    PointNotInDomainError,
+    SpatialCoordinate,
+    VectorFunctionSpace,
+    assemble,
+    dx,
+    inner,
+    interpolate,
+    sqrt,
+)
+from firedrake.mesh import MeshGeometry
+from firedrake.petsc import PETSc
 
 __all__ = [
     "plot", "triplot", "tricontourf", "tricontour", "trisurf", "tripcolor",

@@ -1,7 +1,8 @@
 from typing import Iterable
-from firedrake.petsc import PETSc
+
 from firedrake.ensemble.ensemble_function import EnsembleFunction, EnsembleFunctionBase
 from firedrake.ensemble.ensemble_functionspace import EnsembleFunctionSpaceBase
+from firedrake.petsc import PETSc
 
 
 class EnsembleMatCtxBase:

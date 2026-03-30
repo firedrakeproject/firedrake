@@ -1,19 +1,18 @@
-from collections import OrderedDict
 import itertools
-
-from mpi4py import MPI
-import numpy
-
-from pyop2.mpi import temp_internal_comm
-from firedrake.ufl_expr import adjoint, action
-from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.bcs import DirichletBC, EquationBCSplit
+from collections import OrderedDict
 from functools import cached_property
 
-from firedrake.petsc import PETSc
-from firedrake.function import Function
+import numpy
+from mpi4py import MPI
+
 from ufl.form import ZeroBaseForm
 
+from firedrake.bcs import DirichletBC, EquationBCSplit
+from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.function import Function
+from firedrake.petsc import PETSc
+from firedrake.ufl_expr import action, adjoint
+from pyop2.mpi import temp_internal_comm
 
 __all__ = ("ImplicitMatrixContext", )
 

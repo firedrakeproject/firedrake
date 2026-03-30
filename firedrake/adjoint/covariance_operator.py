@@ -1,28 +1,44 @@
 import abc
 from enum import Enum
 from functools import cached_property
-from typing import Iterable
 from textwrap import dedent
-from scipy.special import factorial
-import petsctools
+from typing import Iterable
+
 from loopy import generate_code_v2
-from pyop2 import op2
-from firedrake.tsfc_interface import compile_form
-from firedrake.adjoint.transformed_functional import L2Cholesky
-from firedrake.functionspaceimpl import WithGeometry
-from firedrake.bcs import BCBase
+from scipy.special import factorial
+
+import petsctools
+
 from firedrake import (
-    grad, inner, avg, action, outer,
-    assemble, CellSize, FacetNormal,
-    dx, dS, sqrt, Constant,
-    Function, Cofunction, RieszMap,
-    TrialFunction, TestFunction,
-    RandomGenerator, PCG64,
+    PCG64,
+    CellSize,
+    Cofunction,
+    Constant,
+    FacetNormal,
+    Function,
     LinearVariationalProblem,
     LinearVariationalSolver,
+    PETSc,
+    RandomGenerator,
+    RieszMap,
+    TestFunction,
+    TrialFunction,
     VertexOnlyMeshTopology,
-    PETSc
+    action,
+    assemble,
+    avg,
+    dS,
+    dx,
+    grad,
+    inner,
+    outer,
+    sqrt,
 )
+from firedrake.adjoint.transformed_functional import L2Cholesky
+from firedrake.bcs import BCBase
+from firedrake.functionspaceimpl import WithGeometry
+from firedrake.tsfc_interface import compile_form
+from pyop2 import op2
 
 
 class NoiseBackendBase:

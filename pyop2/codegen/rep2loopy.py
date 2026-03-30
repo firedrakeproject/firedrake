@@ -1,51 +1,74 @@
-import ctypes
-import numpy
-from dataclasses import dataclass
-
-from immutabledict import immutabledict
-import loopy
-from loopy.symbolic import SubArrayRef
-from loopy.expression import dtype_to_type_context
-from pymbolic.mapper.stringifier import PREC_NONE
-from pymbolic import var
-from loopy.types import NumpyType, OpaqueType
 import abc
-
-import islpy as isl
-import pymbolic.primitives as pym
-
-from collections import OrderedDict, defaultdict
-from functools import singledispatch, reduce, partial
+import ctypes
 import itertools
 import operator
 
-from pyop2.codegen.node import traversal, Node, Memoizer, reuse_if_untouched
-
-from pyop2.types.access import READ, WRITE
-from pyop2.datatypes import as_ctypes
-
-from pyop2.codegen.optimise import index_merger, rename_nodes
-
-from pyop2.codegen.representation import (Index, FixedIndex, RuntimeIndex,
-                                          MultiIndex, Extent, Indexed,
-                                          BitShift, BitwiseNot, BitwiseAnd, BitwiseOr,
-                                          Conditional, Comparison, DummyInstruction,
-                                          LogicalNot, LogicalAnd, LogicalOr,
-                                          Materialise, Accumulate, FunctionCall, When,
-                                          Argument, Variable, Literal, NamedLiteral,
-                                          Symbol, Zero, Sum, Min, Max, Product,
-                                          Quotient, FloorDiv, Remainder)
-from pyop2.codegen.representation import (PackInst, UnpackInst, KernelInst, PreUnpackInst)
-from pytools import ImmutableRecord
-from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
-from pyop2.configuration import target
-
-from petsc4py import PETSc
-
-
 # Read c files  for linear algebra callables in on import
 import os
+from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
+from functools import partial, reduce, singledispatch
+
+import islpy as isl
+import loopy
+import numpy
+import pymbolic.primitives as pym
+from immutabledict import immutabledict
+from loopy.expression import dtype_to_type_context
+from loopy.symbolic import SubArrayRef
+from loopy.types import NumpyType, OpaqueType
+from petsc4py import PETSc
+from pymbolic import var
+from pymbolic.mapper.stringifier import PREC_NONE
+from pytools import ImmutableRecord
+
+from pyop2.codegen.loopycompat import _match_caller_callee_argument_dimension_
+from pyop2.codegen.node import Memoizer, Node, reuse_if_untouched, traversal
+from pyop2.codegen.optimise import index_merger, rename_nodes
+from pyop2.codegen.representation import (
+    Accumulate,
+    Argument,
+    BitShift,
+    BitwiseAnd,
+    BitwiseNot,
+    BitwiseOr,
+    Comparison,
+    Conditional,
+    DummyInstruction,
+    Extent,
+    FixedIndex,
+    FloorDiv,
+    FunctionCall,
+    Index,
+    Indexed,
+    KernelInst,
+    Literal,
+    LogicalAnd,
+    LogicalNot,
+    LogicalOr,
+    Materialise,
+    Max,
+    Min,
+    MultiIndex,
+    NamedLiteral,
+    PackInst,
+    PreUnpackInst,
+    Product,
+    Quotient,
+    Remainder,
+    RuntimeIndex,
+    Sum,
+    Symbol,
+    UnpackInst,
+    Variable,
+    When,
+    Zero,
+)
+from pyop2.configuration import target
+from pyop2.datatypes import as_ctypes
 from pyop2.mpi import COMM_WORLD
+from pyop2.types.access import READ, WRITE
+
 if COMM_WORLD.rank == 0:
     with open(os.path.dirname(__file__)+"/c/inverse.c", "r") as myfile:
         inverse_preamble = myfile.read()
@@ -78,8 +101,8 @@ class PetscCallable(loopy.ScalarCallable):
             arg_id_to_dtype=immutabledict(new_arg_id_to_dtype)), callables_table)
 
     def with_descrs(self, arg_id_to_descr, callables_table):
-        from loopy.kernel.function_interface import ArrayArgDescriptor
         from loopy.kernel.array import FixedStrideArrayDimTag
+        from loopy.kernel.function_interface import ArrayArgDescriptor
         new_arg_id_to_descr = dict(arg_id_to_descr)
         for i, des in arg_id_to_descr.items():
             # petsc takes 1D arrays as arguments
@@ -229,8 +252,8 @@ class PyOP2KernelCallable(loopy.ScalarCallable):
             arg_id_to_dtype=immutabledict(new_arg_id_to_dtype)), callables_table
 
     def with_descrs(self, arg_id_to_descr, callables_table):
-        from loopy.kernel.function_interface import ArrayArgDescriptor
         from loopy.kernel.array import FixedStrideArrayDimTag
+        from loopy.kernel.function_interface import ArrayArgDescriptor
         new_arg_id_to_descr = dict(arg_id_to_descr)
         for i, des in arg_id_to_descr.items():
             # 1D arrays
@@ -250,8 +273,8 @@ class PyOP2KernelCallable(loopy.ScalarCallable):
         par_dtypes = tuple(expression_to_code_mapper.infer_type(p) for p in self.parameters)
 
         from loopy.expression import dtype_to_type_context
-        from pymbolic.mapper.stringifier import PREC_NONE
         from pymbolic import var
+        from pymbolic.mapper.stringifier import PREC_NONE
 
         c_parameters = [
             expression_to_code_mapper(

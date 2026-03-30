@@ -1,39 +1,39 @@
 import abc
-from collections import defaultdict
-from collections.abc import Sequence  # noqa: F401
 import functools
 import itertools
-from itertools import product
 import numbers
+from collections import defaultdict
+from collections.abc import Sequence  # noqa: F401
+from functools import cached_property
+from itertools import product
 
 import cachetools
-import finat
-import firedrake
 import numpy
-from pyadjoint.tape import annotate_tape
-from tsfc import kernel_args
-from finat.element_factory import create_element
-from tsfc.ufl_utils import extract_firedrake_constants
-import ufl
+
+import finat
 import finat.ufl
-from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
-                       tsfc_interface, utils)
+import ufl
+from finat.element_factory import create_element
+from pyadjoint.tape import annotate_tape
+
+import firedrake
+from firedrake import extrusion_utils as eutils
+from firedrake import matrix, parameters, solving, tsfc_interface, utils
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace, FunctionSpace, WithGeometry
 from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
+from firedrake.ufl_expr import extract_domains
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
-from functools import cached_property
-
-from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
-
+from pyop2.types.mat import _DatMatPayload, _GlobalMatPayload
+from tsfc import kernel_args
+from tsfc.ufl_utils import extract_firedrake_constants
 
 __all__ = "assemble",
 

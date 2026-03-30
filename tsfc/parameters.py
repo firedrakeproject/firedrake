@@ -1,7 +1,6 @@
 import numpy
 from loopy.target.c import CWithGNULibcTarget
 
-
 PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto",

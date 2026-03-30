@@ -1,16 +1,13 @@
 import numbers
+from functools import cached_property
 
 import numpy as np
 from petsc4py import PETSc
 
-from pyop2 import (
-    caching,
-    datatypes as dtypes,
-    exceptions as ex,
-    mpi,
-    utils
-)
-from functools import cached_property
+from pyop2 import caching
+from pyop2 import datatypes as dtypes
+from pyop2 import exceptions as ex
+from pyop2 import mpi, utils
 from pyop2.types.set import ExtrudedSet, GlobalSet, MixedSet, Set, Subset
 
 

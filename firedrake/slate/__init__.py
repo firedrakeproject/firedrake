@@ -1,8 +1,22 @@
 from firedrake.slate.slate import (  # noqa: F401
-    AssembledVector, Block, Factorization, Tensor, Inverse,
-    Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
-    DiagonalTensor, Reciprocal, TensorOp, TensorBase
+    Add,
+    AssembledVector,
+    Block,
+    BlockAssembledVector,
+    DiagonalTensor,
+    Factorization,
+    Inverse,
+    Mul,
+    Negative,
+    Reciprocal,
+    Solve,
+    Tensor,
+    TensorBase,
+    TensorOp,
+    Transpose,
 )
 from firedrake.slate.static_condensation import (  # noqa: F401
-    HybridizationPC, SchurComplementBuilder, SCPC
+    SCPC,
+    HybridizationPC,
+    SchurComplementBuilder,
 )

@@ -6,9 +6,9 @@ This file was copied from ngsPETSc.
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from pyop2.mpi import COMM_WORLD
-from firedrake.petsc import PETSc
 import firedrake
+from firedrake.petsc import PETSc
+from pyop2.mpi import COMM_WORLD
 
 # Netgen and ngsPETSc are not available when the documentation is getting built
 # because they do not have ARM wheels.

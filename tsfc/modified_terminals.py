@@ -20,11 +20,18 @@
 
 """Definitions of 'modified terminals', a core concept in uflacs."""
 
-from ufl.classes import (ReferenceValue, ReferenceGrad,
-                         NegativeRestricted, PositiveRestricted,
-                         Restricted, ConstantValue,
-                         Jacobian, SpatialCoordinate, Zero)
 from ufl.checks import is_cellwise_constant
+from ufl.classes import (
+    ConstantValue,
+    Jacobian,
+    NegativeRestricted,
+    PositiveRestricted,
+    ReferenceGrad,
+    ReferenceValue,
+    Restricted,
+    SpatialCoordinate,
+    Zero,
+)
 from ufl.domain import extract_unique_domain
 
 

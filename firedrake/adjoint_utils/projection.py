@@ -1,8 +1,10 @@
 from functools import wraps
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
-from firedrake import function
+
+from pyadjoint.tape import annotate_tape, get_working_tape, stop_annotating
 from ufl.domain import extract_unique_domain
+
+from firedrake import function
+from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
 
 
 def annotate_project(project):

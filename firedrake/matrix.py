@@ -1,9 +1,10 @@
 import itertools
+
 import ufl
 
+from firedrake.petsc import PETSc
 from pyop2 import op2
 from pyop2.utils import as_tuple
-from firedrake.petsc import PETSc
 
 
 class DummyOP2Mat:

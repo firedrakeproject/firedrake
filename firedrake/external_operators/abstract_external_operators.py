@@ -1,14 +1,14 @@
 import petsctools
-from ufl.core.ufl_type import UFLType
-from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
+from ufl.core.external_operator import ExternalOperator
+from ufl.core.ufl_type import UFLType
 
 import firedrake.ufl_expr as ufl_expr
-from firedrake.assemble import get_assembler
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.matrix import MatrixBase
 from firedrake import functionspaceimpl
+from firedrake.assemble import get_assembler
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.matrix import MatrixBase
 
 
 class AssemblyRegisterMetaClass(UFLType):

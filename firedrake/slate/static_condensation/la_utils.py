@@ -1,11 +1,10 @@
 from collections import namedtuple
-from pyop2.utils import as_tuple
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters
-from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
 from firedrake.petsc import PETSc
-
+from firedrake.slate.slate import AssembledVector, DiagonalTensor, Tensor
+from pyop2.utils import as_tuple
 
 LAContext = namedtuple("LAContext",
                        ["lhs", "rhs", "field_idx"])

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import io
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
 try:
-    from bibtexparser.bwriter import BibTexWriter
     import bibtexparser
+    from bibtexparser.bwriter import BibTexWriter
 except ImportError:
     raise ImportError("Failed to import bibtexparser. Run:\n firedrake-update --documentation-dependencies")
 

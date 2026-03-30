@@ -1,7 +1,9 @@
 import ufl
 import ufl.algorithms
 from pyadjoint.optimization.constraints import (
-    Constraint, EqualityConstraint, InequalityConstraint,
+    Constraint,
+    EqualityConstraint,
+    InequalityConstraint,
 )
 
 import firedrake

@@ -1,13 +1,15 @@
 from functools import partial
+
+import numpy
 from mpi4py import MPI
-from pyop2 import op2, PermutedMap
+
 from finat.ufl import MixedElement
+
+import firedrake.dmhooks as dmhooks
+from firedrake.bcs import restricted_function_space
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.bcs import restricted_function_space
-import firedrake.dmhooks as dmhooks
-import numpy
-
+from pyop2 import PermutedMap, op2
 from pyop2.mpi import temp_internal_comm
 
 __all__ = ['FacetSplitPC']

@@ -1,5 +1,7 @@
-from finat.element_factory import create_base_element
 import numpy as np
+
+from finat.element_factory import create_base_element
+
 from pyop2.utils import as_tuple
 
 try:
@@ -12,10 +14,12 @@ except ModuleNotFoundError as e:
         "pip install vtk"
     ) from e
 from vtkmodules.vtkCommonDataModel import (
-    vtkLagrangeTriangle, vtkLagrangeTetra,
-    vtkLagrangeQuadrilateral, vtkLagrangeHexahedron, vtkLagrangeWedge
+    vtkLagrangeHexahedron,
+    vtkLagrangeQuadrilateral,
+    vtkLagrangeTetra,
+    vtkLagrangeTriangle,
+    vtkLagrangeWedge,
 )
-
 
 __all__ = (
     "vtk_lagrange_tet_reorder",

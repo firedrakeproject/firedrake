@@ -5,15 +5,17 @@ import time
 from fractions import Fraction
 
 import numpy as np
-import ufl
 from packaging.version import Version
 from petsc4py import PETSc
 
+import ufl
+
 import firedrake as fd
-from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
-from firedrake.cython import mgimpl as impl, dmcommon
 from firedrake import dmhooks
+from firedrake.cython import dmcommon
+from firedrake.cython import mgimpl as impl
 from firedrake.logging import logger
+from firedrake.mesh import DISTRIBUTION_PARAMETERS_NOOP
 
 # Netgen and ngsPETSc are not available when the documentation is getting built
 # because they do not have ARM wheels.

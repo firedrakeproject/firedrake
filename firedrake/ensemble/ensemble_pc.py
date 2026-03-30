@@ -1,7 +1,11 @@
 import petsctools
-from firedrake.petsc import PETSc
+
 from firedrake.ensemble.ensemble_function import EnsembleFunction
-from firedrake.ensemble.ensemble_mat import EnsembleMatCtxBase, EnsembleBlockDiagonalMatCtx
+from firedrake.ensemble.ensemble_mat import (
+    EnsembleBlockDiagonalMatCtx,
+    EnsembleMatCtxBase,
+)
+from firedrake.petsc import PETSc
 
 
 def obj_name(obj):

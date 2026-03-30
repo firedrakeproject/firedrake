@@ -1,47 +1,50 @@
 import numpy as np
 
 import ufl
-
-from pyop2.mpi import COMM_WORLD
-from firedrake.utils import IntType, ScalarType
+from pyadjoint.tape import no_annotations
 
 from firedrake import (
-    VectorFunctionSpace,
-    FunctionSpace,
-    Function,
-    Constant,
-    assemble,
-    interpolate,
-    FiniteElement,
-    interval,
-    tetrahedron,
-    atan2,
-    pi,
-    as_vector,
-    SpatialCoordinate,
-    conditional,
-    gt,
-    as_tensor,
-    dot,
     And,
+    Constant,
+    FiniteElement,
+    Function,
+    FunctionSpace,
     Or,
-    sin,
+    SpatialCoordinate,
+    VectorFunctionSpace,
+    as_tensor,
+    as_vector,
+    assemble,
+    atan2,
+    conditional,
     cos,
-    real
+    dot,
+    gt,
+    interpolate,
+    interval,
+    pi,
+    real,
+    sin,
+    tetrahedron,
 )
 from firedrake.cython import dmcommon
 from firedrake.mesh import (
-    Mesh, DistributedMeshOverlapType, DEFAULT_MESH_NAME,
-    plex_from_cell_list, _generate_default_mesh_topology_name,
-    _generate_default_mesh_coordinates_name, MeshTopology,
-    make_mesh_from_mesh_topology, RelabeledMesh,
-    make_mesh_from_coordinates, ExtrudedMesh
+    DEFAULT_MESH_NAME,
+    DistributedMeshOverlapType,
+    ExtrudedMesh,
+    Mesh,
+    MeshTopology,
+    RelabeledMesh,
+    _generate_default_mesh_coordinates_name,
+    _generate_default_mesh_topology_name,
+    make_mesh_from_coordinates,
+    make_mesh_from_mesh_topology,
+    plex_from_cell_list,
 )
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
-
-from pyadjoint.tape import no_annotations
-
+from firedrake.utils import IntType, ScalarType
+from pyop2.mpi import COMM_WORLD
 
 __all__ = [
     "IntervalMesh",

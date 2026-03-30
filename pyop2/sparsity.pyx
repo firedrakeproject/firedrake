@@ -34,11 +34,16 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+
 cimport numpy as np
+
 import cython
+
 cimport petsc4py.PETSc as PETSc
 from petsc4py.PETSc cimport CHKERR
+
 from petsc4py import PETSc
+
 from pyop2.datatypes import IntType
 
 np.import_array()

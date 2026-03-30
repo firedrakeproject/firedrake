@@ -1,4 +1,5 @@
 import os
+
 try:
     import torch
 except ImportError:
@@ -15,17 +16,17 @@ except ImportError:
     else:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
-import numpy as np
 import collections
 from functools import partial
 
-import petsctools
-from firedrake.function import Function
-from firedrake.cofunction import Cofunction
-from firedrake.constant import Constant
+import numpy as np
 
+import petsctools
 from pyadjoint.reduced_functional import ReducedFunctional
 
+from firedrake.cofunction import Cofunction
+from firedrake.constant import Constant
+from firedrake.function import Function
 
 __all__ = ['FiredrakeTorchOperator', 'fem_operator', 'torch_operator', 'to_torch', 'from_torch']
 

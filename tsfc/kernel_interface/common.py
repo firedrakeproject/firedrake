@@ -1,27 +1,28 @@
 import collections
+import copy
 import operator
 import string
 from functools import cached_property, reduce
 from itertools import chain, product
-import copy
 
-from ufl.utils.sequences import max_degree
-from ufl.domain import extract_unique_domain
+import numpy
+from numpy import asarray
 
 import gem
 import gem.impero_utils as impero_utils
 import petsctools
-import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
+from finat.element_factory import as_fiat_cell, create_element
 from finat.quadrature import AbstractQuadratureRule
+from finat.ufl import MixedElement
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
-from numpy import asarray
+from ufl.domain import extract_unique_domain
+from ufl.utils.sequences import max_degree
+
 from tsfc import fem
-from finat.element_factory import as_fiat_cell, create_element
-from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
 

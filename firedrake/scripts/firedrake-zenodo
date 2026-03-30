@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import abc
+import base64
 import contextlib
 import dataclasses
+import datetime
 import hashlib
+import json
 import logging
-import sys
 import os
 import subprocess
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
-import json
+import sys
 import textwrap
 import time
-import requests
-import base64
-import datetime
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from importlib.metadata import Distribution
 
+import requests
 
 # Change this to https://sandbox.zenodo.org/api for testing
 ZENODO_URL = "https://zenodo.org/api"
@@ -261,6 +261,7 @@ def resolve_tag(tag, components):
     the requested tag (for zenodo searching).
     """
     import github3
+
     # Shut up the github module
     github3.session.__logs__.setLevel(logging.WARNING)
     token = os.getenv("FIREDRAKE_GITHUB_TOKEN")

@@ -1,11 +1,11 @@
 from functools import partial, reduce
 
-from gem.node import traversal, Memoizer
+from gem.coffee import optimise_monomial_sum
 from gem.gem import Failure, Sum, index_sum
+from gem.node import Memoizer, traversal
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import collect_monomials
 from gem.unconcatenate import unconcatenate
-from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
 
 import tsfc.spectral as spectral

@@ -1,4 +1,5 @@
 from pyadjoint import Block
+
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
 

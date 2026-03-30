@@ -2,25 +2,20 @@ import abc
 import ctypes
 import itertools
 from collections.abc import Sequence
+from functools import cached_property
 
 import numpy as np
 from petsc4py import PETSc
 
-from pyop2 import (
-    caching,
-    configuration as conf,
-    datatypes as dtypes,
-    exceptions as ex,
-    mpi,
-    profiling,
-    sparsity,
-    utils
-)
-from functools import cached_property
+from pyop2 import caching
+from pyop2 import configuration as conf
+from pyop2 import datatypes as dtypes
+from pyop2 import exceptions as ex
+from pyop2 import mpi, profiling, sparsity, utils
 from pyop2.types.access import Access
 from pyop2.types.data_carrier import DataCarrier
 from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
-from pyop2.types.map import Map, ComposedMap
+from pyop2.types.map import ComposedMap, Map
 from pyop2.types.set import MixedSet, Subset
 
 
@@ -817,7 +812,7 @@ class Mat(AbstractMat):
     def __call__(self, access, path, lgmaps=None, unroll_map=False):
         """Override the parent __call__ method in order to special-case global
         blocks in matrices."""
-        from pyop2.parloop import GlobalLegacyArg, DatLegacyArg
+        from pyop2.parloop import DatLegacyArg, GlobalLegacyArg
 
         if path == (None, None):
             lgmaps, = lgmaps

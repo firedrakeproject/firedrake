@@ -1,8 +1,8 @@
-from firedrake.preconditioners.base import PCBase
-from firedrake.petsc import PETSc
-from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
 from firedrake.dmhooks import get_function_space
+from firedrake.petsc import PETSc
+from firedrake.preconditioners.base import PCBase
+from firedrake.ufl_expr import TestFunction, TrialFunction
 
 __all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 

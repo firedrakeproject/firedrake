@@ -1,9 +1,12 @@
 # cython: language_level=3
 
 cimport numpy as np
-import numpy as np
+
 import ctypes
+
 import cython
+import numpy as np
+
 from libc.stdint cimport uintptr_t
 
 include "spatialindexinc.pxi"

@@ -6,13 +6,15 @@
 
 # flake8: noqa
 
-from loopy.kernel.instruction import CallInstruction, MultiAssignmentBase, \
-    CInstruction, _DataObliviousInstruction
-from loopy.symbolic import CombineMapper, IdentityMapper
-from loopy.symbolic import simplify_via_aff
 from loopy.kernel.function_interface import CallableKernel
+from loopy.kernel.instruction import (
+    CallInstruction,
+    CInstruction,
+    MultiAssignmentBase,
+    _DataObliviousInstruction,
+)
+from loopy.symbolic import CombineMapper, IdentityMapper, simplify_via_aff
 from loopy.translation_unit import TranslationUnit
-
 
 # Tools to match caller to callee args by (guessed) automatic reshaping
 #
@@ -42,8 +44,8 @@ class DimChanger(IdentityMapper):
                 zip(callee_arg_dim_tags, expr.index_tuple))
         new_indices = []
 
-        from operator import mul
         from functools import reduce
+        from operator import mul
         stride = reduce(mul, self.desired_shape[expr.aggregate.name], 1)
 
         for length in self.desired_shape[expr.aggregate.name]:
@@ -82,8 +84,10 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
                 return shape_caller
 
         from loopy.kernel.function_interface import (
-                ArrayArgDescriptor, get_arg_descriptor_for_expression,
-                get_kw_pos_association)
+            ArrayArgDescriptor,
+            get_arg_descriptor_for_expression,
+            get_kw_pos_association,
+        )
         _, pos_to_kw = get_kw_pos_association(callee_knl)
         arg_id_to_shape = {}
         for arg_id, arg in insn.arg_id_to_arg().items():

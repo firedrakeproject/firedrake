@@ -34,23 +34,23 @@
 """PyOP2 MPI communicator."""
 
 
-from typing import Any, Callable
-from petsc4py import PETSc
-from mpi4py import MPI  # noqa
-from itertools import count
-from functools import wraps
 import atexit
 import gc
 import glob
 import os
 import tempfile
 import weakref
+from functools import wraps
+from itertools import count
+from typing import Any, Callable
+
+from mpi4py import MPI  # noqa
+from petsc4py import PETSc
 
 from pyop2.configuration import configuration
 from pyop2.exceptions import CompilationError
-from pyop2.logger import debug, logger, DEBUG
+from pyop2.logger import DEBUG, debug, logger
 from pyop2.utils import trim
-
 
 __all__ = (
     "COMM_WORLD",

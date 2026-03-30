@@ -1,8 +1,11 @@
-from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.function import Function
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
+from firedrake.variational_solver import (
+    LinearVariationalProblem,
+    LinearVariationalSolver,
+)
 
 __all__ = ["LinearSolver"]
 

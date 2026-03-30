@@ -4,18 +4,22 @@
 import enum
 import functools
 import math
+
 import cython
 import numpy as np
+from mpi4py import MPI
+
 import firedrake
 from firedrake.petsc import PETSc
-from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
-from libc.string cimport memset
+
 from libc.stdlib cimport qsort
+from libc.string cimport memset
+
 from finat.element_factory import as_fiat_cell
 
-cimport numpy as np
 cimport mpi4py.MPI as MPI
+cimport numpy as np
 cimport petsc4py.PETSc as PETSc
 
 np.import_array()

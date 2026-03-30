@@ -72,12 +72,21 @@ UFCHexahedron:
 
 """
 import os
+
 import numpy as np
 
+from FIAT.reference_element import (
+    UFCHexahedron,
+    UFCQuadrilateral,
+    UFCTetrahedron,
+    UFCTriangle,
+)
 
 from firedrake import Function, FunctionSpace, SpatialCoordinate
-from firedrake.embedding import get_embedding_dg_element, get_embedding_method_for_checkpointing
-from FIAT.reference_element import UFCTriangle, UFCTetrahedron, UFCQuadrilateral, UFCHexahedron
+from firedrake.embedding import (
+    get_embedding_dg_element,
+    get_embedding_method_for_checkpointing,
+)
 from firedrake.petsc import PETSc
 
 

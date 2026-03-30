@@ -1,27 +1,39 @@
 import functools
+import os
 import pickle
+
+import h5py
+import numpy as np
 from petsc4py.PETSc import ViewerHDF5
+
 import finat.ufl
+from petsctools import OptionsManager
+
+import firedrake
+import firedrake.utils as utils
+from firedrake import extrusion_utils as eutils
+from firedrake import functionspaceimpl as impl
+from firedrake.cython import dmcommon
+from firedrake.cython import hdf5interface as h5i
+from firedrake.embedding import (
+    get_embedding_element_for_checkpointing,
+    get_embedding_method_for_checkpointing,
+)
+from firedrake.function import CoordinatelessFunction, Function
+from firedrake.functionspace import FunctionSpace
+from firedrake.functionspacedata import create_element, get_global_numbering
+from firedrake.mesh import (
+    DEFAULT_MESH_NAME,
+    DistributedMeshOverlapType,
+    ExtrudedMeshTopology,
+    MeshSequenceGeometry,
+    MeshTopology,
+    make_mesh_from_coordinates,
+)
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, MPI
-from petsctools import OptionsManager
-from firedrake.cython import hdf5interface as h5i
-from firedrake.cython import dmcommon
-from firedrake.petsc import PETSc
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, MeshSequenceGeometry, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
-from firedrake.functionspace import FunctionSpace
-from firedrake import functionspaceimpl as impl
-from firedrake.functionspacedata import get_global_numbering, create_element
-from firedrake.function import Function, CoordinatelessFunction
-from firedrake import extrusion_utils as eutils
-from firedrake.embedding import get_embedding_element_for_checkpointing, get_embedding_method_for_checkpointing
-from firedrake.parameters import parameters
-import firedrake.utils as utils
-import firedrake
-import numpy as np
-import os
-import h5py
-
 
 __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
 

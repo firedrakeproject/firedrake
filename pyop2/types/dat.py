@@ -4,23 +4,20 @@ import ctypes
 import itertools
 import operator
 from collections.abc import Sequence
+from functools import cached_property
 
 import loopy as lp
 import numpy as np
 import pytools
 from petsc4py import PETSc
 
-from pyop2 import (
-    configuration as conf,
-    datatypes as dtypes,
-    exceptions as ex,
-    mpi,
-    utils
-)
-from functools import cached_property
+from pyop2 import configuration as conf
+from pyop2 import datatypes as dtypes
+from pyop2 import exceptions as ex
+from pyop2 import mpi, utils
 from pyop2.types.access import Access
-from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.data_carrier import DataCarrier, EmptyDataMixin, VecAccessMixin
+from pyop2.types.dataset import DataSet, GlobalDataSet, MixedDataSet
 from pyop2.types.set import ExtrudedSet, GlobalSet, Set
 
 
@@ -361,6 +358,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
+
         from pyop2.local_kernel import Kernel
         name = "binop_%s" % op.__name__
         inames = isl.make_zero_and_vars(["i"])
@@ -384,8 +382,8 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         return self._op_kernel_cache.setdefault(key, Kernel(knl, name))
 
     def _op(self, other, op):
-        from pyop2.types.glob import Global
         from pyop2.parloop import parloop
+        from pyop2.types.glob import Global
 
         ret = Dat(self.dataset, None, self.dtype)
         if np.isscalar(other):
@@ -408,6 +406,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
+
         from pyop2.local_kernel import Kernel
 
         name = "iop_%s" % op.__name__
@@ -434,7 +433,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
 
     def _iop(self, other, op):
         from pyop2.parloop import parloop
-        from pyop2.types.glob import Global, Constant
+        from pyop2.types.glob import Constant, Global
 
         globalp = False
         if np.isscalar(other):
@@ -460,6 +459,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             pass
         import islpy as isl
         import pymbolic.primitives as p
+
         from pyop2.local_kernel import Kernel
         inames = isl.make_zero_and_vars(["i"])
         domain = (inames[0].le_set(inames["i"])) & (inames["i"].lt_set(inames[0] + self.cdim))
@@ -557,6 +557,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         # Copy and negate in one go.
         import islpy as isl
         import pymbolic.primitives as p
+
         from pyop2.local_kernel import Kernel
         name = "neg"
         inames = isl.make_zero_and_vars(["i"])

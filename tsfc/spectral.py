@@ -2,16 +2,14 @@ from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
 from itertools import chain, zip_longest
 
+from gem.coffee import optimise_monomial_sum
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
-from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
-from gem.optimise import replace_division, unroll_indexsum
+from gem.optimise import filtered_replace_indices, replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
-from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
-
 
 Integral = namedtuple('Integral', ['expression',
                                    'quadrature_multiindex',

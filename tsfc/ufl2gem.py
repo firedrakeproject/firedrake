@@ -1,13 +1,30 @@
 """Translation of UFL tensor-algebra into GEM tensor-algebra."""
 
 import collections
-import ufl
 
-from gem import (Literal, Zero, Identity, Sum, Product, Division,
-                 Power, MathFunction, MinValue, MaxValue, Comparison,
-                 LogicalNot, LogicalAnd, LogicalOr, Conditional,
-                 Index, Indexed, ComponentTensor, IndexSum,
-                 ListTensor)
+import ufl
+from gem import (
+    Comparison,
+    ComponentTensor,
+    Conditional,
+    Division,
+    Identity,
+    Index,
+    Indexed,
+    IndexSum,
+    ListTensor,
+    Literal,
+    LogicalAnd,
+    LogicalNot,
+    LogicalOr,
+    MathFunction,
+    MaxValue,
+    MinValue,
+    Power,
+    Product,
+    Sum,
+    Zero,
+)
 
 
 class Mixin(object):

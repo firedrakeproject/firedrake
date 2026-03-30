@@ -1,13 +1,16 @@
-import numpy
-import ufl
-from ufl import replace
-from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
 
-from pyadjoint import Block, stop_annotating, get_working_tape
+import numpy
+
+import ufl
+from pyadjoint import Block, get_working_tape, stop_annotating
 from pyadjoint.enlisting import Enlist
+from ufl import replace
+from ufl.formatting.ufl2unicode import ufl2unicode
+
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
+
 from .block_utils import isconstant
 
 

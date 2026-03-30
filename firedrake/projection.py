@@ -1,20 +1,18 @@
 import abc
-import ufl
 import warnings
-import finat.ufl
-from ufl.domain import extract_unique_domain
+from functools import cached_property
 from typing import Optional, Union
 
+import finat.ufl
+import ufl
+from ufl.domain import extract_unique_domain
+
 import firedrake
+from firedrake import function, functionspaceimpl
+from firedrake.adjoint_utils import annotate_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
-from functools import cached_property
-
-from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
-from firedrake import functionspaceimpl
-from firedrake import function
-from firedrake.adjoint_utils import annotate_project
-
+from firedrake.utils import SLATE_SUPPORTS_COMPLEX, complex_mode
 
 __all__ = ['project', 'Projector']
 

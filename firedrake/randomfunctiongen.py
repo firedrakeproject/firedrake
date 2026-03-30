@@ -101,12 +101,14 @@ If the ``key`` keyword is not provided by the user, ``.Philox`` computes a defau
 """
 
 import inspect
+
 import numpy as np
 import numpy.random as randomgen
 
+from ufl.functionspace import BaseFunctionSpace
+
 from firedrake.function import Function
 from pyop2.mpi import COMM_WORLD
-from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]
 
@@ -386,7 +388,7 @@ def __getattr__(module_attr):
         _Wrapper = type(module_attr, (_Base,), _dict)
         return _Wrapper
     elif module_attr == 'default_rng':
-        from firedrake.randomfunctiongen import Generator, PCG64, SeedSequence
+        from firedrake.randomfunctiongen import PCG64, Generator, SeedSequence
 
         def _wrapper(seed=None):
             if seed is None or \

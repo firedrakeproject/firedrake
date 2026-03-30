@@ -1,21 +1,28 @@
-import numpy
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 
+import loopy as lp
+import numpy
+
+import gem
+from finat.element_factory import as_fiat_cell, create_element
+from finat.ufl import FiniteElement
+from finat.ufl import MixedElement as ufl_MixedElement
+from gem.flop_count import count_flops
 from ufl import Coefficient, FunctionSpace
 from ufl.domain import MeshSequence
 
-from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
-
-import gem
-from gem.flop_count import count_flops
-
-import loopy as lp
-
 from tsfc import kernel_args
-from finat.element_factory import as_fiat_cell, create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant, lower_integral_type
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
+from tsfc.kernel_interface.common import (
+    KernelBuilderMixin,
+    check_requirements,
+    get_index_names,
+    lower_integral_type,
+    prepare_arguments,
+    prepare_coefficient,
+    prepare_constant,
+)
 from tsfc.loopy import generate as generate_loopy
-
 
 # Expression kernel description type
 ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',

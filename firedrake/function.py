@@ -1,35 +1,37 @@
-import numpy as np
-import rtree
-import sys
-import ufl
-import warnings
-from ufl.duals import is_dual
-from ufl.formatting.ufl2unicode import ufl2unicode
-from ufl.domain import extract_unique_domain
-from pyadjoint import annotate_tape
-import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+import sys
+import warnings
 from collections.abc import Collection
+from ctypes import POINTER, c_double, c_int, c_void_p
+from functools import cached_property, partial
 from numbers import Number
 from pathlib import Path
-from functools import partial, cached_property
 from typing import Tuple
 
-from pyop2 import op2, mpi
-from pyop2.exceptions import DataTypeError, DataValueError
+import cachetools
+import numpy as np
+import rtree
 
+import ufl
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes
+from pyadjoint import annotate_tape
+from ufl.domain import extract_unique_domain
+from ufl.duals import is_dual
+from ufl.formatting.ufl2unicode import ufl2unicode
 
-from firedrake import functionspaceimpl
-from firedrake.cofunction import Cofunction, RieszMap
-from firedrake import utils
+from firedrake import functionspaceimpl, utils
 from firedrake.adjoint_utils import FunctionMixin
-from firedrake.petsc import PETSc
+from firedrake.cofunction import Cofunction, RieszMap
+from firedrake.functionspace import (
+    FunctionSpace,
+    TensorFunctionSpace,
+    VectorFunctionSpace,
+)
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-
+from firedrake.petsc import PETSc
+from firedrake.utils import IntType, ScalarType, as_ctypes
+from pyop2 import mpi, op2
+from pyop2.exceptions import DataTypeError, DataValueError
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
@@ -380,7 +382,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         firedrake.function.Function
             Returns `self`
         """
-        from firedrake import interpolate, assemble
+        from firedrake import assemble, interpolate
         V = self.function_space()
         interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
@@ -848,11 +850,12 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     given Firedrake :class:`Function`."""
 
     from os import path
+
+    import firedrake.pointquery_utils as pq_utils
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
     from pyop2.parloop import generate_single_cell_wrapper
-    import firedrake.pointquery_utils as pq_utils
+    from pyop2.utils import get_petsc_dir
 
     mesh = extract_unique_domain(function)
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]

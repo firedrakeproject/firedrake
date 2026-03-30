@@ -1,9 +1,11 @@
-import numbers
 import itertools
-from functools import cached_property, partial
-from collections import defaultdict
-import numpy
+import numbers
 from abc import ABCMeta
+from collections import defaultdict
+from functools import cached_property, partial
+
+import numpy
+
 from pyop2.codegen.node import Node as NodeBase
 
 
