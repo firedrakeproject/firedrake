@@ -4796,15 +4796,16 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
+def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
     ----------
     mesh : MeshGeometry
         Parent mesh (`MeshGeometry`).
-    subdim : int
+    subdim : int | None
         Topological dimension of the submesh.
+        Defaults to ``mesh.topological_dimension``.
     subdomain_id : int | None
         Subdomain ID representing the submesh.
         `None` defines the submesh owned by the sub-communicator.
@@ -4854,9 +4855,11 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+    if subdim is None:
+        subdim = mesh.topological_dimension
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim not in [dim, dim - 1]:
+    if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if subdomain_id is None:
         if label_name is not None:
