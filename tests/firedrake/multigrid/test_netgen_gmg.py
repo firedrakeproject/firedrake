@@ -2,19 +2,29 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[3, 2])
+@pytest.fixture(params=[(3, "occt"), (2, "occt"), (2, "spline"), (2, "csg2d")])
 def ngmesh(request):
-    dim = request.param
+    dim, geo_type = request.param
     if dim == 2:
-        from netgen.occ import Circle, OCCGeometry
-        circle = Circle((0, 0), 1.0).Face()
-        circle.edges.name = "surface"
-        geo = OCCGeometry(circle, dim=2)
+        if geo_type == "occt":
+            from netgen.occ import Circle, OCCGeometry
+            circle = Circle((0, 0), 1.0).Face()
+            circle.edges.name = "surface"
+            geo = OCCGeometry(circle, dim=2)
+        elif geo_type == "spline":
+            from netgen.geom2d import SplineGeometry
+            geo = SplineGeometry()
+            geo.AddCircle(c=(0, 0), r=1.0, bc="surface")
+        elif geo_type == "csg2d":
+            from netgen.geom2d import CSG2d, Circle
+            geo = CSG2d()
+            geo.Add(Circle(center=(0, 0), radius=1, bc="surface"))
     elif dim == 3:
-        from netgen.occ import Sphere, OCCGeometry
-        sphere = Sphere((0, 0, 0), 1.0)
-        sphere.faces.name = "surface"
-        geo = OCCGeometry(sphere, dim=3)
+        if geo_type == "occt":
+            from netgen.occ import Sphere, OCCGeometry
+            sphere = Sphere((0, 0, 0), 1.0)
+            sphere.faces.name = "surface"
+            geo = OCCGeometry(sphere, dim=3)
     else:
         raise ValueError(f"Unexpected dimension {dim}")
     ngmesh = geo.GenerateMesh(maxh=0.75)
