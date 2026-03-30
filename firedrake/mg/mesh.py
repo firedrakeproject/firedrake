@@ -18,7 +18,7 @@ __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNested
            "SemiCoarsenedExtrudedHierarchy")
 
 
-class HierarchyBase(object):
+class HierarchyBase:
     """Create an encapsulation of an hierarchy of meshes.
 
     :arg meshes: list of meshes (coarse to fine)

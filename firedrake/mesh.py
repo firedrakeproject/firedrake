@@ -32,7 +32,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.extrusion_utils as eutils
 import firedrake.utils as utils
-from firedrake.adjoint_utils import MeshGeometryMixin
+from firedrake.adjoint_utils.mesh import MeshGeometryMixin
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 from firedrake.exceptions import (
     NonUniqueMeshSequenceError,

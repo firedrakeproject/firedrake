@@ -64,7 +64,6 @@ from firedrake.adjoint.ufl_constraints import (  # noqa: F401
     UFLEqualityConstraint,
     UFLInequalityConstraint,
 )
-from firedrake.adjoint_utils import get_solve_blocks  # noqa F401
 from firedrake.adjoint_utils.checkpointing import (  # noqa: F401
     checkpointable_mesh,
     continue_disk_checkpointing,
@@ -72,6 +71,7 @@ from firedrake.adjoint_utils.checkpointing import (  # noqa: F401
     pause_disk_checkpointing,
     stop_disk_checkpointing,
 )
+from firedrake.adjoint_utils.solving import get_solve_blocks  # noqa F401
 
 # Work around the name clash of firedrake.adjoint vs ufl.adjoint.
 # This will eventually become cleaner once we can rely on users having

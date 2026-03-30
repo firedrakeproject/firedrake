@@ -1,7 +1,7 @@
 from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.mesh import MeshGeometry
-from firedrake.mg import HierarchyBase
+from firedrake.mg.mesh import HierarchyBase
 from firedrake.mg.utils import set_level
 
 __all__ = ["AdaptiveMeshHierarchy"]

@@ -10,7 +10,7 @@ from petsctools import OptionsManager, flatten_parameters
 from ufl import Form, replace
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake.adjoint_utils import (
+from firedrake.adjoint_utils.variational_solver import (
     NonlinearVariationalProblemMixin,
     NonlinearVariationalSolverMixin,
 )

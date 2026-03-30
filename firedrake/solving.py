@@ -23,7 +23,7 @@ import ufl
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
-from firedrake.adjoint_utils import annotate_solve
+from firedrake.adjoint_utils.solving import annotate_solve
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType

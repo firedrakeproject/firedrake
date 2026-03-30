@@ -56,7 +56,6 @@ from ufl.domain import extract_unique_domain
 from pyop2.caching import serial_cache
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
-from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.modified_terminals import (
     analyse_modified_terminal,
     construct_modified_terminal,
@@ -101,6 +100,8 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def integration_dim(self):
+        from tsfc.kernel_interface.common import lower_integral_type
+
         integration_dims = set()
         for domain, integral_type in self.domain_integral_type_map.items():
             cell = domain.ufl_cell()

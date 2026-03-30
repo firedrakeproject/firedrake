@@ -9,7 +9,7 @@ from ufl.domain import extract_unique_domain
 
 import firedrake
 from firedrake import function, functionspaceimpl
-from firedrake.adjoint_utils import annotate_project
+from firedrake.adjoint_utils.projection import annotate_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from firedrake.utils import SLATE_SUPPORTS_COMPLEX, complex_mode
