@@ -38,6 +38,8 @@
    dependencies. For full instructions, see :doc:`obtaining Firedrake
    <install>`.
 
+   .. _intro_tutorials:
+
    .. include:: intro_tut.rst
 
    Jupyter notebooks
@@ -61,4 +63,7 @@
    effective mechanism is the site :ref:`search engine <search>`.
 
    .. include:: manual.rst
+
+   .. _advanced_tutorials:
+
    .. include:: advanced_tut.rst

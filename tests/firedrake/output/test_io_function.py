@@ -16,6 +16,11 @@ extruded_mesh_name = "m_extruded"
 func_name = "f"
 
 
+@pytest.fixture(autouse=True)
+def autouse_garbage_cleanup(garbage_cleanup):
+    pass
+
+
 def _initialise_function(f, _f, method):
     if method == "project":
         getattr(f, method)(_f, solver_parameters={"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1.e-16})

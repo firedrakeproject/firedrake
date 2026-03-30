@@ -42,7 +42,7 @@ impose homogeneous Dirichlet boundary conditions::
       return solver.snes.getLinearSolveIterations()
 
 Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, here we simply opt for the former.
-Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions. ::
+Arnold, Falk, and Winther show that either vertex (``construct_dim=0``) or edge patches (``construct_dim=1``)  will be acceptable in three dimensions. ::
 
 
   def mg_params(relax, mat_type="aij"):

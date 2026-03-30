@@ -2,9 +2,6 @@
 import collections.abc
 import warnings
 
-# TODO: use functools.cached_property directly everywhere
-from functools import cached_property  # noqa: F401
-
 from decorator import decorator
 from petsc4py import PETSc
 

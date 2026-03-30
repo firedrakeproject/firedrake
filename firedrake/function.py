@@ -16,7 +16,7 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from immutabledict import immutabledict as idict
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 from mpi4py import MPI
 
@@ -134,7 +134,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self) -> np.ndarray["CoordinatelessFunction"]:
         shape = self.function_space().shape
         components = np.empty(shape, dtype=object)
@@ -538,7 +538,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -556,6 +557,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes

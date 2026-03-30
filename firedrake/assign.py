@@ -5,6 +5,10 @@ from functools import cached_property
 from types import EllipsisType
 from typing import Any
 
+import numpy as np
+from functools import cached_property
+
+from pyadjoint.tape import annotate_tape
 import finat.ufl
 import numpy as np
 import pyop3 as op3
@@ -172,9 +176,9 @@ class Assigner:
         elif len(source_meshes) == 1:
             target_mesh = extract_unique_domain(assignee, expand_mesh_sequence=False)
             source_mesh, = source_meshes
-            if target_mesh is source_mesh:
+            if target_mesh == source_mesh:
                 pass
-            elif target_mesh.submesh_youngest_common_ancester(source_mesh) is None:
+            elif target_mesh.submesh_youngest_common_ancestor(source_mesh) is None:
                 raise ValueError(
                     "All functions in the expression must be defined on a single domain "
                     "that is in the same submesh family as domain of the assignee"
@@ -251,20 +255,27 @@ class Assigner:
             self._assign_multi_mesh(lhs_func, subset, funcs, operator, allow_missing_dofs)
 
     def _assign_single_mesh(self, lhs_func, subset, funcs, operator):
-        # disable for now
-        assign_to_halos = False
-        # assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
-        # if assign_to_halos:
-        #     subset_indices = ... if subset is None else subset.indices
-        #     data_ro = operator.attrgetter("data_ro_with_halos")
-        # else:
-        #     subset_indices = ... if subset is None else subset.owned_indices
         data_ro = operator.attrgetter("data_ro")
+        # subset_indices = Ellipsis if subset is None else indices(subset)
+
+        # def source_indices(f):
+        #     target_space = lhs_func.function_space()
+        #     target_map = target_space.cell_node_map()
+        #     source_map = f.function_space().cell_node_map()
+        #     if source_map is target_map:
+        #         # Source and target spaces have the same DoF ordering.
+        #         return subset_indices
+        #     else:
+        #         # Permute source indices into the target ordering.
+        #         size = target_space.dof_dset.total_size
+        #         perm = np.empty((size,), dtype=source_map.values.dtype)
+        #         np.put(perm, values(target_map), values(source_map))
+        #         perm = perm[:target_space.axes.owned.local_size]
+        #         return perm[subset_indices]
+
         func_data = np.array([data_ro(f.dat[subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
-        self._assign_single_dat(lhs_func.dat, subset, rvalue, assign_to_halos)
-        if assign_to_halos:
-            lhs_func.dat.halo_valid = True
+        self._assign_single_dat(lhs_func.dat, subset, rvalue)
 
     def _assign_multi_mesh(self, lhs_func, subset, funcs, operator, allow_missing_dofs):
         target_mesh = extract_unique_domain(lhs_func)
@@ -342,39 +353,9 @@ class Assigner:
     def _function_weights(self):
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, subset, rvalue):
         lhs_dat = lhs[subset]
-
-        try:
-            if assign_to_halos:
-                lhs_dat.data_wo_with_halos[...] = rvalue
-            else:
-                lhs_dat.data_wo[...] = rvalue
-        except op3.FancyIndexWriteException:
-            # convert rvalue into an expression pyop3 understands
-            if isinstance(rvalue, numbers.Number):
-                lhs_dat.assign(rvalue, eager=True)
-            elif rvalue.size == 1:
-                rvalue = rvalue.item()
-                lhs_dat.assign(rvalue, eager=True)
-            else:
-                assert not assign_to_halos  # really nasty, sizes are slightly different...
-                if rvalue.size == lhs_dat.axes.owned.local_size:
-                    expr_axes = lhs_dat.axes.owned.materialize()
-                else:
-                    block_shape = self._assignee.function_space().shape or (1,)
-
-                    if rvalue.size != np.prod(block_shape, dtype=int):
-                        raise ValueError("Assignee and assignment values are different shapes")
-
-                    expr_axes = op3.AxisTree.from_iterable((op3.Axis([op3.AxisComponent(dim)], f"dim{i}") for i, dim in enumerate(block_shape)))
-                rvalue = op3.Dat(expr_axes, data=rvalue)
-
-                op3.loop(
-                    p := lhs_dat.axes.owned.iter(),
-                    lhs_dat[p].assign(rvalue[p]),
-                    eager=True,
-                )
+        lhs_dat.data_wo[...] = rvalue
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
@@ -397,63 +378,40 @@ class IAddAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__iadd__``."""
     symbol = "+="
 
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, subset, rvalue):
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
-
-        try:
-            if assign_to_halos:
-                lhs[subset].data_wo_with_halos[...] += rval
-            else:
-                lhs[subset].data_wo[...] += rval
-        except op3.FancyIndexWriteException:
-            raise NotImplementedError("Need expression assignment")
+        lhs[subset].data_wo[...] += rval
 
 
 class ISubAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__isub__``."""
     symbol = "-="
 
-    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, subset, rvalue):
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
-
-        try:
-            if assign_to_halos:
-                lhs[subset].data_wo_with_halos[...] -= rval
-            else:
-                lhs[subset].data_wo[...] -= rval
-        except op3.FancyIndexWriteException:
-            raise NotImplementedError("Need expression assignment")
+        lhs[subset].data_wo[...] -= rval
 
 
 class IMulAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__imul__``."""
     symbol = "*="
 
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, indices, rvalue):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
-
-        if assign_to_halos:
-            lhs[indices].data_wo_with_halos[...] *= rvalue
-        else:
-            lhs[indices].data_wo[...] *= rvalue
+        lhs[indices].data_wo[...] *= rvalue
 
 
 class IDivAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__itruediv__``."""
     symbol = "/="
 
-    def _assign_single_dat(self, lhs, indices, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, indices, rvalue):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
-
-        if assign_to_halos:
-            # TODO set modified
-            lhs[indices].buffer._data[...] /= rvalue
-        else:
-            lhs[indices].data_wo[...] /= rvalue
+        lhs[indices].data_wo[...] /= rvalue
 
 
 @functools.singledispatch

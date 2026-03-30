@@ -18,6 +18,11 @@
 
 # -- General configuration -----------------------------------------------
 
+# Disable warnings for missing options when running sphinx as PETSc does
+# not know what to do with the sphinx arguments.
+import os
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 # If your documentation needs a minimal Sphinx version, state it here.
 #needs_sphinx = '1.0'
 
@@ -154,6 +159,7 @@ nitpick_ignore_regex = [
 
 # Dodgy links
 linkcheck_ignore = [
+    r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',

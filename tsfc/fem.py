@@ -743,11 +743,6 @@ def translate_constant_value(terminal, mt, ctx):
 def translate_coefficient(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
-
-    if terminal.ufl_element().family() == 'Real':
-        assert mt.local_derivatives == 0
-        return vec
-
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities

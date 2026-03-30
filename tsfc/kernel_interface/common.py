@@ -58,9 +58,7 @@ class KernelBuilderBase(KernelInterface):
         kernel_arg = self.coefficient_map[ufl_coefficient]
         domain = extract_unique_domain(ufl_coefficient)
         assert self._domain_integral_type_map[domain] is not None
-        if ufl_coefficient.ufl_element().family() == 'Real':
-            return kernel_arg
-        elif not self._domain_integral_type_map[domain].startswith("interior_facet"):
+        if not self._domain_integral_type_map[domain].startswith("interior_facet"):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
@@ -495,12 +493,6 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
         GEM expression referring to the Coefficient values.
 
     """
-    if coefficient.ufl_element().family() == 'Real':
-        # Constant
-        value_size = coefficient.ufl_function_space().value_size
-        expression = gem.reshape(gem.Variable(name, (value_size,)),
-                                 coefficient.ufl_shape)
-        return expression
     finat_element = create_element(coefficient.ufl_element())
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)

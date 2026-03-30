@@ -3762,40 +3762,78 @@ def mark_points_with_function_array(PETSc.DM plex,
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
 
 
-def to_petsc_local_numbering(PETSc.Vec vec, V):
-    """
-    Reorder a PETSc Vec corresponding to a Firedrake Function w.r.t.
-    the PETSc natural numbering.
+def create_halo_exchange_sf(PETSc.DM dm):
+    """Create the halo exchange sf.
 
-    :arg vec: the PETSc Vec to reorder; must be a global vector
-    :arg V: the FunctionSpace of the Function which the Vec comes from
-    :ret out: a copy of the Vec, ordered with the PETSc natural numbering
-    """
-    cdef int dim, idx, start, end, p, d, k
-    cdef PetscInt dof, off
-    cdef PETSc.Vec out
-    cdef PETSc.Section section
-    cdef np.ndarray varray, oarray
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The section dm.
 
-    section = V.dm.getGlobalSection()
-    out = vec.duplicate()
-    varray = vec.array_r
-    oarray = out.array
-    dim = V.value_size
-    idx = 0
-    start, end = vec.getOwnershipRange()
-    for p in range(*section.getChart()):
-        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
-        if dof > 0:
-            CHKERR(PetscSectionGetOffset(section.sec, p, &off))
-            assert off >= 0
-            off *= dim
-            for d in range(dof):
-                for k in range(dim):
-                    oarray[idx] = varray[off + dim * d + k - start]
-                    idx += 1
-    assert idx == (end - start)
-    return out
+    Returns
+    -------
+    PETSc.SF
+        The halo exchange sf.
+
+    Notes
+    -----
+    The output sf is to update all ghost DoFs including constrained ones if any.
+
+    """
+    cdef:
+        PETSc.SF halo_exchange_sf
+        PetscInt dof_nroots, dof_nleaves
+        PetscInt *dof_ilocal = NULL
+        PetscSFNode *dof_iremote = NULL
+        PETSc.SF point_sf
+        PetscInt nroots, nleaves
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
+        PETSc.Section local_sec
+        PetscInt pStart, pEnd, p, dof, off, m, n, i, j
+        np.ndarray local_offsets
+        np.ndarray remote_offsets
+
+    point_sf = dm.getPointSF()
+    local_sec = dm.getLocalSection()
+    CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+    pStart, pEnd = local_sec.getChart()
+    assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
+    assert pStart == 0
+    m = 0
+    local_offsets = np.empty(pEnd - pStart, dtype=IntType)
+    remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
+        local_offsets[p] = off
+        m += dof
+    unit = MPI._typedict[np.dtype(IntType).char]
+    point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
+    point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
+    n = 0
+    # ilocal == NULL if local leaf points are [0, 1, 2, ...).
+    for i in range(nleaves):
+        p = ilocal[i] if ilocal else i
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        n += dof
+    CHKERR(PetscMalloc1(n, &dof_ilocal))
+    CHKERR(PetscMalloc1(n, &dof_iremote))
+    n = 0
+    for i in range(nleaves):
+        # ilocal == NULL if local leaf points are [0, 1, 2, ...).
+        p = ilocal[i] if ilocal else i
+        assert remote_offsets[p] >= 0
+        CHKERR(PetscSectionGetDof(local_sec.sec, p, &dof))
+        CHKERR(PetscSectionGetOffset(local_sec.sec, p, &off))
+        for j in range(dof):
+            dof_ilocal[n] = off + j
+            dof_iremote[n].rank = iremote[i].rank
+            dof_iremote[n].index = remote_offsets[p] + j
+            n += 1
+    halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
+    CHKERR(PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, PETSC_OWN_POINTER, dof_iremote, PETSC_OWN_POINTER))
+    return halo_exchange_sf
 
 
 # -- submesh --

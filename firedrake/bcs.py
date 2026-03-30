@@ -1,7 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import numpy as np
 
-from functools import partial, reduce
+from functools import partial, reduce, cached_property
 import itertools
 from functools import cached_property
 
@@ -15,7 +15,6 @@ from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import firedrake.matrix as matrix
-import firedrake.utils as utils
 from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
@@ -79,7 +78,7 @@ class BCBase:
 
         return self._function_space
 
-    @utils.cached_property
+    @cached_property
     def parent_function_space(self):
         space = self._function_space
         while space.parent is not None:
@@ -94,7 +93,7 @@ class BCBase:
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @cached_property
     def _indices(self):
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
@@ -115,7 +114,7 @@ class BCBase:
                 break
         return tuple(reversed(indices))
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.
 
@@ -183,6 +182,8 @@ class BCBase:
 
     @cached_property
     def node_set(self) -> op3.Slice:
+        '''The subset corresponding to the nodes at which this
+        boundary condition applies.'''
         subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
         subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])

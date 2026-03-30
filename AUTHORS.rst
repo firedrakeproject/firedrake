@@ -160,7 +160,7 @@ Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/danie
 
 Jemma Shipton
 
-Tianjiao Sun..................<https://www.doc.ic.ac.uk/~ts2914/>
+Tianjiao Sun
 
 Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbecke18>
 

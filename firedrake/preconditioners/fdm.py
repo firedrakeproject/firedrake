@@ -1,5 +1,5 @@
 from textwrap import dedent
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain, product
 from firedrake.mesh import get_iteration_spec
 from firedrake.petsc import PETSc
@@ -16,7 +16,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
-from firedrake.utils import cached_property, IntType, ScalarType
+from firedrake.utils import IntType, ScalarType
 from firedrake.pack import pack
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices

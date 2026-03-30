@@ -1,4 +1,4 @@
-from functools import partial
+from functools import cached_property, partial
 from itertools import chain
 import textwrap
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
@@ -10,7 +10,7 @@ from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.mesh import get_iteration_spec
-from firedrake.utils import IntType_c, cached_property, ScalarType
+from firedrake.utils import IntType_c, ScalarType
 from firedrake.pack import pack
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation

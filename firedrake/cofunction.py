@@ -108,7 +108,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         self._arguments = (ufl_expr.Argument(self.function_space().dual(), 0),)
         self._coefficients = (self,)
 
-    @utils.cached_property
+    @cached_property
     @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
@@ -126,7 +126,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         else:
             return (self,)
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         shape = self.function_space().shape
         components = np.empty(shape, dtype=object)

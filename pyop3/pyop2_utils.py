@@ -41,8 +41,6 @@ from decorator import decorator
 import argparse
 import petsc4py
 
-from functools import cached_property  # noqa: F401
-
 
 def as_tuple(item, type=None, length=None, allow_none=False):
     # Empty list if we get passed None

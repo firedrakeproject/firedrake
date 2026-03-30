@@ -53,7 +53,7 @@ We can then start our Python script and load this mesh::
   mesh = Mesh("wave_tank.msh")
 
 We choose a degree 1 continuous function space, and set up the
-function space and functions. Setting the `name` parameter when
+function space and functions. Setting the ``name`` parameter when
 constructing :class:`.Function` objects will set the name used in the
 output file::
 
@@ -103,7 +103,7 @@ Step forward :math:`\phi` by half a timestep. Since this does not involve a matr
 
 Now step forward :math:`p`. This is an explicit timestepping scheme
 which only requires the inversion of a mass matrix.  We have two
-options at this point, we may either `lump` the mass, which reduces
+options at this point, we may either lump the mass, which reduces
 the inversion to a pointwise division::
 
       if lump_mass:

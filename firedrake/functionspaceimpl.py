@@ -21,6 +21,8 @@ from mpi4py import MPI
 
 import finat.ufl
 from finat.element_factory import create_element as _create_element
+import warnings
+from collections import OrderedDict
 
 import numpy
 import pyop3 as op3
@@ -166,36 +168,51 @@ class WithGeometryBase:
     topology can share data, except for their UFL cell.  This class
     facilitates that.
 
-    Users should not instantiate a :class:`WithGeometryBase` object
-    explicitly except in a small number of cases.
+    Parameters
+    ----------
+    function_space : FunctionSpace or MixedFunctionSpace
+        Topological function space to attach geometry to.
+    mesh : MeshGeometry
+        Mesh with geometric information to use.
+    parent : WithGeometry
+        Parent geometric function space if exists.
 
-    When instantiating a :class:`WithGeometryBase`, users should call
-    :meth:`WithGeometryBase.create` rather than ``__init__``.
-
-    :arg mesh: The mesh with geometric information to use.
-    :arg element: The UFL element.
-    :arg component: The component of this space in a parent vector
-        element space, or ``None``.
-    :arg cargo: :class:`FunctionSpaceCargo` instance carrying
-        Firedrake-specific data that is not required for code
-        generation.
     """
     node_label = "nodes"
 
-    def __init__(self, mesh, element, component=None, cargo=None):
+    def __init__(self, function_space, mesh, parent=None):
+        if isinstance(function_space, MixedFunctionSpace):
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
+
+        function_space = function_space.topological
+        assert mesh.topology == function_space.mesh()
+        assert mesh.topology != mesh
+
+        if function_space.parent is not None:
+            if parent is None:
+                raise ValueError("Must pass parent if function_space.parent is not None")
+        else:
+            parent = None
+
+        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
         if type(element) is finat.ufl.MixedElement:
             if not isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
-        assert component is None or isinstance(component, tuple)
-        assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
-        super().__init__(mesh, element, label=cargo.topological._label or "")
-        self.component = component
-        self.cargo = cargo
+        assert function_space.component is None or isinstance(function_space.component, int)
+
+        self.topological = function_space
+        self.parent = parent
+        self.component = function_space.component
         self.comm = mesh.comm
+        super().__init__(mesh, element, label=function_space._label or "")
 
     @classmethod
     def create(cls, function_space, mesh, parent=None):
         """Create a :class:`WithGeometry`.
+
+        This factory function is deprecated. Use the `WithGeometry` constructor
+        instead.
 
         Parameters
         ----------
@@ -207,64 +224,26 @@ class WithGeometryBase:
             Parent geometric function space if exists.
 
         """
-        if isinstance(function_space, MixedFunctionSpace):
-            if not isinstance(mesh, MeshSequenceGeometry):
-                raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
-        function_space = function_space.topological
-        assert mesh.topology == function_space.mesh()
-        assert mesh.topology != mesh
-
-        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
-
-        topological = function_space
-        component = function_space.component
-
-        if function_space.parent is not None:
-            if parent is None:
-                raise ValueError("Must pass parent if function_space.parent is not None")
-        else:
-            parent = None
-
-        cargo = FunctionSpaceCargo(topological, parent)
-        return cls(mesh, element, component=component, cargo=cargo)
+        warnings.warn(
+            "'WithGeometry.create' is deprecated, instantiate them directly instead",
+            FutureWarning,
+        )
+        return cls(function_space, mesh, parent=parent)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.component,
                 super()._ufl_signature_data_(*args, **kwargs))
 
-    @property
-    def parent(self):
-        return self.cargo.parent
-
-    @parent.setter
-    def parent(self, val):
-        self.cargo.parent = val
-
-    @property
-    def topological(self):
-        return self.cargo.topological
-
-    @topological.setter
-    def topological(self, val):
-        self.cargo.topological = val
-
-    @utils.cached_property
+    @cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         if isinstance(self.topological, MixedFunctionSpace):
             return tuple(
-                type(self).create(subspace, mesh, parent=self)
+                type(self)(subspace, mesh, parent=self)
                 for mesh, subspace in zip(self.mesh(), self.topological.subspaces, strict=True)
             )
         else:
             return (self, )
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -280,11 +259,11 @@ class WithGeometryBase:
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.mesh().ufl_cell()
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix), self.mesh(), parent=self)
+            components[ix] = type(self)(self.topological.sub(ix), self.mesh(), parent=self)
         return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
@@ -295,7 +274,7 @@ class WithGeometryBase:
             indices = parse_component_indices(indices, self.shape)
             return self._components[indices]
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
@@ -493,7 +472,7 @@ class WithGeometryBase:
         return dmcommon.facet_closure_nodes(self, sub_domain)
 
     def collapse(self):
-        return type(self).create(self.topological.collapse(), self.mesh())
+        return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
     def make_function_space(cls, mesh, element, name=None, **kwargs):
@@ -521,7 +500,7 @@ class WithGeometryBase:
         # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
-            new = cls.create(new, mesh)
+            new = cls(new, mesh)
         return new
 
     def broken_space(self):
@@ -626,28 +605,18 @@ class WithGeometryBase:
         return V
 
 
-class WithGeometry(WithGeometryBase, ufl.FunctionSpace):
-
-    def __init__(self, mesh, element, component=None, cargo=None):
-        super(WithGeometry, self).__init__(mesh, element,
-                                           component=component,
-                                           cargo=cargo)
+class WithGeometry(WithGeometryBase, ufl.functionspace.FunctionSpace):
 
     def dual(self):
         parent = None if self.parent is None else self.parent.dual()
-        return FiredrakeDualSpace.create(self.topological, self.mesh(), parent=parent)
+        return FiredrakeDualSpace(self.topological, self.mesh(), parent=parent)
 
 
 class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
-    def __init__(self, mesh, element, component=None, cargo=None):
-        super(FiredrakeDualSpace, self).__init__(mesh, element,
-                                                 component=component,
-                                                 cargo=cargo)
-
     def dual(self):
         parent = None if self.parent is None else self.parent.dual()
-        return WithGeometry.create(self.topological, self.mesh(), parent=parent)
+        return WithGeometry(self.topological, self.mesh(), parent=parent)
 
 
 @dataclass(frozen=True)
@@ -1037,7 +1006,7 @@ class FunctionSpace:
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
 
-    @utils.cached_property
+    @cached_property
     def _ad_parent_space(self):
         return self.parent
 
@@ -1050,7 +1019,7 @@ class FunctionSpace:
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
@@ -1207,8 +1176,8 @@ class FunctionSpace:
             name=dest_axis.label
         )
 
-    @utils.cached_property
-    def cell_node_list(self) -> np.ndarray:
+    @cached_property
+    def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         return self.cell_node_dat.data_ro
 
@@ -1287,7 +1256,7 @@ class FunctionSpace:
 
         return map_dat
 
-    @utils.cached_property
+    @cached_property
     def topological(self):
         r"""Function space on a mesh topology."""
         return self
@@ -1321,17 +1290,10 @@ class FunctionSpace:
     def __str__(self):
         return self.__repr__()
 
-    @utils.cached_property
+    @cached_property
     def subspaces(self):
         """Split into a tuple of constituent spaces."""
         return (self,)
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -1339,7 +1301,7 @@ class FunctionSpace:
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.rank == 0:
             return self.subspaces
@@ -1360,7 +1322,7 @@ class FunctionSpace:
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @utils.cached_property
+    @cached_property
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
@@ -1370,7 +1332,7 @@ class FunctionSpace:
             raise NotImplementedError
         return self.nodal_axes.local_size
 
-    @utils.cached_property
+    @cached_property
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
@@ -1450,13 +1412,13 @@ class FunctionSpace:
         else:
             return self_map(composed_map)
 
-    @utils.cached_property
+    @cached_property
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
         return PETSc.LGMap().create(indices.data_ro, bsize=self.block_size, comm=self.comm)
 
-    @utils.cached_property
+    @cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
         if self.block_size == 1:
@@ -1517,6 +1479,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
+        self.topological = self
         self.name = name or function_space.name
 
     # def set_shared_data(self):
@@ -1746,18 +1709,11 @@ class MixedFunctionSpace:
     def __hash__(self):
         return hash(tuple(self))
 
-    @property
+    @cached_property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
-
-    @property
-    def subfunctions(self):
-        import warnings
-        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
-                      "'subspaces' property instead", category=FutureWarning)
-        return self.subspaces
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
@@ -1789,7 +1745,7 @@ class MixedFunctionSpace:
     def __str__(self):
         return "MixedFunctionSpace(%s)" % ", ".join(str(s) for s in self)
 
-    @utils.cached_property
+    @cached_property
     def value_size(self):
         r"""Return the sum of the :attr:`FunctionSpace.value_size`\s of the
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
@@ -1804,7 +1760,7 @@ class MixedFunctionSpace:
     def block_size(self) -> IntType:
         return IntType.type(1)
 
-    @utils.cached_property
+    @cached_property
     def node_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.node_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -1885,7 +1841,7 @@ class MixedFunctionSpace:
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""A PETSc DM describing the data layout for fieldsplit solvers."""
         dm = self._dm()
@@ -1937,7 +1893,7 @@ class ProxyFunctionSpace(FunctionSpace):
         topology = mesh.topology
         self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
-            return WithGeometry.create(self, mesh)
+            return WithGeometry(self, mesh)
         else:
             return self
 
@@ -1993,7 +1949,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         topology = function_space._mesh.topology
         self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
         if function_space._mesh is not topology:
-            return WithGeometry.create(self, function_space._mesh)
+            return WithGeometry(self, function_space._mesh)
         else:
             return self
 
@@ -2174,20 +2130,6 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
-
-
-@dataclass
-class FunctionSpaceCargo:
-    """Helper class carrying data for a :class:`WithGeometryBase`.
-
-    It is required because it permits Firedrake to have stripped forms
-    that still know Firedrake-specific information (e.g. that they are a
-    component of a parent function space).
-    """
-
-    topological: FunctionSpace
-    parent: Optional[WithGeometryBase]
-
 
 class InvalidFunctionSpaceLayoutException(Exception):
     pass

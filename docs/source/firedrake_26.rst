@@ -44,7 +44,7 @@ Participants can register for either the PETSc or the Firedrake part of the
 meeting, or (highly recommended!) for both.
 
 Registration is all-inclusive: workshop, accommodation (Monday and Tuesday
-night for PETSc, Thursday and Friday night for Firedrake), 3 meals per day and
+night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day and
 coffee breaks. There are also options without the room and breakfast component
 for those who live locally.
 

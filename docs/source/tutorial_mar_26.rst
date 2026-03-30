@@ -22,12 +22,12 @@ Attendees will need to bring a laptop. Installing Firedrake (see the
 :doc:`download page <install>` for details) is optional, as it will be
 also be possible to join the tutorial using the cloud. Installing `Paraview <https://www.paraview.org>`__ for visualisation before the course is recommended.
 
+The `lecture slides and demo codes are available on github <https://github.com/pefarrell/oxford2026>`__.
 
 Registration
 ------------
 
-Registration of £25 covers tea, coffee, and biscuits. `Registration is now open on the Oxford online store <https://www.oxforduniversitystores.co.uk/product-catalogue/mathematical-institute/events/solving-partial-differential-equations-with-firedrake>`__.
-
+Registration of £25 covered tea, coffee, and biscuits. Registration closed on 6 March 2026.
 
 Where and when
 --------------
@@ -39,6 +39,60 @@ Google Maps sometimes directs people to the old mathematics building on St.
 Giles.
 
 The course will begin at 13:00 on March 18 and end at 16:00 on March 20.
+
+Schedule
+--------
+
+Wed Mar 18 (room L4)
+====================
+
++-------------+------------------------------------+
+| Time        | Session                            |
++=============+====================================+
+| 13:00-14:45 | Introduction. Poisson. Multigrid   |
++-------------+------------------------------------+
+| 14:45-15:15 | Coffee break                       |
++-------------+------------------------------------+
+| 15:15–17:00 | Meshing with Netgen. Adaptivity    |
++-------------+------------------------------------+
+
+Thu Mar 19 (room L4)
+====================
+
++-------------+-------------------------------------+
+| Time        | Session                             |
++=============+=====================================+
+| 09:00-10:45 | Boundaries. Nonlinearity            |
++-------------+-------------------------------------+
+| 10:45-11:15 | Coffee break                        |
++-------------+-------------------------------------+
+| 11:15–13:00 | Time-dependent problems             |
++-------------+-------------------------------------+
+| 13:00-14:30 | Lunch                               |
++-------------+-------------------------------------+
+| 14:30-15:45 | Mixed problems. Navier-Stokes       |
++-------------+-------------------------------------+
+| 15:45-16:15 | Coffee break                        |
++-------------+-------------------------------------+
+| 16:15-18:00 | Hyperelasticity. Multiple solutions |
++-------------+-------------------------------------+
+
+Fri Mar 20 (room L2)
+====================
+
++-------------+------------------------------------+
+| Time        | Session                            |
++=============+====================================+
+| 09:00-10:45 | Eigenvalue problems                |
++-------------+------------------------------------+
+| 10:45-11:15 | Coffee break                       |
++-------------+------------------------------------+
+| 11:15–13:00 | Block preconditioners              |
++-------------+------------------------------------+
+| 13:00-14:30 | Lunch                              |
++-------------+------------------------------------+
+| 14:30-16:00 | Adjoints. Optimisation problems    |
++-------------+------------------------------------+
 
 Travel to Oxford
 ----------------
