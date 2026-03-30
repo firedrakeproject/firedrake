@@ -1,9 +1,11 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 
 from functools import partial, reduce, cached_property
 import itertools
 from functools import cached_property
+
+import numpy as np
+from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
@@ -12,6 +14,7 @@ import finat
 
 import pyop3 as op3
 from pyop3.pyop2_utils import as_tuple
+from pyop3.mpi import temp_internal_comm
 
 import firedrake
 import firedrake.matrix as matrix
@@ -19,6 +22,7 @@ from firedrake import ufl_expr
 from firedrake import slate
 from firedrake import solving
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 
@@ -157,7 +161,7 @@ class BCBase:
          # The points constrained by the boundary condition is the *intersection
          # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
          # entries* (e.g. A ∪ B ∪ C).
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
         for s in sub_d:
@@ -178,7 +182,15 @@ class BCBase:
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.unique(np.concatenate(bcnodes))
+        bcnodes = np.unique(np.concatenate(bcnodes))
+
+        with temp_internal_comm(self._function_space.mesh().comm) as icomm:
+            num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
+            if num_global_nodes == 0 and icomm.rank == 0:
+                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                            "Did you choose the right label?")
+
+        return bcnodes
 
     @cached_property
     def node_set(self) -> op3.Slice:

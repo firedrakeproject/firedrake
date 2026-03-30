@@ -47,7 +47,7 @@ import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
-from firedrake.logging import info_red
+from firedrake.logging import info_red, logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
@@ -6394,6 +6394,12 @@ def get_iteration_spec(
             plex_indices = valid_plex_indices.difference(plex_indices)
 
         # NOTE: Should we sort plex indices?
+
+        with temp_internal_comm(mesh.comm) as icomm:
+            num_global_indices = icomm.reduce(plex_indices.size, MPI.SUM, root=0)
+            if num_global_indices == 0 and icomm.rank == 0:
+                logger.warn(f"Subdomain {subdomain_id} is empty. This is likely an error. "
+                            "Did you choose the right label?")
 
     # Use a weakref for the mesh here because otherwise we would store a
     # reference to the mesh in the cache and, since the lifetime of the cache
