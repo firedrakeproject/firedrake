@@ -160,7 +160,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     rdm.removeLabel("pyop2_ghost")
     logger.info(f"\t\t\t[{time.time()}]Mapping the mesh to Netgen mesh")
     tic = time.time()
-    mapping = MeshMapping(rdm, geo=ngmesh.GetGeometry())
+    mapping = MeshMapping(rdm, geo=ngmesh)
     toc = time.time()
     logger.info(f"\t\t\t[{time.time()}]Mapped the mesh to Netgen. Time taken: {toc-tic}")
     return (rdm, mapping.ngMesh)
