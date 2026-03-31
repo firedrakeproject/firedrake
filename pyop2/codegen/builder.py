@@ -240,9 +240,16 @@ class PassthroughPack(Pack):
 
 class GlobalPack(Pack):
 
-    def __init__(self, outer, access, init_with_zero=False):
+    def __init__(self, outer, access, double, init_with_zero=False):
+        if double and access is not READ:
+            raise NotImplementedError(
+                "'double' is only valid for globals that are read (Firedrake "
+                "coefficients)"
+            )
+
         self.outer = outer
         self.access = access
+        self.double = double
         self.init_with_zero = init_with_zero
 
     def kernel_arg(self, loop_indices=None):
@@ -257,7 +264,7 @@ class GlobalPack(Pack):
             return self._pack
 
         shape = self.outer.shape
-        if self.access is READ:
+        if self.access is READ and not self.double:
             # No packing required
             return self.outer
         # We don't need to pack for memory layout, however packing
@@ -265,18 +272,29 @@ class GlobalPack(Pack):
         # vectorisation loop transformations privatise these reduction
         # variables. The extra memory movement cost is minimal.
         loop_indices = self.pick_loop_indices(*loop_indices)
+
         if self.init_with_zero:
             also_zero = {MIN, MAX}
         else:
             also_zero = set()
+
+        # If 'double' is True then we need something like:
+        #
+        #   for i < 2;
+        #     for j < dim:
+        #       t0[i, j] = glob[j]
+        rhs_multiindex = MultiIndex(*(Index(e) for e in shape))
+        if self.double:
+            lhs_multiindex = MultiIndex(Index(2), *rhs_multiindex.children)
+        else:
+            lhs_multiindex = rhs_multiindex
+
         if self.access in {INC, WRITE} | also_zero:
             val = Zero((), self.outer.dtype)
-            multiindex = MultiIndex(*(Index(e) for e in shape))
-            self._pack = Materialise(PackInst(loop_indices), val, multiindex)
+            self._pack = Materialise(PackInst(loop_indices), val, lhs_multiindex)
         elif self.access in {READ, RW, MIN, MAX} - also_zero:
-            multiindex = MultiIndex(*(Index(e) for e in shape))
-            expr = Indexed(self.outer, multiindex)
-            self._pack = Materialise(PackInst(loop_indices), expr, multiindex)
+            expr = Indexed(self.outer, rhs_multiindex)
+            self._pack = Materialise(PackInst(loop_indices), expr, lhs_multiindex)
         else:
             raise ValueError("Don't know how to initialise pack for '%s' access" % self.access)
         return self._pack
@@ -833,7 +851,7 @@ class WrapperBuilder(object):
         elif isinstance(arg, GlobalKernelArg):
             argument = Argument(arg.dim, dtype, pfx="glob")
 
-            pack = GlobalPack(argument, access,
+            pack = GlobalPack(argument, access, double=arg.double,
                               init_with_zero=self.requires_zeroed_output_arguments)
             self.arguments.append(argument)
         elif isinstance(arg, DatKernelArg):

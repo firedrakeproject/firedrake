@@ -112,7 +112,7 @@ In code this becomes: ::
 
 Now we are ready to assemble the stiffness matrix for the problem. Since we want to enforce Dirichlet boundary conditions we construct a ``DirichletBC`` object and we use the ``GetRegionNames`` method from the Netgen mesh in order to map the label we have given when describing the geometry to the PETSc ``DMPLEX`` IDs. In particular if we look for the IDs of boundary element labeled either "line" or "curve" we would get::
 
-   labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name in ["line","curve"]]
+   labels = [i+1 for i, name in enumerate(ngmsh.GetRegionNames(codim=1)) if name in ["line", "curve"]]
    bc = DirichletBC(V, 0, labels)
    print(labels)
 
@@ -151,7 +151,7 @@ Then a SLEPc Eigenvalue Problem Solver (``EPS``) is initialised and set up to us
         u = TrialFunction(V)
         v = TestFunction(V)
         a = inner(grad(u), grad(v))*dx
-        m = (u*v)*dx
+        m = inner(u, v)*dx
         uh = Function(V)
         bc = DirichletBC(V, 0, labels)
         A = assemble(a, bcs=bc)
@@ -217,7 +217,7 @@ In order to do so we begin by computing the value of the indicator using a piece
                         sum_marked_eta += sum(eta[new_marked])
                         marked += new_marked
                         frac -= delfrac
-                    markedVec0.getArray()[:] = 1.0*marked[:]
+                    markedVec0.getArray()[:] = marked[:]
                 sct(markedVec0, markedVec, mode=PETSc.Scatter.Mode.REVERSE)
         return mark
 
@@ -225,7 +225,7 @@ It is now time to define the solve, mark and refine loop that is at the heart of
 
 
    for i in range(max_iterations):
-        print("level {}".format(i))
+        print(f"level {i}")
         lam, uh, V = Solve(msh, labels)
         mark = Mark(msh, uh, lam)
         msh = msh.refine_marked_elements(mark)
@@ -332,8 +332,7 @@ As usual, we generate a mesh for the described geometry and use the Firedrake-Ne
 High-order Meshes
 ------------------
 It is possible to construct high-order meshes for a geometry constructed in Netgen.
-In order to do so we need to use the ``curve_field`` method of a Firedrake ``Mesh`` object generated from a Netgen mesh.
-In particular, we need to pass the degree of the polynomial field we want to use to parametrise the coordinates of the domain to the ``curve_field`` method, which will return a ``Function`` constructed on a DG space for this purpose. ::
+We can set the degree of the geometry via the ``netgen_flags`` keyword argument of the ``Mesh`` constructor. ::
 
    from netgen.occ import WorkPlane, OCCGeometry
    import netgen
@@ -344,10 +343,10 @@ In particular, we need to pass the degree of the polynomial field we want to use
        for i in range(6):
            wp.Line(0.6).Arc(0.4, 60)
        shape = wp.Face()
-       ngmesh = OCCGeometry(shape,dim=2).GenerateMesh(maxh=1.)
+       ngmesh = OCCGeometry(shape, dim=2).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(Mesh(ngmesh, comm=COMM_WORLD).curve_field(4))
+   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 4})
    VTKFile("output/MeshExample5.pvd").write(mesh)
 
 .. figure:: Example5.png
@@ -363,15 +362,16 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
 
    if COMM_WORLD.rank == 0:
        shape = Sphere(Pnt(0,0,0), 1)
-       ngmesh = OCCGeometry(shape,dim=3).GenerateMesh(maxh=1.)
+       ngmesh = OCCGeometry(shape, dim=3).GenerateMesh(maxh=1.)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(3)
-   mesh = Mesh(Mesh(ngmesh).curve_field(3))
+   mesh = Mesh(ngmesh, netgen_flags={"degree": 3})
+
    # Solving the Poisson problem
    VTKFile("output/MeshExample6.pvd").write(mesh)
    x, y, z = SpatialCoordinate(mesh)
    V = FunctionSpace(mesh, "CG", 3)
-   f = Function(V).interpolate(1+0*x)
+   f = Constant(1)
    u = TrialFunction(V)
    v = TestFunction(V)
    a = inner(grad(u), grad(v)) * dx
@@ -397,15 +397,15 @@ It is also possible to construct high-order meshes using the ``SplineGeometry``,
    from mpi4py import MPI
 
    if COMM_WORLD.rank == 0:
-      geo = CSG2d()
-      circle = Circle(center=(1,1), radius=0.1, bc="curve").Maxh(0.01)
-      rect = Rectangle(pmin=(0,1), pmax=(1,2),
-                       bottom="b", left="l", top="t", right="r")
-      geo.Add(rect-circle)
-      ngmesh = geo.GenerateMesh(maxh=0.2)
+       geo = CSG2d()
+       circle = Circle(center=(1,1), radius=0.1, bc="curve").Maxh(0.01)
+       rect = Rectangle(pmin=(0,1), pmax=(1,2),
+                        bottom="b", left="l", top="t", right="r")
+       geo.Add(rect-circle)
+       ngmesh = geo.GenerateMesh(maxh=0.2)
    else:
        ngmesh = netgen.libngpy._meshing.Mesh(2)
-   mesh = Mesh(Mesh(ngmesh,comm=COMM_WORLD).curve_field(2))
+   mesh = Mesh(ngmesh, comm=COMM_WORLD, netgen_flags={"degree": 2})
    VTKFile("output/MeshExample7.pvd").write(mesh)
 
 .. figure:: Example7.png
