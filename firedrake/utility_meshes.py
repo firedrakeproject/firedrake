@@ -1,7 +1,6 @@
 import numbers
 import numpy as np
 import warnings
-from collections.abc import Mapping
 from typing import Literal
 
 import petsctools
@@ -929,15 +928,15 @@ def PeriodicRectangleMesh(
     Notes
     -----
 
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
-
-    * 1: plane y == 0
-    * 2: plane y == Ly
-
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
     * 2: plane x == Lx
+    * 3: plane y == 0
+    * 4: plane y == Ly
+
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
 
     """
     if quadrilateral and diagonal is not None:
@@ -945,20 +944,13 @@ def PeriodicRectangleMesh(
     if not quadrilateral and diagonal is None:
         diagonal = "left"
 
-    # TODO: Remove this awkward mapping, this will be a breaking API change
-    # for which a deprecation policy cannot be followed
-    plex_to_firedrake_boundary_labels = None
     match direction:
         case "both":
             periodic = (True, True)
         case "x":
             periodic = (True, False)
-            # NOTE: The vertical faces (plex faces 2 and 4) have arbitrary
-            # labels. What matters is that we have 1->1 and 3->2.
-            plex_to_firedrake_boundary_labels = {1: 1, 2: 4, 3: 2, 4: 3}
         case "y":
             periodic = (False, True)
-            # default plex to firedrake label mapping is correct
         case _:
             raise ValueError(
                 f"Cannot have a periodic mesh with periodicity '{direction}'"
@@ -974,7 +966,7 @@ def PeriodicRectangleMesh(
         sparseLocalize=False,
         comm=comm
     )
-    _mark_mesh_boundaries(plex, plex_to_firedrake_boundary_labels)
+    _mark_mesh_boundaries(plex)
     if not quadrilateral:
         plex = _refine_quads_to_triangles(plex, diagonal)
 
@@ -1043,16 +1035,16 @@ def PeriodicSquareMesh(
 
     Notes
     -----
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
 
-    * 1: plane y == 0
-    * 2: plane y == L
-
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
     * 2: plane x == L
+    * 3: plane y == 0
+    * 4: plane y == L
 
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
     """
     return PeriodicRectangleMesh(
         nx,
@@ -1122,16 +1114,16 @@ def PeriodicUnitSquareMesh(
 
     Notes
     -----
-    If direction == "x" the boundary edges in this mesh are numbered as follows:
 
-    * 1: plane y == 0
-    * 2: plane y == 1
-
-    If direction == "y" the boundary edges are:
+    The boundary edges in this mesh are numbered as follows:
 
     * 1: plane x == 0
     * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
 
+    If periodic in the 'x' direction then boundary edges 1 and 2 are empty, and
+    if periodic in 'y' then 3 and 4 are empty.
     """
     return PeriodicSquareMesh(
         nx,
@@ -3091,54 +3083,48 @@ def PartiallyPeriodicRectangleMesh(
     )
 
 
-def _mark_mesh_boundaries(
-    plex: PETSc.DMPlex,
-    plex_to_firedrake_boundary_labels: Mapping[int, int] | None = None,
-) -> None:
+def _mark_mesh_boundaries(plex: PETSc.DMPlex) -> None:
     """Reorder the 'Face Sets' label of the DMPlex to match Firedrake ordering."""
-    # TODO: Remove the awkward face set mapping for 2D periodic domains
-
-    if plex_to_firedrake_boundary_labels is None:
-        match plex.getDimension():
-            case 0:
-                plex_to_firedrake_boundary_labels = {}
-            case 1:
-                # Firedrake and DMPlex conventions agree (left is 1, right is 2)
-                plex_to_firedrake_boundary_labels = {1: 1, 2: 2}
-            case 2:
-                #    DMPlex        Firedrake
-                #
-                #       3             4
-                #    +-----+       +-----+
-                #    |     |       |     |
-                #   4|     |2     1|     |2
-                #    |     |       |     |
-                #    +-----+       +-----+
-                #       1             3
-                plex_to_firedrake_boundary_labels = {1: 3, 2: 2, 3: 4, 4: 1}
-            case 3:
-                #          DMPlex              Firedrake
-                #
-                #           +-------+             +-------+
-                #          /       /|            /       /|
-                #         /       / |           /       / |
-                #        /  4/3  /  |          /  4/3  /  |
-                #       /       /   |         /       /   |
-                #      /       /    |        /       /    |
-                #     +-------+ 5/6 +       +-------+ 2/1 +
-                #     |       |    /        |       |    /
-                #     |       |   /         |       |   /
-                #   y |  1/2  |  /  z     y |  5/6  |  /  z
-                #     |       | /           |       | /
-                #     |       |/            |       |/
-                #     +-------+             +-------+
-                #    O    x                O   x
-                #
-                # 'x/y' means that 'x' is the label for the visible face and 'y'
-                # the label for the opposite hidden face.
-                plex_to_firedrake_boundary_labels = {1: 5, 2: 6, 3: 3, 4: 4, 5: 2, 6: 1}
-            case _:
-                raise AssertionError
+    match plex.getDimension():
+        case 0:
+            plex_to_firedrake_boundary_labels = {}
+        case 1:
+            # Firedrake and DMPlex conventions agree (left is 1, right is 2)
+            plex_to_firedrake_boundary_labels = {1: 1, 2: 2}
+        case 2:
+            #    DMPlex        Firedrake
+            #
+            #       3             4
+            #    +-----+       +-----+
+            #    |     |       |     |
+            #   4|     |2     1|     |2
+            #    |     |       |     |
+            #    +-----+       +-----+
+            #       1             3
+            plex_to_firedrake_boundary_labels = {1: 3, 2: 2, 3: 4, 4: 1}
+        case 3:
+            #          DMPlex              Firedrake
+            #
+            #           +-------+             +-------+
+            #          /       /|            /       /|
+            #         /       / |           /       / |
+            #        /  4/3  /  |          /  4/3  /  |
+            #       /       /   |         /       /   |
+            #      /       /    |        /       /    |
+            #     +-------+ 5/6 +       +-------+ 2/1 +
+            #     |       |    /        |       |    /
+            #     |       |   /         |       |   /
+            #   y |  1/2  |  /  z     y |  5/6  |  /  z
+            #     |       | /           |       | /
+            #     |       |/            |       |/
+            #     +-------+             +-------+
+            #    O    x                O   x
+            #
+            # 'x/y' means that 'x' is the label for the visible face and 'y'
+            # the label for the opposite hidden face.
+            plex_to_firedrake_boundary_labels = {1: 5, 2: 6, 3: 3, 4: 4, 5: 2, 6: 1}
+        case _:
+            raise AssertionError
 
     # Get the original label
     plex_boundary_label = plex.getLabel(dmcommon.FACE_SETS_LABEL)
