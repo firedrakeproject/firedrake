@@ -21,7 +21,7 @@ from finat.element_factory import create_element
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
-from pyop2.utils import get_petsc_dir, as_tuple
+from pyop2.utils import as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
@@ -1830,11 +1830,13 @@ class SparseAssembler:
 
     @staticmethod
     def load_c_code(code, name, comm, argtypes, restype):
-        petsc_dir = get_petsc_dir()
-        cppargs = [f"-I{d}/include" for d in petsc_dir]
-        ldargs = ([f"-L{d}/lib" for d in petsc_dir]
-                  + [f"-Wl,-rpath,{d}/lib" for d in petsc_dir]
-                  + ["-lpetsc", "-lm"])
+        cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+        ldargs = (
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+        )
         dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
         fn = getattr(dll, name)
         fn.argtypes = argtypes

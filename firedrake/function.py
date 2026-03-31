@@ -16,6 +16,7 @@ from pathlib import Path
 from functools import partial, cached_property
 from typing import Tuple
 
+import petsctools
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
@@ -850,7 +851,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -886,7 +886,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
             f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+        ] + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
         ldargs=ldargs,
         comm=function.comm
     )

@@ -17,6 +17,7 @@ from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
+import petsctools
 
 import ctypes
 from pyop2 import op2
@@ -27,7 +28,6 @@ from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
 from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
-from pyop2.utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -536,10 +536,13 @@ PetscErrorCode ComputeJacobian(PC pc,
 
 
 def load_c_function(code, name, comm):
-    cppargs = ["-I%s/include" % d for d in get_petsc_dir()]
-    ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
-              + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
-              + ["-lpetsc", "-lm"])
+    cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+    ldargs = (
+        *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+        *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+        "-lpetsc",
+        "-lm",
+    )
     dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
     fn = getattr(dll, name)
     fn.argtypes = [ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
