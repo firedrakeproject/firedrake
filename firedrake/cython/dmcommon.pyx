@@ -2090,6 +2090,13 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape, referen
 
 
 def _get_expanded_dm_dg_coords(dm: PETSc.DM, ndofs: np.ndarray):
+    """Return the DM DG coordinates expanded to the full closure size.
+
+    This transformation accounts for the fact that single-cell periodic
+    domains have closures that are smaller than expected (due to repeated
+    points).
+
+    """
     cdef:
         const PetscReal *L
 
