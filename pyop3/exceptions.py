@@ -38,6 +38,10 @@ class CacheException(Pyop3Exception):
 class CompilationException(Pyop3Exception):
     """Error during compilation."""
 
+
+class EffectlessComputationException(Pyop3Exception):
+    """Error raised if the operation has no effect."""
+
 # }}}
 
 # {{{ parallel
