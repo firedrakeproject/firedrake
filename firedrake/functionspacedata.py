@@ -478,6 +478,8 @@ class FunctionSpaceData(object):
 
     @PETSc.Log.EventDecorator()
     def boundary_nodes(self, V, sub_domain):
+        region_names = V.mesh().topology_dm.getAttr("face_region_names") or {}
+        sub_domain = region_names.get(sub_domain, sub_domain)
         if sub_domain in ["bottom", "top"]:
             if not V.extruded:
                 raise ValueError("Invalid subdomain '%s' for non-extruded mesh",

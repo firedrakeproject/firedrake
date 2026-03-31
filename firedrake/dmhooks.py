@@ -499,3 +499,13 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     # a non-mixed space)
     dm.setCreateFieldDecomposition(create_field_decomposition)
     dm.setCreateSubDM(create_subdm)
+
+
+def migrate_dm_attrs(parent_dm, child_dm):
+    """Migrate python attributes from one DM to another.
+
+    :arg parent_dm: the parent DM
+    :arg child_dm: the child DM
+    """
+    for key, value in parent_dm.getDict().items():
+        child_dm.setAttr(key, value)

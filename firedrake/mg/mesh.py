@@ -11,6 +11,7 @@ from functools import cached_property
 
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
+from firedrake.dmhooks import migrate_dm_attrs
 from .utils import set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
@@ -142,6 +143,7 @@ def MeshHierarchy(mesh, refinement_levels,
         if i % refinements_per_level == 0:
             before(cdm, i)
         rdm = cdm.refine()
+        migrate_dm_attrs(cdm, rdm)
         if i % refinements_per_level == 0:
             after(rdm, i)
         dms.append(rdm)

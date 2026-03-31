@@ -155,6 +155,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     logger.info(f"\t\t\t[{time.time()}]Refining the plex")
     cdm.setRefinementUniform(True)
     rdm = cdm.refine()
+    dmhooks.migrate_dm_attrs(cdm, rdm)
     rdm.removeLabel("pyop2_core")
     rdm.removeLabel("pyop2_owned")
     rdm.removeLabel("pyop2_ghost")
