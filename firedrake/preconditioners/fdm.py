@@ -25,7 +25,7 @@ import pyop3 as op3
 from pyop3.compile import load
 from pyop3.mpi import COMM_SELF
 # from pyop2.sparsity import get_preallocation  # FIXME
-from pyop3.pyop2_utils import get_petsc_dir, as_tuple
+from pyop3.pyop2_utils import as_tuple
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
 
@@ -1858,11 +1858,13 @@ class SparseAssembler:
 
     @staticmethod
     def load_c_code(code, name, comm, argtypes, restype):
-        petsc_dir = get_petsc_dir()
-        cppargs = [f"-I{d}/include" for d in petsc_dir]
-        ldargs = ([f"-L{d}/lib" for d in petsc_dir]
-                  + [f"-Wl,-rpath,{d}/lib" for d in petsc_dir]
-                  + ["-lpetsc", "-lm"])
+        cppargs = petsctools.get_petsc_dirs(prefix="-I", subdir="include")
+        ldargs = (
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+        )
         dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
         fn = getattr(dll, name)
         fn.argtypes = argtypes

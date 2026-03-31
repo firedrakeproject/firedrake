@@ -23,6 +23,7 @@ from mpi4py import MPI
 import pyop3 as op3
 from pyop3.cache import with_heavy_caches
 from pyop3.mpi import internal_comm
+import petsctools
 
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
@@ -861,7 +862,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop3 import compile as compilation
-    from pyop3.pyop2_utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
@@ -905,7 +905,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
             f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+        ] + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
         ldargs=ldargs,
         comm=function.comm
     )

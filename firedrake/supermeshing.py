@@ -3,6 +3,7 @@ import firedrake
 import ctypes
 import pathlib
 import libsupermesh
+import petsctools
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -433,7 +434,7 @@ each supermesh cell.
     }
 
     libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
-    dirs = get_petsc_dir() + (libsupermesh_dir,)
+    dirs = petsctools.get_petsc_dirs() + (libsupermesh_dir,)
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
