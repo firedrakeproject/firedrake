@@ -3,6 +3,7 @@ import pkgconfig
 import platform
 import shutil
 import site
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from glob import glob
 from pathlib import Path
@@ -31,17 +32,17 @@ class ExternalDependency:
     that correspond to the keyword arguments of `Extension`. For convenience it
     also implements addition and `**` unpacking.
     '''
-    include_dirs: list[str] = field(default_factory=list, init=True)
-    extra_compile_args: list[str] = field(default_factory=list, init=True)
-    libraries: list[str] = field(default_factory=list, init=True)
-    library_dirs: list[str] = field(default_factory=list, init=True)
-    extra_link_args: list[str] = field(default_factory=list, init=True)
-    runtime_library_dirs: list[str] = field(default_factory=list, init=True)
+    include_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_compile_args: Sequence[str] = field(default_factory=list, init=True)
+    libraries: Sequence[str] = field(default_factory=list, init=True)
+    library_dirs: Sequence[str] = field(default_factory=list, init=True)
+    extra_link_args: Sequence[str] = field(default_factory=list, init=True)
+    runtime_library_dirs: Sequence[str] = field(default_factory=list, init=True)
 
     def __add__(self, other):
         combined = {}
         for f in self.__dataclass_fields__.keys():
-            combined[f] = getattr(self, f) + getattr(other, f)
+            combined[f] = [*getattr(self, f), *getattr(other, f)]
         return self.__class__(**combined)
 
     def keys(self):
@@ -86,7 +87,7 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 petsc_ = ExternalDependency(
     libraries=["petsc"],
     include_dirs=[
-        *petsc4py.get_include(),
+        petsc4py.get_include(),
         *petsctools.get_petsc_dirs(subdir="include"),
     ],
     library_dirs=petsctools.get_petsc_dirs(subdir="lib"),
