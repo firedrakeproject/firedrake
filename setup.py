@@ -1,5 +1,4 @@
 import os
-import pkgconfig
 import platform
 import shutil
 import site
@@ -9,15 +8,16 @@ from pathlib import Path
 
 import libsupermesh
 import numpy as np
+import pkgconfig
 import pybind11
-import petsctools
 import rtree
 from Cython.Build import cythonize
-from setuptools import setup, find_packages, Extension
+from setuptools import Extension, find_packages, setup
+from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
-from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
+import petsctools
 
 # Ensure that the PETSc getting linked against is compatible
 # TODO RELEASE set to ">=3.25"

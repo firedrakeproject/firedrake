@@ -481,15 +481,9 @@ jobs:
         uses: rbialon/flake8-annotations@v1
 
       - name: Install linting packages
-        id: install
         run: pip install flake8 pylint isort
 
-      - name: Check imports
-        if: success() || steps.install.conclusion == 'success'
-        run: isort --check --diff firedrake pyop2 tsfc
-
       - name: Lint codebase
-        if: success() || steps.install.conclusion == 'success'
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
   build_docs:

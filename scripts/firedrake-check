@@ -3,13 +3,12 @@
 """Run the Firedrake smoke tests."""
 
 import argparse
-import logging
 import importlib.util
+import logging
 import os
 import pathlib
 import subprocess
 import sys
-
 
 # smoke tests grouped by number of processors
 TESTS = {

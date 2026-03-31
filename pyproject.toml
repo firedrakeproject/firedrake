@@ -197,6 +197,7 @@ pyop2 = [
 
 [tool.isort]
 profile = "black"  # black compatibility
+skip_glob = ["demos", "docs", "tests"]
 # Separate imports for packages that we control that aren't in this repository
 known_owned = [
   "FIAT",
@@ -211,7 +212,7 @@ sections = [
   "FUTURE",
   "STDLIB",
   "THIRDPARTY",
-  "OWNED",
+  "OWNED",  # this is the new section
   "FIRSTPARTY",
   "LOCALFOLDER",
 ]

@@ -32,6 +32,8 @@ srclint:
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+	@echo "    Linting imports using isort"
+	@python -m isort . --check --diff
 
 .PHONY: actionlint
 actionlint:

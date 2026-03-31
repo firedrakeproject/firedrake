@@ -1,3 +1,6 @@
+# Don't reorder imports in this file because we have to be careful of side effects
+# isort: skip_file
+
 # The range of PETSc versions supported by Firedrake. Note that unlike in
 # firedrake-configure and pyproject.toml where we want to be strict about
 # the specific version, here we are more permissive. This is to catch the
@@ -7,7 +10,7 @@
 PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
-def init_petsc():
+def _init_petsc():
     import os
     import sys
 
@@ -22,8 +25,8 @@ def init_petsc():
         petsctools.init(sys.argv, version_spec=PETSC_SUPPORTED_VERSIONS)
 
 
-# Ensure petsc is initialised right away
-init_petsc()
+# Ensure PETSc is initialised right away
+_init_petsc()
 
 # Set up the cache directories before importing PyOP2.
 from firedrake.configuration import setup_cache_dirs
@@ -49,16 +52,16 @@ if _is_logging:
     del atexit
 del petsc
 
-from finat.ufl import *  # noqa: F401
-from ufl import *  # noqa: F401
-
 # Register possible citations
 import firedrake.citations  # noqa: F401
-from pyop2 import op2  # noqa: F401
-from pyop2.mpi import COMM_SELF, COMM_WORLD  # noqa: F401
-
 petsctools.cite("FiredrakeUserManual")
 del petsctools
+
+from ufl import *  # noqa: F401
+from finat.ufl import *  # noqa: F401, isort: skip
+
+from pyop2 import op2  # noqa: F401
+from pyop2.mpi import COMM_SELF, COMM_WORLD  # noqa: F401
 
 from firedrake.assemble import assemble  # noqa: F401
 from firedrake.bcs import DirichletBC, EquationBC, homogenize  # noqa: F401
