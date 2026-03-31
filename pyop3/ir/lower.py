@@ -25,9 +25,9 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
+import pyop3.dtypes
 from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
 from pyop3.cache import memory_and_disk_cache
-from pyop3.compile import load
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
@@ -63,12 +63,6 @@ from pyop3.insn.exec import parse_compiler_parameters
 # shared base package? or both set by Firedrake - better solution
 LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
-
-
-# Is this still needed? Loopy may have fixed this
-class OpaqueType(lp.types.OpaqueType):
-    def __repr__(self) -> str:
-        return f"OpaqueType('{self.name}')"
 
 
 class CodegenContext(abc.ABC):
@@ -232,7 +226,7 @@ class LoopyCodegenContext(CodegenContext):
                 assert isinstance(buffer_ref.handle, PETSc.Mat)
 
                 name_in_kernel = self.unique_name("mat")
-                loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
+                loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
 
             self.global_buffers[buffer_key] = buffer_ref
             self.global_buffer_intents[buffer_key] = intent

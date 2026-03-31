@@ -674,7 +674,7 @@ def _(arg: lp.ArrayArg) -> type:
 
 @cast_loopy_arg_to_ctypes_type.register(lp.ValueArg)
 def _(arg: lp.ValueArg):
-    if isinstance(arg.dtype, OpaqueType):
+    if isinstance(arg.dtype, pyop3.dtypes.OpaqueType):
         return ctypes.c_voidp
     else:
         return np.ctypeslib.as_ctypes_type(arg.dtype)
