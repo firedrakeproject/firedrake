@@ -133,14 +133,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         coarse_to_fine_nodes = numpy.full((iterset.local_size, arity*level_ratio), -1, dtype=IntType)
         values = Vf.cell_node_list[coarse_to_fine, :].reshape(iterset.local_size, arity)
 
-        if Vc.extruded:
-            off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:iterset.local_size, :] = numpy.hstack([values + off*i for i in range(level_ratio)])
-        else:
-            coarse_to_fine_nodes[:iterset.local_size, :] = values
-        offset = Vf.offset
-        if offset is not None:
-            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
+        coarse_to_fine_nodes[:iterset.local_size, :] = values
 
         src_axis = iterset.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])

@@ -319,11 +319,11 @@ class Function:
         loopy_insn = lp.CInstruction(
             (),
             c_code,
-            frozenset((name for name, _, _ in args)),
-            tuple(name for name, _, intent in args if intent != Intent.READ),
+            frozenset((name_ for name_, _, _ in args)),
+            tuple(name_ for name_, _, intent in args if intent != Intent.READ),
         )
         loopy_args = []
-        for name, dtype, intent in args:
+        for name_, dtype, intent in args:
             match intent:
                 case Intent.READ:
                     is_input = True
@@ -336,7 +336,7 @@ class Function:
                     is_output = True
                 case _:
                     raise NotImplementedError
-            loopy_arg = lp.GlobalArg(name, dtype, is_input=is_input, is_output=is_output)
+            loopy_arg = lp.GlobalArg(name_, dtype, is_input=is_input, is_output=is_output)
             loopy_args.append(loopy_arg)
         loopy_kernel = lp.make_kernel(
             [],  # no extra loops

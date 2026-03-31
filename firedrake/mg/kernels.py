@@ -239,7 +239,7 @@ def prolong_kernel(expression, Vf):
             ("R", ScalarType, op3.WRITE),
             ("f", ScalarType, op3.READ),
             ("X", ScalarType, op3.READ),
-            ("Xf", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
         ],
         preambles=[
             ("20_to_reference_kernel", str(to_reference_kernel)),

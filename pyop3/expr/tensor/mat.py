@@ -322,7 +322,7 @@ class Mat(Tensor):
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
-                return petscmat[self.row_axes.with_region_labels(regions)._flat_buffer_indices, self.column_axes.with_region_labels(regions)._flat_buffer_indices]
+                return petscmat[self.row_axes.with_region_labels(regions)._buffer_indices, self.column_axes.with_region_labels(regions)._buffer_indices]
         else:
             raise NotImplementedError
 

@@ -418,11 +418,11 @@ class Dat(Tensor):
                 array = self.buffer.data_wo
             case "rw":
                 array = self.buffer.data_rw
-        array = array.reshape((-1, *block_shape))
+
         if include_ghosts:
-            indices = self.axes._buffer_indices(block_shape)
+            indices = self.axes._buffer_indices
         else:
-            indices = self.axes.owned._buffer_indices(block_shape)
+            indices = self.axes.owned._buffer_indices
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)
@@ -435,9 +435,9 @@ class Dat(Tensor):
         if isinstance(indices, slice) or mode == "ro":
             # Either using a view or readonly, safe to use numpy indexing as
             # writeback issues are not relevant
-            return array[indices]
+            return array[indices].reshape((-1, *block_shape))
         else:
-            return pyop3.arrayref.ArrayReference(array, indices)
+            return pyop3.arrayref.ArrayReference(array, indices, block_shape)
 
 
     @property
@@ -476,7 +476,7 @@ class Dat(Tensor):
 
         # If the dat data is a slice of the underlying buffer then views are
         # used by numpy as so we can avoid copying back and forth into the vec.
-        is_view = isinstance(self.axes.owned._flat_buffer_indices, slice)
+        is_view = isinstance(self.axes.owned._buffer_indices, slice)
 
         assert is_view
 

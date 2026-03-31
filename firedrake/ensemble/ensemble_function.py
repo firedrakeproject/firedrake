@@ -76,19 +76,20 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         def local_function(i):
             V = self._fs.local_spaces[i]
             cidxs = self._fs._component_indices(i)
-            if len(cidxs) == 1:
-                subdat = self._full_local_function.dat[cidxs[0]]
+            if isinstance(cidxs, str):
+                subdat = self._full_local_function.dat[cidxs]
             else:
-                assert len(cidxs) > 1
-                slice_ = op3.Slice(
-                    "field",
-                    [
-                        op3.AffineSliceComponent(idx, label=idx)
-                        for idx in cidxs
-                    ],
-                    label="field",
-                )
-                subdat = self._full_local_function.dat[slice_]
+                # assert len(cidxs) > 1
+                # slice_ = op3.Slice(
+                #     "field",
+                #     [
+                #         op3.AffineSliceComponent(idx, label=idx)
+                #         for idx in cidxs
+                #     ],
+                #     label="field",
+                # )
+                subdat = self._full_local_function.dat[list(cidxs)]
+            subdat.data
             return Function(V, val=subdat)
 
         return tuple(local_function(i)

@@ -616,7 +616,7 @@ def make_so(compiler, code, extension, comm):
                     Compile log in {logfile!s}
                     Compile errors in {errfile!s}
                 """)
-            raise CompilationError(msg) from e
+            raise CompilationException(msg) from e
         else:
             return soname
 
