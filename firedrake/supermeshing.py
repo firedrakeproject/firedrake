@@ -21,7 +21,6 @@ from collections import defaultdict
 import pyop3 as op3
 from pyop3.compile import load
 from pyop3.mpi import COMM_SELF
-from pyop3.pyop2_utils import get_petsc_dir
 
 
 __all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
