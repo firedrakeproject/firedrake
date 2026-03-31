@@ -2571,6 +2571,12 @@ class ExtrudedMeshTopology(MeshTopology):
         self.topology_dm.getLabel("exterior_facets_bottom").setStratumIS(1, self._exterior_facet_bottom_plex_indices)
         dmcommon.complete_facet_labels(self.topology_dm)
 
+        # A cache of shared function space data on this mesh, we need to
+        # set this here because ExtrudedMeshTopology doesn't call
+        # AbstractMeshTopology.__init__
+        self._shared_data_cache = defaultdict(dict)
+        self._max_work_functions = {}
+
     @cached_property
     def _ufl_cell(self):
         return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
