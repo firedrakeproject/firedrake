@@ -885,8 +885,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+            f"-I{rtree.finder.get_include()}",
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ],
         ldargs=ldargs,
         comm=function.comm
     )
