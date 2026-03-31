@@ -2777,7 +2777,7 @@ values from f.)"""
                     f"-I{sys.prefix}/include",
                     f"-I{rtree.finder.get_include()}",
                     *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-                ]
+                ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
                     str(libspatialindex_so),
