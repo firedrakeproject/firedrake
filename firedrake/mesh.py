@@ -4808,11 +4808,15 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         Defaults to ``mesh.topological_dimension``.
     subdomain_id : int | None
         Subdomain ID representing the submesh.
-        `None` defines the submesh owned by the sub-communicator.
+        If `None` the submesh will cover the entire domain.
+        This is useful to obtain a codim-1 submesh over all facets or
+        a submesh over a different communicator.
     label_name : str | None
         Name of the label to search ``subdomain_id`` in.
+        Defaults to ``'Cell Sets'`` or ``'Face Sets'`` depending on ``subdim``.
     name : str |  None
         Name of the submesh.
+        Defaults to ``mesh.name + "_submesh"``·
     ignore_halo : bool
         Whether to exclude the halo from the submesh.
     reorder : bool | None
@@ -4864,9 +4868,9 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
-        # Select all cells owned by comm
-        label_name = "celltype"
-        subdomain_id, = mesh.dm_cell_types
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
     elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL
