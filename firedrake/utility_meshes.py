@@ -105,6 +105,7 @@ def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, n
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
+
 @PETSc.Log.EventDecorator()
 def OneTetMesh(
     perm=None,
@@ -140,11 +141,12 @@ def OneTetMesh(
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
     """
-    coords = np.array([[0,0,1],[1, -np.sqrt(3)/3, 0],[-1,-np.sqrt(3)/3,0],[2*np.sqrt(3)/3, 0,0]]) 
+    scale = np.sqrt(2)/2
+    coords = np.array([[-scale, -scale, scale],[scale, scale, scale],[-scale, scale, -scale],[scale, -scale, -scale]])
     if perm is not None:
         cells = np.array([perm([0,1,2,3])]) 
     else:
-        cells = np.array([[3,2,0,4],[1,2,3,4]]) 
+        cells = np.array([[0,1,2,3]]) 
     plex = plex_from_cell_list(
         3, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
@@ -158,7 +160,6 @@ def OneTetMesh(
         comm=comm,
     )
     return m
-
 
 @PETSc.Log.EventDecorator()
 def TwoTetMesh(
@@ -195,9 +196,9 @@ def TwoTetMesh(
     The left hand boundary point has boundary marker 1,
     while the right hand point has marker 2.
     """
-    coords = np.array([[0,0,1],[0,0,-1],[1, -np.sqrt(3)/3, 0],[-1,-np.sqrt(3)/3,0],[2*np.sqrt(3)/3, 0,0]]) 
+    coords = np.array([[0,0,1],[0,0,-1],[1, -np.sqrt(3)/3, 0],[-1,-np.sqrt(3)/3,0],[0, 2*np.sqrt(3)/3, 0]]) 
     if perm is not None:
-        cells = np.array([perm([0, 2,3,4]),[1,2,3,4]]) 
+        cells = np.array([perm([0,2,3,4]),[1,2,3,4]]) 
     else:
         cells = np.array([[3,2,0,4],[1,2,3,4]]) 
     plex = plex_from_cell_list(
