@@ -129,9 +129,6 @@ class LoopyCodegenContext(CodegenContext):
         self._domains.append(domain_str)
 
     def add_assignment(self, assignee, expression, prefix="insn"):
-        if "idat_4" in str(expression) and "t_1" in str(assignee):
-            breakpoint()
-
         insn = lp.Assignment(
             assignee,
             expression,
@@ -408,7 +405,7 @@ class CompiledCodeExecutor:
     """
 
     # TODO: decouple intents from the buffer map (put intents on the executable)
-    def __init__(self, executable: Executable, buffer_map: WeakValueDictionary[str, ConcretBuffer], comm: Pyop3Comm):
+    def __init__(self, executable: Executable, buffer_map: WeakValueDictionary[str, ConcreteBuffer], comm: Pyop3Comm):
         self.executable = executable
         self.buffer_map = buffer_map
         self.comm = comm

@@ -196,7 +196,7 @@ class BCBase:
     def node_set(self) -> op3.Slice:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
-        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
         subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])
 

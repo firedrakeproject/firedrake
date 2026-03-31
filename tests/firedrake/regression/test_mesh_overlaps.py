@@ -126,4 +126,3 @@ def test_submesh_distribution_parameters(overlap, reorder):
     submesh = Submesh(rmesh, dim, label)
     assert submesh._distribution_parameters == orig_params
     assert submesh._did_reordering == did_reordering
->>>>>>> origin/main

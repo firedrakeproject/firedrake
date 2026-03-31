@@ -167,6 +167,7 @@ class InstructionExecutionContext:
 
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
+        # TODO: This should probably live in this file
         from pyop3.ir.lower import CompiledCodeExecutor
 
         executor, argument_index_to_buffer_name_map = self._compile()
@@ -188,6 +189,7 @@ class InstructionExecutionContext:
                 _, intent = executor.buffer_map[buffer_name_in_kernel]
                 arg = self.root_insn.buffer_arguments[arg_index]
                 buffer = self._extract_buffer(arg)
+                assert buffer is not None
                 new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
             new_buffer_map = idict(new_buffer_map)
 
@@ -207,8 +209,6 @@ class InstructionExecutionContext:
 
         assert not self._has_called_compile
         self._has_called_compile = True
-        preprocessed = self._preprocess
-        # executor = compile(preprocessed, compiler_parameters=self.compiler_parameters)
         executor = compile(self, compiler_parameters=self.compiler_parameters)
 
         return executor, self._argument_index_to_buffer_name_map
@@ -218,7 +218,11 @@ class InstructionExecutionContext:
         """The buffers (global data) that are present in the operation."""
         from pyop3.insn.visitors import collect_buffers
 
-        return collect_buffers(self._preprocess)
+        retval = collect_buffers(self._preprocess)
+        # breakpoint()
+        # return collect_buffers(self._preprocess)
+        assert None not in retval
+        return retval
 
     @cached_property
     def disk_cache_key(self) -> Hashable:
@@ -279,4 +283,5 @@ class InstructionExecutionContext:
                     return self._extract_buffer(mat.buffer.handle.getPythonContext().dat)
                 case _:
                     return mat.buffer
-
+        else:
+            return mat.buffer
