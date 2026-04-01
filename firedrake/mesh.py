@@ -2651,7 +2651,7 @@ values from f.)"""
     @property
     @PETSc.Log.EventDecorator()
     def box_ratio_heuristic(self):
-        """Return partition bounding boxes at some optimal Rtree level.
+        """Return partition bounding boxes at some 'optimal' Rtree level.
 
         Descends the local Rtree top-down breadth-first, stopping when the total
         bounding box volume stops decreasing (ratio of next level to current
@@ -2670,10 +2670,7 @@ values from f.)"""
         prev_bboxes = self.bounding_boxes(0)
         for level in range(1, tree_depth):
             prev_vol = self.bounding_boxes_total_volume(prev_bboxes)
-            try:
-                next_bboxes = self.bounding_boxes(level)
-            except EmptyNodeEnvelopeError:
-                return prev_bboxes
+            next_bboxes = self.bounding_boxes(level)
             next_vol = self.bounding_boxes_total_volume(next_bboxes)
             prev_bboxes = next_bboxes
             if next_vol >= prev_vol:
@@ -2709,13 +2706,11 @@ values from f.)"""
         n_total = int(counts.sum())
 
         # Allgatherv the bbox data
-        local_flat = np.ascontiguousarray(local_bboxes, dtype=np.float64).ravel()
-        recvcounts = (counts * 2 * gdim).astype(IntType)
-        all_flat = np.empty(n_total * 2 * gdim, dtype=np.float64)
-        comm.Allgatherv(sendbuf=local_flat, recvbuf=(all_flat, recvcounts))
+        all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
+        comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
 
         # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
-        all_bboxes = all_flat.reshape(n_total, 2, gdim)
+        all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
         regions_lo = np.ascontiguousarray(all_bboxes[:, 0, :])  # (n_total, gdim)
         regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
 
@@ -4012,26 +4007,30 @@ def _pic_swarm_in_mesh(
         winner_ranks_on_leaves,
         coords_recv,
     ) = _parent_mesh_embedding_new(
-        parent_mesh, coords, tolerance, redundant
+        parent_mesh,
+        coords,
+        tolerance,
+        redundant,
+        exclude_halos=exclude_halos,
+        remove_missing_points=False,
     )
 
     nroots = len(winner_cells)
     n_recv_total = len(parent_cell_nums_leaves)
 
-    # Indices for owned and halo points.
+    if exclude_halos:
+        valid_halo_mask = np.zeros(n_recv_total, dtype=bool)
+    else:
+        valid_halo_mask = (
+            is_min_candidate
+            & ~leaf_is_winner
+            & (winner_ranks_on_leaves != -1)
+        )
     owned_indices = np.flatnonzero(leaf_is_winner)
-    # A min-candidate leaf can still correspond to a missing root when no
-    # owned candidate exists on any rank (winner rank/index remains -1).
-    # Those leaves must not enter the swarm point SF remote graph.
-    valid_halo_mask = (
-        is_min_candidate
-        & ~leaf_is_winner
-        & (winner_ranks_on_leaves != -1)
-    )
-    halo_indices_arr = np.flatnonzero(valid_halo_mask)
+    halo_indices = np.flatnonzero(valid_halo_mask)
     n_owned = len(owned_indices)
-    n_halo = len(halo_indices_arr)
-    all_indices = np.concatenate([owned_indices, halo_indices_arr])
+    n_halo = len(halo_indices)
+    all_indices = np.concatenate([owned_indices, halo_indices])
 
     # Get inputrank / inputindex for each leaf from the SF remote array.
     _, _, leaf_remote = sf.getGraph()
@@ -4109,17 +4108,17 @@ def _pic_swarm_in_mesh(
 
     # If any halo leaf still has no owner index, drop it from the halo SF.
     if n_halo:
-        halo_owner_ok = owner_swarm_idx_on_leaves[halo_indices_arr] != -1
+        halo_owner_ok = owner_swarm_idx_on_leaves[halo_indices] != -1
         if not np.all(halo_owner_ok):
-            halo_indices_arr = halo_indices_arr[halo_owner_ok]
-            n_halo = len(halo_indices_arr)
-            all_indices = np.concatenate([owned_indices, halo_indices_arr])
+            halo_indices = halo_indices[halo_owner_ok]
+            n_halo = len(halo_indices)
+            all_indices = np.concatenate([owned_indices, halo_indices])
             n_total = n_owned + n_halo
 
     sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
     swarm_remote = np.empty(2 * n_halo, dtype=IntType)
-    swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices_arr]
-    swarm_remote[1::2] = owner_swarm_idx_on_leaves[halo_indices_arr]
+    swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices]
+    swarm_remote[1::2] = owner_swarm_idx_on_leaves[halo_indices]
     swarm_psf = swarm.getPointSF()
     swarm_psf.setGraph(n_total, sf_halo_local, swarm_remote)
     swarm.setPointSF(swarm_psf)
@@ -4456,7 +4455,12 @@ def _embedding_star_forest(
 
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding_new(
-    parent_mesh, coords, tolerance, redundant
+    parent_mesh,
+    coords,
+    tolerance,
+    redundant,
+    exclude_halos=False,
+    remove_missing_points=True,
 ):
     """Find the parent mesh cells containing the given coordinates.
 
@@ -4474,6 +4478,14 @@ def _parent_mesh_embedding_new(
         L1 reference-cell tolerance for point location.
     redundant : ``bool``
         If True, only rank-0's coordinates are embedded.
+    exclude_halos : ``bool``
+        If True, the embedded SF excludes halo leaves and contains only
+        winning owned leaves.
+    remove_missing_points : ``bool``
+        If True, missing points are removed from embedded leaves.
+        If False, missing points that have local leaves are retained in
+        embedded leaves on their input rank with ``parent_cell_nums=-1`` and
+        ``reference_coords=NaN``.
 
     Returns
     -------
@@ -4482,7 +4494,7 @@ def _parent_mesh_embedding_new(
         (candidate points on ranks that may own the parent cell).
     embedded_sf : ``PETSc.SF``
         The star forest connecting root points to the 'winning' leaf point(s).
-        Each root may be connected to multiple leaves if the point is in a halo region.
+        Each root may be connected to multiple leaves if halos are included.
     winner_cells : ``np.ndarray`` of shape ``(nroots,)``
         Firedrake cell number on the winner rank for each root point.
         ``-1`` for missing points.
@@ -4513,6 +4525,31 @@ def _parent_mesh_embedding_new(
         raise NotImplementedError(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
+
+    # Define some helper functions
+    def _locate_cells(xs: np.ndarray, cells_ignore=None):
+        # Given an array of coordinates, returns the cell numbers, reference coordinates,
+        # and L1 distances to the reference cell for each coodinate. 
+        cell_nums, ref_coords, ref_dists_l1 = parent_mesh.locate_cells_ref_coords_and_dists(
+            xs, tolerance, cells_ignore=cells_ignore
+        )
+        if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+            # We have an extra dimension we can safely drop.
+            ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
+        return cell_nums, ref_coords, ref_dists_l1
+    
+    def _owning_ranks(cell_nums: np.ndarray) -> np.ndarray:
+        # Given an array of cell numbers, returns the owning rank for each cell,
+        # or -1 if not visible on this rank.
+        owner_ranks = np.full_like(cell_nums, -1, dtype=IntType)
+        visible = cell_nums != -1
+        if np.any(visible):
+            if parent_mesh.extruded:
+                lookup_cells = cell_nums[visible] // (parent_mesh.layers - 1)
+            else:
+                lookup_cells = cell_nums[visible]
+            owner_ranks[visible] = visible_ranks[lookup_cells]
+        return owner_ranks
 
     gdim = parent_mesh.geometric_dimension
     comm = parent_mesh.comm
@@ -4558,17 +4595,6 @@ def _parent_mesh_embedding_new(
     sf.bcastEnd(double_type, coords_flat, coords_recv_flat, MPI.REPLACE)
     coords_recv = coords_recv_flat.reshape(n_recv_total, gdim)
 
-    def _locate_cells(xs: np.ndarray, cells_ignore=None):
-        # Given an array of coordinates, returns the cell numbers, reference coordinates,
-        # and L1 distances to the reference cell for each coodinate. 
-        cell_nums, ref_coords, ref_dists_l1 = parent_mesh.locate_cells_ref_coords_and_dists(
-            xs, tolerance, cells_ignore=cells_ignore
-        )
-        if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-            # We have an extra dimension we can safely drop.
-            ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
-        return cell_nums, ref_coords, ref_dists_l1
-
     # Locate parent cells for each received candidate on this rank.
     parent_cell_nums, reference_coords, ref_cell_dists_l1 = _locate_cells(coords_recv)
 
@@ -4585,19 +4611,6 @@ def _parent_mesh_embedding_new(
         parent_mesh.topology._cell_numbering,
         visible_ranks,
     )
-
-    def _owning_ranks(cell_nums: np.ndarray) -> np.ndarray:
-        # Given an array of cell numbers, returns the owning rank for each cell,
-        # or -1 if not visible on this rank.
-        owner_ranks = np.full_like(cell_nums, -1, dtype=IntType)
-        visible = cell_nums != -1
-        if np.any(visible):
-            if parent_mesh.extruded:
-                lookup_cells = cell_nums[visible] // (parent_mesh.layers - 1)
-            else:
-                lookup_cells = cell_nums[visible]
-            owner_ranks[visible] = visible_ranks[lookup_cells]
-        return owner_ranks
 
     # Root-wise minimum distance over candidate leaves.
     ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
@@ -4631,12 +4644,12 @@ def _parent_mesh_embedding_new(
     # match the elected winner rank for that root, retry location while
     # excluding previously selected cells until we either find a matching
     # owner-rank cell at the same minimum distance or run out of candidates.
-    retry_leaf_indices = (
+    retry_leaf_indices = np.flatnonzero(
         is_min_candidate
         & (winner_ranks_on_leaves != -1)
         & (candidate_owner_ranks != winner_ranks_on_leaves)
-    )
-    if np.any(retry_leaf_indices):
+    ).astype(IntType)
+    if len(retry_leaf_indices):
         retry_cells_ignore = parent_cell_nums[retry_leaf_indices].reshape((-1, 1))
 
         while len(retry_leaf_indices):
@@ -4653,9 +4666,8 @@ def _parent_mesh_embedding_new(
             candidate_owner_ranks[retry_leaf_indices] = new_owner_ranks
 
             winners_local = winner_ranks_on_leaves[retry_leaf_indices]
-            same_min_dist = retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[retry_leaf_indices]
             has_matching_owner = new_owner_ranks == winners_local
-            keep_candidate = (retry_cells != -1) & same_min_dist
+            keep_candidate = (retry_cells != -1) & (retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[retry_leaf_indices])
 
             # Continue retries only for still-valid but owner-mismatched leaves.
             keep_retry = keep_candidate & ~has_matching_owner
@@ -4673,8 +4685,23 @@ def _parent_mesh_embedding_new(
 
     leaf_is_winner = is_min_candidate & (winner_ranks_on_leaves == comm.rank)
 
+    leaf_is_embedded = is_min_candidate.copy()
+    if exclude_halos:
+        leaf_is_embedded &= leaf_is_winner
+
+    missing_roots = winner_ranks == -1
+    if not remove_missing_points:
+        winner_ranks[missing_roots] = comm.size + 1
+        _, _, leaf_remote = sf.getGraph()
+        input_ranks_on_leaves = leaf_remote[:, 0].astype(IntType)
+        missing_local_leaves = (winner_ranks_on_leaves == -1) & (input_ranks_on_leaves == comm.rank)
+        if np.any(missing_local_leaves):
+            leaf_is_embedded |= missing_local_leaves
+            parent_cell_nums[missing_local_leaves] = -1
+            reference_coords[missing_local_leaves, :] = np.nan
+
     # Remove losing candidates from the SF
-    selected_leaf_indices = np.flatnonzero(is_min_candidate).astype(IntType)
+    selected_leaf_indices = np.flatnonzero(leaf_is_embedded).astype(IntType)
     embedded_sf = sf.createEmbeddedLeafSF(selected_leaf_indices)
 
     # Reduce winner cell and reference coords back to roots.
@@ -4689,7 +4716,6 @@ def _parent_mesh_embedding_new(
     embedded_sf.reduceBegin(double_unit, ref_coords_leaves, winner_ref_coords, op=MPI.SUM)
     embedded_sf.reduceEnd(double_unit, ref_coords_leaves, winner_ref_coords, op=MPI.SUM)
 
-    missing_roots = winner_ranks == -1
     winner_ref_coords[missing_roots] = np.nan
     n_missing_points = np.sum(missing_roots)
 
