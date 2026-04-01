@@ -110,7 +110,10 @@ def _get_mesh_and_V(params):
             elem = TensorProductElement(helem, velem)
             V = FunctionSpace(mesh, elem)
         else:
-            raise NotImplementedError
+            assert cell_type == "quadrilateral"
+            base = UnitSquareMesh(10, 10, name=f"{mesh_name}_base")
+            mesh = ExtrudedMesh(base, layers=5, layer_height=1.0, name=mesh_name)
+            V = FunctionSpace(mesh, "P", 3)
     elif periodic:
         if cell_type == "triangle":
             mesh = PeriodicUnitSquareMesh(20, 20, name=mesh_name)
@@ -166,6 +169,7 @@ test_io_backward_compat_base_params = [
     ("quadrilateral", False, False, False, False, False, False),
     ("hexahedron", False, False, False, False, False, False),
     ("triangle", False, True, False, False, False, False),  # extruded (variable layer)
+    ("quadrilateral", False, True, False, False, False, False),  # extruded (constant layer)
     ("triangle", True, False, False, False, False, False),  # periodic
     ("tetrahedron", True, False, False, False, False, False),  # periodic
     ("interval", False, True, True, False, False, False),  # extruded_periodic
