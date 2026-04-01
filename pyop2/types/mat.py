@@ -1173,7 +1173,7 @@ class _DatMatPayload:
                     else:
                         x.array_r
                     with mpi.temp_internal_comm(x.comm) as comm:
-                        comm.bcast(a)
+                        a = comm.bcast(a)
                     return y.scale(a)
                 else:
                     return v.pointwiseMult(x, y)
