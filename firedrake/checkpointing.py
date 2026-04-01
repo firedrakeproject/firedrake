@@ -1496,10 +1496,7 @@ class CheckpointFile(object):
                 path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 _f = self.load_function(mesh, _name, idx=idx)
-                element = V.ufl_element()
-                _element = get_embedding_element_for_checkpointing(element, V.value_shape)
-                method = get_embedding_method_for_checkpointing(element)
-                assert _element == _f.function_space().ufl_element()
+                method = get_embedding_method_for_checkpointing(V.ufl_element())
                 f = Function(V, name=name)
                 self._project_function_for_checkpointing(f, _f, method)
                 return f
