@@ -4591,15 +4591,29 @@ def _parent_mesh_embedding_new(
     # Candidate leaves are those that are visible and have the minimum L1 distance.
     is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
-    # Tie-break among candidates by highest rank.
-    if parent_mesh.extruded:
-        # Map back to base cell numbers
-        base_cell_nums = parent_cell_nums // (parent_mesh.layers - 1)
-        is_owned_cell = base_cell_nums < parent_mesh.cell_set.size
-    else:
-        is_owned_cell = parent_cell_nums < parent_mesh.cell_set.size
+    # Determine owner rank for each locally visible candidate cell.
+    # We do this via halo exchange, matching the legacy allgather-based
+    # embedding behaviour for tie handling at partition boundaries.
+    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+    visible_ranks[:parent_mesh.cell_set.size] = comm.rank
+    visible_ranks[parent_mesh.cell_set.size:] = -1
+    dmcommon.exchange_cell_orientations(
+        parent_mesh.topology.topology_dm,
+        parent_mesh.topology._cell_numbering,
+        visible_ranks,
+    )
+    local_visible_cell_nums = np.empty(0, dtype=IntType)
+    if np.any(locally_visible):
+        if parent_mesh.extruded:
+            local_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
+        else:
+            local_visible_cell_nums = parent_cell_nums[locally_visible]
+    candidate_owner_ranks = np.full(n_recv_total, -1, dtype=IntType)
+    candidate_owner_ranks[locally_visible] = visible_ranks[local_visible_cell_nums]
+
+    # Tie-break among candidates by highest owner rank.
     rank_candidates = np.full(n_recv_total, -1, dtype=IntType)
-    rank_candidates[is_min_candidate & is_owned_cell] = comm.rank
+    rank_candidates[is_min_candidate] = candidate_owner_ranks[is_min_candidate]
     winner_ranks = np.full(nroots, -1, dtype=IntType)
     sf.reduceBegin(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
     sf.reduceEnd(int_unit, rank_candidates, winner_ranks, op=MPI.MAX)
@@ -4608,6 +4622,80 @@ def _parent_mesh_embedding_new(
     winner_ranks_on_leaves = np.empty(n_recv_total, dtype=IntType)
     sf.bcastBegin(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
     sf.bcastEnd(int_unit, winner_ranks, winner_ranks_on_leaves, MPI.REPLACE)
+
+    # If a leaf selected a minimum-distance cell whose owner rank does not
+    # match the elected winner rank for that root, retry location while
+    # excluding previously selected cells until we either find a matching
+    # owner-rank cell at the same minimum distance or run out of candidates.
+    retry_mask = (
+        is_min_candidate
+        & (winner_ranks_on_leaves != -1)
+        & (candidate_owner_ranks != winner_ranks_on_leaves)
+    )
+    if np.any(retry_mask):
+        retry_leaf_indices = np.flatnonzero(retry_mask)
+        cells_ignore = parent_cell_nums[retry_leaf_indices].reshape((-1, 1)).astype(IntType, copy=True)
+        active = np.ones(len(retry_leaf_indices), dtype=bool)
+
+        while np.any(active):
+            active_rows = np.flatnonzero(active)
+            active_leaf_indices = retry_leaf_indices[active_rows]
+
+            retry_cells, retry_reference_coords, retry_ref_cell_dists_l1 = parent_mesh.locate_cells_ref_coords_and_dists(
+                coords_recv[active_leaf_indices],
+                tolerance,
+                cells_ignore=cells_ignore[active_rows],
+            )
+
+            if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
+                retry_reference_coords = retry_reference_coords[:, :parent_mesh.topological_dimension]
+
+            parent_cell_nums[active_leaf_indices] = retry_cells
+            reference_coords[active_leaf_indices, :] = retry_reference_coords
+            ref_cell_dists_l1[active_leaf_indices] = retry_ref_cell_dists_l1
+            locally_visible[active_leaf_indices] = retry_cells != -1
+
+            new_owner_ranks = np.full(len(active_leaf_indices), -1, dtype=IntType)
+            visible_local = retry_cells != -1
+            if np.any(visible_local):
+                if parent_mesh.extruded:
+                    candidate_base_cells = retry_cells[visible_local] // (parent_mesh.layers - 1)
+                else:
+                    candidate_base_cells = retry_cells[visible_local]
+                new_owner_ranks[visible_local] = visible_ranks[candidate_base_cells]
+            candidate_owner_ranks[active_leaf_indices] = new_owner_ranks
+
+            winners_local = winner_ranks_on_leaves[active_leaf_indices]
+            same_min_dist = retry_ref_cell_dists_l1 <= ref_cell_dists_min_on_leaves[active_leaf_indices]
+            has_matching_owner = new_owner_ranks == winners_local
+            keep_candidate = visible_local & same_min_dist
+
+            # Drop leaves that are no longer valid minimum-distance candidates.
+            invalid = ~keep_candidate
+            if np.any(invalid):
+                invalid_leaf_indices = active_leaf_indices[invalid]
+                is_min_candidate[invalid_leaf_indices] = False
+
+            # Continue retries only for still-valid but owner-mismatched leaves.
+            still_retry = keep_candidate & ~has_matching_owner
+            if not np.any(still_retry):
+                active[active_rows] = False
+                break
+
+            stop_rows = active_rows[~still_retry]
+            if len(stop_rows):
+                active[stop_rows] = False
+
+            # Add newly tried cells to ignore set for rows that continue.
+            new_ignore_col = np.full((len(retry_leaf_indices), 1), -1, dtype=IntType)
+            continue_rows = active_rows[still_retry]
+            new_ignore_col[continue_rows, 0] = retry_cells[still_retry]
+            cells_ignore = np.hstack((cells_ignore, new_ignore_col))
+
+        # Recompute the visible distances after retries.
+        ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
+        is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
+
     leaf_is_winner = is_min_candidate & (winner_ranks_on_leaves == comm.rank)
 
     # Remove losing candidates from the SF
