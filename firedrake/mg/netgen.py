@@ -274,11 +274,9 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     lgmaps.append((no, o))
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
-    ngmesh = mesh.netgen_mesh
+    base_ngmesh = mesh.netgen_mesh
     for l in range(1, levs+1):
-        # Straighten the mesh
-        ngmesh.Curve(1)
-        rdm, ngmesh = refinementTypes[refType][0](ngmesh, cdm)
+        rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
         cdm = rdm
         if optMoves:
             # Optimises the mesh, for example smoothing

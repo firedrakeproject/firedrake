@@ -3,10 +3,11 @@ import numpy
 from firedrake import *
 
 
-@pytest.fixture(params=[(3, "occ"), (2, "occ"), (2, "spline"), (2, "csg")],
+@pytest.fixture(params=[(2, "occ"), (2, "spline"), (2, "csg"), (3, "occ"), (3, "csg")],
                 ids=lambda val: "-".join(map(str, val)))
 def ngmesh(request):
     dim, geo_type = request.param
+    maxh = 0.75
     if dim == 2:
         if geo_type == "occ":
             from netgen.occ import Circle, OCCGeometry
@@ -35,11 +36,12 @@ def ngmesh(request):
             sphere = Sphere(Pnt(0, 0, 0), 1)
             sphere.bc("surface")
             geo.Add(sphere)
+            maxh = 0.5
         else:
             raise ValueError(f"Unexpected geometry backend {geo_type}")
     else:
         raise ValueError(f"Unexpected dimension {dim}")
-    ngmesh = geo.GenerateMesh(maxh=0.75)
+    ngmesh = geo.GenerateMesh(maxh=maxh)
     return ngmesh
 
 
@@ -97,8 +99,7 @@ def test_netgen_mg(ngmesh, netgen_degree):
         errors.append(err)
 
     if len(set(netgen_degree)) > 1:
-        # Non-uniform degree
-        # Just check for accuracy
+        # Just check for accuracy if we have non-uniform degree
         assert errors[-1] < 6E-3
     else:
         rate = -numpy.diff(numpy.log2(errors))
