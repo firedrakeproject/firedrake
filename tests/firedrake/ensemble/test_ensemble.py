@@ -329,7 +329,6 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("blocking", blocking)
 def test_sendrecv(ensemble, mesh, W, urank, blocking):
-
     src_rank = (ensemble.ensemble_rank - 1) % ensemble.ensemble_size
     dst_rank = (ensemble.ensemble_rank + 1) % ensemble.ensemble_size
 
@@ -349,6 +348,53 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
         MPI.Request.Waitall(requests)
 
     parallel_assert(errornorm(urecv, u_expect) < 1e-12)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize("recv_counts", ["no_recvcounts", "recvcounts"])
+@pytest.mark.parametrize("distribution", ["balanced", "imbalanced"])
+def test_allgather(ensemble, mesh, recv_counts, distribution):
+    U = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "DG", 2)
+    W = U*V
+    spaces = [U, W, V]
+
+    if distribution == "balanced":
+        recvcounts = [2, 2, 2]
+    elif distribution == "imbalanced":
+        recvcounts = [1, 3, 2]
+    else:
+        raise ValueError(f"Unrecognised {distribution=}")
+
+    rank = ensemble.ensemble_rank
+
+    local_spaces = spaces[:recvcounts[rank]]
+
+    global_spaces = []
+    for root in range(ensemble.ensemble_size):
+        for i in range(recvcounts[root]):
+            global_spaces.append(spaces[i])
+
+    fsend = [Function(fs).assign(10*(rank+1) + i)
+             for i, fs in enumerate(local_spaces)]
+
+    frecv = [Function(fs) for fs in global_spaces]
+
+    if recv_counts == "no_recvcounts":
+        ensemble.allgather(fsend, frecv)
+    elif recv_counts == "recvcounts":
+        ensemble.allgather(fsend, frecv, recvcounts=recvcounts)
+    else:
+        raise ValueError(f"Unrecognised {recv_counts=}")
+
+    idx = 0
+    for root in range(ensemble.ensemble_size):
+        for i in range(recvcounts[root]):
+            fcheck = Function(spaces[i]).assign(10*(root+1) + i)
+            f = frecv[idx]
+            error = errornorm(fcheck, f)/norm(fcheck)
+            parallel_assert(error < 1e-12, msg=f"{root=} | {i=} | {error=}")
+            idx += 1
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -390,7 +436,6 @@ def test_ensemble_sequential(ensemble, direction):
     the correct values after each rank has executed, for both
     intrinsic types (float) and Firedrake types (Function).
     """
-
     rank = ensemble.ensemble_rank
     mesh = UnitIntervalMesh(1, comm=ensemble.comm)
     R = FunctionSpace(mesh, "R", 0)

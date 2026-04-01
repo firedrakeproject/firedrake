@@ -71,7 +71,7 @@ class NoiseBackendBase:
                  seed: int | None = None):
         self._V = V
         self._Vb = V.broken_space()
-        self._rng = rng or RandomGenerator(PCG64(seed=seed))
+        self._rng = rng or RandomGenerator(PCG64(seed=seed, comm=V.comm))
 
     @abc.abstractmethod
     def sample(self, *, rng=None,
@@ -323,7 +323,7 @@ class VOMNoiseBackend(NoiseBackendBase):
 
         b = rng.standard_normal(self.function_space)
 
-        if apply_riesz:
+        if not apply_riesz:
             b = b.riesz_representation(self.riesz_map)
 
         if tensor:
@@ -886,6 +886,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
 
     See Also
     --------
+    AutoregressiveCovariance
     AutoregressiveCovariance.DiffusionForm
     """
     if formulation == AutoregressiveCovariance.DiffusionForm.CG:
