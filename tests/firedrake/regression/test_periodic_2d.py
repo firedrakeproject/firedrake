@@ -39,8 +39,6 @@ def test_periodic_helmholtz(direction, cell_options):
     f = Function(V).assign((244.0*pi*pi/225.0 + 1.0)*u_exact)
 
     bcs = DirichletBC(V, 0, "on_boundary")
-    elif direction == "both":
-        bcs = []
     u = TrialFunction(V)
     v = TestFunction(V)
 
