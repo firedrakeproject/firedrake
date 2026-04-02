@@ -587,7 +587,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :kwarg tolerance: Tolerence to use when checking if a point is
             in a cell. Default is the ``tolerance`` provided when
             creating the :func:`~.Mesh` the function is defined on.
-            Changing this from default will cause the spatial index to
+            Changing this from default will cause the rtree to
             be rebuilt which can take some time.
         """
         # Shortcut if function space is the R-space

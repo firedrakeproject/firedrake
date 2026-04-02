@@ -29,7 +29,7 @@ cdef extern from "rtree-capi.h":
 
 
 cdef class RTree(object):
-    """Python class for holding a spatial index."""
+    """Python class for holding an Rtree."""
 
     cdef RTreeH* tree
 
@@ -45,7 +45,7 @@ cdef class RTree(object):
 
     @property
     def ctypes(self):
-        """Returns a ctypes pointer to the native spatial index."""
+        """Returns a ctypes pointer to the rtree."""
         return ctypes.c_void_p(<uintptr_t> self.tree)
 
 

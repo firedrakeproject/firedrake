@@ -2458,7 +2458,7 @@ values from f.)"""
         Notes
         -----
         After changing tolerance any requests for :attr:`rtree` will cause
-        the spatial index to be rebuilt with the new tolerance which may take some time.
+        the rtree to be rebuilt with the new tolerance which may take some time.
         """
         return self._tolerance
 
@@ -2480,7 +2480,7 @@ values from f.)"""
     @cached_property
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Calculates bounding boxes for spatial indexing.
+        """Calculates bounding boxes for the mesh rtree.
 
         Returns
         -------
@@ -2562,8 +2562,8 @@ values from f.)"""
     @property
     @PETSc.Log.EventDecorator()
     def rtree(self):
-        """Builds spatial index from bounding box coordinates, expanding
-        the bounding box by the mesh tolerance.
+        """Builds an rtree from bounding box coordinates, expanding
+        the bounding boxes by the mesh tolerance.
 
         Returns
         -------
@@ -2573,7 +2573,7 @@ values from f.)"""
         -----
         If this mesh has a :attr:`tolerance` property, which
         should be a float, this tolerance is added to the extrema of the
-        spatial index so that points just outside the mesh, within tolerance,
+        rtree so that points just outside the mesh, within tolerance,
         can be found.
 
         """
@@ -2617,7 +2617,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: cell number (int), or None (if the point is not
@@ -2632,7 +2632,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: reference coordinates within cell (numpy array) or
@@ -2647,7 +2647,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: tuple either
@@ -2671,7 +2671,7 @@ values from f.)"""
         :arg xs: 1 or more point coordinates of shape (npoints, gdim)
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cells_ignore: Cell numbers to ignore in the search for each
             point in xs. Shape should be (npoints, n_ignore_pts). Each column
@@ -3549,7 +3549,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the mesh will be built using just the vertices
         which are specified on rank 0. If False, the mesh will be built using
@@ -3719,7 +3719,7 @@ def _pic_swarm_in_mesh(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
@@ -4205,7 +4205,7 @@ def _parent_mesh_embedding(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     redundant : ``bool``
         If True, the embedding will be done using only the points specified on
