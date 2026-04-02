@@ -2379,7 +2379,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.submesh_parent = None
 
         self._bounding_box_coords = None
-        self._spatial_index = None
+        self._rtree = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
         # Cache mesh object on the coordinateless coordinates function
@@ -2457,7 +2457,7 @@ values from f.)"""
 
         Notes
         -----
-        After changing tolerance any requests for :attr:`spatial_index` will cause
+        After changing tolerance any requests for :attr:`rtree` will cause
         the spatial index to be rebuilt with the new tolerance which may take some time.
         """
         return self._tolerance
@@ -2467,15 +2467,15 @@ values from f.)"""
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
-            self.clear_spatial_index()
+            self.clear_rtree()
             self._tolerance = value
 
-    def clear_spatial_index(self):
-        """Reset the :attr:`spatial_index` on this mesh geometry.
+    def clear_rtree(self):
+        """Reset the :attr:`rtree` on this mesh geometry.
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        self._spatial_index = None
+        self._rtree = None
 
     @cached_property
     @PETSc.Log.EventDecorator()
@@ -2561,7 +2561,7 @@ values from f.)"""
 
     @property
     @PETSc.Log.EventDecorator()
-    def spatial_index(self):
+    def rtree(self):
         """Builds spatial index from bounding box coordinates, expanding
         the bounding box by the mesh tolerance.
 
@@ -2581,8 +2581,8 @@ values from f.)"""
             if "bounding_box_coords" in self.__dict__:
                 del self.bounding_box_coords
         else:
-            if self._spatial_index:
-                return self._spatial_index
+            if self._rtree:
+                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2605,10 +2605,10 @@ values from f.)"""
         coords_min = coords_mid - (tolerance + 0.5)*d
         coords_max = coords_mid + (tolerance + 0.5)*d
 
-        with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = rtree.build_from_aabb(coords_min, coords_max)
+        with PETSc.Log.Event("rtree_build"):
+            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
-        return self._spatial_index
+        return self._rtree
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):

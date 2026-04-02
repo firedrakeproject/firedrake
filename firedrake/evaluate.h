@@ -26,7 +26,7 @@ struct Function {
 	PetscInt *f_map;
 
 	/* Spatial index */
-	void *sidx;
+	void *rtree;
 
 	/*
 	 * TODO:

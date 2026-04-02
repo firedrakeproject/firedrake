@@ -5,9 +5,28 @@ import numpy as np
 import ctypes
 import cython
 from libc.stddef cimport size_t
-from libc.stdint cimport uintptr_t
+from libc.stdint cimport uintptr_t, uint32_t
 
-include "rtreeinc.pxi"
+cdef extern from "rtree-capi.h":
+    ctypedef enum RTreeError:
+        Success
+        NullPointer
+        InvalidDimension
+
+    ctypedef struct RTreeH:
+        pass
+
+    RTreeError rtree_bulk_load(
+        RTreeH **tree,
+        const double *mins,
+        const double *maxs,
+        const size_t *ids,
+        size_t n,
+        uint32_t dim
+    )
+
+    RTreeError rtree_free(RTreeH *tree)
+
 
 cdef class RTree(object):
     """Python class for holding a spatial index."""
