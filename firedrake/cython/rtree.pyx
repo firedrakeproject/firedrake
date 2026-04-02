@@ -220,7 +220,7 @@ def discover_ranks(
     return toranks, send_offsets, point_indices, fromranks_out, recv_counts_out
 
 def tree_depth(RTree rtree):
-    """Return the depth of the R*-tree."""
+    """Return the depth of the Rtree."""
     cdef:
         size_t depth = 0
         RTreeError err
@@ -263,7 +263,11 @@ cdef class RTreeNode(object):
     def __cinit__(self, uintptr_t node_handle, bint is_root=False,
                   owning_tree=None, children_owner_ref=None):
         self.is_root = is_root
+        # Create a reference to the owning tree to avoid cleaning up the rtree
+        # while the node is still alive.
         self.owning_tree = owning_tree
+        # We create a reference to the object owning the children since we need
+        # to free all the children at the same time with `rtree_node_children_free`.
         self.children = children_owner_ref
         if node_handle == 0:
             raise RuntimeError("invalid node handle")
@@ -280,7 +284,7 @@ cdef class RTreeNode(object):
 
     def __dealloc__(self):
         if self.node_handle != <RTreeNodeH*>0 and self.is_root:
-            # We only free the node if it is the root. Child nodes
+            # We can only free the node if it is the root. Child nodes
             # must be freed all at once by `rtree_node_children_free`.
             # The RTreeNodeChildren class facilitates this.
             rtree_node_free(self.node_handle)
@@ -310,6 +314,8 @@ def node_children(RTreeNode node):
     if err != Success:
         raise RuntimeError("rtree_node_children failed")
 
+    # We create an RTreeNodeChildren object to own the children array
+    # to make sure that it gets freed when we're done with it.
     child_nodes = RTreeNodeChildren(<uintptr_t>children, nchildren)
 
     result = [
@@ -323,13 +329,14 @@ def node_children(RTreeNode node):
     return result
 
 def node_envelope(RTreeNode node, size_t dim):
-    """Return the (mins, maxs) bounding envelope of an R*-tree node."""
+    """Return the (mins, maxs) bounding envelope of an Rtree node."""
     cdef:
         np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
         np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
         RTreeError err
     err = rtree_node_envelope(node.node_handle, <double*>mins.data, <double*>maxs.data)
     if err == EmptyNodeEnvelope:
+        # This only happens if the node is a root of an empty tree.
         raise EmptyNodeEnvelopeError("Node has no envelope (empty node)")
     elif err != Success:
         raise RuntimeError("rtree_node_envelope failed")
