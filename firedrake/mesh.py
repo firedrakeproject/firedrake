@@ -2761,8 +2761,9 @@ values from f.)"""
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{firedrake_rtree.get_include()}"
-                ] + [f"-I{d}/include" for d in get_petsc_dir()],
+                    f"-I{firedrake_rtree.get_include()}",
+                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
                     firedrake_rtree.get_lib_filename(),
