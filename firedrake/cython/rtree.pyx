@@ -5,7 +5,7 @@ import numpy as np
 import ctypes
 import cython
 from libc.stddef cimport size_t
-from libc.stdint cimport uintptr_t
+from libc.stdint cimport uintptr_t, uint32_t
 
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
@@ -16,9 +16,63 @@ cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_INT
 from petsc4py.PETSc cimport CHKERR
 
-include "rtreeinc.pxi"
 include "petschdr.pxi"
-include "petschdr.pxi"
+
+cdef extern from "rtree-capi.h":
+    ctypedef enum RTreeError:
+        Success
+        NullPointer
+        InvalidDimension
+        EmptyNodeEnvelope
+
+    ctypedef struct RTreeH:
+        pass
+
+    ctypedef struct RTreeNodeH:
+        pass
+
+    RTreeError rtree_bulk_load(
+        RTreeH **tree,
+        const double *mins,
+        const double *maxs,
+        const size_t *ids,
+        size_t n,
+        uint32_t dim
+    )
+
+    RTreeError rtree_free(RTreeH *tree)
+
+    RTreeError rtree_free_ids(size_t *ids, size_t n)
+
+    RTreeError rtree_locate_all_at_point(
+        const RTreeH *tree,
+        const double *point,
+        size_t **ids_out,
+        size_t *nids_out
+    )
+
+    RTreeError rtree_depth(const RTreeH *tree, size_t *depth_out)
+
+    RTreeError rtree_root_node(
+        const RTreeH *tree,
+        RTreeNodeH **node
+    )
+
+    RTreeError rtree_node_children(
+        const RTreeNodeH *node,
+        RTreeNodeH ***children_out,
+        size_t *nchildren_out
+    )
+
+    RTreeError rtree_node_children_free(RTreeNodeH **children, size_t n)
+
+    RTreeError rtree_node_free(RTreeNodeH *node)
+
+    RTreeError rtree_node_envelope(
+        const RTreeNodeH *node,
+        double *mins_out,
+        double *maxs_out
+    )
 
 cdef class RTree(object):
     """Python class for holding a spatial index."""
@@ -92,7 +146,6 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
         dim
     )
     if err != Success:
-        raise RuntimeError("RTree_FromArray failed")
         raise RuntimeError("RTree_FromArray failed")
 
     return RTree(<uintptr_t>rtree)
@@ -252,7 +305,7 @@ cdef class RTreeNodeChildren(object):
             self.nchildren = 0
 
 cdef class RTreeNode(object):
-    """Python class for holding a spatial index node."""
+    """Python class for holding an rtree node."""
 
     cdef RTreeNodeH* node_handle
     cdef bint is_root
@@ -292,7 +345,7 @@ cdef class RTreeNode(object):
             print("node deallocated")
 
 def root_node(RTree rtree):
-    """Return the root node of the R*-tree."""
+    """Return the root node of the Rtree."""
     cdef:
         RTreeNodeH* node
         RTreeError err
@@ -329,7 +382,7 @@ def node_children(RTreeNode node):
     return result
 
 def node_envelope(RTreeNode node, size_t dim):
-    """Return the (mins, maxs) bounding envelope of an Rtree node."""
+    """Return the (mins, maxs) bounding envelope of an rtree node."""
     cdef:
         np.ndarray[np.float64_t, ndim=1, mode="c"] mins = np.empty(dim, dtype=np.float64)
         np.ndarray[np.float64_t, ndim=1, mode="c"] maxs = np.empty(dim, dtype=np.float64)
