@@ -25,7 +25,7 @@ struct Function {
 	PetscScalar *f;
 	PetscInt *f_map;
 
-	/* rtree */
+	/* Spatial index */
 	void *rtree;
 
 	/*
