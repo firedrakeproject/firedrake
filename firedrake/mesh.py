@@ -4005,7 +4005,6 @@ def _pic_swarm_in_mesh(
     int_unit = MPI._typedict[np.dtype(IntType).char]
 
     (
-        sf,
         embedded_sf,
         winner_cells,
         winner_ref_coords,
@@ -4017,6 +4016,9 @@ def _pic_swarm_in_mesh(
         leaf_is_winner,
         is_min_candidate,
         winner_ranks_on_leaves,
+        input_ranks_on_leaves,
+        input_idxs_on_leaves,
+        global_idxs_on_leaves,
         coords_recv,
     ) = _parent_mesh_embedding_new(
         parent_mesh,
@@ -4043,16 +4045,6 @@ def _pic_swarm_in_mesh(
     n_owned = len(owned_indices)
     n_halo = len(halo_indices)
     all_indices = np.concatenate([owned_indices, halo_indices])
-
-    # Get inputrank / inputindex for each leaf from the SF remote array.
-    _, _, leaf_remote = sf.getGraph()
-    input_ranks_on_leaves = leaf_remote[:, 0].astype(IntType)
-    input_idxs_on_leaves = leaf_remote[:, 1].astype(IntType)
-
-    # Broadcast global_idxs from roots to leaves.
-    global_idxs_on_leaves = np.empty(n_recv_total, dtype=IntType)
-    sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
-    sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
 
     # Build DMSwarm
     swarm_parent_cell_nums = parent_cell_nums_leaves[all_indices]
@@ -4131,9 +4123,9 @@ def _pic_swarm_in_mesh(
     swarm_remote = np.empty(2 * n_halo, dtype=IntType)
     swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices]
     swarm_remote[1::2] = owner_swarm_idx_on_leaves[halo_indices]
-    swarm_psf = swarm.getPointSF()
-    swarm_psf.setGraph(n_total, sf_halo_local, swarm_remote)
-    swarm.setPointSF(swarm_psf)
+    swarm_point_sf = swarm.getPointSF()
+    swarm_point_sf.setGraph(n_total, sf_halo_local, swarm_remote)
+    swarm.setPointSF(swarm_point_sf)
 
     # Build original ordering swarm
     if redundant and comm.rank != 0:
@@ -4169,9 +4161,9 @@ def _pic_swarm_in_mesh(
     )
 
     # No halos in original_ordering_swarm: each point is unique to its input rank.
-    oo_sf = original_ordering_swarm.getPointSF()
-    oo_sf.setGraph(nroots, None, [])
-    original_ordering_swarm.setPointSF(oo_sf)
+    original_ordering_point_sf = original_ordering_swarm.getPointSF()
+    original_ordering_point_sf.setGraph(nroots, None, [])
+    original_ordering_swarm.setPointSF(original_ordering_point_sf)
 
     return swarm, original_ordering_swarm, n_missing_points
 
@@ -4462,7 +4454,7 @@ def _embedding_star_forest(
 
     sf = PETSc.SF().create(comm=comm)
     sf.setGraph(nroots, None, remote)
-    return sf
+    return sf, remote
 
 
 @PETSc.Log.EventDecorator()
@@ -4596,9 +4588,16 @@ def _parent_mesh_embedding_new(
     # This will be the total number of leaves in the SF on this rank
     n_recv_total = recv_counts.sum()
 
-    sf = _embedding_star_forest(
+    sf, remote = _embedding_star_forest(
         toranks, send_offsets, point_indices, nroots, fromranks, recv_counts, comm
     )
+    input_ranks_on_leaves = remote[:, 0].astype(IntType)
+    input_idxs_on_leaves = remote[:, 1].astype(IntType)
+
+    # Assign global indices to each leaf
+    global_idxs_on_leaves = np.empty(n_recv_total, dtype=IntType)
+    sf.bcastBegin(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
+    sf.bcastEnd(int_unit, global_idxs, global_idxs_on_leaves, MPI.REPLACE)
 
     # Broadcast point coordinates to candidate leaves.
     coords_flat = coords.ravel()
@@ -4704,8 +4703,6 @@ def _parent_mesh_embedding_new(
     missing_roots = winner_ranks == -1
     if not remove_missing_points:
         winner_ranks[missing_roots] = comm.size + 1
-        _, _, leaf_remote = sf.getGraph()
-        input_ranks_on_leaves = leaf_remote[:, 0].astype(IntType)
         missing_local_leaves = (winner_ranks_on_leaves == -1) & (input_ranks_on_leaves == comm.rank)
         if np.any(missing_local_leaves):
             leaf_is_embedded |= missing_local_leaves
@@ -4735,7 +4732,6 @@ def _parent_mesh_embedding_new(
         double_type.Free()
 
     return (
-        sf,
         embedded_sf,
         winner_cells,
         winner_ref_coords,
@@ -4747,6 +4743,9 @@ def _parent_mesh_embedding_new(
         leaf_is_winner,
         is_min_candidate,
         winner_ranks_on_leaves,
+        input_ranks_on_leaves,
+        input_idxs_on_leaves,
+        global_idxs_on_leaves,
         coords_recv,
     )
 
