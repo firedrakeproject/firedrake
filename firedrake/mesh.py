@@ -2639,9 +2639,9 @@ values from f.)"""
             Array of shape ``(n_nodes, 2, gdim)`` containing the bounding
             boxes of all nodes at ``max_level``.
         """
-        spatial_index = self.spatial_index
+        mesh_rtree = self.rtree
         gdim = self.geometric_dimension
-        current_level = [rtree.root_node(spatial_index)]
+        current_level = [rtree.root_node(mesh_rtree)]
         for _ in range(max_level):
             print(f"Level {_}: {len(current_level)} nodes, max level {max_level}")
             next_level = []
@@ -2675,7 +2675,7 @@ values from f.)"""
             Array of shape `(n_boxes, 2, gdim)` containing all the bounding boxes
             at the chosen level.
         """
-        tree_depth = rtree.tree_depth(self.spatial_index)
+        tree_depth = rtree.tree_depth(self.rtree)
         if tree_depth == 0:
             # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
             return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
@@ -4591,6 +4591,7 @@ def _parent_mesh_embedding_new(
     sf, remote = _embedding_star_forest(
         toranks, send_offsets, point_indices, nroots, fromranks, recv_counts, comm
     )
+    remote = remote.reshape(-1, 2)
     input_ranks_on_leaves = remote[:, 0].astype(IntType)
     input_idxs_on_leaves = remote[:, 1].astype(IntType)
 
