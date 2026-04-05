@@ -121,7 +121,7 @@ are very close to one throughout:
 | 7                     | 1.0352                        |
 +-----------------------+-------------------------------+
 
-Changing the tolerance to :math:`10^{-8}` takes 38 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
+Changing the tolerance to :math:`10^{-8}` takes 37 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
 
 .. image:: mesh_38.png
     :align: center
