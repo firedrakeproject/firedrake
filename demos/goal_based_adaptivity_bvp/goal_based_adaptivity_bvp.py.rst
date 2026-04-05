@@ -53,7 +53,7 @@ Notice that we can set very coarse tolerances on the nonlinear solvers, as DWR a
     solver_parameters = {
                  "snes_monitor": None,
                  "snes_atol": 1e-6,
-                 "snes_rtol": 1e-1,
+                 "snes_rtol": 1e-1, # very coarse!
                  "snes_linesearch_monitor": None,
                  "snes_linesearch_type": "l2",
                  "snes_linesearch_maxlambda": 1}
@@ -68,8 +68,8 @@ We now specify options for how the goal-based adaptivity should proceed. We choo
 where the adjoint solution is approximated in a higher-degree function space, and where both the adjoint and primal residuals
 are employed for the error estimate. This requires four solves on every grid (primal and adjoint solutions with degree :math:`p`
 and :math:`p+1`), and gives a provably efficient and reliable error estimator under a saturation assumption up to a term that is cubic in the error :cite:`Endtmayer2024`.
-It is possible to employ cheaper approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver`
-appropriately. ::
+It is possible to employ cheaper and more practical approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver`
+appropriately, as discussed below. ::
 
     dwr_parameters = {
         "max_iterations": 100,
@@ -118,7 +118,7 @@ are very close to one throughout:
 +-----------------------+-------------------------------+
 | 6                     | 0.9901                        |
 +-----------------------+-------------------------------+
-| 7                     | 1.0352                        |
+| 7                     | 0.9659                        |
 +-----------------------+-------------------------------+
 
 Changing the tolerance to :math:`10^{-8}` takes 37 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
@@ -126,6 +126,8 @@ Changing the tolerance to :math:`10^{-8}` takes 37 refinements. The resulting me
 .. image:: mesh_38.png
     :align: center
     :width: 60%
+
+We now discuss more practical variants. The configuration above solves four PDEs per adaptive step (primal and adjoint, degree :math:`p` and :math:`p+1`). Changing the DWR parameters to `{"use_adjoint_residual": False, "dual_low_method": "interpolate"}` instead only solves two PDEs per adaptive step (primal at degree :math:`p`, and adjoint at degree :math:`p+1`), and is thus much faster. For this problem with tolerance :math:`10^{-4}` this barely makes a difference to the effectivity indices: most are around 1, with only one step where :math:`I \approx 1.25`. We therefore recommend this as the default settings for production use.
 
 :demo:`A Python script version of this demo can be found here
 <goal_based_adaptivity_bvp.py>`.
