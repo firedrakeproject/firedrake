@@ -211,16 +211,19 @@ class GoalAdaptiveNonlinearVariationalSolver():
             # Default to interpolation
             self.z_lo.interpolate(self.z)
         z_err = self.z - self.z_lo
-        return z_err
+        return self.z_lo, z_err
 
-    def compute_etah(self, u_err, z_err):
+    def compute_etah(self, u_err, z_lo, z_err):
         """Compute error estimate"""
         from firedrake.assemble import assemble
         J = self.goal_functional
         F = self.problem.F
         u = self.problem.u
 
+        # Primal contribution to error estimator
         primal_err = assemble(residual(F, -z_err))
+
+        # Dual contribution to error estimator
         if self.options.use_adjoint_residual:
             Z = self.z_lo.function_space()
             dF = derivative(F, u, TrialFunction(Z))
@@ -228,10 +231,15 @@ class GoalAdaptiveNonlinearVariationalSolver():
             G = action(adjoint(dF), self.z_lo) - dJ
 
             dual_err = assemble(residual(G, -u_err))
-            eta_h = 0.5 * (primal_err + dual_err)
+            discretisation_error = 0.5 * (primal_err + dual_err)
         else:
-            eta_h = primal_err
+            discretisation_error = primal_err
 
+        # Estimate of solver error
+        solver_error = assemble(residual(F, -z_lo))
+
+        # Final error estimate
+        eta_h = discretisation_error + solver_error
         self.etah_vec.append(eta_h)
 
         Juh = assemble(J)
@@ -247,18 +255,22 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.u_exact is not None or self.goal_exact is not None:
             eta = Ju - Juh
             self.eta_vec.append(eta)
-            self.print(f'{"Exact goal J(u):":40s}{Ju:15.12f}')
-            self.print(f'{"True error, J(u) - J(u_h):":40s}{eta:15.12f}')
+            self.print(f'{"Exact goal J(u):":40s}{Ju: 15.12f}')
+            self.print(f'{"True error, J(u) - J(u_h):":40s}{eta: 15.12f}')
         else:
             eta = None
 
         if self.options.use_adjoint_residual:
-            self.print(f'{"Primal error, rho(u_h;z-z_h):":40s}{primal_err:15.12f}')
-            self.print(f'{"Dual error,  rho*(z_h;u-u_h):":40s}{dual_err:15.12f}')
+            self.print(f'{"Primal error, rho(u_h; z-z_h):":40s}{primal_err: 15.12e}')
+            self.print(f'{"Dual error,  rho*(z_h; u-u_h):":40s}{dual_err: 15.12e}')
             self.print(f'{"Difference":40s}{abs(primal_err-dual_err):19.12e}')
-            self.print(f'{"Discretisation error, 0.5(rho+rho*)":40s}{eta_h:15.12f}')
+            self.print(f'{"Discretisation error, 0.5(rho + rho*)":40s}{discretisation_error: 15.12e}')
+            self.print(f'{"Solver error, rho(u_h; z_h):":40s}{solver_error: 15.12e}')
+            self.print(f'{"Final error estimate:":40s}{eta_h: 15.12e}')
         else:
-            self.print(f'{"Discretisation error, rho(u_h;z-z_h)":40s}{eta_h:15.12f}')
+            self.print(f'{"Solver error, rho(u_h; z_h):":40s}{solver_error: 15.12e}')
+            self.print(f'{"Discretisation error, rho(u_h; z-z_h)":40s}{discretisation_error: 15.12e}')
+            self.print(f'{"Final error estimate:":40s}{eta_h: 15.12e}')
         return eta_h, eta
 
     def automatic_error_indicators(self, u_err, z_err):
@@ -353,8 +365,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
                 self.eta_primal_total = abs(evec.sum())
             with eta_dual.dat.vec as evec:
                 self.eta_dual_total = abs(evec.sum())
-            self.print(f'{"Sum of primal refinement indicators:":40s}{self.eta_primal_total:15.12f}')
-            self.print(f'{"Sum of dual refinement indicators:":40s}{self.eta_dual_total:15.12f}')
+            self.print(f'{"Sum of primal refinement indicators:":40s}{self.eta_primal_total: 15.12e}')
+            self.print(f'{"Sum of dual refinement indicators:":40s}{self.eta_dual_total: 15.12e}')
         else:
             eta_cell = eta_primal
 
@@ -398,7 +410,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             eta_cell_total = abs(evec.sum())
 
         self.eta_cell_sum_vec.append(eta_cell_total)
-        self.print(f'{"Sum of refinement indicators":40s}{eta_cell_total:15.12f}')
+        self.print(f'{"Sum of refinement indicators:":40s}{eta_cell_total: 15.12e}')
 
         if self.u_exact is not None or self.goal_exact is not None:
             # Compute efficiency indices
@@ -406,12 +418,12 @@ class GoalAdaptiveNonlinearVariationalSolver():
             eff2 = abs(eta_cell_total / eta)
             self.eff1_vec.append(eff1)
             self.eff2_vec.append(eff2)
-            self.print(f'{"Effectivity index":40s}{eff1:7.4f}')
-            self.print(f'{"Localisation efficiency":40s}{eff2:7.4f}')
+            self.print(f'{"Effectivity index:":40s}{eff1: 15.12f}')
+            self.print(f'{"Localisation efficiency:":40s}{eff2: 15.12f}')
         else:
             eff3 = eta_cell_total / eta_h
             self.eff3_vec.append(eff3)
-            self.print(f'{"Localisation efficiency:":40s}{eff3:7.4f}')
+            self.print(f'{"Localisation efficiency:":40s}{eff3: 15.12f}')
 
     def set_adaptive_cell_markers(self, eta_cell):
         """Mark cells for refinement (Dorfler marking)"""
@@ -460,9 +472,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         self.write_mesh(it)
         u_err = self.solve_primal()
-        z_err = self.solve_dual()
+        z_lo, z_err = self.solve_dual()
         self.write_solution(it)
-        eta_h, eta = self.compute_etah(u_err, z_err)
+        eta_h, eta = self.compute_etah(u_err, z_lo, z_err)
         if abs(eta_h) < self.tolerance:
             self.print("Error estimate below tolerance, finished.")
             raise StopIteration

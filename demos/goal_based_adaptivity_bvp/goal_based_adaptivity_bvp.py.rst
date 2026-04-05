@@ -21,7 +21,8 @@ In this demo we demonstrate how to automatically apply DWR to a nonlinear statio
     -\nabla \cdot \left( |\nabla u|^{p-2} \nabla u \right) = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
 We solve the problem on a unit square with known analytical solution, so that we can compute effectivity indices of our error estimates.
-Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <netgen_mesh.py>`: ::
+Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <netgen_mesh.py>`.
+Notice that we can set very coarse tolerances on the nonlinear solvers, as DWR also provides an estimate of the algebraic solver error: ::
 
     from firedrake import *
     from netgen.occ import *
@@ -52,7 +53,7 @@ Since we will be adapting the mesh, :doc:`we must build the domain with Netgen <
     solver_parameters = {
                  "snes_monitor": None,
                  "snes_atol": 1e-6,
-                 "snes_rtol": 1e-12,
+                 "snes_rtol": 1e-1,
                  "snes_linesearch_monitor": None,
                  "snes_linesearch_type": "l2",
                  "snes_linesearch_maxlambda": 1}
@@ -71,7 +72,7 @@ It is possible to employ cheaper approximations by setting the parameters for th
 appropriately. ::
 
     dwr_parameters = {
-        "max_iterations": 40,
+        "max_iterations": 100,
         "use_adjoint_residual": True,
         "dual_low_method": "solve",
         "primal_low_method": "solve",
