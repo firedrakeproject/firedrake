@@ -115,11 +115,11 @@ are very close to one throughout, except in the final step:
 | 4                     | 4.1940                        |
 +-----------------------+-------------------------------+
 
-The effectivity index in the final step is larger than one because the solver error is larger than the discretisation error. (The code prints a warning to refine the solver tolerances if this happens.)
+The effectivity index in the final step is larger than one because the solver error is larger than the discretisation error. (The code prints a warning to refine the solver tolerances if this happens, which in this case we can safely ignore.)
 
-Changing the tolerance to :math:`10^{-8}` takes 37 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
+Changing the tolerance to :math:`10^{-8}` takes 40 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
 
-.. image:: mesh_38.png
+.. image:: mesh_40.png
     :align: center
     :width: 60%
 
