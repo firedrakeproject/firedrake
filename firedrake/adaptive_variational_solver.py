@@ -220,17 +220,17 @@ class GoalAdaptiveNonlinearVariationalSolver():
         F = self.problem.F
         u = self.problem.u
 
-        primal_err = abs(assemble(residual(F, z_err)))
+        primal_err = assemble(residual(F, -z_err))
         if self.options.use_adjoint_residual:
             Z = self.z_lo.function_space()
             dF = derivative(F, u, TrialFunction(Z))
             dJ = derivative(J, u)
             G = action(adjoint(dF), self.z_lo) - dJ
 
-            dual_err = abs(assemble(residual(G, u_err)))
-            eta_h = 0.5 * abs(primal_err + dual_err)
+            dual_err = assemble(residual(G, -u_err))
+            eta_h = 0.5 * (primal_err + dual_err)
         else:
-            eta_h = abs(primal_err)
+            eta_h = primal_err
 
         self.etah_vec.append(eta_h)
 
@@ -245,20 +245,20 @@ class GoalAdaptiveNonlinearVariationalSolver():
             Ju = assemble(replace(J, {u: self.u_exact}), form_compiler_parameters=fcp)
 
         if self.u_exact is not None or self.goal_exact is not None:
-            eta = abs(Juh - Ju)
+            eta = Ju - Juh
             self.eta_vec.append(eta)
             self.print(f'{"Exact goal":45s}{"J(u):":8s}{Ju:15.12f}')
-            self.print(f'{"True error, |J(u) - J(u_h)|":45s}{"eta:":8s}{eta:15.12f}')
+            self.print(f'{"True error, J(u) - J(u_h)":45s}{"eta:":8s}{eta:15.12f}')
         else:
             eta = None
 
         if self.options.use_adjoint_residual:
-            self.print(f'{"Primal error, |rho(u_h;z-z_h)|:":45s}{"eta_pri:":8s}{primal_err:15.12f}')
-            self.print(f'{"Dual error, |rho*(z_h;u-u_h)|:":45s}{"eta_adj:":8s}{dual_err:15.12f}')
-            self.print(f'{"Difference":35s}{"|eta_pri-eta_adj|:":18s}{abs(primal_err-dual_err):19.12e}')
-            self.print(f'{"Predicted error, 0.5|rho+rho*|":45s}{"eta_h:":8s}{eta_h:15.12f}')
+            self.print(f'{"Primal error, rho(u_h;z-z_h):":45s}{"eta_pri:":8s}{primal_err:15.12f}')
+            self.print(f'{"Dual error, rho*(z_h;u-u_h):":45s}{"eta_adj:":8s}{dual_err:15.12f}')
+            self.print(f'{"Difference":35s}{"eta_pri-eta_adj:":18s}{abs(primal_err-dual_err):19.12e}')
+            self.print(f'{"Predicted error, 0.5(rho+rho*)":45s}{"eta_h:":8s}{eta_h:15.12f}')
         else:
-            self.print(f'{"Predicted error, |rho(u_h;z-z_h)|":45s}{"eta_h:":8s}{eta_h:15.12f}')
+            self.print(f'{"Predicted error, rho(u_h;z-z_h)":45s}{"eta_h:":8s}{eta_h:15.12f}')
         return eta_h, eta
 
     def automatic_error_indicators(self, u_err, z_err):
@@ -463,7 +463,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         z_err = self.solve_dual()
         self.write_solution(it)
         eta_h, eta = self.compute_etah(u_err, z_err)
-        if eta_h < self.tolerance:
+        if abs(eta_h) < self.tolerance:
             self.print("Error estimate below tolerance, finished.")
             raise StopIteration
 
