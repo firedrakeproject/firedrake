@@ -26,7 +26,6 @@ import csv
 
 class GoalAdaptiveOptions:
     def __init__(self, config: dict):
-        self.manual_indicators = config.get("manual_indicators", False)  # Used for manual indicators (only implemented for Poisson but could be overriden)
         self.dorfler_alpha = config.get("dorfler_alpha", 0.5)  # Dorfler marking parameter, default 0.5
         self.max_iterations = config.get("max_iterations", 10)
         self.output_dir = config.get("output_dir", "./output")
@@ -384,27 +383,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
             self.print("L2 error in (dual) refinement indicators: ", unorm)
         return eta_cell
 
-    def manual_error_indicators(self, u_err, z_err):
-        """ Currently only implemented for Poisson, but can be overriden. To adapt to other PDEs, replace the form of
-        eta_cell = assemble() to the symbolic form of the error indicators. This form is usually obtained by integrating
-        the weak form by parts (to recover the strong form) and redistributing facet fluxes.
-        """
-        from firedrake.assemble import assemble
-        u = self.problem.u
-        mesh = u.function_space().mesh().unique()
-        n = FacetNormal(mesh)
-        f = self.source_term
-        DG0 = FunctionSpace(mesh, "DG", degree=0)
-        test = TestFunction(DG0)
-        eta_cell = assemble(
-            inner(f + div(grad(u)), z_err * test) * dx
-            - inner(jump(grad(u), n), z_err * avg(test)) * dS
-            - inner(dot(grad(u), n), z_err * test) * ds
-        )
-        with eta_cell.dat.vec as evec:
-            evec.abs()
-        return eta_cell
-
     def compute_efficiency(self, eta_cell, eta_h, eta):
         with eta_cell.dat.vec as evec:
             eta_cell_total = abs(evec.sum())
@@ -488,10 +466,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
             markers = self.set_uniform_cell_markers()
         else:
             self.print("Computing local refinement indicators eta_K ...")
-            if self.options.manual_indicators:
-                eta_cell = self.manual_error_indicators(u_err, z_err)
-            else:
-                eta_cell = self.automatic_error_indicators(u_err, z_err)
+            eta_cell = self.automatic_error_indicators(u_err, z_err)
             self.compute_efficiency(eta_cell, eta_h, eta)
             markers = self.set_adaptive_cell_markers(eta_cell)
 
