@@ -93,13 +93,13 @@ the DWR automation can compute effectivity indices, but this is not generally re
                                                              primal_solver_parameters=solver_parameters)
     adaptive_solver.solve()
 
-The solver terminates with the goal functional computed to :math:`10^{-4}` after 7 refinements. Each nonlinear solve only required one Newton iteration. The error estimates :math:`\eta` are very accurate: their effectivity indices
+The initial error in the goal functional is :math:`-3.5 \times 10^{-2}`. The solver terminates with the goal functional computed to :math:`10^{-4}` after 4 refinements. Each nonlinear solve only required one Newton iteration. The error estimates :math:`\eta` are very accurate: their effectivity indices
 
 .. math::
 
     I = \frac{\eta}{J(u) - J(u_h)}
 
-are very close to one throughout:
+are very close to one throughout, except in the final step:
 
 +-----------------------+-------------------------------+
 | Number of refinements | Effectivity index :math:`I`   |
@@ -108,18 +108,14 @@ are very close to one throughout:
 +-----------------------+-------------------------------+
 | 1                     | 1.0354                        |
 +-----------------------+-------------------------------+
-| 2                     | 1.0976                        |
+| 2                     | 1.0749                        |
 +-----------------------+-------------------------------+
-| 3                     | 1.0958                        |
+| 3                     | 1.0406                        |
 +-----------------------+-------------------------------+
-| 4                     | 1.0024                        |
+| 4                     | 4.1940                        |
 +-----------------------+-------------------------------+
-| 5                     | 1.0444                        |
-+-----------------------+-------------------------------+
-| 6                     | 0.9901                        |
-+-----------------------+-------------------------------+
-| 7                     | 0.9659                        |
-+-----------------------+-------------------------------+
+
+The effectivity index in the final step is larger than one because the solver error is larger than the discretisation error. (The code prints a warning to refine the solver tolerances if this happens.)
 
 Changing the tolerance to :math:`10^{-8}` takes 37 refinements. The resulting mesh is plotted below. The mesh resolution is adaptively concentrated at the top boundary, since the goal functional is localised there.
 

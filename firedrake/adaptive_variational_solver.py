@@ -6,6 +6,7 @@ from firedrake.ufl_expr import TestFunction, TrialFunction, derivative, action, 
 from firedrake.variational_solver import (NonlinearVariationalProblem, NonlinearVariationalSolver,
                                           LinearVariationalProblem, LinearVariationalSolver)
 from firedrake.solving import solve
+from firedrake.logging import RED
 
 from firedrake.preconditioners.pmg import PMGPC
 from firedrake.mg import utils
@@ -30,11 +31,10 @@ class GoalAdaptiveOptions:
         self.max_iterations = config.get("max_iterations", 10)
         self.output_dir = config.get("output_dir", "./output")
         self.dual_extra_degree = config.get("dual_extra_degree", 1)
-        self.cell_residual_extra_degree = config.get("cell_residual_extra_degree", 0)
-        self.facet_residual_extra_degree = config.get("facet_residual_extra_degree", 0)
+        self.cell_residual_extra_degree = config.get("cell_residual_extra_degree", 1)
+        self.facet_residual_extra_degree = config.get("facet_residual_extra_degree", 1)
         self.write_at_iteration = config.get("write_at_iteration", True)
         self.use_adjoint_residual = config.get("use_adjoint_residual", False)  # For switching between primal and primal + adjoint residuals
-        self.exact_indicators = config.get("exact_indicators", False)  # Maybe remove
         self.uniform_refinement = config.get("uniform_refinement", False)
         self.primal_low_method = config.get("primal_low_method", "interpolate")
         self.dual_low_method = config.get("dual_low_method", "interpolate")
@@ -45,9 +45,7 @@ class GoalAdaptiveOptions:
         self.write_solution_iteration_vector = config.get("write_iteration_vector", [])
         self.write_solution_iteration_interval = config.get("write_solution", "all")  # Default all, options: "first_and_last" "by iteration" "none"
         self.results_file_name = config.get("results_file_name", None)
-        self.nev = config.get("nev", 5)
         self.run_name = config.get("run_name", None)
-        self.form_compiler_parameters = config.get("form_compiler_parameters", None)
 
     # Solver parameters
     sp_cell = {
@@ -237,6 +235,9 @@ class GoalAdaptiveNonlinearVariationalSolver():
         # Estimate of solver error
         solver_error = assemble(residual(F, -z_lo))
 
+        if abs(solver_error) > abs(discretisation_error):
+            self.print(RED % 'Warning: solver error estimate greater than discretisation error estimate, refine solver tolerances')
+
         # Final error estimate
         eta_h = discretisation_error + solver_error
         self.etah_vec.append(eta_h)
@@ -248,14 +249,13 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.goal_exact is not None:
             Ju = self.goal_exact
         elif self.u_exact is not None:
-            fcp = self.options.form_compiler_parameters
-            Ju = assemble(replace(J, {u: self.u_exact}), form_compiler_parameters=fcp)
+            Ju = assemble(replace(J, {u: self.u_exact}))
 
         if self.u_exact is not None or self.goal_exact is not None:
             eta = Ju - Juh
             self.eta_vec.append(eta)
             self.print(f'{"Exact goal J(u):":40s}{Ju: 15.12f}')
-            self.print(f'{"True error, J(u) - J(u_h):":40s}{eta: 15.12f}')
+            self.print(f'{"True error, J(u) - J(u_h):":40s}{eta: 15.12e}')
         else:
             eta = None
 
@@ -369,18 +369,6 @@ class GoalAdaptiveNonlinearVariationalSolver():
         else:
             eta_cell = eta_primal
 
-        # XXX Exact error indicators (experimental - ignore)
-        if self.options.exact_indicators:
-            u_err_exact = self.u_exact - u
-            eta_dual_exact = assemble(
-                inner(inner(Rcell_star, u_err_exact), test)*dx
-                + inner(avg(inner(Rfacet_star, u_err_exact)), both(test))*dS
-                + inner(inner(Rfacet_star, u_err_exact), test)*ds
-            )
-            udiff = assemble(eta_dual_exact - eta_dual)
-            with udiff.dat.vec as uvec:
-                unorm = uvec.norm()
-            self.print("L2 error in (dual) refinement indicators: ", unorm)
         return eta_cell
 
     def compute_efficiency(self, eta_cell, eta_h, eta):
