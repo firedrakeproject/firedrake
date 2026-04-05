@@ -235,7 +235,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.etah_vec.append(eta_h)
 
         Juh = assemble(J)
-        self.print(f'{"Computed goal":45s}{"J(uh):":8s}{Juh:15.12f}')
+        self.print(f'{"Computed goal J(uh):":40s}{Juh:15.12f}')
         self.Juh = Juh
 
         if self.goal_exact is not None:
@@ -247,18 +247,18 @@ class GoalAdaptiveNonlinearVariationalSolver():
         if self.u_exact is not None or self.goal_exact is not None:
             eta = Ju - Juh
             self.eta_vec.append(eta)
-            self.print(f'{"Exact goal":45s}{"J(u):":8s}{Ju:15.12f}')
-            self.print(f'{"True error, J(u) - J(u_h)":45s}{"eta:":8s}{eta:15.12f}')
+            self.print(f'{"Exact goal J(u):":40s}{Ju:15.12f}')
+            self.print(f'{"True error, J(u) - J(u_h):":40s}{eta:15.12f}')
         else:
             eta = None
 
         if self.options.use_adjoint_residual:
-            self.print(f'{"Primal error, rho(u_h;z-z_h):":45s}{"eta_pri:":8s}{primal_err:15.12f}')
-            self.print(f'{"Dual error, rho*(z_h;u-u_h):":45s}{"eta_adj:":8s}{dual_err:15.12f}')
-            self.print(f'{"Difference":35s}{"eta_pri-eta_adj:":18s}{abs(primal_err-dual_err):19.12e}')
-            self.print(f'{"Predicted error, 0.5(rho+rho*)":45s}{"eta_h:":8s}{eta_h:15.12f}')
+            self.print(f'{"Primal error, rho(u_h;z-z_h):":40s}{primal_err:15.12f}')
+            self.print(f'{"Dual error,  rho*(z_h;u-u_h):":40s}{dual_err:15.12f}')
+            self.print(f'{"Difference":40s}{abs(primal_err-dual_err):19.12e}')
+            self.print(f'{"Discretisation error, 0.5(rho+rho*)":40s}{eta_h:15.12f}')
         else:
-            self.print(f'{"Predicted error, rho(u_h;z-z_h)":45s}{"eta_h:":8s}{eta_h:15.12f}')
+            self.print(f'{"Discretisation error, rho(u_h;z-z_h)":40s}{eta_h:15.12f}')
         return eta_h, eta
 
     def automatic_error_indicators(self, u_err, z_err):
@@ -353,8 +353,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
                 self.eta_primal_total = abs(evec.sum())
             with eta_dual.dat.vec as evec:
                 self.eta_dual_total = abs(evec.sum())
-            self.print(f'{"Sum of primal refinement indicators":45s}{"Σeta_K:":8s}{self.eta_primal_total:15.12f}')
-            self.print(f'{"Sum of dual refinement indicators":45s}{"Σeta_K:":8s}{self.eta_dual_total:15.12f}')
+            self.print(f'{"Sum of primal refinement indicators:":40s}{self.eta_primal_total:15.12f}')
+            self.print(f'{"Sum of dual refinement indicators:":40s}{self.eta_dual_total:15.12f}')
         else:
             eta_cell = eta_primal
 
@@ -398,20 +398,20 @@ class GoalAdaptiveNonlinearVariationalSolver():
             eta_cell_total = abs(evec.sum())
 
         self.eta_cell_sum_vec.append(eta_cell_total)
-        self.print(f'{"Sum of refinement indicators":45s}{"Σeta_K:":8s}{eta_cell_total:15.12f}')
+        self.print(f'{"Sum of refinement indicators":40s}{eta_cell_total:15.12f}')
 
         if self.u_exact is not None or self.goal_exact is not None:
             # Compute efficiency indices
-            eff1 = eta_h / eta
-            eff2 = eta_cell_total / eta
+            eff1 = abs(eta_h / eta)
+            eff2 = abs(eta_cell_total / eta)
             self.eff1_vec.append(eff1)
             self.eff2_vec.append(eff2)
-            self.print(f'{"Effectivity index":45s}{"eta_h/eta:":8s}{eff1:7.4f}')
-            self.print(f'{"Localisation efficiency":45s}{"Σeta_K/eta:":8s}{eff2:7.4f}')
+            self.print(f'{"Effectivity index":40s}{eff1:7.4f}')
+            self.print(f'{"Localisation efficiency":40s}{eff2:7.4f}')
         else:
             eff3 = eta_cell_total / eta_h
             self.eff3_vec.append(eff3)
-            self.print(f'{"Localisation efficiency:":45s}{"Σeta_K/eta_h:":8s}{eff3:7.4f}')
+            self.print(f'{"Localisation efficiency:":40s}{eff3:7.4f}')
 
     def set_adaptive_cell_markers(self, eta_cell):
         """Mark cells for refinement (Dorfler marking)"""
