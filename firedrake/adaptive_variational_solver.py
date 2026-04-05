@@ -115,6 +115,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
         self.eff2_vec = []
         self.eff3_vec = []
 
+        self.u_high = None
+
     def solve_primal(self):
         F = self.problem.F
         u = self.problem.u
@@ -150,6 +152,8 @@ class GoalAdaptiveNonlinearVariationalSolver():
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
+            self.u_high = u_high
+
             if self.options.primal_low_method == "project":
                 u.project(u_high)
             elif self.options.primal_low_method == "interpolate":
@@ -176,6 +180,10 @@ class GoalAdaptiveNonlinearVariationalSolver():
             dF = derivative(Fz, u, TrialFunction(Z))
             dJ = derivative(J, u, TestFunction(Z))
             a = adjoint(dF)
+
+            if self.u_high is not None:
+                a = replace(a, {u: self.u_high})
+                dJ = replace(dJ, {u: self.u_high})
 
             bcs_dual = [bc.reconstruct(V=Z, indices=bc._indices, g=0) for bc in bcs]
             problem = LinearVariationalProblem(a, dJ, z, bcs_dual)
@@ -445,6 +453,7 @@ class GoalAdaptiveNonlinearVariationalSolver():
                 self.step()
             except StopIteration:
                 break
+        self.u_high = None
 
     def step(self):
         it = len(self.amh) - 1
