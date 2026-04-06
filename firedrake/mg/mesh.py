@@ -126,9 +126,8 @@ def MeshHierarchy(mesh, refinement_levels,
     # Effectively "invert" addOverlap().
     # -- The resulting plex is to have the identical data structure as the one before addOverlap().
     #    This is algorithmically guaranteed.
-    dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
+    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
     cdm.removeLabel("pyop2_core")
     cdm.removeLabel("pyop2_owned")
     cdm.removeLabel("pyop2_ghost")
