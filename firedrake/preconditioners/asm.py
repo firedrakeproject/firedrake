@@ -1,6 +1,5 @@
 import abc
 
-from itertools import chain
 from pyop2.datatypes import IntType
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
