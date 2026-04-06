@@ -510,10 +510,6 @@ def get_colors(mesh, use_coloring, depth, distance=1):
     """
     mesh_dm = mesh.topology_dm
     point_subset = None
-    if hasattr(mesh, "netgen_mesh"):
-        cell_subset = get_refined_cells(mesh)
-        point_subset = get_adjacent_stratum(mesh_dm, depth, subset=cell_subset)
-
     if use_coloring:
         colors = mesh_dm.createColoring(depth=depth, distance=distance)
         if point_subset is not None:
@@ -599,78 +595,3 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
     indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
-
-
-def get_refined_cells(mesh):
-    """Return the cell indices corresponding to fine cells."""
-    from firedrake.mg.utils import get_level
-    from firedrake import FunctionSpace
-
-    sf = mesh.sfBC_orig
-    plex = mesh.topology_dm
-    cellNum = plex.getCellNumbering().indices
-    cellNum[cellNum < 0] = -cellNum[cellNum < 0]-1
-    fstart, fend = plex.getHeightStratum(0)
-    cids = list(map(mesh._cell_numbering.getOffset, range(fstart, fend)))
-
-    # Create Netgen to Firedrake reordering
-    M = FunctionSpace(mesh, "DG", 0)
-    marked = M.dof_dset.layout_vec.copy()
-    marked.set(0)
-    cstart, cend = marked.getOwnershipRange()
-    marked.setValues(cellNum[cids[:cend-cstart]], numpy.arange(cstart, cend))
-    marked.assemble()
-    marked0 = marked
-    if sf is not None:
-        sfBCInv = sf.createInverse()
-        _, marked0 = plex.distributeField(sfBCInv, mesh._cell_numbering, marked)
-    perm = marked0.getArray().astype(PETSc.IntType)
-
-    # Get refined cells globally on rank 0
-    if mesh.comm.rank == 0:
-        tdim = mesh.topological_dimension
-        if tdim == 2:
-            parents = mesh.netgen_mesh.parentsurfaceelements.NumPy()
-        elif tdim == 3:
-            parents = mesh.netgen_mesh.parentelements.NumPy()
-        else:
-            raise ValueError("Need a 2D or 3D mesh")
-        mh, level = get_level(mesh)
-        if mh is not None and level > 0:
-            coarse_ngmesh = mh[level-1].netgen_mesh
-            num_coarse_cells = len(coarse_ngmesh.Elements2D()) if tdim == 2 else len(coarse_ngmesh.Elements3D())
-        else:
-            num_coarse_cells = parents.tolist().count((-1,))
-        children = [[] for c in range(num_coarse_cells)]
-        num_fine_cells = parents.shape[0]
-        for f in range(num_fine_cells):
-            c = f
-            while c >= num_coarse_cells:
-                c = parents[c][0]
-            children[c].append(f)
-
-        cell_subset = list(set(chain.from_iterable(f for c, f in enumerate(children) if len(f) > 1)))
-        if sf is not None:
-            cell_subset = perm[cell_subset].tolist()
-        cell_subset.sort()
-    else:
-        cell_subset = []
-
-    # Get refined cells locally on this rank
-    cell_subset = mesh.comm.bcast(cell_subset, root=0)
-    *_, cell_subset = numpy.intersect1d(cell_subset, cellNum, return_indices=True)
-    cell_subset += fstart
-    return cell_subset
-
-
-def get_adjacent_stratum(plex, depth, subset=None):
-    """Return point stratum subset adjacent to another point subset (of different depth)."""
-    pstart, pend = plex.getDepthStratum(depth)
-    if subset is None:
-        points = range(pstart, pend)
-    else:
-        points = set()
-        for s in subset:
-            points.update(p for p in plex.getAdjacency(s) if pstart <= p < pend)
-    points = list(points)
-    return points
