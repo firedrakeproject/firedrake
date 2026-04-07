@@ -92,7 +92,7 @@ the DWR automation can compute effectivity indices, but this is not generally re
                                                              goal_adaptive_options=goal_adaptive_options,
                                                              primal_solver_parameters=solver_parameters,
                                                              exact_solution=u_exact)
-    adaptive_solution = adaptive_solver.solve()
+    adaptive_solution, error_estimate = adaptive_solver.solve()
 
 The initial error in the goal functional is :math:`-3.5 \times 10^{-2}`. The solver terminates with the goal functional computed to :math:`10^{-4}` after 4 refinements. Each nonlinear solve only required one Newton iteration. The error estimates :math:`\eta` are very accurate: their effectivity indices
 

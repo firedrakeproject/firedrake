@@ -39,7 +39,6 @@ class GoalAdaptiveOptions:
                  primal_low_method: str = "interpolate",
                  dual_low_method: str = "interpolate",
                  write_solution: str = "all",
-                 write_iteration_vector: Sequence | None = None,
                  write_solution_frequency: int | None = None,
                  verbose: bool = True,
                  ):
@@ -56,7 +55,6 @@ class GoalAdaptiveOptions:
         self.primal_low_method = primal_low_method
         self.dual_low_method = dual_low_method
         self.write_solution = write_solution  # options: "all", "first_and_last", "by iteration", None
-        self.write_solution_iteration_vector = write_iteration_vector
         self.write_solution_frequency = write_solution_frequency
         self.verbose = verbose
 
@@ -474,8 +472,9 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
         Returns
         -------
-        Function
-            The higher-order solution on the finest level of the hierarchy
+        Tuple[Function, float]
+            A tuple with the solution on the finest level of the hierarchy
+            and the error estimate.
 
         """
         for it in range(self.options.max_iterations):
@@ -483,17 +482,19 @@ class GoalAdaptiveNonlinearVariationalSolver:
                 self.step(it=it)
             except StopIteration:
                 break
-        u_high = self.u_high
+        u_out = self.u_high if self.u_high is not None else self.problem.u
+        error_estimate = self.etah_vec[-1]
         self.u_high = None
-        return u_high
+        return u_out, error_estimate
 
     def step(self, it=None):
         """Compute one step of SOLVE -> ESTIMATE -> MARK -> REFINE
 
         Returns
         -------
-        Function
-            The higher-order solution on the finest level of the hierarchy
+        Tuple[Function, float]
+            A tuple with the solution on the finest level of the hierarchy
+            and the error estimate.
 
         """
         if it is None:
@@ -501,6 +502,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         # SOLVE
         u_err = self.solve_primal()
+        u_out = self.u_high if self.u_high is not None else self.problem.u
         z_lo, z_err = self.solve_dual()
         self.write_solution(it)
         # ESTIMATE
@@ -523,7 +525,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
         # REFINE
         self.print("Transferring problem to new mesh ...")
         self.refine_problem(markers)
-        return self.u_high
+        return u_out, eta_h
 
     def print(self, *args, **kwargs):
         if self.options.verbose:
@@ -537,16 +539,11 @@ class GoalAdaptiveNonlinearVariationalSolver:
         elif write_solution == "first_and_last":
             if it == 0 or it == self.options.max_iterations:
                 should_write = True
-        elif write_solution == "by_iteration":
-            # Case A: user gave specific iterations
-            if self.options.write_solution_iteration_vector is not None:
-                should_write = it in self.options.write_iteration_vector
-            # Case B: otherwise use frequency (positive int)
-            elif self.options.write_solution_frequency is not None:
-                freq = int(self.options.write_solution_frequency)
-                if freq <= 0:
-                    raise ValueError("write_solution_frequency must be a positive integer")
-                should_write = (it % freq == 0)
+        elif self.options.write_solution_frequency is not None:
+            freq = int(self.options.write_solution_frequency)
+            if freq <= 0:
+                raise ValueError("write_solution_frequency must be a positive integer")
+            should_write = (it % freq == 0)
         if should_write:
             output_dir = self.options.output_dir
             run_name = self.options.run_name
