@@ -83,7 +83,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
     Parameters
     ----------
     problem
-        The varitional formulation of the PDE defined on the coarse mesh
+        The variational formulation of the PDE defined on the coarse mesh
     goal_functional
         The goal functional defined in terms of the solution to the PDE
     goal_adaptive_options
@@ -99,10 +99,10 @@ class GoalAdaptiveNonlinearVariationalSolver:
         Keyword arguments for the primal :class:`~.LinearVariationalSolver`
     exact_solution
         The exact solution to the problem (optional).
-        It is used to verify the efficiency of the error estimate
+        If supplied, it is used to calculate the efficiency of the error estimate
     exact_goal
         The exact value for the goal functional (optional).
-        It is used to verify the efficiency of the error estimate.
+        If supplied, it is used to calculate the efficiency of the error estimate.
     """
     def __init__(self,
                  problem: NonlinearVariationalProblem,
