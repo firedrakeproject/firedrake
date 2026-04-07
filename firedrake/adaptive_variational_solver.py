@@ -168,6 +168,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
                                                 **self.primal_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
+            self.primal_solver = solver
 
         if self.options.use_adjoint_residual:
             if self.options.primal_low_method == "solve":
@@ -186,9 +187,11 @@ class GoalAdaptiveNonlinearVariationalSolver:
             problem_high = NonlinearVariationalProblem(F_high, u_high, bcs_high)
 
             self.print(f"Solving primal with higher order for error estimate (degree: {high_degree}, dofs: {V_high.dim()}) ...")
-            solver = NonlinearVariationalSolver(problem_high, solver_parameters=self.sp_primal)
+            solver = NonlinearVariationalSolver(problem_high, solver_parameters=self.sp_primal,
+                                                **self.primal_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
+            self.primal_solver = solver
 
             self.u_high = u_high
 
