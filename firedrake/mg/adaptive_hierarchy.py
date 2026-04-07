@@ -38,12 +38,6 @@ class AdaptiveMeshHierarchy(HierarchyBase):
         self.meshes.append(mesh)
         set_level(mesh, self, level)
 
-    def pop_mesh(self):
-        """
-        Removes the finest mesh from the hierarchy.
-        """
-        self.meshes.pop()
-
     def adapt(self, eta: Function | Cofunction, theta: float):
         """
         Adds a new mesh to the hierarchy by locally refining the finest mesh

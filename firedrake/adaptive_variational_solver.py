@@ -1,4 +1,3 @@
-from typing import Sequence
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
@@ -132,16 +131,21 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
         # Set up an AdaptiveMeshHierarchy
         V = problem.u.function_space()
-        mesh = V.mesh().unique()
-        mh, level = get_level(mesh)
-        if mh is None:
-            amh = AdaptiveMeshHierarchy(mesh)
-        else:
-            meshes = list(mh)
-            amh = AdaptiveMeshHierarchy(meshes[0])
-            for m in meshes[1:level+1]:
-                amh.add_mesh(m)
-        self.amh = amh
+        meshes = set(V.mesh())
+        meshes.add(V.mesh())
+        hierarchy = {}
+        for mesh in meshes:
+            mh, level = get_level(mesh)
+            if mh is None:
+                amh = AdaptiveMeshHierarchy(mesh)
+            else:
+                meshes = list(mh)
+                amh = AdaptiveMeshHierarchy(meshes[0])
+                for m in meshes[1:level+1]:
+                    amh.add_mesh(m)
+            hierarchy[mesh] = amh
+
+        self.amh = hierarchy[V.mesh()]
         self.atm = AdaptiveTransferManager()
         self.base_levels = len(amh)
 
@@ -239,22 +243,22 @@ class GoalAdaptiveNonlinearVariationalSolver:
         V = self.problem.u.function_space()
         dual_degree = V.ufl_element().degree() + self.options.dual_extra_degree
         V_dual = reconstruct_degree(V, dual_degree)
-        self.z = Function(V_dual, name="dual_high_order_solution")
-
-        solve_zh(self.z)
+        z = Function(V_dual, name="dual_high_order_solution")
+        solve_zh(z)
 
         # Lower-order dual solution
         z_lo = Function(V, name="dual_low_order_solution")
         if self.options.dual_low_method == "solve":
-            z_lo.interpolate(self.z)
+            z_lo.interpolate(z)
             solve_zh(z_lo)
         elif self.options.dual_low_method == "project":
-            z_lo.project(self.z)
+            z_lo.project(z)
         elif self.options.dual_low_method == "interpolate":
-            z_lo.interpolate(self.z)
+            z_lo.interpolate(z)
         else:
             raise ValueError(f"Unrecognised dual_low_method {self.options.dual_low_method}")
-        z_err = self.z - z_lo
+        z_err = z - z_lo
+        self.z = z
         return z_lo, z_err
 
     def estimate_error(self, u_err, z_lo, z_err):
@@ -441,13 +445,12 @@ class GoalAdaptiveNonlinearVariationalSolver:
         """Mark cells for refinement (Dorfler marking)"""
         # NOTE this is not quite Dorfler marking
         # For Dorfler marking we need to implement a parallel sort
-        with eta_cell.dat.vec_ro as evec:
-            _, eta_max = evec.max()
-        threshold = self.options.dorfler_alpha * eta_max
-        marked_cells = eta_cell.dat.data_ro > threshold
-
         markers = Function(eta_cell.function_space())
-        markers.dat.data_wo[marked_cells] = 1
+        for m, e in zip(markers.subfunctions, eta_cell.subfunctions):
+            with e.dat.vec_ro as evec:
+                _, emax = evec.max()
+            threshold = self.options.dorfler_alpha * emax
+            m.dat.data_wo[e.dat.data_ro > threshold] = 1
         return markers
 
     def set_uniform_cell_markers(self):
@@ -460,9 +463,17 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
     def refine_problem(self, markers):
         """Rediscretise the problem on the finest mesh"""
-        mesh = self.amh[-1]
-        new_mesh = mesh.refine_marked_elements(markers)
-        self.amh.add_mesh(new_mesh)
+        domain_markers = {m.function_space().mesh(): m for m in markers.subfunctions}
+        hierarchy = {}
+        for mesh in domain_markers:
+            amh, _ = get_level(mesh)
+            new_mesh = mesh.refine_marked_elements(domain_markers[mesh])
+            amh.add_mesh(new_mesh)
+            hierarchy[mesh] = amh
+
+        if self.amh not in hierarchy.values():
+            mesh = self.amh[-1]
+            self.amh.add_mesh(type(mesh)([hierarchy[m][-1] for m in mesh]))
 
         coef_map = {}
         self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)

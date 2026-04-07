@@ -145,13 +145,13 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
-    # FIXME support multiple hierarchies
-    # if hasattr(V, "_coarse") and self == coarsen:
-    #     return V._coarse
-    V_fine = V
-    # Handle MixedFunctionSpace : V_fine.reconstruct requires MeshSequence.
-    fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()
-    mesh_coarse = self(fine_mesh, self)
+    if hasattr(V, "_coarse") and self == coarsen:
+        return V._coarse
+    elif hasattr(V, "_fine") and self == refine:
+        return V._fine
+    # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
+    mesh = V.mesh() if V.index is None else V.parent.mesh()
+    new_mesh = self(mesh, self)
     name = V.name
     if name is not None:
         level_increment = -1 if self == coarsen else 1
@@ -161,10 +161,14 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
             prev_level = 0
         level = int(prev_level) + level_increment
         name = f"{name}_level_{level}"
-    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
-    V_coarse._fine = V_fine
-    V_fine._coarse = V_coarse
-    return V_coarse
+    V_new = V.reconstruct(mesh=new_mesh, name=name)
+    if self == coarsen:
+        V_new._fine = V
+        V._coarse = V_new
+    elif self == refine:
+        V_new._coarse = V
+        V._fine = V_new
+    return V_new
 
 
 @coarsen.register(firedrake.Cofunction)
