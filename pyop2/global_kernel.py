@@ -8,6 +8,7 @@ import itertools
 
 import loopy as lp
 import numpy as np
+import petsctools
 import pytools
 from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
@@ -19,7 +20,6 @@ from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
 from pyop2.codegen.rep2loopy import generate
 from pyop2.types import IterationRegion, Constant, READ
-from pyop2.utils import get_petsc_dir
 
 
 # We set eq=False to force identity-based hashing. This is required for when
@@ -388,18 +388,21 @@ class GlobalKernel:
 
     @cached_property
     def _cppargs(self):
-        cppargs = [f"-I{d}/include" for d in get_petsc_dir()]
-        cppargs.extend(f"-I{d}" for d in self.local_kernel.include_dirs)
-        cppargs.append(f"-I{os.path.abspath(os.path.dirname(__file__))}")
-        return tuple(cppargs)
+        return (
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+            *[f"-I{d}" for d in self.local_kernel.include_dirs],
+            f"-I{os.path.abspath(os.path.dirname(__file__))}"
+        )
 
     @cached_property
     def _ldargs(self):
-        ldargs = [f"-L{d}/lib" for d in get_petsc_dir()]
-        ldargs.extend(f"-Wl,-rpath,{d}/lib" for d in get_petsc_dir())
-        ldargs.extend(["-lpetsc", "-lm"])
-        ldargs.extend(self.local_kernel.ldargs)
-        return tuple(ldargs)
+        return (
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+            *self.local_kernel.ldargs,
+        )
 
 
 @memory_cache(hashkey=lambda knl, _: knl.cache_key)

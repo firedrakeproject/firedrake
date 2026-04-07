@@ -275,6 +275,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
     base_ngmesh = mesh.netgen_mesh
+    comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
         cdm = rdm
@@ -300,7 +301,8 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension,
                        reorder=False,
                        distribution_parameters=parameters,
-                       tolerance=mesh.tolerance)
+                       tolerance=mesh.tolerance,
+                       comm=comm)
         mesh.netgen_mesh = ngmesh
         mesh.netgen_flags = flags
 

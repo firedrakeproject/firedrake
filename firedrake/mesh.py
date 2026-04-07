@@ -2731,7 +2731,6 @@ values from f.)"""
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
-        from pyop2.utils import get_petsc_dir
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 
@@ -2775,8 +2774,9 @@ values from f.)"""
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}"
-                ] + [f"-I{d}/include" for d in get_petsc_dir()],
+                    f"-I{rtree.finder.get_include()}",
+                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
                     str(libspatialindex_so),
