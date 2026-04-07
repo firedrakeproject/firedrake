@@ -404,6 +404,44 @@ def coarsen_slate_tensor_op(tensor, self, coefficient_mapping=None):
     return type(tensor)(*children)
 
 
+@singledispatch
+def refine(expr, self, coefficient_mapping=None):
+    return coarsen(expr, self, coefficient_mapping=coefficient_mapping)  # fallback to original
+
+
+@refine.register(ufl.Mesh)
+@refine.register(ufl.MeshSequence)
+def refine_mesh(mesh, self, coefficient_mapping=None):
+    hierarchy, level = utils.get_level(mesh)
+    if hierarchy is None:
+        raise CoarseningError("No mesh hierarchy available")
+    return hierarchy[level + 1]
+
+
+@refine.register(firedrake.Cofunction)
+@refine.register(firedrake.Function)
+def refine_function(expr, self, coefficient_mapping=None):
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    new = coefficient_mapping.get(expr)
+    if new is None:
+        Vf = expr.function_space()
+        Vc = self(Vf, self)
+        name = expr.name()
+        if name is not None:
+            level_increment = -1 if self == coarsen else 1
+            try:
+                name, prev_level = name.split("_level_")
+            except ValueError:
+                prev_level = 0
+            level = int(prev_level) + level_increment
+            name = f"{name}_level_{level}"
+            new = firedrake.Function(Vc, name=name)
+        new.interpolate(expr)
+        coefficient_mapping[expr] = new
+    return new
+
+
 class Interpolation(object):
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
         self.cprimal = firedrake.Function(Vcoarse)

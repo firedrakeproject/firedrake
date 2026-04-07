@@ -68,10 +68,10 @@ We now specify options for how the goal-based adaptivity should proceed. We choo
 where the adjoint solution is approximated in a higher-degree function space, and where both the adjoint and primal residuals
 are employed for the error estimate. This requires four solves on every grid (primal and adjoint solutions with degree :math:`p`
 and :math:`p+1`), and gives a provably efficient and reliable error estimator under a saturation assumption up to a term that is cubic in the error :cite:`Endtmayer2024`.
-It is possible to employ cheaper and more practical approximations by setting the parameters for the :code:`GoalAdaptiveNonlinearVariationalSolver`
+It is possible to employ cheaper and more practical approximations by setting the options for the :code:`GoalAdaptiveNonlinearVariationalSolver`
 appropriately, as discussed below. ::
 
-    dwr_parameters = {
+    goal_adaptive_options = {
         "max_iterations": 100,
         "use_adjoint_residual": True,
         "dual_low_method": "solve",
@@ -79,7 +79,7 @@ appropriately, as discussed below. ::
         "dorfler_alpha": 0.5,
         "dual_extra_degree": 1,
         "run_name": "p-laplace",
-        "output_dir": "output/p-laplace",
+        "output_dir": "./output",
     }
 
 We then solve the problem, passing the goal functional :math:`J` and our specified tolerance. We also pass the exact solution, so that
@@ -88,9 +88,10 @@ the DWR automation can compute effectivity indices, but this is not generally re
     tolerance = 1e-4
     problem = NonlinearVariationalProblem(F, u, bcs)
 
-    adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance, dwr_parameters,
-                                                             exact_solution=u_exact,
-                                                             primal_solver_parameters=solver_parameters)
+    adaptive_solver = GoalAdaptiveNonlinearVariationalSolver(problem, J, tolerance,
+                                                             goal_adaptive_options=goal_adaptive_options,
+                                                             primal_solver_parameters=solver_parameters,
+                                                             exact_solution=u_exact)
     adaptive_solver.solve()
 
 The initial error in the goal functional is :math:`-3.5 \times 10^{-2}`. The solver terminates with the goal functional computed to :math:`10^{-4}` after 4 refinements. Each nonlinear solve only required one Newton iteration. The error estimates :math:`\eta` are very accurate: their effectivity indices
@@ -123,7 +124,7 @@ Changing the tolerance to :math:`10^{-8}` takes 40 refinements. The resulting me
     :align: center
     :width: 60%
 
-We now discuss more practical variants. The configuration above solves four PDEs per adaptive step (primal and adjoint, degree :math:`p` and :math:`p+1`). Changing the DWR parameters to `{"use_adjoint_residual": False, "dual_low_method": "interpolate"}` instead only solves two PDEs per adaptive step (primal at degree :math:`p`, and adjoint at degree :math:`p+1`), and is thus much faster. For this problem with tolerance :math:`10^{-4}` this barely makes a difference to the effectivity indices: most are around 1, with only one step where :math:`I \approx 1.25`. We therefore recommend this as the default settings for production use.
+We now discuss more practical variants. The configuration above solves four PDEs per adaptive step (primal and adjoint, degree :math:`p` and :math:`p+1`). Changing `goal_adaptive_options` to `{"use_adjoint_residual": False, "dual_low_method": "interpolate"}` instead only solves two PDEs per adaptive step (primal at degree :math:`p`, and adjoint at degree :math:`p+1`), and is thus much faster. For this problem with tolerance :math:`10^{-4}` this barely makes a difference to the effectivity indices: most are around 1, with only one step where :math:`I \approx 1.25`. We therefore recommend this as the default settings for production use.
 
 :demo:`A Python script version of this demo can be found here
 <goal_based_adaptivity_bvp.py>`.
