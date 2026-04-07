@@ -5,7 +5,6 @@ from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction, derivative, action, adjoint
 from firedrake.variational_solver import (NonlinearVariationalProblem, NonlinearVariationalSolver,
                                           LinearVariationalProblem, LinearVariationalSolver)
-from firedrake.nullspace import VectorSpaceBasis
 from firedrake.solving import solve
 from firedrake.output import VTKFile
 from firedrake.logging import RED
@@ -92,9 +91,12 @@ class GoalAdaptiveNonlinearVariationalSolver:
     primal_solver_parameters
         A dictionary of solver parameters for the primal problem
     dual_solver_parameters
-        A dictionary of solver parameters for the dual problem
-    nullspace
-        The nullspace of the problem
+        A dictionary of solver parameters for the dual problem.
+        Defaults to `primal_solver_parameters`.
+    primal_solver_kwargs
+        Keyword arguments for the primal :class:`~.NonlinearVariationalSolver`
+    dual_solver_kwargs
+        Keyword arguments for the primal :class:`~.LinearVariationalSolver`
     exact_solution
         The exact solution to the problem (optional).
         It is used to verify the efficiency of the error estimate
@@ -109,21 +111,24 @@ class GoalAdaptiveNonlinearVariationalSolver:
                  goal_adaptive_options: dict | None = None,
                  primal_solver_parameters: dict | None = None,
                  dual_solver_parameters: dict | None = None,
-                 nullspace: VectorSpaceBasis | None = None,
+                 primal_solver_kwargs: dict | None = None,
+                 dual_solver_kwargs: dict | None = None,
                  exact_solution: ufl.classes.Expr | None = None,
                  exact_goal: ufl.classes.Expr | None = None,
                  ):
         if goal_adaptive_options is None:
             goal_adaptive_options = {}
-        self.problem = problem
+
         if not (isinstance(goal_functional, ufl.BaseForm) and len(goal_functional.arguments()) == 0):
             raise ValueError("goal_functional must be a 0-form")
+        self.problem = problem
         self.goal_functional = goal_functional
         self.tolerance = tolerance
         self.options = GoalAdaptiveOptions(**goal_adaptive_options)
         self.sp_primal = primal_solver_parameters
-        self.sp_dual = dual_solver_parameters
-        self.nullspace = nullspace
+        self.sp_dual = dual_solver_parameters if dual_solver_parameters is not None else primal_solver_parameters
+        self.primal_solver_kwargs = primal_solver_kwargs if primal_solver_kwargs is not None else {}
+        self.dual_solver_kwargs = dual_solver_kwargs if dual_solver_kwargs is not None else {}
         self.u_exact = as_mixed(exact_solution) if isinstance(exact_solution, (tuple, list)) else exact_solution
         self.goal_exact = exact_goal
 
@@ -140,6 +145,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
                 amh.add_mesh(m)
         self.amh = amh
         self.atm = AdaptiveTransferManager()
+        self.base_levels = len(amh)
 
         # Data storage
         self.Ndofs_vec = []
@@ -160,7 +166,8 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
         def solve_uh():
             self.print(f'Solving primal (degree: {V.ufl_element().degree()}, dofs: {V.dim()}) ...')
-            solver = NonlinearVariationalSolver(self.problem, solver_parameters=self.sp_primal)
+            solver = NonlinearVariationalSolver(self.problem, solver_parameters=self.sp_primal,
+                                                **self.primal_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
@@ -171,7 +178,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
             # Now solve in higher-order space
             high_degree = V.ufl_element().degree() + self.options.primal_extra_degree
             V_high = reconstruct_degree(V, high_degree)
-            u_high = Function(V_high)
+            u_high = Function(V_high, name="high_order_solution")
             u_high.interpolate(u)
 
             v_old, = F.arguments()
@@ -187,10 +194,14 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
             self.u_high = u_high
 
-            if self.options.primal_low_method == "project":
+            if self.options.primal_low_method == "solve":
+                pass
+            elif self.options.primal_low_method == "project":
                 u.project(u_high)
             elif self.options.primal_low_method == "interpolate":
                 u.interpolate(u_high)
+            else:
+                raise ValueError(f"Unrecognised primal_low_method {self.options.primal_low_method}")
             u_err = u_high - u
         else:
             solve_uh()
@@ -219,7 +230,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
             bcs_dual = [bc.reconstruct(V=Z, indices=bc._indices, g=0) for bc in bcs]
             problem = LinearVariationalProblem(a, dJ, z, bcs_dual)
-            solver = LinearVariationalSolver(problem, solver_parameters=self.sp_dual)
+            solver = LinearVariationalSolver(problem, solver_parameters=self.sp_dual, **self.dual_solver_kwargs)
             solver.set_transfer_manager(self.atm)
             solver.solve()
 
@@ -227,22 +238,23 @@ class GoalAdaptiveNonlinearVariationalSolver:
         V = self.problem.u.function_space()
         dual_degree = V.ufl_element().degree() + self.options.dual_extra_degree
         V_dual = reconstruct_degree(V, dual_degree)
-        self.z = Function(V_dual)
+        self.z = Function(V_dual, name="dual_high_order_solution")
 
         solve_zh(self.z)
 
         # Lower-order dual solution
-        self.z_lo = Function(V)
+        z_lo = Function(V, name="dual_low_order_solution")
         if self.options.dual_low_method == "solve":
-            self.z_lo.interpolate(self.z)
-            solve_zh(self.z_lo)
+            z_lo.interpolate(self.z)
+            solve_zh(z_lo)
         elif self.options.dual_low_method == "project":
-            self.z_lo.project(self.z)
+            z_lo.project(self.z)
+        elif self.options.dual_low_method == "interpolate":
+            z_lo.interpolate(self.z)
         else:
-            # Default to interpolation
-            self.z_lo.interpolate(self.z)
-        z_err = self.z - self.z_lo
-        return self.z_lo, z_err
+            raise ValueError(f"Unrecognised dual_low_method {self.options.dual_low_method}")
+        z_err = self.z - z_lo
+        return z_lo, z_err
 
     def estimate_error(self, u_err, z_lo, z_err):
         """Compute error estimate"""
@@ -256,10 +268,10 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
         # Dual contribution to error estimator
         if self.options.use_adjoint_residual:
-            Z = self.z_lo.function_space()
+            Z = z_lo.function_space()
             dF = derivative(F, u, TrialFunction(Z))
             dJ = derivative(J, u)
-            G = action(adjoint(dF), self.z_lo) - dJ
+            G = action(adjoint(dF), z_lo) - dJ
 
             dual_err = assemble(residual(G, -u_err))
             discretisation_error = 0.5 * (primal_err + dual_err)
@@ -279,13 +291,14 @@ class GoalAdaptiveNonlinearVariationalSolver:
         Juh = assemble(J)
         self.print(f'{"Computed goal J(uh):":40s}{Juh:15.12f}')
         self.Juh = Juh
-
         if self.goal_exact is not None:
-            Ju = self.goal_exact
+            Ju = assemble(self.goal_exact)
         elif self.u_exact is not None:
             Ju = assemble(replace(J, {u: self.u_exact}))
+        else:
+            Ju = None
 
-        if self.u_exact is not None or self.goal_exact is not None:
+        if Ju is not None:
             eta = Ju - Juh
             self.eta_vec.append(eta)
             self.print(f'{"Exact goal J(u):":40s}{Ju: 15.12f}')
@@ -298,15 +311,13 @@ class GoalAdaptiveNonlinearVariationalSolver:
             self.print(f'{"Dual error,  rho*(z_h; u-u_h):":40s}{dual_err: 15.12e}')
             self.print(f'{"Difference":40s}{abs(primal_err-dual_err):19.12e}')
             self.print(f'{"Discretisation error, 0.5(rho + rho*)":40s}{discretisation_error: 15.12e}')
-            self.print(f'{"Solver error, rho(u_h; z_h):":40s}{solver_error: 15.12e}')
-            self.print(f'{"Final error estimate:":40s}{eta_h: 15.12e}')
         else:
-            self.print(f'{"Solver error, rho(u_h; z_h):":40s}{solver_error: 15.12e}')
             self.print(f'{"Discretisation error, rho(u_h; z-z_h)":40s}{discretisation_error: 15.12e}')
-            self.print(f'{"Final error estimate:":40s}{eta_h: 15.12e}')
+        self.print(f'{"Solver error, rho(u_h; z_h):":40s}{solver_error: 15.12e}')
+        self.print(f'{"Final error estimate:":40s}{eta_h: 15.12e}')
         return eta_h, eta
 
-    def compute_error_indicators(self, u_err, z_err):
+    def compute_error_indicators(self, u_err, z_lo, z_err):
         """Compute cell and facet residuals R_cell, R_facet"""
         from firedrake.assemble import assemble
         J = self.goal_functional
@@ -373,7 +384,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
             # r*(v) = J'(u)[v] - A'_u(u)[v, z] since F = A(u;v) - L(v)
             dF = derivative(F, u, TrialFunction(V))
             dJ = derivative(J, u, TestFunction(V))
-            rstar = action(adjoint(dF), self.z_lo) - dJ
+            rstar = action(adjoint(dF), z_lo) - dJ
 
             # dual: project r* -> Rcell*, Rfacet*
             Lc_star = residual(rstar, bubbles*vc)
@@ -459,17 +470,34 @@ class GoalAdaptiveNonlinearVariationalSolver:
             self.u_exact = refine(self.u_exact, refine, coefficient_mapping=coef_map)
 
     def solve(self):
-        """Run the adaptive refinement loop: SOLVE -> ESTIMATE -> MARK -> REFINE"""
+        """Run the adaptive refinement loop: SOLVE -> ESTIMATE -> MARK -> REFINE.
+
+        Returns
+        -------
+        Function
+            The higher-order solution on the finest level of the hierarchy
+
+        """
         for it in range(self.options.max_iterations):
             try:
-                self.step()
+                self.step(it=it)
             except StopIteration:
                 break
+        u_high = self.u_high
         self.u_high = None
+        return u_high
 
-    def step(self):
-        """Compute one step of SOLVE -> ESTIMATE -> MARK -> REFINE"""
-        it = len(self.amh) - 1
+    def step(self, it=None):
+        """Compute one step of SOLVE -> ESTIMATE -> MARK -> REFINE
+
+        Returns
+        -------
+        Function
+            The higher-order solution on the finest level of the hierarchy
+
+        """
+        if it is None:
+            it = len(self.amh) - 1
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         # SOLVE
         u_err = self.solve_primal()
@@ -480,8 +508,7 @@ class GoalAdaptiveNonlinearVariationalSolver:
         if abs(eta_h) < self.tolerance:
             self.print("Error estimate below tolerance, finished.")
             raise StopIteration
-
-        if it == self.options.max_iterations - 1:
+        elif it == self.options.max_iterations - 1:
             self.print(f"Maximum iteration ({self.options.max_iterations}) reached. Exiting.")
             raise StopIteration
         # MARK
@@ -490,12 +517,13 @@ class GoalAdaptiveNonlinearVariationalSolver:
             markers = self.set_uniform_cell_markers()
         else:
             self.print("Computing local refinement indicators eta_K ...")
-            eta_cell = self.compute_error_indicators(u_err, z_err)
+            eta_cell = self.compute_error_indicators(u_err, z_lo, z_err)
             self.compute_efficiency_indices(eta_cell, eta_h, eta)
             markers = self.set_adaptive_cell_markers(eta_cell)
         # REFINE
         self.print("Transferring problem to new mesh ...")
         self.refine_problem(markers)
+        return self.u_high
 
     def print(self, *args, **kwargs):
         if self.options.verbose:
