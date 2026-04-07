@@ -129,23 +129,19 @@ class GoalAdaptiveNonlinearVariationalSolver:
         self.u_exact = as_mixed(exact_solution) if isinstance(exact_solution, (tuple, list)) else exact_solution
         self.goal_exact = exact_goal
 
-        # Set up an AdaptiveMeshHierarchy
+        # Set up an AdaptiveMeshHierarchy for every mesh of the problem
         V = problem.u.function_space()
         meshes = set(V.mesh())
         meshes.add(V.mesh())
-        hierarchy = {}
         for mesh in meshes:
             mh, level = get_level(mesh)
             if mh is None:
                 amh = AdaptiveMeshHierarchy(mesh)
             else:
-                meshes = list(mh)
-                amh = AdaptiveMeshHierarchy(meshes[0])
-                for m in meshes[1:level+1]:
+                amh = AdaptiveMeshHierarchy(mh[0])
+                for m in mh[1:level+1]:
                     amh.add_mesh(m)
-            hierarchy[mesh] = amh
 
-        self.amh = hierarchy[V.mesh()]
         self.atm = AdaptiveTransferManager()
         self.base_levels = len(amh)
 
@@ -455,25 +451,26 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
     def set_uniform_cell_markers(self):
         """Uniform marking for comparison tests"""
-        mesh = self.amh[-1]
+        V = self.problem.u.function_space()
+        mesh = V.mesh().unique()
         markers_space = FunctionSpace(mesh, "DG", 0)
         markers = Function(markers_space)
         markers.assign(1)
         return markers
 
     def refine_problem(self, markers):
-        """Rediscretise the problem on the finest mesh"""
-        domain_markers = {m.function_space().mesh(): m for m in markers.subfunctions}
-        hierarchy = {}
-        for mesh in domain_markers:
+        """Adaptively refine the mesh and rediscretise the problem on the refined mesh"""
+        for marker in markers.subfunctions:
+            mesh = marker.function_space().mesh()
+            new_mesh = mesh.refine_marked_elements(marker)
             amh, _ = get_level(mesh)
-            new_mesh = mesh.refine_marked_elements(domain_markers[mesh])
             amh.add_mesh(new_mesh)
-            hierarchy[mesh] = amh
-
-        if self.amh not in hierarchy.values():
-            mesh = self.amh[-1]
-            self.amh.add_mesh(type(mesh)([hierarchy[m][-1] for m in mesh]))
+        # Reconstruct MeshSequence with the refined meshes
+        mesh = self.problem.u.function_space().mesh()
+        if len(mesh) > 1:
+            new_mesh = type(mesh)([get_level(m)[0][-1] for m in mesh])
+            amh, _ = get_level(mesh)
+            amh.add_mesh(new_mesh)
 
         coef_map = {}
         self.problem = refine(self.problem, refine, coefficient_mapping=coef_map)
@@ -512,7 +509,8 @@ class GoalAdaptiveNonlinearVariationalSolver:
 
         """
         if it is None:
-            it = len(self.amh) - 1
+            V = self.problem.u.function_space()
+            _, it = get_level(V.mesh())
         self.print(f"---------------------------- [MESH LEVEL {it}] ----------------------------")
         # SOLVE
         u_err = self.solve_primal()
