@@ -3,8 +3,6 @@ from firedrake.__future__ import interpolate
 import numpy as np
 
 
-import pytest
-@pytest.mark.skip(reason="extruded real space tensor product")
 def test_extruded_change_coordinates():
     # This test exists to ensure the code in the manual works.
 

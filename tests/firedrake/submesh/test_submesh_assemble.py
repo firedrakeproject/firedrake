@@ -1,7 +1,6 @@
 import os
 import pytest
 import numpy as np
-from firedrake import utils
 from firedrake import *
 from firedrake.cython import dmcommon
 from petsc4py import PETSc

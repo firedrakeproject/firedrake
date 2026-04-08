@@ -338,7 +338,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
         sendrecv = ensemble.isendrecv
 
     requests = sendrecv(usend, dst_rank, sendtag=ensemble.ensemble_rank,
-                       frecv=urecv, source=src_rank, recvtag=src_rank)
+                        frecv=urecv, source=src_rank, recvtag=src_rank)
 
     if not blocking:
         MPI.Request.Waitall(requests)

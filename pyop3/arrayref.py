@@ -15,14 +15,19 @@ class ArrayReference:
         self.block_shape = block_shape
 
     def __getitem__(self, indices: Any, /) -> Any:
+        if indices is Ellipsis:
+            return self
         if not isinstance(indices, numbers.Integral):
             raise NotImplementedError("TODO")
         return self.base[self.indices[indices*self._block_size]]
 
     def __setitem__(self, indices: Any, value: Any, /) -> Any:
-        if not isinstance(indices, numbers.Integral):
+        if indices is Ellipsis:
+            self.base[self.indices] = value
+        elif not isinstance(indices, numbers.Integral):
             raise NotImplementedError("TODO")
-        self.base[self.indices[indices*self._block_size]] = value
+        else:
+            self.base[self.indices[indices*self._block_size]] = value
 
     def __array__(self, dtype: np.dtype | None = None, copy: bool | None = None) -> np.ndarray:
         # Note that the 'dtype' argument is handled by numpy directly

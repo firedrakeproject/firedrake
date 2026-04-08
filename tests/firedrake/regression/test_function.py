@@ -52,7 +52,7 @@ def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
     f.interpolate(as_tensor(vals))
-    assert np.allclose(f.dat.data_ro , vals)
+    assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
     assert np.allclose(g.dat.data_ro, vals)

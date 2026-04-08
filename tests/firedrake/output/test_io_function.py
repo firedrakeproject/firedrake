@@ -1,5 +1,4 @@
 from firedrake import *
-import numpy as np
 import pytest
 from os.path import abspath, dirname, join
 import os
