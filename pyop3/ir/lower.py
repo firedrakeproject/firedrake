@@ -159,7 +159,7 @@ class LoopyCodegenContext(CodegenContext):
         self._add_instruction(insn)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
-        # TODO: This should check to make that we do not encounter any
+        # TODO: This should check to make sure that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
         #
@@ -258,6 +258,19 @@ class LoopyCodegenContext(CodegenContext):
         if can_reuse:
             self._reusable_temporaries[key] = name_in_kernel
 
+        return name_in_kernel
+
+    def add_opaque(self, opaque: OpaqueTerminal, intent) -> str:
+        if opaque in self._kernel_names:
+            return self._kernel_names[opaque]
+
+        name_in_kernel = self.unique_name("opaque")
+        loopy_arg = lp.ValueArg(name_in_kernel, dtype=opaque.dtype)
+
+        self.global_buffers[opaque] = opaque
+        self.global_buffer_intents[opaque] = intent
+        self._arguments.append(loopy_arg)
+        self._kernel_names[opaque] = name_in_kernel
         return name_in_kernel
 
     def add_subkernel(self, subkernel):
@@ -460,15 +473,18 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
     ]
 
-    translation_unit = lp.make_kernel(
-        context.domains,
-        context.instructions,
-        context.arguments,
-        name=function_name,
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-        preambles=preambles,
-    )
+    try:
+        translation_unit = lp.make_kernel(
+            context.domains,
+            context.instructions,
+            context.arguments,
+            name=function_name,
+            target=LOOPY_TARGET,
+            lang_version=LOOPY_LANG_VERSION,
+            preambles=preambles,
+        )
+    except:
+        breakpoint()
     translation_unit = lp.merge((translation_unit, *context.subkernels))
 
     entrypoint = translation_unit.default_entrypoint
@@ -527,15 +543,18 @@ def _(assignment: AbstractAssignment, /) -> idict:
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
-    return idict(
-        {
-            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
-            for lp_arg, arg in zip(
-                call.function.code.default_entrypoint.args, call.arguments, strict=True
-            )
-            if isinstance(lp_arg, lp.ArrayArg)
-        }
-    )
+    try:
+        return idict(
+            {
+                (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+                for lp_arg, arg in zip(
+                    call.function.code.default_entrypoint.args, call.arguments, strict=True
+                )
+                if isinstance(lp_arg, lp.ArrayArg)
+            }
+        )
+    except:
+        breakpoint()
 
 
 @functools.singledispatch
@@ -643,25 +662,35 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     subarrayrefs = {}
     loopy_args = call.function.code.default_entrypoint.args
     for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
-        # this check fails because we currently assume that all arrays require packing
-        # from pyop3.transform import _requires_pack_unpack
-        # assert not _requires_pack_unpack(arg)
-        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+        if isinstance(arg, op3_expr.BufferExpression):
+            if isinstance(loopy_arg, lp.ArrayArg):
+                # this check fails because we currently assume that all arrays require packing
+                # from pyop3.transform import _requires_pack_unpack
+                # assert not _requires_pack_unpack(arg)
 
-        if not isinstance(loopy_arg, lp.ArrayArg):
-            raise NotImplementedError
+                name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+                # subarrayref nonsense/magic
+                indices = []
+                for s in loopy_arg.shape:
+                    iname = context.unique_name("i")
+                    context.add_domain(iname, s)
+                    indices.append(pym.var(iname))
+                indices = tuple(indices)
 
-        # subarrayref nonsense/magic
-        indices = []
-        for s in loopy_arg.shape:
-            iname = context.unique_name("i")
-            context.add_domain(iname, s)
-            indices.append(pym.var(iname))
-        indices = tuple(indices)
-
-        subarrayrefs[arg] = lp.symbolic.SubArrayRef(
-            indices, pym.var(name_in_kernel)[indices]
-        )
+                subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+                    indices, pym.var(name_in_kernel)[indices]
+                )
+            else:
+                raise NotImplementedError
+                assert isinstance(loopy_arg, lp.ValueArg)
+                # pass directly through
+                # FIXME: name in kernel?
+                # assumes no packing, ie outer+inner names match
+                # subarrayrefs[arg] = pym.var(loopy_arg.name)
+        else:
+            assert isinstance(arg, op3_expr.OpaqueTerminal)
+            name_in_kernel = context.add_opaque(arg, spec.intent)
+            subarrayrefs[arg] = pym.var(name_in_kernel)
 
     assignees = tuple(
         subarrayrefs[arg]

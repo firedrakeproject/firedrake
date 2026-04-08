@@ -583,3 +583,6 @@ def safe_equals(a, b, /) -> bool:
 def _(a, b, /) -> bool:
     return (a == b).all()
 
+
+def raise_visitor_type_error(obj):
+    raise TypeError(f"No handler defined for {pretty_type(obj)}")

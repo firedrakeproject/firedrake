@@ -32,7 +32,6 @@ _init_likwid()
 del _init_likwid
 
 
-from pyop3.insn import Intent
 import pyop3.dtypes, pyop3.tree
 import pyop3.ir
 import pyop3.insn.visitors as insn_visitors
@@ -40,7 +39,7 @@ from pyop3.expr.tensor import (  # noqa: F401
     Tensor, Dat, Scalar, Mat, AggregateMat, AggregateDat,
     RowDatPythonMatContext, ColumnDatPythonMatContext, OutOfPlaceCallableTensorTransform
 )
-from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression
+from pyop3.expr import as_linear_buffer_expression, AxisVar, LinearDatBufferExpression, OpaqueTerminal, NAN
 from pyop3.tree.axis_tree import (  # noqa: F401
     Axis,
     AxisForest,
@@ -50,13 +49,11 @@ from pyop3.tree.axis_tree import (  # noqa: F401
     AxisTree,
     IndexedAxisTree,
 )
-from pyop3.expr.base import NAN  # noqa: F401
-from pyop3.expr.visitors import collect_axis_vars, replace, replace_terminals  # noqa: F401
+from pyop3.expr.visitors import collect_axis_vars, evaluate, replace, replace_terminals  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
     ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
-from pyop3.expr.visitors import evaluate  # noqa: F401
 from pyop3.tree.index_tree import (  # noqa: F401
     AffineSliceComponent,
     Index,
@@ -72,6 +69,7 @@ from pyop3.tree.index_tree import (  # noqa: F401
     as_slice,
 )
 from pyop3.insn import (  # noqa: F401
+    Intent,
     INC,
     MAX_RW,
     MAX_WRITE,

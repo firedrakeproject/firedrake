@@ -458,6 +458,55 @@ class TerminalExpression(Expression, Terminal, abc.ABC):
     child_attrs = ()
 
 
+# NOTE: This is ick - masquerading as both a buffer expression and a buffer
+@pyop3.record.frozenrecord()
+class OpaqueTerminal(TerminalExpression):
+
+    # {{{ instance attrs
+
+    dtype: Any
+    handle: int
+    name: str
+
+    def __init__(self, dtype, handle):
+        name = utils.maybe_generate_name(None, None, "opaque")
+
+        object.__setattr__(self, "dtype", dtype)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "name", name)
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def local_max(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def local_min(self) -> numbers.Number:
+        raise TypeError("not sure that this makes sense")
+
+    @property
+    def _full_str(self) -> str:
+        return str(self)
+
+    # }}}
+
+    def with_context(self, ctx):
+        return self
+
+    nest_indices = ()  # hacky
+
+    @property
+    def buffer(self):  # very hacky
+        return self
+
+    def inc_state(self):  # argh!
+        pass
+
+
+
 @pyop3.record.frozenrecord()
 class AxisVar(TerminalExpression):
 

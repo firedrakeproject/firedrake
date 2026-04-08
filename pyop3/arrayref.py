@@ -24,6 +24,7 @@ class ArrayReference:
     def __setitem__(self, indices: Any, value: Any, /) -> Any:
         # TODO: better shape casting of value, this is needed because
         # self.base[self.indices] does not return a view so we can't reshape it
+        # maybe the solution is to reshape both self.base and self.indices...
         if isinstance(value, np.ndarray):
             value = value.flatten()
 

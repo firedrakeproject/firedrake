@@ -533,6 +533,7 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
     @process.register(numbers.Number)
     @process.register(expr_types.AxisVar)
     @process.register(expr_types.LoopIndexVar)
+    @process.register(expr_types.OpaqueTerminal)
     @process.register(expr_types.Scalar)
     @process.register(expr_types.ScalarBufferExpression)
     @process.register(expr_types.NaN)
@@ -1154,6 +1155,14 @@ class DiskCacheKeyGetter(ExpressionVisitor):
             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
         )
 
+    @process.register(expr_types.OpaqueTerminal)
+    def _(self, expr: expr_types.OpaqueTerminal, /) -> Hashable:
+        return (
+            type(expr),
+            expr.dtype,
+            self._renamer.add(expr.handle),
+        )
+
     @process.register(expr_types.BufferExpression)
     @postorder
     def _(self, expr: expr_types.BufferExpression, visited: Mapping, /) -> Hashable:
@@ -1208,6 +1217,7 @@ class ArgumentCollector(NodeCollector):
         return OrderedFrozenSet()
 
     # TODO: AbstractBufferExpression
+    @process.register(expr_types.OpaqueTerminal)
     @process.register(expr_types.Tensor)
     @process.register(expr_types.BufferExpression)
     def _(self, arg: Any, /) -> OrderedFrozenSet:
@@ -1261,6 +1271,10 @@ class BufferCollector(NodeCollector):
                 self._collect_tree(loop_var.loop_index.iterset)
                 | self._collect_tree(loop_var.axis.as_tree())
             )
+
+    @process.register(expr_types.OpaqueTerminal)
+    def _(self, opaque, /) -> OrderedFrozenSet:
+        return OrderedFrozenSet([opaque])
 
     @process.register(expr_types.ScalarBufferExpression)
     def _(self, scalar_expr: expr_types.ScalarBufferExpression, /) -> OrderedFrozenSet:
@@ -1622,6 +1636,7 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
     @process.register(numbers.Number)
     @process.register(expr_types.NaN)
     @process.register(expr_types.Operator)
+    @process.register(expr_types.OpaqueTerminal)
     def _(self, expr: ExpressionT, /) -> ExpressionT:
         return self.reuse_if_untouched(expr)
 

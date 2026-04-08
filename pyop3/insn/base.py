@@ -23,6 +23,7 @@ import pytools
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.expr
 import pyop3.record
 from pyop3 import utils
 from pyop3.cache import with_heavy_caches, with_self_heavy_cache, memory_cache, cached_method
@@ -336,7 +337,12 @@ class Function:
                     is_output = True
                 case _:
                     raise NotImplementedError
-            loopy_arg = lp.GlobalArg(name_, dtype, is_input=is_input, is_output=is_output)
+
+            if isinstance(dtype, lp.types.OpaqueType):
+                # no packing, passthrough arg
+                loopy_arg = lp.ValueArg(name_, dtype, is_input=is_input, is_output=is_output)
+            else:
+                loopy_arg = lp.GlobalArg(name_, dtype, is_input=is_input, is_output=is_output)
             loopy_args.append(loopy_arg)
         loopy_kernel = lp.make_kernel(
             [],  # no extra loops
@@ -479,12 +485,15 @@ class CalledFunction(AbstractCalledFunction):
     @classmethod
     def _fixup_function_argument_shapes(cls, function, arguments):
         loopy_kernel = function.code.default_entrypoint
-        if all(a.shape is not None for a in loopy_kernel.args):
+        if all(
+            a.shape is not None for a in loopy_kernel.args
+            if isinstance(a, lp.ArrayArg)
+        ):
             return function
 
         new_loopy_args = []
         for loopy_arg, arg in zip(loopy_kernel.args, arguments, strict=True):
-            if loopy_arg.shape is None:
+            if isinstance(loopy_arg, lp.ArrayArg):
                 loopy_arg = loopy_arg.copy(shape=(arg.size,))
             new_loopy_args.append(loopy_arg)
         new_loopy_args = tuple(new_loopy_args)

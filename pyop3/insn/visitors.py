@@ -232,10 +232,11 @@ def expand_implicit_pack_unpack(expr: insn_types.Instruction):
 
 @functools.singledispatch
 def _requires_pack_unpack(arg: insn_types.FunctionArgument) -> bool:
-    raise TypeError
+    utils.raise_visitor_type_error(arg)
 
 
 @_requires_pack_unpack.register(Scalar)
+@_requires_pack_unpack.register(expr_types.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
     return False
 
@@ -334,6 +335,8 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
                 arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+        elif isinstance(func_arg, expr_types.OpaqueTerminal):
+            materialized_arg = func_arg
         else:
             materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
 
@@ -820,13 +823,17 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 
     @functools.singledispatchmethod
     def _get_argument_key(self, argument: Any, /) -> Hashable:
-        raise TypeError
+        utils.raise_visitor_type_error(argument)
 
     @_get_argument_key.register(numbers.Number)
     @_get_argument_key.register(expr_types.AxisVar)
     @_get_argument_key.register(expr_types.LoopIndexVar)
     def _(self, var: Hashable, /) -> Hashable:
         return var
+
+    @_get_argument_key.register(expr_types.OpaqueTerminal)
+    def _(self, opaque_expr: OpaqueTerminal, /) -> Hashable:
+        return (type(opaque_expr), opaque_expr.dtype, self._buffer_arg_counter[opaque_expr.handle])
 
     @_get_argument_key.register(Tensor)
     def _(self, tensor: Tensor, /) -> Hashable:

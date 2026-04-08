@@ -16,6 +16,7 @@ from petsc4py import PETSc
 
 import petsctools
 
+from pyop3 import utils
 import pyop3.buffer
 import pyop3.collections
 import pyop3.compile
@@ -252,7 +253,7 @@ class InstructionExecutionContext:
 
     @functools.singledispatchmethod
     def _extract_buffer(self, arg):
-        raise TypeError
+        utils.raise_visitor_type_error(arg)
 
     @_extract_buffer.register(pyop3.expr.Scalar)
     def _(self, scalar):
@@ -457,7 +458,7 @@ class CompiledCodeExecutor:
 
     @functools.singledispatchmethod
     def _buffer_str(self, buffer):
-        raise TypeError
+        utils.raise_visitor_type_error(arg)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
@@ -487,8 +488,17 @@ class CompiledCodeExecutor:
         return tuple(self._as_exec_argument(buffer_ref.handle) for buffer_ref in self._buffer_refs)
 
     @functools.singledispatchmethod
-    def _as_exec_argument(self, handle: Any) -> int:
-        raise TypeError
+    def _as_exec_argument(self, obj: Any) -> int:
+        utils.raise_visitor_type_error(obj)
+
+    @_as_exec_argument.register
+    def _(self, handle: int):  # assumes an address
+        return handle
+
+    # not used because we pass the handle in already
+    # @_as_exec_argument.register
+    # def _(self, opaque: pyop3.expr.OpaqueTerminal):
+    #     return opaque.handle
 
     @_as_exec_argument.register
     def _(self, handle: np.ndarray) -> int:
@@ -664,7 +674,7 @@ def compile_loopy(translation_unit, *, compiler_parameters, comm):
 
 @functools.singledispatch
 def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
+    utils.raise_visitor_type_error(obj)
 
 
 @cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)

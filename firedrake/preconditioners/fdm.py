@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from textwrap import dedent
 from functools import cached_property, partial
 from itertools import chain, product
@@ -423,7 +425,7 @@ class FDMPC(PCBase):
             y = Function(Vsub)
             sizes = (Vsub.template_vec.getSizes(),) * 2
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-                                  op2.PassthroughArg(op2.OpaqueType(K.result.klass), K.result.handle),
+                                  op3.OpaqueTerminal(op2.OpaqueType(K.result.klass), K.result.handle),
                                   *args_acc,
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
@@ -778,7 +780,7 @@ class FDMPC(PCBase):
                 kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
                 raise NotImplementedError
                 assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                        *(op2.PassthroughArg(op2.OpaqueType("Mat"), arg.data) for arg in args),
+                                        *(op2.OpaqueTerminal(op2.OpaqueType("Mat"), arg.data) for arg in args),
                                         *indices_acc)
                 self.assemblers.setdefault(key, assembler)
 
@@ -801,9 +803,11 @@ class ElementKernel:
         self.name = name or type(self).__name__
         self.rules = {}
 
-    def make_args(self, *mats):
-        # return [op2.PassthroughArg(op2.OpaqueType(mat.klass), mat.handle) for mat in list(mats) + self.mats]
-        return (*mats, *self.mats)
+    def make_args(self, *mats: PETSc.Mat) -> tuple[op3.OpaqueTerminal, ...]:
+        return tuple(
+            op3.OpaqueTerminal(op3.dtypes.OpaqueType("Mat"), mat.handle)
+            for mat in chain(mats, self.mats)
+        )
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
         if addv is None:
@@ -856,18 +860,12 @@ class ElementKernel:
             self.name,
             code,
             [
-                ("A", op3.ir.lower.OpaqueType("Mat"), op3.WRITE),
-                ("B", op3.ir.lower.OpaqueType("Mat"), op3.READ),
-                ("A11", op3.ir.lower.OpaqueType("Mat"), op3.READ),
-                ("A10", op3.ir.lower.OpaqueType("Mat"), op3.READ),
-                ("A01", op3.ir.lower.OpaqueType("Mat"), op3.READ),
-                ("A00", op3.ir.lower.OpaqueType("Mat"), op3.READ),
-                ("coefficients", ScalarType, op3.READ),
+                ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+                ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
                 *((iname, IntType, op3.READ) for iname in indices),
             ],
             preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>")],
         )
-        return op2.Kernel(code, self.name)
 
 
 class TripleProductKernel(ElementKernel):
@@ -1772,7 +1770,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
     loop_info = get_iteration_spec(Vc.mesh(), "cell")
-    assembler = op3.loop(
+    op3.loop(
         loop_info.loop_index,
         kernel.kernel(mat_type=mat_type)(
             *kernel.make_args(preallocator),
@@ -1781,10 +1779,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
                 for idat in indices_acc
             ),
         ),
+        eager=True,
     )
-    assembler()
     preallocator.assemble()
 
+    breakpoint()
     Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
     assembler.arguments[0].data = Dmat.handle
     preallocator.destroy()
