@@ -262,7 +262,7 @@ def getSubWC4DVarSaddleMat(mat, sub: str | None = None):
 
     Parameters
     ----------
-    mat : petsc4py.PETSc.Mat
+    mat : PETSc.Mat
         The MatNest for the saddle point system returned by
         :func:`WC4DVarSaddleMat`.
 
@@ -271,7 +271,7 @@ def getSubWC4DVarSaddleMat(mat, sub: str | None = None):
 
     Returns
     -------
-    tuple[petsc4py.PETSc.Mat] | petsc4py.PETSc.Mat :
+    tuple[PETSc.Mat] | PETSc.Mat :
         The sub Mat requested or a tuple of all sub Mats.
 
     See Also
@@ -320,14 +320,12 @@ def WC4DVarSaddleMat(Jhat):
 
     Returns
     -------
-    petsc4py.PETSc.Mat :
+    PETSc.Mat :
         The 3x3 PETSc MatNest for the saddle point system.
 
     Raises
     ------
-    TypeError :
-        If ``Jhat`` is not a
-        :class:`~.firedrake.adjoint.fourdvar_reduced_functional.WC4DVarReducedFunctional`.
+    TypeError : If ``Jhat`` is not a :class:`~.firedrake.adjoint.fourdvar_reduced_functional.WC4DVarReducedFunctional`.
 
     See Also
     --------
@@ -440,14 +438,12 @@ def WC4DVarSaddleKSP(Jhat, Jphat=None, *,
 
     Returns
     -------
-    petsc4py.PETSc.KSP :
+    PETSc.KSP :
         The KSP for the saddle point system.
 
     Raises
     ------
-    TypeError :
-        If ``Jhat`` is not a
-        :class:`~.firedrake.adjoint.fourdvar_reduced_functional.WC4DVarReducedFunctional`.
+    TypeError : If ``Jhat`` is not a :class:`~.firedrake.adjoint.fourdvar_reduced_functional.WC4DVarReducedFunctional`.
 
     See Also
     --------

@@ -620,6 +620,85 @@ class CovarianceOperatorBase:
             " also want to implement apply_inverse.")
 
 
+class MixedCovarianceOperator(CovarianceOperatorBase):
+    """
+    A block-diagonal covariance operator that acts component-wise on a mixed function space.
+
+    The norm, sample, action, and inverse methods of this covariance operator will
+    apply the corresponding methods of each subcovariance operator to each component of the mixed space.
+
+    Parameters
+    ----------
+    W :
+        The MixedFunctionSpace that this covariance operator acts on.
+    subcovariances :
+        The covariance operators for each component of W.
+
+    See Also
+    --------
+    CovarianceOperatorBase
+    CovarianceMat
+    CovariancePC
+    """
+    def __init__(self, W: WithGeometry, subcovariances: Iterable[CovarianceOperatorBase]):
+        if len(subcovariances) != len(W.subspaces):
+            raise ValueError(
+                "Need one covariance operator per component of mixed space")
+        if not all(isinstance(cov, CovarianceOperatorBase)
+                   for cov in subcovariances):
+            raise TypeError(
+                "All covariance operators must be a CovarianceOperatorBase")
+        if not all(cov.function_space() == Wsub
+                   for cov, Wsub in zip(subcovariances, W.subspaces)):
+            raise ValueError(
+                "Covariance function spaces must match W subspaces")
+
+        self._W = W
+        self._subcovariances = subcovariances
+        self._rngs = [cov.rng() for cov in self.subcovariances]
+
+    @property
+    def function_space(self):
+        return self._W
+
+    @property
+    def subcovariances(self):
+        """The covariance operators for each component of the mixed space."""
+        return self._subcovariances
+
+    def rng(self):
+        return self._rngs
+
+    def sample(self, rng=None, tensor=None):
+        tensor = tensor or Function(self.function_space)
+        for cov, tsub, rsub in zip(self.subcovariances,
+                                   tensor.subfunctions,
+                                   rng or self.rng()):
+            cov.sample(rng=rsub, tensor=tsub)
+        return tensor
+
+    def norm(self, x):
+        return sum(cov.norm(xsub)
+                   for cov, xsub in zip(self.subcovariances,
+                                        x.subfunctions))
+
+    def apply_inverse(self, x, tensor=None):
+        tensor = tensor or Cofunction(self.function_space().dual())
+        for cov, xsub, tsub in zip(self.subcovariances,
+                                   x.subfunctions,
+                                   tensor.subfunctions):
+            cov.apply_inverse(xsub, tensor=tsub)
+        return tensor
+
+    def apply_action(self, x, tensor=None):
+        tensor = tensor or Function(self.function_space())
+        for cov, xsub, tsub in zip(self.subcovariances,
+                                   x.subfunctions,
+                                   tensor.subfunctions):
+            cov.apply_action(xsub, tensor=tsub)
+        return tensor
+
+
 class AutoregressiveCovariance(CovarianceOperatorBase):
     r"""
     An m-th order autoregressive covariance operator using an implicit diffusion operator.
@@ -1015,16 +1094,19 @@ class CovarianceMatCtx:
             viewer.printfASCII(f"    correlation lengthscale: {self.covariance.lengthscale}\n")
             viewer.printfASCII(f"    standard deviation: {self.covariance.stddev}\n")
 
-            if self.operation == self.Operation.ACTION:
-                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
-                ksp = self.covariance.solver.snes.ksp
-            elif self.operation == self.Operation.INVERSE:
-                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
-                ksp = self.covariance.mass_solver.snes.ksp
-            level = ksp.getTabLevel()
-            ksp.setTabLevel(mat.getTabLevel() + 1)
-            ksp.view(viewer)
-            ksp.setTabLevel(level)
+            if viewer.getFormat() == PETSc.Viewer.Format.ASCII_INFO_DETAIL:
+                if self.operation == self.Operation.ACTION:
+                    viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
+                    ksp = self.covariance.solver.snes.ksp
+                elif self.operation == self.Operation.INVERSE:
+                    viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
+                    ksp = self.covariance.mass_solver.snes.ksp
+                viewer.pushASCIITab()
+                ksp.view(viewer)
+                viewer.popASCIITab()
+            else:
+                prefix = mat.getOptionsPrefix() or ""
+                viewer.printfASCII(f"  Use -{prefix}ksp_view ::ascii_info_detail to display information for diffusion or mass solver.\n")
 
 
 def CovarianceMat(covariance: CovarianceOperatorBase,
@@ -1172,9 +1254,16 @@ class CovariancePC(petsctools.PCBase):
             viewer.printfASCII("  using Amat matrix\n")
 
         if (type(self.covariance) is AutoregressiveCovariance) and (self.covariance.iterations > 0):
-            if self.operation == CovarianceMatCtx.Operation.ACTION:
-                viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
-                self.covariance.solver.snes.ksp.view(viewer)
-            elif self.operation == CovarianceMatCtx.Operation.INVERSE:
-                viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
-                self.covariance.mass_solver.snes.ksp.view(viewer)
+            if viewer.getFormat() == PETSc.Viewer.Format.ASCII_INFO_DETAIL:
+                if self.operation == CovarianceMatCtx.Operation.ACTION:
+                    viewer.printfASCII("  Information for the diffusion solver for applying the action:\n")
+                    ksp = self.covariance.solver.snes.ksp
+                elif self.operation == CovarianceMatCtx.Operation.INVERSE:
+                    viewer.printfASCII("  Information for the mass solver for applying the inverse:\n")
+                    ksp = self.covariance.mass_solver.snes.ksp
+                viewer.pushASCIITab()
+                ksp.view(viewer)
+                viewer.popASCIITab()
+            else:
+                prefix = pc.getOptionsPrefix() or ""
+                viewer.printfASCII(f"  Use -{prefix}ksp_view ::ascii_info_detail to display information for diffusion or mass solver.\n")

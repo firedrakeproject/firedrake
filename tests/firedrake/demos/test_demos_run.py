@@ -23,6 +23,7 @@ SERIAL_DEMOS = [
     Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
+    Demo(("data_assimilation", "data_assimilation"), ["adjoint"]),
     Demo(("deflation", "deflation"), ["matplotlib"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
@@ -56,6 +57,7 @@ SERIAL_DEMOS = [
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
+    Demo(("data_assimilation", "data_assimilation"), ["adjoint"]),
 ]
 
 
