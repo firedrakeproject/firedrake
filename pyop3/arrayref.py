@@ -22,6 +22,11 @@ class ArrayReference:
         return self.base[self.indices[indices*self._block_size]]
 
     def __setitem__(self, indices: Any, value: Any, /) -> Any:
+        # TODO: better shape casting of value, this is needed because
+        # self.base[self.indices] does not return a view so we can't reshape it
+        if isinstance(value, np.ndarray):
+            value = value.flatten()
+
         if indices is Ellipsis:
             self.base[self.indices] = value
         elif not isinstance(indices, numbers.Integral):
