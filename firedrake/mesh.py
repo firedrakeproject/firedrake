@@ -4087,7 +4087,6 @@ def _pic_swarm_in_mesh(
     )
 
     # Build swarm point SF
-    n_total = n_owned + n_halo
     owner_swarm_idx_buf = np.full(n_recv_total, -1, dtype=IntType)
     owner_swarm_idx_buf[owned_indices] = np.arange(n_owned, dtype=IntType)
 
@@ -4099,15 +4098,16 @@ def _pic_swarm_in_mesh(
     embedded_sf.bcastBegin(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
     embedded_sf.bcastEnd(int_unit, owner_swarm_idx_roots, owner_swarm_idx_on_leaves, MPI.REPLACE)
 
-    # If any halo leaf still has no owner index, drop it from the halo SF.
+    # Drop halo points which are not owned by any rank
     if n_halo:
-        halo_owner_ok = owner_swarm_idx_on_leaves[halo_indices] != -1
-        if not np.all(halo_owner_ok):
-            halo_indices = halo_indices[halo_owner_ok]
+        valid_halo_owners = owner_swarm_idx_on_leaves[halo_indices] != -1
+        if not np.all(valid_halo_owners):
+            halo_indices = halo_indices[valid_halo_owners]
             n_halo = len(halo_indices)
             all_indices = np.concatenate([owned_indices, halo_indices])
             n_total = n_owned + n_halo
 
+    n_total = n_owned + n_halo
     sf_halo_local = np.arange(n_owned, n_total, dtype=IntType)
     swarm_remote = np.empty(2 * n_halo, dtype=IntType)
     swarm_remote[0::2] = winner_ranks_on_leaves[halo_indices]
@@ -4149,7 +4149,7 @@ def _pic_swarm_in_mesh(
         gdim,
     )
 
-    # No halos in original_ordering_swarm: each point is unique to its input rank.
+    # No halos in original_ordering_swarm: each point is unique to its input rank
     original_ordering_point_sf = original_ordering_swarm.getPointSF()
     original_ordering_point_sf.setGraph(nroots, None, [])
     original_ordering_swarm.setPointSF(original_ordering_point_sf)
