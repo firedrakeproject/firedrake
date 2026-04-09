@@ -190,6 +190,7 @@ As we will be generating some random noise, we set the random number generator s
 ::
 
   import numpy as np
+  import sys
   from firedrake import *
   from firedrake.adjoint import *
   np.random.seed(13)
@@ -237,9 +238,10 @@ We create the CG1 function space for :math:`V`, and the space of real numbers to
   ensemble_rank = ensemble.ensemble_rank
   ensemble_size = ensemble.ensemble_size
 
-  mesh = PeriodicUnitIntervalMesh(100, comm=ensemble.comm)
+  mesh = UnitSquareMesh(20, 20, comm=ensemble.comm)
 
   V = FunctionSpace(mesh, "CG", 1)
+  Vv = VectorFunctionSpace(mesh, "CG", 1)
   Vr = FunctionSpace(mesh, "R", 0)
 
 The control :math:`\mathbf{x}` is a timeseries distributed in time over the ``Ensemble``, with each timestep :math:`x_{j}` being a Firedrake ``Function``.
@@ -271,10 +273,10 @@ The observations are taken at intervals of :math:`T_{\textrm{stage}}=n_{t}\Delta
 
   dt = Function(Vr).assign(Tstage/nt)
   t = Function(Vr).zero()
-  z, = SpatialCoordinate(mesh)
+  x_, y_ = SpatialCoordinate(mesh)
 
   cbar = Constant(0.2)
-  c = Function(V).project(1 + cbar*cos(2*pi*z))
+  c = Function(Vv).project(as_vector([1 + cbar*cos(2*pi*x_), 0.0]))
 
   reynolds = 100
   nu = Constant(1/reynolds)
@@ -283,20 +285,15 @@ The observations are taken at intervals of :math:`T_{\textrm{stage}}=n_{t}\Delta
   v = TestFunction(V)
 
   ubar = Constant(0.3)
-  reference_ic = Function(V).project(ubar*sin(2*pi*z))
+  reference_ic = Function(V).project(ubar*sin(2*pi*x_))
 
-  g = (
-      ubar*cos(2*pi*z)*(
-          - sin(2*pi*(z + 0.1*sin(2*pi*t)))
-          + ubar*cos(2*pi*t + 1)*sin(2*pi*(3*z - 2*t))
-      )
-  )
+  bc_val = Function(V)
+  bc = DirichletBC(V, bc_val, 1)  # Boundary 1 is x==0.
 
   F = (
       inner(Dt(u), v)*dx
-      + inner(c, u.dx(0))*v*dx
+      + inner(c, grad(u))*v*dx
       + inner(nu*grad(u), grad(v))*dx
-      - inner(g, v)*dx(degree=4)
   )
 
   solver_parameters = {
@@ -310,6 +307,7 @@ The observations are taken at intervals of :math:`T_{\textrm{stage}}=n_{t}\Delta
 
   stepper = TimeStepper(
       F, tableau, t, dt, u,
+      bcs = bc,
       solver_parameters=solver_parameters,
       options_prefix="irk")
 
@@ -317,8 +315,11 @@ For convenience we make a Python function for the propagator :math:`\mathcal{M}(
 
 ::
 
-  def M(x):
-      stepper.u0.assign(x)
+  def M(x, t_):
+      if float(t_) == 0.0:
+         bc_val.assign(x)
+      else:
+         stepper.u0.assign(x)
       for _ in range(nt):
           stepper.stages.zero()
           stepper.advance()
@@ -332,7 +333,7 @@ The observation operator :math:`\mathcal{H}` is then simply interpolating onto t
 
 ::
 
-  stations = np.random.random_sample((20, 1))
+  stations = np.random.random_sample((20, 2))
   vom = VertexOnlyMesh(mesh, stations)
   U = FunctionSpace(vom, "DG", 0)
 
@@ -412,13 +413,16 @@ After running the local part of the timeseries on each ensemble member, this all
       xt.assign(ctx.state)
 
       for _ in range(nlocal_stages):
-          xt.assign(M(xt) + Q.sample())
+          xt.assign(M(xt, t) + Q.sample())
           y.append(Function(U).assign(H(xt) + R.sample()))
 
       ctx.state.assign(xt)
 
   # send ground-truth end condition to all ranks.
   truth_end = ensemble.bcast(xt.copy(deepcopy=True), root=ensemble_size-1)
+
+  print("finishing now")
+  sys.exit(0)
 
 Now that we have the "ground-truth" observations, we can create a function to generate callbacks for the error vs the observation at each timestep ``i``.
 
@@ -458,7 +462,7 @@ For each ``stage``, we integrate forward from ``stage.control`` (i.e. :math:`x_{
   with Jhat.recording_stages(t=t) as stages:
       for stage, ctx in stages:
           t.assign(ctx.t)
-          xn1 = M(stage.control)
+          xn1 = M(stage.control, t)
 
           obs_error = observation_error(stage.observation_index)
 
@@ -654,15 +658,15 @@ At the initial and final conditions the optimised solution matches the ground tr
 
 ::
 
-  # Errors at initial timestep:
-  # prior_error = 6.723e-01
-  # xopts_error = 4.925e-02
-  # Error reduction factor = 7.326e-02
+Errors at initial timestep:
+prior_error = 6.723e-01
+xopts_error = 4.925e-02
+Error reduction factor = 7.326e-02
 
-  # Errors at final timestep:
-  # prior_error = 8.843e-01
-  # xopts_error = 4.333e-02
-  # Error reduction factor = 4.900e-02
+Errors at final timestep:
+prior_error = 8.843e-01
+xopts_error = 4.333e-02
+Error reduction factor = 4.900e-02
 
 A runnable python version of this demo can be found :demo:`here<data_assimilation.py>`.
 This demo can be run in parallel as long as the number of observations stages :math:`N` is divisible by the number of MPI ranks.
