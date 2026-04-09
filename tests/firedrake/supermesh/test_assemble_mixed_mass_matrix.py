@@ -3,6 +3,8 @@ from firedrake.petsc import PETSc
 from firedrake.supermeshing import *
 import pytest
 
+pytestmark = pytest.mark.skipsingle
+
 
 @pytest.fixture(params=[2, 3])
 def mesh(request):

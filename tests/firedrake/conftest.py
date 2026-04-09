@@ -170,10 +170,14 @@ def pytest_configure(config):
         "markers",
         "skipnogpu: mark as skipped when GPU hardware is unavailable"
     )
+    config.addinivalue_line(
+        "markers",
+        "skipsingle: mark as skipped in single precision (fp32) mode"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
-    from firedrake.utils import complex_mode, device_matrix_type, SLATE_SUPPORTS_COMPLEX
+    from firedrake.utils import complex_mode, single_mode, device_matrix_type, SLATE_SUPPORTS_COMPLEX
 
     for item in items:
         if complex_mode:
@@ -188,6 +192,10 @@ def pytest_collection_modifyitems(session, config, items):
         if device_matrix_type(warn=False) is None:
             if item.get_closest_marker("skipnogpu") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test requires GPU hardware to run."))
+
+        if single_mode:
+            if item.get_closest_marker("skipsingle") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test not supported in single precision (fp32) mode"))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
             if item.get_closest_marker(marker) is not None and _skip_test_dependency(dep):
@@ -272,3 +280,10 @@ def garbage_cleanup():
     """Fixture that runs the parallel garbage collector."""
     yield
     PETSc.garbage_cleanup(MPI.COMM_WORLD)
+
+
+@pytest.fixture
+def fp32_tolerance():
+    """Precision-aware tolerance fixture for fp32 compatibility."""
+    from firedrake.utils import single_mode
+    return 1e-4 if single_mode else 1e-10

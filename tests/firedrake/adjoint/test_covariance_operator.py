@@ -1,4 +1,7 @@
 import pytest
+
+pytestmark = pytest.mark.skipsingle
+
 from firedrake import *
 from firedrake.adjoint import *
 

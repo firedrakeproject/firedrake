@@ -2,6 +2,8 @@ from firedrake import *
 from firedrake.supermeshing import *
 import pytest
 
+pytestmark = pytest.mark.skipsingle
+
 
 @pytest.fixture(params=[2, "q", 3])
 def mesh(request):

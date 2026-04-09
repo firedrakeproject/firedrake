@@ -1,6 +1,8 @@
 from firedrake import *
 import pytest
 
+pytestmark = pytest.mark.skipsingle
+
 
 @pytest.fixture(params=["scalar", "vector", "tensor"])
 def shapify(request):

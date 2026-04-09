@@ -6,6 +6,8 @@ from functools import partial
 import numpy
 import pytest
 
+pytestmark = pytest.mark.skipsingle
+
 
 @pytest.fixture(params=[2, 3])
 def mesh(request):

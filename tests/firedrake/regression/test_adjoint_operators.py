@@ -564,6 +564,7 @@ def supermesh_setup(vector=False):
     return source, target_space
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_self_supermesh_project():
     source, target_space = supermesh_setup()
@@ -586,6 +587,7 @@ def test_self_supermesh_project():
     assert np.isclose(rf(h), 10.0)
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_function():
     source, target_space = supermesh_setup()
@@ -608,6 +610,7 @@ def test_supermesh_project_function():
     assert np.isclose(rf(h), 10.0)
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_to_function_space():
     source, target_space = supermesh_setup()
@@ -629,6 +632,7 @@ def test_supermesh_project_to_function_space():
     assert np.isclose(rf(h), 10.0)
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_gradient(vector, rg):
     source, target_space = supermesh_setup()
@@ -644,6 +648,7 @@ def test_supermesh_project_gradient(vector, rg):
     assert minconv > 1.9
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_tlm(vector):
     source, target_space = supermesh_setup()
@@ -664,6 +669,7 @@ def test_supermesh_project_tlm(vector):
     assert taylor_test(rf, source, h, dJdm=J.block_variable.tlm_value) > 1.9
 
 
+@pytest.mark.skipsingle
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_supermesh_project_hessian(vector, rg):
     source, target_space = supermesh_setup()

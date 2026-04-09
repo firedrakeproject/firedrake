@@ -1,4 +1,7 @@
 import pytest
+
+pytestmark = pytest.mark.skipsingle
+
 from firedrake import *
 import numpy as np
 
