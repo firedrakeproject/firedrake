@@ -21,6 +21,7 @@ ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
 complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
+single_mode = (petsctools.get_petscvariables()["PETSC_PRECISION"].lower() == "single")
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
