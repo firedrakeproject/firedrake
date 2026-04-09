@@ -860,7 +860,8 @@ class ElementKernel:
             self.name,
             code,
             [
-                ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+                # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+                ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
                 ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
                 *((iname, IntType, op3.READ) for iname in indices),
             ],

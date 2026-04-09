@@ -499,7 +499,8 @@ def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) ->
 
         if selected_comm is None or item_comm.size > selected_comm.size:
             selected_comm = item_comm
-    assert selected_comm is not None
+    if not allow_undefined:
+        assert selected_comm is not None
     return selected_comm
 
 
