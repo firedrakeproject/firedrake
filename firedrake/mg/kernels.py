@@ -2,7 +2,7 @@ import numpy
 import string
 from pyop2 import op2
 from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType_c
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
@@ -51,10 +51,10 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     code = {
         "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension,
-        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
+        "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype=RealType_c),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 20,
-        "convergence_epsilon": 1e-12,
+        "convergence_epsilon": 1e-6 if numpy.dtype(ScalarType) == numpy.float32 else 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension),
         "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
@@ -78,7 +78,7 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        double dX[%(topological_dimension)d] = { 0.0 };
+        PetscReal dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
@@ -195,10 +195,10 @@ def prolong_kernel(expression, Vf):
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
-            double bestdist = 1e10;
+            PetscReal bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
+                PetscReal celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -287,10 +287,10 @@ def restrict_kernel(Vf, Vc):
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
-            double bestdist = 1e10;
+            PetscReal bestdist = 1e10;
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
-                double celldist = 2*bestdist;
+                PetscReal celldist = 2*bestdist;
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;

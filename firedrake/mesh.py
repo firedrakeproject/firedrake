@@ -472,12 +472,11 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
-    # These types are /correct/, DMPlexCreateFromCellList wants int
-    # and double (not PetscInt, PetscReal).
+    # DMPlexCreateFromCellList expects int32 cells and PetscReal coords.
     with temp_internal_comm(comm) as icomm:
         if comm.rank == 0:
             cells = np.asarray(cells, dtype=np.int32)
-            coords = np.asarray(coords, dtype=np.double)
+            coords = np.asarray(coords, dtype=PETSc.RealType)
             icomm.bcast(cells.shape, root=0)
             icomm.bcast(coords.shape, root=0)
             # Provide the actual data on rank 0.
@@ -491,7 +490,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
             # A subsequent call to plex.distribute() takes care of parallel partitioning
             plex = PETSc.DMPlex().createFromCellList(dim,
                                                      np.zeros(cell_shape, dtype=np.int32),
-                                                     np.zeros(coord_shape, dtype=np.double),
+                                                     np.zeros(coord_shape, dtype=PETSc.RealType),
                                                      comm=comm)
     if name is not None:
         plex.setName(name)
@@ -2694,7 +2693,9 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        xs = np.asarray(xs, dtype=utils.ScalarType)
+        # Point location always uses float64 for geometric robustness,
+        # regardless of PETSc scalar precision.
+        xs = np.asarray(xs, dtype=np.float64)
         xs = xs.real.copy()
         if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
@@ -2707,7 +2708,7 @@ values from f.)"""
         if cells_ignore.shape[0] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
-        ref_cell_dists_l1 = np.empty(npoints, dtype=utils.RealType)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=np.float64)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)

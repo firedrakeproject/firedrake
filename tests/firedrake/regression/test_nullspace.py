@@ -1,6 +1,9 @@
 from firedrake import *
 import pytest
 import numpy as np
+from petsc4py import PETSc
+
+_fp32 = PETSc.ScalarType == np.float32
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -194,8 +197,9 @@ def test_near_nullspace(tmpdir):
         'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
-    assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < 1e-7
-    assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < 1e-7
+    _tol = 1e-4 if _fp32 else 1e-7
+    assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < _tol
+    assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < _tol
 
     with open(wo_nns_log, "r") as f:
         f.readline()

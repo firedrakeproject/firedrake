@@ -1,6 +1,9 @@
 from firedrake import *
 import pytest
 import numpy as np
+from petsc4py import PETSc
+
+_fp32 = PETSc.ScalarType == np.float32
 
 
 def run_stokes_mini(mat_type, n):
@@ -42,16 +45,22 @@ def run_stokes_mini(mat_type, n):
 
     u, p = w.subfunctions
 
-    solve(a == L, w, bcs=bcs,
-          solver_parameters={'pc_type': 'fieldsplit',
-                             'ksp_rtol': 1e-15,
-                             'pc_fieldsplit_type': 'schur',
-                             'fieldsplit_schur_fact_type': 'diag',
-                             'fieldsplit_0_pc_type': 'redundant',
-                             'fieldsplit_0_redundant_pc_type': 'lu',
-                             'fieldsplit_1_pc_type': 'none',
-                             'ksp_monitor_true_residual': None,
-                             'mat_type': mat_type})
+    if _fp32:
+        # Schur complement fieldsplit stalls in fp32 due to preconditioner
+        # precision limitations. Use direct solver instead.
+        sp = {'ksp_type': 'preonly', 'pc_type': 'lu',
+              'pc_factor_mat_solver_type': 'mumps', 'mat_type': mat_type}
+    else:
+        sp = {'pc_type': 'fieldsplit',
+              'ksp_rtol': 1e-15,
+              'pc_fieldsplit_type': 'schur',
+              'fieldsplit_schur_fact_type': 'diag',
+              'fieldsplit_0_pc_type': 'redundant',
+              'fieldsplit_0_redundant_pc_type': 'lu',
+              'fieldsplit_1_pc_type': 'none',
+              'ksp_monitor_true_residual': None,
+              'mat_type': mat_type}
+    solve(a == L, w, bcs=bcs, solver_parameters=sp)
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
