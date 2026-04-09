@@ -325,19 +325,27 @@ For convenience we make a Python function for the propagator :math:`\mathcal{M}(
           t.assign(t + dt)
       return stepper.u0.copy(deepcopy=True)
 
-**Define the observation operator.**
+  # **Define the observation operator.**
+  #
+  # Our observations will be point evaluations at a set of random locations in the domain, which are defined using a :class:`~firedrake.mesh.VertexOnlyMesh`.
+  # The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
+  #
+  # ::
+  line = UnitIntervalMesh(10, comm=ensemble.comm)
+  x, = SpatialCoordinate(line)
+  lfs = VectorFunctionSpace(line, "CG", 1, dim=2)
+  new_coords = Function(lfs).interpolate(as_vector([x, x]))
+  new_line = Mesh(new_coords)
+  U = FunctionSpace(new_line, "CG", 2)
 
-Our observations will be point evaluations at a set of random locations in the domain, which are defined using a :class:`~firedrake.mesh.VertexOnlyMesh`.
-The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
+  R_line = FunctionSpace(new_line, "R", 0)
 
-::
-
-  stations = np.random.random_sample((20, 1))
-  vom = VertexOnlyMesh(mesh, stations)
-  U = FunctionSpace(vom, "DG", 0)
-
-  def H(x):
-      return assemble(interpolate(x, U))
+  def H(x) -> "Function":
+      a = inner(TestFunction(R_line), TrialFunction(R_line)) * dx(domain=new_line)
+      b = inner(TestFunction(R_line), interpolate(x, U)) * dx(domain=new_line)
+      u = Function(R_line)
+      solve(a == b, u)
+      return u
 
 **Define the error covariance operators.**
 
@@ -419,6 +427,9 @@ After running the local part of the timeseries on each ensemble member, this all
 
   # send ground-truth end condition to all ranks.
   truth_end = ensemble.bcast(xt.copy(deepcopy=True), root=ensemble_size-1)
+
+print("finishing now")
+sys.exit(0)
 
 Now that we have the "ground-truth" observations, we can create a function to generate callbacks for the error vs the observation at each timestep ``i``.
 
