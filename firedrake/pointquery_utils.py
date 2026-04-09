@@ -39,7 +39,7 @@ def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh, tolerance))
     src.append(make_wrapper(mesh.coordinates,
-                            forward_args=["void*", "double*", "double*"],
+                            forward_args=["void*", "double*", RealType_c+"*"],
                             kernel_name="to_reference_coords_kernel",
                             wrapper_name="wrap_to_reference_coords"))
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
@@ -152,10 +152,10 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     x0_expr = builder._coefficient(x0, "x0")
     loopy_args = [
         lp.GlobalArg(
-            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)
+            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=IntType),)
         ),
         lp.GlobalArg(
-            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),)
+            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=IntType),)
         ),
     ]
 
@@ -232,7 +232,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
-        "convergence_epsilon": 1e-12,
+        "convergence_epsilon": 1e-6 if numpy.dtype(ScalarType) == numpy.float32 else 1e-12,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension),
         "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
@@ -246,14 +246,14 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
 
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
-    double X[%(geometric_dimension)d];
+    %(RealType)s X[%(geometric_dimension)d];
 };
 
-static double tolerance = %(tolerance)s; /* used in locate_cell */
+static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, double *cell_dist_l1, %(ScalarType)s *C)
+static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
 {
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
@@ -280,19 +280,19 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, double 
 }
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, double* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
+    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
-double to_reference_coords(void *result_, struct Function *f, int cell, double *x)
+%(RealType)s to_reference_coords(void *result_, struct Function *f, %(IntType)s cell, double *x)
 {
-    double cell_dist_l1 = 0.0;
+    %(RealType)s cell_dist_l1 = 0.0;
     %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
 }
 
-double to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
+%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, %(IntType)s cell, %(IntType)s layer, double *x)
 {
-    double cell_dist_l1 = 0.0;
+    %(RealType)s cell_dist_l1 = 0.0;
     %(non_extr_comment_out)s%(IntType)s layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
     %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
     return cell_dist_l1;

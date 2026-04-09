@@ -37,7 +37,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import as_cstr, IntType, RealType
+from firedrake.utils import as_cstr, as_ctypes, IntType, RealType, RealType_c
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
@@ -422,7 +422,7 @@ def _from_triangle(filename, dim, comm):
                 nodecount = header[0]
                 nodedim = header[1]
                 assert nodedim == dim
-                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
+                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=PETSc.RealType)
                 assert nodecount == coordinates.shape[0]
 
             with open(basename+".ele") as elefile:
@@ -2693,13 +2693,13 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        # Point location always uses float64 for geometric robustness,
-        # regardless of PETSc scalar precision.
+        # Physical coordinates use float64 for the spatial index (libspatialindex requires double).
+        # Reference coordinates and distances use RealType (follows PETSc precision).
         xs = np.asarray(xs, dtype=np.float64)
         xs = xs.real.copy()
         if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
-        Xs = np.empty_like(xs)
+        Xs = np.empty((len(xs), self.geometric_dimension), dtype=RealType)
         npoints = len(xs)
         if cells_ignore is None or cells_ignore[0][0] is None:
             cells_ignore = np.full((npoints, 1), -1, dtype=IntType, order="C")
@@ -2708,14 +2708,14 @@ values from f.)"""
         if cells_ignore.shape[0] != npoints:
             raise ValueError("Number of cells to ignore does not match number of points")
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
-        ref_cell_dists_l1 = np.empty(npoints, dtype=np.float64)
+        ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
-        cells_data = cells.ctypes.data_as(ctypes.POINTER(ctypes.c_int))
-        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
+        ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
-        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+        Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
             run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
         return cells, Xs, ref_cell_dists_l1
@@ -2731,9 +2731,10 @@ values from f.)"""
             return cache[tolerance]
         except KeyError:
             IntTypeC = as_cstr(IntType)
+            RealTypeC = RealType_c
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                int locator(struct Function *f, double *x, double *X, double *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, int* cells_ignore)
+                {IntTypeC} locator(struct Function *f, double *x, {RealTypeC} *X, {RealTypeC} *ref_cell_dists_l1, {IntTypeC} *cells, {IntTypeC} npoints, size_t ncells_ignore, {IntTypeC}* cells_ignore)
                 {{
                     {IntTypeC} j = 0;  /* index into x and X */
                     for({IntTypeC} i=0; i<npoints; i++) {{
@@ -2747,7 +2748,7 @@ values from f.)"""
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
-                        int *cells_ignore_i = cells_ignore + i*ncells_ignore;
+                        {IntTypeC} *cells_ignore_i = cells_ignore + i*ncells_ignore;
                         cells[i] = locate_cell(f, &x[j], {self.geometric_dimension}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension}; k++) {{
@@ -2778,13 +2779,13 @@ values from f.)"""
             locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_int),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(RealType)),
+                                ctypes.POINTER(as_ctypes(IntType)),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
-                                np.ctypeslib.ndpointer(ctypes.c_int, flags="C_CONTIGUOUS")]
-            locator.restype = ctypes.c_int
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
+            locator.restype = as_ctypes(IntType)
             return cache.setdefault(tolerance, locator)
 
     @cached_property  # TODO: Recalculate if mesh moves. Extend this for regular meshes.

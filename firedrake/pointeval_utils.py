@@ -1,5 +1,5 @@
 import loopy as lp
-from firedrake.utils import IntType, as_cstr
+from firedrake.utils import IntType, RealType_c, as_cstr
 
 from finat.element_factory import as_fiat_cell
 from finat.point_set import UnknownPointSet
@@ -160,6 +160,7 @@ def compile_element(expression, coordinates, parameters=None):
         "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
+        "real_type": RealType_c,
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
@@ -177,9 +178,9 @@ static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s*
 int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    double found_ref_cell_dist_l1 = DBL_MAX;
+    %(real_type)s found_ref_cell_dist_l1 = DBL_MAX;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    int cells_ignore[1] = {-1};
+    %(IntType)s cells_ignore[1] = {-1};
     %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
     if (cell == -1) {
         return -1;

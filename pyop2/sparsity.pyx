@@ -37,7 +37,7 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
-from petsc4py.PETSc cimport CHKERR
+from petsc4py.PETSc cimport CHKERR, PetscScalar
 from petsc4py import PETSc
 from pyop2.datatypes import IntType
 
@@ -45,7 +45,6 @@ np.import_array()
 
 cdef extern from "petsc.h":
     ctypedef long PetscInt
-    ctypedef double PetscScalar
     ctypedef enum PetscBool:
         PETSC_TRUE, PETSC_FALSE
     ctypedef enum PetscInsertMode "InsertMode":
