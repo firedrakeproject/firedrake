@@ -28,7 +28,7 @@ from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
-from firedrake.utils import ScalarType, assert_empty, tuplify
+from firedrake.utils import IntType, ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from functools import cached_property
@@ -1783,8 +1783,8 @@ class _GlobalKernelBuilder:
         else:
             rmap_arg, cmap_arg = (V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
-            rdim = numpy.prod(self._get_dim(relem), dtype=int)
-            cdim = numpy.prod(self._get_dim(celem), dtype=int)
+            rdim = numpy.prod(self._get_dim(relem), dtype=IntType)
+            cdim = numpy.prod(self._get_dim(celem), dtype=IntType)
             return op2.MatKernelArg((((rdim, cdim),),), (rmap_arg, cmap_arg), unroll=self._unroll)
 
     @staticmethod
@@ -1879,7 +1879,7 @@ def _as_global_kernel_arg_coefficient(_, self):
 @_as_global_kernel_arg.register(kernel_args.ConstantKernelArg)
 def _as_global_kernel_arg_constant(_, self):
     const = next(self._constants)
-    value_size = numpy.prod(const.ufl_shape, dtype=int)
+    value_size = numpy.prod(const.ufl_shape, dtype=IntType)
     return op2.GlobalKernelArg((value_size,))
 
 

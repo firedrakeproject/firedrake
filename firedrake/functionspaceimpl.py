@@ -19,6 +19,7 @@ from pyop2 import op2
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks
+from firedrake.utils import IntType
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
@@ -569,7 +570,7 @@ class FunctionSpace:
         :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
         respectively."""
 
-        self.block_size = int(numpy.prod(self.shape, dtype=int))
+        self.block_size = int(numpy.prod(self.shape, dtype=IntType))
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name

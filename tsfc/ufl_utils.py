@@ -3,6 +3,7 @@
 from functools import singledispatch
 
 import numpy
+from pyop2.datatypes import IntType
 
 import ufl
 from ufl import as_tensor, indices, replace
@@ -428,7 +429,7 @@ def apply_mapping(expression, element, domain):
         rvs = sub_elem.reference_value_shape
         seen = set()
         rpieces = []
-        gm = int(numpy.prod(vs, dtype=int))
+        gm = int(numpy.prod(vs, dtype=IntType))
         for gi, ri in enumerate(fcm):
             # For each unique piece in reference space
             if ri in seen:
