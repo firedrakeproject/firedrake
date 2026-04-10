@@ -333,11 +333,7 @@ Here we will demonstrate different possibilities for the observation operator :m
 For this example, our first observation will be a line integral across the domain, and the remaining observations will be
 point evaluations at a set of random locations in the domain. 
 To compute the line integral in Firedrake, we define the line as a separate mesh and create a function space on this mesh.
-We then cross-mesh interpolate our function onto the line. 
-
-For the point evaluations, we construct a :class:`~firedrake.mesh.VertexOnlyMesh` with vertices at the observation locations.
-The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
-After this, we will 
+We then cross-mesh interpolate our function onto the line.
 
 ::
 
@@ -348,16 +344,31 @@ After this, we will
   new_line = Mesh(new_coords)
   CG_line = FunctionSpace(new_line, "CG", 2)
 
-  U = FunctionSpace(new_line, "R", 0)
+  U_line = FunctionSpace(new_line, "R", 0)
 
-  def H(x):
+  def H_line(x):
       c = assemble(interpolate(x, CG_line))
       # Project into the real space on the line
-      a = inner(TestFunction(U), TrialFunction(U)) * dx(domain=new_line)
-      b = inner(TestFunction(U), c) * dx(domain=new_line)
-      u = Function(U)
+      a = inner(TestFunction(U_line), TrialFunction(U_line)) * dx(domain=new_line)
+      b = inner(TestFunction(U_line), c) * dx(domain=new_line)
+      u = Function(U_line)
       solve(a == b, u)
       return u
+
+
+For the point evaluations, we construct a :class:`~firedrake.mesh.VertexOnlyMesh` with vertices at the observation locations.
+The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
+After this, we will 
+
+::
+
+  stations = np.random.random_sample((20, 2))
+  vom = VertexOnlyMesh(mesh, stations)
+  U_point = FunctionSpace(vom, "DG", 0)
+
+  def H_point(x):
+      return assemble(interpolate(x, U_point))
+
 
 **Define the error covariance operators.**
 
@@ -380,12 +391,13 @@ The variance of the model error is made proportional to the length of the observ
   sigma_q = sqrt(1e-3*Tstage)
   Q = AutoregressiveCovariance(V, L=0.05, sigma=sigma_q, m=2, seed=17)
 
-The observations are treated as uncorrelated, i.e. a diagonal covariance operator, which is created by setting :math:`m=0`.
+The observations are treated as uncorrelated, i.e. diagonal covariance operators, which are created by setting :math:`m=0`.
 
 ::
 
   sigma_r = sqrt(1e-3)
-  R = AutoregressiveCovariance(U, L=0, sigma=sigma_r, m=0, seed=18)
+  R_line = AutoregressiveCovariance(U_line, L=0, sigma=sigma_r, m=0, seed=18)
+  R_point = AutoregressiveCovariance(U_point, L=0, sigma=sigma_r, m=0, seed=18)
 
 Firedrake provides an abstract base class :class:`~firedrake.adjoint.covariance_operator.CovarianceOperatorBase` for implementing new covariance operators. 
 
@@ -422,7 +434,7 @@ After running the local part of the timeseries on each ensemble member, this all
   truth_ic = ensemble.bcast(xt, root=0).copy(deepcopy=True)
 
   if ensemble_rank == 0:
-      y = [Function(U).assign(H(xt) + R.sample())]
+      y = [Function(U_line).assign(H_line(xt) + R_line.sample())]
   else:
       y = []
 
@@ -433,22 +445,21 @@ After running the local part of the timeseries on each ensemble member, this all
 
       for _ in range(nlocal_stages):
           xt.assign(M(xt) + Q.sample())
-          y.append(Function(U).assign(H(xt) + R.sample()))
+          y.append(Function(U_point).assign(H_point(xt) + R_point.sample()))
 
       ctx.state.assign(xt)
 
   # send ground-truth end condition to all ranks.
   truth_end = ensemble.bcast(xt.copy(deepcopy=True), root=ensemble_size-1)
 
-print("finishing now")
-sys.exit(0)
-
 Now that we have the "ground-truth" observations, we can create a function to generate callbacks for the error vs the observation at each timestep ``i``.
 
 ::
 
   def observation_error(i):
-      return lambda x: Function(U).assign(H(x) - y[i])
+      if ensemble_rank == i:
+          return lambda x: Function(U_line).assign(H_line(x) - y[i])
+      return lambda x: Function(U_point).assign(H_point(x) - y[i])
 
 **Define the reduced functional.**
 
@@ -468,7 +479,7 @@ To initialise it, it needs an :class:`~firedrake.ensemble.ensemble_function.Ense
       Control(control),
       background=xb,
       background_covariance=B,
-      observation_covariance=R,
+      observation_covariance=R_line,
       observation_error=observation_error(0),
       gauss_newton=True)
 
@@ -488,7 +499,7 @@ For each ``stage``, we integrate forward from ``stage.control`` (i.e. :math:`x_{
           stage.set_observation(
               state=xn1,
               observation_error=obs_error,
-              observation_covariance=R,
+              observation_covariance=R_line if ensemble_rank == stage.observation_index else R_point,
               forward_model_covariance=Q)
 
   pause_annotation()
