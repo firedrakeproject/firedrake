@@ -688,15 +688,15 @@ At the initial and final conditions the optimised solution matches the ground tr
 
 ::
 
-Errors at initial timestep:
-prior_error = 6.723e-01
-xopts_error = 4.925e-02
-Error reduction factor = 7.326e-02
+  # Errors at initial timestep:
+  # prior_error = 6.682e-01
+  # xopts_error = 3.306e-01
+  # Error reduction factor = 4.947e-01
 
-Errors at final timestep:
-prior_error = 8.843e-01
-xopts_error = 4.333e-02
-Error reduction factor = 4.900e-02
+  # Errors at final timestep:
+  # prior_error = 6.025e-01
+  # xopts_error = 1.813e-01
+  # Error reduction factor = 3.009e-01
 
 A runnable python version of this demo can be found :demo:`here<data_assimilation.py>`.
 This demo can be run in parallel as long as the number of observations stages :math:`N` is divisible by the number of MPI ranks.
