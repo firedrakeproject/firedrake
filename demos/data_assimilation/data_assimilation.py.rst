@@ -194,23 +194,24 @@ As we will be generating some random noise, we set the random number generator s
   from firedrake.adjoint import *
   np.random.seed(13)
 
-We use the advection-diffusion equation in one spatial dimension :math:`z`, with a spatially varying advection velocity :math:`c(z)`, a time-dependent forcing term :math:`g(t)`, and periodic boundary conditions.
+We use the advection-diffusion equation in two spatial dimensions :math:`x,y`, with a spatially varying advection velocity :math:`c(x, y)`,
+a time-dependent forcing term :math:`g(t)`, and periodic boundary conditions in the :math:`x` direction.
 
 .. math::
 
    \partial_{t}u + \vec{c}(z)\cdot\nabla u + \nu\nabla^{2}u = g(t) &
 
-   t \in [0, T], \quad z \in \Omega = [0, 1) &
+   t \in [0, T], \quad z \in \Omega = [0, 1) x [0, 1]&
 
-   u(0, t) = u(1, t) &
+   u(0, y, t) = u(1, y, t) &
 
-   c(z) = 1 + \overline{c}\cos(2\pi z)
+   c(x, y) = (1 + \overline{c}\cos(2\pi x), 0)^{T}
 
 The reference state :math:`\hat{u}` that we will use to generate the "ground-truth" trajectory :math:`x^{t}` is just a simple sinusoid.
 
 .. math::
 
-   \hat{u} = \overline{u}\sin(2\pi z)
+   \hat{u} = \overline{u}\sin(2\pi x)
 
 For the time integration we use the implicit midpoint rule with the semi-discrete weak form:
 
@@ -326,25 +327,35 @@ For convenience we make a Python function for the propagator :math:`\mathcal{M}(
           t.assign(t + dt)
       return stepper.u0.copy(deepcopy=True)
 
-  # **Define the observation operator.**
-  #
-  # Our observations will be point evaluations at a set of random locations in the domain, which are defined using a :class:`~firedrake.mesh.VertexOnlyMesh`.
-  # The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
-  #
-  # ::
+**Define the observation operators.**
+
+Here we will demonstrate different possibilities for the observation operator :math:`\mathcal{H}`.
+For this example, our first observation will be a line integral across the domain, and the remaining observations will be
+point evaluations at a set of random locations in the domain. 
+To compute the line integral in Firedrake, we define the line as a separate mesh and create a function space on this mesh.
+We then cross-mesh interpolate our function onto the line. 
+
+For the point evaluations, we construct a :class:`~firedrake.mesh.VertexOnlyMesh` with vertices at the observation locations.
+The observation operator :math:`\mathcal{H}` is then simply interpolating onto this mesh.
+After this, we will 
+
+::
+
   line = UnitIntervalMesh(10, comm=ensemble.comm)
   x, = SpatialCoordinate(line)
   lfs = VectorFunctionSpace(line, "CG", 1, dim=2)
   new_coords = Function(lfs).interpolate(as_vector([x, x]))
   new_line = Mesh(new_coords)
-  U = FunctionSpace(new_line, "CG", 2)
+  CG_line = FunctionSpace(new_line, "CG", 2)
 
-  R_line = FunctionSpace(new_line, "R", 0)
+  U = FunctionSpace(new_line, "R", 0)
 
-  def H(x) -> "Function":
-      a = inner(TestFunction(R_line), TrialFunction(R_line)) * dx(domain=new_line)
-      b = inner(TestFunction(R_line), interpolate(x, U)) * dx(domain=new_line)
-      u = Function(R_line)
+  def H(x):
+      c = assemble(interpolate(x, CG_line))
+      # Project into the real space on the line
+      a = inner(TestFunction(U), TrialFunction(U)) * dx(domain=new_line)
+      b = inner(TestFunction(U), c) * dx(domain=new_line)
+      u = Function(U)
       solve(a == b, u)
       return u
 
@@ -374,7 +385,7 @@ The observations are treated as uncorrelated, i.e. a diagonal covariance operato
 ::
 
   sigma_r = sqrt(1e-3)
-  R = AutoregressiveCovariance(R_line, L=0, sigma=sigma_r, m=0, seed=18)
+  R = AutoregressiveCovariance(U, L=0, sigma=sigma_r, m=0, seed=18)
 
 Firedrake provides an abstract base class :class:`~firedrake.adjoint.covariance_operator.CovarianceOperatorBase` for implementing new covariance operators. 
 
