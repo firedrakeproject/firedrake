@@ -3970,7 +3970,7 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
+        if self.coordinates.dat.buffer.state != self._saved_coordinate_dat_version:
             if "bounding_box_coords" in self.__dict__:
                 del self.bounding_box_coords
         else:
@@ -4001,7 +4001,7 @@ values from f.)"""
         # Build spatial index
         with PETSc.Log.Event("spatial_index_build"):
             self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
-        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
+        self._saved_coordinate_dat_version = self.coordinates.dat.buffer.state
         return self._spatial_index
 
     @PETSc.Log.EventDecorator()

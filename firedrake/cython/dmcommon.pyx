@@ -4456,3 +4456,32 @@ def is_on_comm(is_: PETSc.IS, comm: MPI.Comm, *, copy=True) -> PETSc.IS:
     copy_mode: PetscCopyMode = PETSC_COPY_VALUES if copy else PETSC_USE_POINTER
     CHKERR(ISOnComm(is_.iset, comm.ob_mpi, copy_mode, &new_is.iset))
     return new_is
+
+
+cdef extern from "petsc/private/matimpl.h":
+    struct _p_Mat:
+        void *data
+
+
+ctypedef struct Mat_Preallocator:
+    void *ht
+    PetscInt *dnz
+    PetscInt *onz
+
+
+def get_preallocation(PETSc.Mat preallocator, PetscInt nrow):
+    cdef:
+        _p_Mat *A = <_p_Mat *>(preallocator.mat)
+        Mat_Preallocator *p = <Mat_Preallocator *>(A.data)
+
+    if p.dnz != NULL:
+        dnz = <PetscInt[:nrow]>p.dnz
+        dnz = np.asarray(dnz).copy()
+    else:
+        dnz = np.zeros(0, dtype=IntType)
+    if p.onz != NULL:
+        onz = <PetscInt[:nrow]>p.onz
+        onz = np.asarray(onz).copy()
+    else:
+        onz = np.zeros(0, dtype=IntType)
+    return dnz, onz

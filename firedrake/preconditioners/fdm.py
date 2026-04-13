@@ -16,6 +16,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.cython.dmcommon import get_preallocation
 from firedrake.parloops import par_loop
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
 from firedrake.utils import IntType, ScalarType
@@ -26,7 +27,6 @@ from finat.element_factory import create_element
 import pyop3 as op3
 from pyop3.compile import load
 from pyop3.mpi import COMM_SELF
-# from pyop2.sparsity import get_preallocation  # FIXME
 from pyop3.pyop2_utils import as_tuple
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
@@ -791,11 +791,7 @@ class FDMPC(PCBase):
 class ElementKernel:
     """Base class for sparse element kernel builders.
     By default, it inserts the same matrix on each cell."""
-    code = dedent("""
-        PetscErrorCode %(name)s(const Mat A, const Mat B, %(indices)s) {
-            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            return PETSC_SUCCESS;
-        }""")
+    code = "PetscCallVoid(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));"
 
     def __init__(self, A, name=None):
         self.result = A
@@ -813,9 +809,9 @@ class ElementKernel:
         if addv is None:
             addv = PETSc.InsertMode.INSERT
         indices = ("rindices",) if on_diag else ("rindices", "cindices")
-        code = ""
+        preambles = []
         if "MatSetValuesArray" in self.code:
-            code = dedent("""
+            preambles.append(dedent("""
                 static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restrict values) {
                     PetscBool done;
                     PetscInt m;
@@ -827,9 +823,9 @@ class ElementKernel:
                     PetscCall(MatSeqAIJRestoreArrayWrite(A, &vals));
                     PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
                     return PETSC_SUCCESS;
-                }""")
+                }"""))
         if mat_type != "matfree":
-            code += dedent("""
+            preambles.append(dedent("""
                 static inline PetscErrorCode MatSetValuesLocalSparse(const Mat A, const Mat B,
                                                                      const PetscInt *restrict rindices,
                                                                      const PetscInt *restrict cindices,
@@ -851,10 +847,9 @@ class ElementKernel:
                     PetscCall(MatRestoreRowIJ(B, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, &aj, &done));
                     PetscCall(PetscFree(indices));
                     return PETSC_SUCCESS;
-                }""")
-        code += self.code % dict(self.rules, name=self.name,
-                                 indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
-                                 rows=indices[0], cols=indices[-1], addv=addv)
+                }"""))
+
+        code = self.code % dict(self.rules, rows=indices[0], cols=indices[-1], addv=addv)
 
         return op3.Function.from_c_string(
             self.name,
@@ -865,7 +860,7 @@ class ElementKernel:
                 ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
                 *((iname, IntType, op3.READ) for iname in indices),
             ],
-            preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>")],
+            preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>"), ("50_preambles", "\n".join(preambles))],
         )
 
 
@@ -885,6 +880,7 @@ class TripleProductKernel(ElementKernel):
         }""")
 
     def __init__(self, L, C, R, name=None):
+        raise NotImplementedError("look at coefficients")
         self.product = partial(L.matMatMult, C, R)
         super().__init__(self.product(), name=name)
 
@@ -894,12 +890,11 @@ class SchurComplementKernel(ElementKernel):
     condense_code = ""
     code = dedent("""
         Mat C;
-        PetscCall(MatProductGetMats(A11, NULL, &C, NULL));
-        PetscCall(MatSetValuesArray(C, coefficients));
+        PetscCallVoid(MatProductGetMats(A11, NULL, &C, NULL));
+        PetscCallVoid(MatSetValuesArray(C, coefficients));
         %(condense)s
-        PetscCall(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
-        PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-        return PETSC_SUCCESS;""")
+        PetscCallVoid(MatSetValuesLocalSparse(A, A11, %(rows)s, %(cols)s, %(addv)d));
+        PetscCallVoid(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));""")
 
     def __init__(self, *kernels, name=None):
         self.children = kernels
@@ -1771,24 +1766,26 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
     loop_info = get_iteration_spec(Vc.mesh(), "cell")
-    op3.loop(
+    mat_args = kernel.make_args(preallocator)
+    assembler = op3.loop(
         loop_info.loop_index,
         kernel.kernel(mat_type=mat_type)(
-            *kernel.make_args(preallocator),
+            *mat_args,
             *(
                 pack(idat, loop_info)
                 for idat in indices_acc
             ),
         ),
-        eager=True,
     )
+    assembler()
     preallocator.assemble()
 
-    breakpoint()
     Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
-    assembler.arguments[0].data = Dmat.handle
     preallocator.destroy()
-    assembler()
+
+    # Now run the same loop but with the allocated matrix
+    Dmat_arg = op3.OpaqueTerminal(op3.dtypes.OpaqueType("Mat"), Dmat.handle)
+    assembler(**{mat_args[0].name: Dmat_arg})
     Dmat.assemble()
     Dhat.destroy()
     return Dmat

@@ -325,10 +325,11 @@ def restrict_kernel(Vf, Vc):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()})
 
+    # TODO: Use from_c_string()
     # Now build a pyop3 'Function' wrapping this
     # sniff arg sizes from the inner kernel
     loopy_kernel = lp.make_kernel(
-        "{ [i]: 0 < i < 1 }",
+        [],
         [
             lp.CInstruction((), c_kernel, frozenset({"R", "b", "X", "Xc"}), ("R",)),
         ],

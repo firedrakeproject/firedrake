@@ -817,7 +817,7 @@ class PointEvaluator:
         function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
+        if coord_changed := function_mesh.coordinates.dat.buffer.state != self.mesh._saved_coordinate_dat_version:
             # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
             self.mesh = function_mesh
         if tol_changed := self.mesh.tolerance != self.tolerance:
