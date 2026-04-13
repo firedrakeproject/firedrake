@@ -280,6 +280,20 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, 
     return section
 
 
+def section_dofs(section: PETSc.Section) -> np.ndarray:
+    """Unpack the DoFs of a section and reorder."""
+    p_start, p_end = section.getChart()
+    dofs = np.empty(p_end-p_start, dtype=IntType)
+    for i, p in enumerate(range(p_start, p_end)):
+        dofs[i] = section.getDof(p)
+
+    renumbering = section.getPermutation()
+    if renumbering is not None:
+        dofs = dofs[renumbering.indices]
+
+    return dofs
+
+
 def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: bool = False) -> PETSc.IS:
     """Return the section offsets for a given set of points."""
     offsets = np.empty(selected_points.size, dtype=IntType)
@@ -3616,6 +3630,40 @@ def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientati
 
     if new_values != NULL:
         CHKERR(PetscFree(new_values))
+
+
+def partition_constrained_points(plex, section, boundary_set):
+    """Split a section into unconstrained and constrained sets."""
+    # identify constrained points
+    constrained_points = PETSc.IS().createGeneral(np.empty([], dtype=IntType), comm=MPI.COMM_SELF)
+    if boundary_set:
+        for marker in boundary_set:
+            if marker == "on_boundary":
+                label = "exterior_facets"
+                marker = 1
+            else:
+                label = FACE_SETS_LABEL
+
+            n = plex.getStratumSize(label, marker)
+            if n == 0:
+                continue
+            marked_points = plex.getStratumIS(label, marker)
+            constrained_points = constrained_points.union(marked_points)
+
+    # now partition the section
+    unconstrained_section = section.clone()
+    constrained_section = PETSc.Section().create(comm=section.comm)
+    constrained_section.setChart(*section.getChart())
+    constrained_section.setPermutation(section.getPermutation())
+
+    for constrained_point in constrained_points.indices:
+        ndof = section.getDof(constrained_point)
+        unconstrained_section.setDof(constrained_point, 0)
+        constrained_section.setDof(constrained_point, ndof)
+
+    unconstrained_section.setUp()
+    constrained_section.setUp()
+    return unconstrained_section, constrained_section
 
 
 @cython.boundscheck(False)

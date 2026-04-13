@@ -797,7 +797,7 @@ class FunctionSpace:
 
     @cached_property
     @_mesh_cached
-    @with_heavy_caches(lambda self: self.mesh().unique().topology)
+    @_with_mesh_heavy_cache
     def axis_constraints(self) -> tuple[AxisConstraint]:
         from firedrake.cython import dmcommon
 
@@ -807,40 +807,9 @@ class FunctionSpace:
 
         constraints = [AxisConstraint(mesh_axis)]
 
-        # identify constrained points
-        constrained_points = set()
-        if self.boundary_set:
-            for marker in self.boundary_set:
-                if marker == "on_boundary":
-                    label = "exterior_facets"
-                    marker = 1
-                else:
-                    label = dmcommon.FACE_SETS_LABEL
-                n = plex.getStratumSize(label, marker)
-                if n == 0:
-                    continue
-                points = plex.getStratumIS(label, marker).indices
-                constrained_points.update(points)
-
-        num_constrained_points = len(constrained_points)
-        num_unconstrained_points = num_points - num_constrained_points
-
-        num_unconstrained_dofs = numpy.empty(num_points, dtype=IntType)
-        num_constrained_dofs = numpy.empty_like(num_unconstrained_dofs)
-        for old_pt in range(mesh_axis.local_size):
-            if self._mesh._is_renumbered:
-                new_pt = self._mesh._old_to_new_point_renumbering.indices[old_pt]
-            else:
-                new_pt = old_pt
-
-            ndofs = self.local_section.getDof(old_pt) // self.block_size
-
-            if old_pt not in constrained_points:
-                num_unconstrained_dofs[new_pt] = ndofs
-                num_constrained_dofs[new_pt] = 0
-            else:
-                num_unconstrained_dofs[new_pt] = 0
-                num_constrained_dofs[new_pt] = ndofs
+        unconstrained_sec, constrained_sec = dmcommon.partition_constrained_points(plex, self.local_section, self.boundary_set)
+        num_unconstrained_dofs = dmcommon.section_dofs(unconstrained_sec) // self.block_size
+        num_constrained_dofs = dmcommon.section_dofs(constrained_sec) // self.block_size
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
