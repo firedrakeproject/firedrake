@@ -33,6 +33,11 @@ def version(request):
     return request.param
 
 
+def _skip_if_missing(filename, version):
+    if not exists(filename):
+        pytest.skip(reason=f"Checkpoint file does not exist for version '{version}'")
+
+
 def _initialise_function(f, _f):
     f.project(_f, solver_parameters={"ksp_type": "cg", "pc_type": "jacobi", "ksp_rtol": 1.e-16})
 
@@ -209,6 +214,7 @@ def _test_io_backward_compat_base_idfunc(params):
 @pytest.mark.parametrize('params', test_io_backward_compat_base_params, ids=_test_io_backward_compat_base_idfunc)
 def test_io_backward_compat_base_load(version, params):
     filename = join(filedir, "_".join([basename, version, _make_name(params) + ".h5"]))
+    _skip_if_missing(filename, version)
     with CheckpointFile(filename, "r") as afile:
         mesh = afile.load_mesh(mesh_name)
         f = afile.load_function(mesh, func_name)
@@ -232,6 +238,7 @@ def _get_expr_timestepping(V, i):
 @pytest.mark.parallel(4)
 def test_io_backward_compat_timestepping_load(version):
     filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
+    _skip_if_missing(filename, version)
     with CheckpointFile(filename, "r") as afile:
         mesh = afile.load_mesh(mesh_name)
         for i in range(5):
@@ -246,6 +253,7 @@ def test_io_backward_compat_timestepping_load(version):
 @pytest.mark.parallel(3)
 def test_io_backward_compat_timestepping_append(version, tmpdir):
     filename = join(filedir, "_".join([basename, version, "timestepping" + ".h5"]))
+    _skip_if_missing(filename, version)
     copyname = join(str(tmpdir), "test_io_backward_compat_timestepping_append_dump.h5")
     copyname = COMM_WORLD.bcast(copyname, root=0)
     shutil.copyfile(filename, copyname)
