@@ -15,9 +15,9 @@ this estimate might be quite large, and a warning like this one will be raised:
 
    tsfc:WARNING Estimated quadrature degree 13 more than tenfold greater than any argument/coefficient degree (max 1)
 
-For integrals with very complicated nonlinearities, the estimated quadrature
-degree might be in the hundreds or thousands, rendering the integration
-prohibitively expensive, or leading to segfaults.
+For integrals with very complicated or non-polynomial nonlinearities, the
+estimated quadrature degree might be in the hundreds or thousands, rendering
+the integration prohibitively expensive, or leading to segfaults.
 
 Specifying the quadrature rule in the variational formulation
 -------------------------------------------------------------
@@ -45,6 +45,17 @@ For integrals that do not specify a quadrature degree, the default may be keyed 
 In the example above, only the integrals with unspecified quadrature degree
 will be computed on a quadrature rule that exactly integrates polynomials of
 the degree set in ``form_compiler_parameters``.
+
+Rather than enforcing a specific quadrature degree, it is also possible to set
+a maximum allowable degree which will only be used if UFL estimates a larger
+degree. This can be set for all integrals by adding the ``"max_quadrature_degree"``
+entry to the ``form_compiler_parameters``.
+A maximum allowable quadrature degree can be set for a particular integral by
+adding the ``"max_quadrature_degree"`` entry to the ``metadata`` of the ``Measure``:
+
+.. code-block:: python3
+
+   inner(sin(u)**4, v) * dx(metadata={"max_quadrature_degree": 4})
 
 Another way to specify the quadrature rule is through the ``scheme`` keyword. This could be
 either a :py:class:`~finat.quadrature.QuadratureRule`, or a string. Supported string values
