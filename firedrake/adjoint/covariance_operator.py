@@ -657,7 +657,6 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
         self._subcovariances = subcovariances
         self._rngs = [cov.rng() for cov in self.subcovariances]
 
-    @property
     def function_space(self):
         return self._W
 
@@ -931,7 +930,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
 
 def diffusion_form(u, v, kappa: Constant | Function,
-                   formulation: AutoregressiveCovariance.DiffusionForm):
+                   formulation: AutoregressiveCovariance.DiffusionForm,
+                   cell_size=None):
     """
     Convenience function for common diffusion forms.
 
@@ -952,6 +952,9 @@ def diffusion_form(u, v, kappa: Constant | Function,
         The diffusion coefficient.
     formulation :
         The type of diffusion form.
+    cell_size :
+        The cell size used to calculate the interior penalty stabilisation.
+        Defaults to ``CellSize(mesh)``. Ignored if formulation is ``CG``.
 
     Returns
     -------
@@ -974,7 +977,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
     elif formulation == AutoregressiveCovariance.DiffusionForm.IP:
         mesh = v.function_space().mesh()
         n = FacetNormal(mesh)
-        h = CellSize(mesh)
+        h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         alpha_h = Constant(4.0)/h_avg
         return (
