@@ -37,7 +37,7 @@ import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
-from firedrake.logging import info_red
+from firedrake.logging import info_red, logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
@@ -201,14 +201,6 @@ class _Facets(object):
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
-    @cached_property
-    def _null_subset(self):
-        '''Empty subset for the case in which there are no facets with
-        a given marker value. This is required because not all
-        markers need be represented on all processors.'''
-
-        return op2.Subset(self.set, [])
-
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=None):
@@ -283,9 +275,16 @@ class _Facets(object):
                         marked_points_list.append(self.mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
             if marked_points_list:
                 _, indices, _ = np.intersect1d(self.facets, np.concatenate(marked_points_list), return_indices=True)
-                return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
             else:
-                return self._subsets.setdefault(markers, self._null_subset)
+                indices = np.empty(0, dtype=IntType)
+
+            with temp_internal_comm(self.mesh.comm) as icomm:
+                num_global_indices = icomm.reduce(len(indices), MPI.SUM, root=0)
+                if num_global_indices == 0 and icomm.rank == 0:
+                    logger.warn(f"Subdomain {markers} is empty. This is likely an error. "
+                                "Did you choose the right label?")
+
+            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
     def _collect_unmarked_points(self, markers):
         """Collect points that are not marked by markers."""
@@ -2732,7 +2731,6 @@ values from f.)"""
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
         from pyop2 import compilation
-        from pyop2.utils import get_petsc_dir
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 
@@ -2776,8 +2774,9 @@ values from f.)"""
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}"
-                ] + [f"-I{d}/include" for d in get_petsc_dir()],
+                    f"-I{rtree.finder.get_include()}",
+                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
                     str(libspatialindex_so),
@@ -3108,6 +3107,63 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     return mesh
 
 
+def _fully_localize_coordinates(dm):
+    """Expand sparsely localized coordinates to cover all cells.
+
+    For file-based periodic meshes (e.g. Gmsh), PETSc only creates
+    cell-local (DG) coordinates for cells touching the periodic
+    boundary. This fills in the remaining cells using CG vertex
+    coordinates via ``vecGetClosure``.
+    """
+    gdim = dm.getCoordinateDim()
+    cStart, cEnd = dm.getHeightStratum(0)
+    cell_sec = dm.getCellCoordinateSection()
+    coord_sec = dm.getCoordinateSection()
+    coord_vec = dm.getCoordinatesLocal()
+    old_cell_vec = dm.getCellCoordinatesLocal()
+
+    # Find dofs_per_cell from an existing cell entry
+    dofs_per_cell = None
+    for c in range(cStart, cEnd):
+        dof = cell_sec.getDof(c)
+        if dof > 0:
+            dofs_per_cell = dof
+            break
+    if dofs_per_cell is None:
+        return
+
+    # Build new section and vector covering all cells
+    new_sec = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    new_sec.setNumFields(1)
+    new_sec.setFieldComponents(0, gdim)
+    new_sec.setChart(cStart, cEnd)
+    for c in range(cStart, cEnd):
+        new_sec.setDof(c, dofs_per_cell)
+        new_sec.setFieldDof(c, 0, dofs_per_cell)
+    new_sec.setUp()
+
+    new_vec = PETSc.Vec().create(comm=PETSc.COMM_SELF)
+    new_vec.setSizes((new_sec.getStorageSize(), PETSc.DETERMINE), gdim)
+    new_vec.setType(coord_vec.getType())
+
+    arr = new_vec.array
+    old_arr = old_cell_vec.array
+    for c in range(cStart, cEnd):
+        off = new_sec.getOffset(c)
+        old_dof = cell_sec.getDof(c)
+        if old_dof > 0:
+            old_off = cell_sec.getOffset(c)
+            arr[off:off + dofs_per_cell] = old_arr[old_off:old_off + old_dof]
+        else:
+            arr[off:off + dofs_per_cell] = dm.vecGetClosure(
+                coord_sec, coord_vec, c)[:dofs_per_cell]
+
+    coord_dm = dm.getCoordinateDM()
+    dm.setCellCoordinateDM(coord_dm.clone())
+    dm.setCellCoordinateSection(gdim, new_sec)
+    dm.setCellCoordinatesLocal(new_vec)
+
+
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     """Make mesh from topology.
 
@@ -3129,8 +3185,15 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
-    geometric_dim = topology.topology_dm.getCoordinateDim()
-    if not topology.topology_dm.getCoordinatesLocalized():
+    dm = topology.topology_dm
+    geometric_dim = dm.getCoordinateDim()
+    # For periodic meshes loaded from file (e.g. Gmsh), PETSc creates
+    # cell-local (DG) coordinates only for cells touching the periodic
+    # boundary (sparse localization). Firedrake needs every cell to
+    # have an entry, so we expand to full localization.
+    if dm.getCoordinatesLocalized():
+        _fully_localize_coordinates(dm)
+    if not dm.getCoordinatesLocalized():
         element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
@@ -4797,22 +4860,27 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
+def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None):
     """Construct a submesh from a given mesh.
 
     Parameters
     ----------
     mesh : MeshGeometry
         Parent mesh (`MeshGeometry`).
-    subdim : int
+    subdim : int | None
         Topological dimension of the submesh.
+        Defaults to ``mesh.topological_dimension``.
     subdomain_id : int | None
         Subdomain ID representing the submesh.
-        `None` defines the submesh owned by the sub-communicator.
+        If `None` the submesh will cover the entire domain.
+        This is useful to obtain a codim-1 submesh over all facets or
+        a submesh over a different communicator.
     label_name : str | None
         Name of the label to search ``subdomain_id`` in.
+        Defaults to ``'Cell Sets'`` or ``'Face Sets'`` depending on ``subdim``.
     name : str |  None
         Name of the submesh.
+        Defaults to ``mesh.name + "_submesh"``·
     ignore_halo : bool
         Whether to exclude the halo from the submesh.
     reorder : bool | None
@@ -4855,24 +4923,24 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
         raise NotImplementedError("Can not create a submesh of an ``ExtrudedMesh``")
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
+    if subdim is None:
+        subdim = mesh.topological_dimension
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim not in [dim, dim - 1]:
+    if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
-    if label_name is None:
+    if subdomain_id is None:
+        if label_name is not None:
+            raise ValueError("subdomain_id=None requires label_name=None.")
+        # Select all entities
+        label_name = "depth"
+        subdomain_id = subdim
+    elif label_name is None:
         if subdim == dim:
             label_name = dmcommon.CELL_SETS_LABEL
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
-    if subdomain_id is None:
-        # Filter the plex with PETSc's default label (cells owned by comm)
-        if label_name != dmcommon.CELL_SETS_LABEL:
-            raise ValueError("subdomain_id == None requires label_name == CELL_SETS_LABEL.")
-        subplex, sf = plex.filter(sanitizeSubMesh=True, ignoreHalo=ignore_halo, comm=comm)
-        dmcommon.submesh_update_facet_labels(plex, subplex)
-        dmcommon.submesh_correct_entity_classes(plex, subplex, sf)
-    else:
-        subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
