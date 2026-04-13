@@ -302,7 +302,7 @@ def test_covariance_mat(m, family, operation):
             'ksp_max_it': 2,
             'ksp_rtol': tol,
             'pc_type': 'python',
-            'pc_python_type': 'firedrake.adjoint.CovariancePC',
+            'pc_python_type': 'firedrake.CovariancePC',
         }
     )
     x.zero()
