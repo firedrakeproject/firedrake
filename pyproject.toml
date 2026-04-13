@@ -31,7 +31,7 @@ dependencies = [
   "petsctools",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.10.0",
+  "pyadjoint-ad==2025.10.0",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -87,7 +87,7 @@ jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc>=0.1.1",
+  "ngsPETSc==0.1.1",
 ]
 slepc = [
   "slepc4py==3.24.3",
@@ -107,7 +107,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  "ngsPETSc>=0.1.1",
+  "ngsPETSc==0.1.1",
   "pdf2image",
   "pygraphviz",
   "pylit",
