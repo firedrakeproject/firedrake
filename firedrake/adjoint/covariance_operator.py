@@ -638,7 +638,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
     --------
     CovarianceOperatorBase
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     def __init__(self, W: WithGeometry, subcovariances: Iterable[CovarianceOperatorBase]):
         if len(subcovariances) != len(W.subspaces):
