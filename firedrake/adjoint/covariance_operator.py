@@ -323,7 +323,7 @@ class VOMNoiseBackend(NoiseBackendBase):
 
         b = rng.standard_normal(self.function_space)
 
-        if apply_riesz:
+        if not apply_riesz:
             b = b.riesz_representation(self.riesz_map)
 
         if tensor:
