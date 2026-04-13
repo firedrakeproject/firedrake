@@ -49,7 +49,19 @@ class ExtractSubBlock(MultiFunction):
                     return ListTensor(*(child[i] for i in indices))
             return self.expr(o, child, multiindex)
 
-    index_inliner = IndexInliner()
+    @property
+    def index_inliner(self):
+        """Return an IndexInliner multifunction.
+
+        This is a property so that the IndexInliner is not created on import.
+        This is a workaround for issues in Irksome caused by the UFL typecode
+        system.
+        """
+        try:
+            return self._index_inliner
+        except AttributeError:
+            type(self)._index_inliner = self.IndexInliner()
+        return self._index_inliner
 
     def _subspace_argument(self, a):
         return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
