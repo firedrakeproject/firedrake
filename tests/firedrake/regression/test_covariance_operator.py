@@ -336,38 +336,38 @@ def test_mixed_covariance(operation):
     coords, = SpatialCoordinate(mesh)
 
     V0 = FunctionSpace(mesh, "CG", 1)
-    V1 = FunctionSpace(mesh, "CG", 2)
+    V1 = FunctionSpace(mesh, "DG", 1)
     W = V0*V1
 
-    Bc = AutoregressiveCovariance(V0, L, sigma, m=2)
-    Bd = AutoregressiveCovariance(V1, L, sigma, m=2)
+    Bc = AutoregressiveCovariance(V0, L, sigma, m=2, form="CG")
+    Bd = AutoregressiveCovariance(V1, 2*L, 2*sigma, m=2, form="IP")
 
     B = MixedCovarianceOperator(W, [Bc, Bd])
 
     mat = CovarianceMat(B, operation=operation)
 
-    expr_c = 2*pi*coords
-    expr_d = 4*pi*coords
+    expr_c = sin(2*pi*coords)
+    expr_d = cos(1*pi*coords)
 
     if operation == 'action':
         x = Function(W)
         y = Function(W)
 
-        x.subfunctions[0].interpolate(expr_c)
-        x.subfunctions[1].interpolate(expr_d)
+        x.subfunctions[0].project(expr_c)
+        x.subfunctions[1].project(expr_d)
         x = x.riesz_representation()
 
         xcheck = x.copy(deepcopy=True)
         ycheck = y.copy(deepcopy=True)
 
-        B.apply_action(xcheck)
+        B.apply_action(xcheck, tensor=ycheck)
 
     elif operation == 'inverse':
         x = Function(W)
         y = Function(W.dual())
 
-        x.subfunctions[0].interpolate(expr_c)
-        x.subfunctions[1].interpolate(expr_d)
+        x.subfunctions[0].project(expr_c)
+        x.subfunctions[1].project(expr_d)
 
         xcheck = x.copy(deepcopy=True)
         ycheck = y.copy(deepcopy=True)
