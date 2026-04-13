@@ -1315,7 +1315,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def restrict_nest(self, nest_index: int) -> AxisTree:
         return self[nest_index].materialize()
 
-    def blocked(self, block_shape: Sequence[int, ...]) -> AxisTree:
+    def blocked(self, block_shape: Sequence[int, ...] | int) -> AxisTree:
         if len(block_shape) == 0:
             return self
         else:

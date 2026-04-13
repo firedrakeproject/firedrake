@@ -19,19 +19,15 @@ from pyop3.tree.axis_tree.tree import MissingVariableException
 
 class Expression(Node, abc.ABC):
 
-    # MAX_NUM_CHARS = 120
-
     # {{{ abstract methods
 
     @property
-    @abc.abstractmethod
     def local_max(self) -> numbers.Number:
-        pass
+        raise NotImplementedError
 
     @property
-    @abc.abstractmethod
     def local_min(self) -> numbers.Number:
-        pass
+        raise NotImplementedError
 
     @property
     @abc.abstractmethod
@@ -458,53 +454,23 @@ class TerminalExpression(Expression, Terminal, abc.ABC):
     child_attrs = ()
 
 
-# NOTE: This is ick - masquerading as both a buffer expression and a buffer
-@pyop3.record.frozenrecord()
-class OpaqueTerminal(TerminalExpression):
+class NamedTerminalExpression(TerminalExpression):
+    """A terminal with a name.
 
-    # {{{ instance attrs
+    This type is important because only named terminals can be replaced when
+    an operation is reused. For example we can only do the following:
 
-    dtype: Any
-    handle: int
-    name: str
+        loop = op3.loop(p, kernel(dat1[p]))
+        loop(**{"dat": dat2})  # pass dat2 instead of dat1
 
-    def __init__(self, dtype, handle):
-        name = utils.maybe_generate_name(None, None, "opaque")
+    if ``dat1`` is a named terminal.
 
-        object.__setattr__(self, "dtype", dtype)
-        object.__setattr__(self, "handle", handle)
-        object.__setattr__(self, "name", name)
-
-    # }}}
-
-    # {{{ interface impls
+    """
 
     @property
-    def local_max(self) -> numbers.Number:
-        raise TypeError("not sure that this makes sense")
-
-    @property
-    def local_min(self) -> numbers.Number:
-        raise TypeError("not sure that this makes sense")
-
-    @property
-    def _full_str(self) -> str:
-        return str(self)
-
-    # }}}
-
-    def with_context(self, ctx):
-        return self
-
-    nest_indices = ()  # hacky
-
-    @property
-    def buffer(self):  # very hacky
-        return self
-
-    def inc_state(self):  # argh!
+    @abc.abstractmethod
+    def name(self) -> str:
         pass
-
 
 
 @pyop3.record.frozenrecord()

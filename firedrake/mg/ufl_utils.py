@@ -339,7 +339,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 if parentdm.getAttr("__setup_hooks__"):
                     add_hook(parentdm, teardown=partial(pop_appctx, coarseneddm, coarse))
 
-    ises = problem.J.arguments()[0].function_space()._ises
+    ises = problem.J.arguments()[0].function_space().field_ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
     coarse.set_nullspace(coarse._nullspace, ises, transpose=False, near=False)
     coarse._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)

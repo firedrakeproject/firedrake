@@ -662,34 +662,20 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     subarrayrefs = {}
     loopy_args = call.function.code.default_entrypoint.args
     for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
-        if isinstance(arg, op3_expr.BufferExpression):
-            if isinstance(loopy_arg, lp.ArrayArg):
-                # this check fails because we currently assume that all arrays require packing
-                # from pyop3.transform import _requires_pack_unpack
-                # assert not _requires_pack_unpack(arg)
-
-                name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
-                # subarrayref nonsense/magic
-                indices = []
-                for s in loopy_arg.shape:
-                    iname = context.unique_name("i")
-                    context.add_domain(iname, s)
-                    indices.append(pym.var(iname))
-                indices = tuple(indices)
-
-                subarrayrefs[arg] = lp.symbolic.SubArrayRef(
-                    indices, pym.var(name_in_kernel)[indices]
-                )
-            else:
-                raise NotImplementedError
-                assert isinstance(loopy_arg, lp.ValueArg)
-                # pass directly through
-                # FIXME: name in kernel?
-                # assumes no packing, ie outer+inner names match
-                # subarrayrefs[arg] = pym.var(loopy_arg.name)
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+        if isinstance(loopy_arg, lp.ArrayArg):
+            # array arguments to an inner kernel require all strides to be defined
+            indices = []
+            for s in loopy_arg.shape:
+                iname = context.unique_name("i")
+                context.add_domain(iname, s)
+                indices.append(pym.var(iname))
+            indices = tuple(indices)
+            subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+                indices, pym.var(name_in_kernel)[indices]
+            )
         else:
-            assert isinstance(arg, op3_expr.OpaqueTerminal)
-            name_in_kernel = context.add_opaque(arg, spec.intent)
+            assert isinstance(loopy_arg, lp.ValueArg)
             subarrayrefs[arg] = pym.var(name_in_kernel)
 
     assignees = tuple(

@@ -2393,9 +2393,7 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
 
     unblocked = any(bc.function_space().component is not None for bc in bcs)
     if unblocked:
-        # indices = lgmap.unblocked_indices.copy()
         indices = lgmap.indices.copy()
-        # axes = lgmap.axes
         block_size = 1
     else:
         indices = lgmap.block_indices.copy()

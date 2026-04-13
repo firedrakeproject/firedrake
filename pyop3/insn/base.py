@@ -821,26 +821,6 @@ class ArrayAccessType(enum.Enum):
     INC = "inc"
 
 
-class OpaqueKernelArgument(KernelArgument, ContextFree):
-    def __init__(self, dtype=auto):
-        self._dtype = dtype
-
-    @property
-    def kernel_dtype(self):
-        return self._dtype
-
-
-class DummyKernelArgument(OpaqueKernelArgument):
-    """Placeholder kernel argument.
-
-    This class is useful when one simply wants to generate code from a loop
-    expression and not execute it.
-
-    ### dtypes not required here as sniffed from local kernel/context?
-
-    """
-
-
 def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:
     """
     Notes

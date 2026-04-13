@@ -21,6 +21,7 @@ from pyop3.expr.tensor import Scalar
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer, PetscMatBufferSubMat
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 
+import pyop3.expr
 from pyop3 import utils
 from pyop3.collections import OrderedSet, OrderedFrozenSet
 # TODO: just namespace these
@@ -29,7 +30,6 @@ from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, merge_axis_trees, Abstract
 from pyop3.tree.axis_tree.visitors import canonicalize_labels as canonicalize_axis_labels
 from pyop3.dtypes import IntType
 
-import pyop3.expr as expr_types
 from pyop3.insn.base import ArrayAccessType, loop_
 from pyop3.expr.base import ExpressionT, conditional, loopified_shape
 from pyop3.expr.tensor import Dat, Mat
@@ -75,16 +75,16 @@ def _(num, /, **kwargs) -> Any:
     return num
 
 
-@_evaluate.register(expr_types.AxisVar)
-def _(axis_var: expr_types.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
+@_evaluate.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis.label]
     except KeyError:
         raise MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
 
 
-@_evaluate.register(expr_types.LoopIndexVar)
-def _(loop_var: expr_types.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
+@_evaluate.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
@@ -92,75 +92,75 @@ def _(loop_var: expr_types.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, *
 
 
 @_evaluate.register
-def _(expr: expr_types.Add, /, **kwargs) -> Any:
+def _(expr: pyop3.expr.Add, /, **kwargs) -> Any:
     return _evaluate(expr.a, **kwargs) + _evaluate(expr.b, **kwargs)
 
 
 @_evaluate.register
-def _(sub: expr_types.Sub, /, **kwargs) -> Any:
+def _(sub: pyop3.expr.Sub, /, **kwargs) -> Any:
     return _evaluate(sub.a, **kwargs) - _evaluate(sub.b, **kwargs)
 
 
 @_evaluate.register
-def _(mul: expr_types.Mul, /, **kwargs) -> Any:
+def _(mul: pyop3.expr.Mul, /, **kwargs) -> Any:
     return _evaluate(mul.a, **kwargs) * _evaluate(mul.b, **kwargs)
 
 
 @_evaluate.register
-def _(neg: expr_types.Neg, /, **kwargs) -> Any:
+def _(neg: pyop3.expr.Neg, /, **kwargs) -> Any:
     return -_evaluate(neg.a, **kwargs)
 
 
 @_evaluate.register
-def _(floordiv: expr_types.FloorDiv, /, **kwargs) -> Any:
+def _(floordiv: pyop3.expr.FloorDiv, /, **kwargs) -> Any:
     return _evaluate(floordiv.a, **kwargs) // _evaluate(floordiv.b, **kwargs)
 
 
 @_evaluate.register
-def _(or_: expr_types.Or, /, **kwargs) -> Any:
+def _(or_: pyop3.expr.Or, /, **kwargs) -> Any:
     return _evaluate(or_.a, **kwargs) or _evaluate(or_.b, **kwargs)
 
 
 @_evaluate.register
-def _(lt: expr_types.LessThan, /, **kwargs) -> Any:
+def _(lt: pyop3.expr.LessThan, /, **kwargs) -> Any:
     return _evaluate(lt.a, **kwargs) < _evaluate(lt.b, **kwargs)
 
 
 @_evaluate.register
-def _(gt: expr_types.GreaterThan, /, **kwargs) -> Any:
+def _(gt: pyop3.expr.GreaterThan, /, **kwargs) -> Any:
     return _evaluate(gt.a, **kwargs) > _evaluate(gt.b, **kwargs)
 
 
 @_evaluate.register
-def _(le: expr_types.LessThanOrEqual, /, **kwargs) -> Any:
+def _(le: pyop3.expr.LessThanOrEqual, /, **kwargs) -> Any:
     return _evaluate(le.a, **kwargs) <= _evaluate(le.b, **kwargs)
 
 
 @_evaluate.register
-def _(ge: expr_types.GreaterThanOrEqual, /, **kwargs) -> Any:
+def _(ge: pyop3.expr.GreaterThanOrEqual, /, **kwargs) -> Any:
     return _evaluate(ge.a, **kwargs) >= _evaluate(ge.b, **kwargs)
 
 
 @_evaluate.register
-def _(cond: expr_types.Conditional, /, **kwargs) -> Any:
+def _(cond: pyop3.expr.Conditional, /, **kwargs) -> Any:
     if _evaluate(cond.predicate, **kwargs):
         return _evaluate(cond.if_true, **kwargs)
     else:
         return _evaluate(cond.if_false, **kwargs)
 
 
-@_evaluate.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /, **kwargs) -> Any:
+@_evaluate.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /, **kwargs) -> Any:
     return _evaluate(dat.concretize(), **kwargs)
 
 
-@_evaluate.register(expr_types.ScalarBufferExpression)
-def _(scalar: expr_types.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
+@_evaluate.register(pyop3.expr.ScalarBufferExpression)
+def _(scalar: pyop3.expr.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
     return scalar.value
 
 
 @_evaluate.register
-def _(dat_expr: expr_types.LinearDatBufferExpression, /, **kwargs) -> Any:
+def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
     return dat_expr.buffer.data_ro[offset]
 
@@ -171,26 +171,26 @@ def collect_loop_index_vars(obj: Any, /) -> OrderedSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_loop_index_vars.register(expr_types.LoopIndexVar)
-def _(loop_var: expr_types.LoopIndexVar):
+@collect_loop_index_vars.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar):
     return OrderedSet({loop_var})
 
 
 @collect_loop_index_vars.register(numbers.Number)
-@collect_loop_index_vars.register(expr_types.AxisVar)
-@collect_loop_index_vars.register(expr_types.NaN)
-@collect_loop_index_vars.register(expr_types.ScalarBufferExpression)
-@collect_loop_index_vars.register(expr_types.Scalar)
+@collect_loop_index_vars.register(pyop3.expr.AxisVar)
+@collect_loop_index_vars.register(pyop3.expr.NaN)
+@collect_loop_index_vars.register(pyop3.expr.ScalarBufferExpression)
+@collect_loop_index_vars.register(pyop3.expr.Scalar)
 def _(var):
     return OrderedSet()
 
-@collect_loop_index_vars.register(expr_types.Operator)
-def _(op: expr_types.BinaryOperator):
+@collect_loop_index_vars.register(pyop3.expr.Operator)
+def _(op: pyop3.expr.BinaryOperator):
     return OrderedSet().union(*map(collect_loop_index_vars, op.operands))
 
 
-@collect_loop_index_vars.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /) -> OrderedSet:
+@collect_loop_index_vars.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
     loop_indices = OrderedSet()
 
     if dat.parent:
@@ -202,18 +202,18 @@ def _(dat: expr_types.Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loop_index_vars.register(expr_types.CompositeDat)
-def _(dat: expr_types.CompositeDat, /) -> OrderedSet:
+@collect_loop_index_vars.register(pyop3.expr.CompositeDat)
+def _(dat: pyop3.expr.CompositeDat, /) -> OrderedSet:
     return utils.reduce("|", map(collect_loop_index_vars, dat.exprs.values()), OrderedSet())
 
 
-@collect_loop_index_vars.register(expr_types.LinearDatBufferExpression)
-def _(expr: expr_types.LinearDatBufferExpression, /) -> OrderedSet:
+@collect_loop_index_vars.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /) -> OrderedSet:
     return collect_loop_index_vars(expr.layout)
 
 
-@collect_loop_index_vars.register(expr_types.Mat)
-def _(mat: expr_types.Mat, /) -> OrderedSet:
+@collect_loop_index_vars.register(pyop3.expr.Mat)
+def _(mat: pyop3.expr.Mat, /) -> OrderedSet:
     loop_indices = OrderedSet()
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
@@ -232,31 +232,31 @@ def restrict_to_context(obj: Any, /, loop_context):
 
 
 @restrict_to_context.register(numbers.Number)
-@restrict_to_context.register(expr_types.AxisVar)
-@restrict_to_context.register(expr_types.LoopIndexVar)
-@restrict_to_context.register(expr_types.BufferExpression)
-@restrict_to_context.register(expr_types.NaN)
+@restrict_to_context.register(pyop3.expr.AxisVar)
+@restrict_to_context.register(pyop3.expr.LoopIndexVar)
+@restrict_to_context.register(pyop3.expr.BufferExpression)
+@restrict_to_context.register(pyop3.expr.NaN)
 def _(var: Any, /, loop_context) -> Any:
     return var
 
 
 @restrict_to_context.register
-def _(op: expr_types.UnaryOperator, /, loop_context):
+def _(op: pyop3.expr.UnaryOperator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context))
 
 
 @restrict_to_context.register
-def _(op: expr_types.BinaryOperator, /, loop_context):
+def _(op: pyop3.expr.BinaryOperator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context))
 
 
 @restrict_to_context.register
-def _(op: expr_types.Conditional, /, loop_context):
+def _(op: pyop3.expr.Conditional, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context), restrict_to_context(op.c, loop_context))
 
 
-@restrict_to_context.register(expr_types.Tensor)
-def _(array: expr_types.Tensor, /, loop_context):
+@restrict_to_context.register(pyop3.expr.Tensor)
+def _(array: pyop3.expr.Tensor, /, loop_context):
     return array.with_context(loop_context)
 
 
@@ -272,49 +272,49 @@ def _replace_terminals(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@_replace_terminals.register(expr_types.AxisVar)
-def _(axis_var: expr_types.AxisVar, /, replace_map) -> ExpressionT:
+@_replace_terminals.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /, replace_map) -> ExpressionT:
     return replace_map.get(axis_var.axis.label, axis_var)
 
 
 @_replace_terminals.register(bool)
 @_replace_terminals.register(numbers.Number)
 @_replace_terminals.register(np.bool)
-@_replace_terminals.register(expr_types.NaN)
-@_replace_terminals.register(expr_types.LoopIndexVar)
+@_replace_terminals.register(pyop3.expr.NaN)
+@_replace_terminals.register(pyop3.expr.LoopIndexVar)
 def _(var: ExpressionT, /, replace_map) -> ExpressionT:
     return var
 
 
 # I don't like doing this.
-@_replace_terminals.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /, replace_map):
+@_replace_terminals.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /, replace_map):
     return _replace_terminals(dat.concretize(), replace_map)
 
 
-@_replace_terminals.register(expr_types.ScalarBufferExpression)
-def _(expr: expr_types.ScalarBufferExpression, /, replace_map):
+@_replace_terminals.register(pyop3.expr.ScalarBufferExpression)
+def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
     return replace_map.get(expr, expr)
 
 
-@_replace_terminals.register(expr_types.LinearDatBufferExpression)
-def _(expr: expr_types.LinearDatBufferExpression, /, replace_map) -> expr_types.LinearDatBufferExpression:
+@_replace_terminals.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map) -> pyop3.expr.LinearDatBufferExpression:
     new_layout = _replace_terminals(expr.layout, replace_map)
     return expr.__record_init__(layout=new_layout)
 
 
-@_replace_terminals.register(expr_types.BinaryOperator)
-def _(op: expr_types.BinaryOperator, /, replace_map) -> expr_types.BinaryOperator:
+@_replace_terminals.register(pyop3.expr.BinaryOperator)
+def _(op: pyop3.expr.BinaryOperator, /, replace_map) -> pyop3.expr.BinaryOperator:
     return type(op)(_replace_terminals(op.a, replace_map), _replace_terminals(op.b, replace_map))
 
 
 @_replace_terminals.register
-def _(cond: expr_types.Conditional, /, replace_map) -> expr_types.Conditional:
+def _(cond: pyop3.expr.Conditional, /, replace_map) -> pyop3.expr.Conditional:
     return type(cond)(_replace_terminals(cond.predicate, replace_map), _replace_terminals(cond.if_true, replace_map), _replace_terminals(cond.if_false, replace_map))
 
 
 @_replace_terminals.register
-def _(neg: expr_types.Neg, /, replace_map) -> expr_types.Neg:
+def _(neg: pyop3.expr.Neg, /, replace_map) -> pyop3.expr.Neg:
     return type(neg)(_replace_terminals(neg.a, replace_map))
 
 
@@ -331,32 +331,32 @@ def _replace(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@_replace.register(expr_types.AxisVar)
-@_replace.register(expr_types.LoopIndexVar)
+@_replace.register(pyop3.expr.AxisVar)
+@_replace.register(pyop3.expr.LoopIndexVar)
 def _(var: Any, /, replace_map) -> ExpressionT:
     return replace_map.get(var, var)
 
 
-@_replace.register(expr_types.NaN)
+@_replace.register(pyop3.expr.NaN)
 @_replace.register(numbers.Number)
 def _(num: numbers.Number, /, replace_map) -> numbers.Number:
     return num
 
 
 # I don't like doing this.
-@_replace.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /, replace_map):
+@_replace.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /, replace_map):
     return _replace(dat.concretize(), replace_map)
 
 
-@_replace.register(expr_types.ScalarBufferExpression)
-def _(expr: expr_types.ScalarBufferExpression, /, replace_map):
+@_replace.register(pyop3.expr.ScalarBufferExpression)
+def _(expr: pyop3.expr.ScalarBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     return replace_map.get(expr, expr)
 
 
-@_replace.register(expr_types.LinearDatBufferExpression)
-def _(expr: expr_types.LinearDatBufferExpression, /, replace_map):
+@_replace.register(pyop3.expr.LinearDatBufferExpression)
+def _(expr: pyop3.expr.LinearDatBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     try:
         return replace_map[expr]
@@ -371,8 +371,8 @@ def _(expr: expr_types.LinearDatBufferExpression, /, replace_map):
         return expr.__record_init__(layout=updated_layout)
 
 
-@_replace.register(expr_types.CompositeDat)
-def _(dat: expr_types.CompositeDat, /, replace_map):
+@_replace.register(pyop3.expr.CompositeDat)
+def _(dat: pyop3.expr.CompositeDat, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     try:
         return replace_map[dat]
@@ -384,8 +384,8 @@ def _(dat: expr_types.CompositeDat, /, replace_map):
     return dat.reconstruct(layout=replaced_layout)
 
 
-@_replace.register(expr_types.Operator)
-def _(op: expr_types.Operator, /, replace_map) -> expr_types.Operator:
+@_replace.register(pyop3.expr.Operator)
+def _(op: pyop3.expr.Operator, /, replace_map) -> pyop3.expr.Operator:
     try:
         return replace_map[op]
     except KeyError:
@@ -405,47 +405,47 @@ def concretize_layouts(obj: Any, /, axis_trees: Iterable[AxisTree, ...]) -> Any:
 
 
 @concretize_layouts.register
-def _(op: expr_types.Operator, /, *args, **kwargs):
+def _(op: pyop3.expr.Operator, /, *args, **kwargs):
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in op.operands))
 
 
-@concretize_layouts.register(expr_types.BinaryOperator)
-def _(op: expr_types.BinaryOperator, /, *args, **kwargs) -> expr_types.BinaryOperator:
+@concretize_layouts.register(pyop3.expr.BinaryOperator)
+def _(op: pyop3.expr.BinaryOperator, /, *args, **kwargs) -> pyop3.expr.BinaryOperator:
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in [op.a, op.b]))
 
 
 @concretize_layouts.register(numbers.Number)
-@concretize_layouts.register(expr_types.AxisVar)
-@concretize_layouts.register(expr_types.LoopIndexVar)
-@concretize_layouts.register(expr_types.NaN)
+@concretize_layouts.register(pyop3.expr.AxisVar)
+@concretize_layouts.register(pyop3.expr.LoopIndexVar)
+@concretize_layouts.register(pyop3.expr.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
 
 @concretize_layouts.register(Scalar)
-def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.ScalarBufferExpression:
+def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.ScalarBufferExpression:
     if axis_trees:
         import pyop3
         pyop3.extras.debug.warn_todo("Ignoring axis trees because this is a scalar, think about this")
-    return expr_types.ScalarBufferExpression(scalar.buffer)
+    return pyop3.expr.ScalarBufferExpression(scalar.buffer)
 
 
-@concretize_layouts.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.DatBufferExpression:
+@concretize_layouts.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.DatBufferExpression:
     if dat.buffer.is_nested:
         raise NotImplementedError("TODO")
     axis_tree = utils.just_one(axis_trees)
     dat_axes = matching_axis_tree(dat.axes, axis_tree)
     if dat_axes.is_linear:
         layout = utils.just_one(dat_axes.leaf_subst_layouts.values())
-        expr = expr_types.LinearDatBufferExpression(dat.buffer, layout)
+        expr = pyop3.expr.LinearDatBufferExpression(dat.buffer, layout)
     else:
-        expr = expr_types.NonlinearDatBufferExpression(dat.buffer, dat_axes.leaf_subst_layouts)
+        expr = pyop3.expr.NonlinearDatBufferExpression(dat.buffer, dat_axes.leaf_subst_layouts)
     return concretize_layouts(expr, axis_trees)
 
 
-@concretize_layouts.register(expr_types.Mat)
-def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.BufferExpression:
+@concretize_layouts.register(pyop3.expr.Mat)
+def _(mat: pyop3.expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.BufferExpression:
     nest_indices = ()
     row_axes = matching_axis_tree(mat.row_axes, axis_trees[0])
     column_axes = matching_axis_tree(mat.column_axes, axis_trees[1])
@@ -468,24 +468,24 @@ def _(mat: expr_types.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types
             buffer_ref = PetscMatBufferSubMat(mat.buffer, nest_indices)
         else:
             buffer_ref = mat.buffer
-        mat_expr = expr_types.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
+        mat_expr = pyop3.expr.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts
         column_layouts = column_axes.leaf_subst_layouts
-        mat_expr = expr_types.MatArrayBufferExpression(mat.buffer, row_layouts, column_layouts)
+        mat_expr = pyop3.expr.MatArrayBufferExpression(mat.buffer, row_layouts, column_layouts)
 
     return concretize_layouts(mat_expr, axis_trees)
 
 
-@concretize_layouts.register(expr_types.BufferExpression)
-def _(dat_expr: expr_types.BufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.BufferExpression:
+@concretize_layouts.register(pyop3.expr.BufferExpression)
+def _(dat_expr: pyop3.expr.BufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.BufferExpression:
     # Nothing to do here. If we drop any zero-sized tree branches then the
     # whole thing goes away and we won't hit this.
     return dat_expr
 
 
-@concretize_layouts.register(expr_types.NonlinearDatBufferExpression)
-def _(dat_expr: expr_types.NonlinearDatBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.NonlinearDatBufferExpression:
+@concretize_layouts.register(pyop3.expr.NonlinearDatBufferExpression)
+def _(dat_expr: pyop3.expr.NonlinearDatBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.NonlinearDatBufferExpression:
     axis_tree = utils.just_one(axis_trees)
     # NOTE: This assumes that we have uniform axis trees for all elements of the
     # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
@@ -498,8 +498,8 @@ def _(dat_expr: expr_types.NonlinearDatBufferExpression, /, axis_trees: Iterable
     return dat_expr.__record_init__(layouts=pruned_layouts)
 
 
-@concretize_layouts.register(expr_types.MatArrayBufferExpression)
-def _(mat_expr: expr_types.MatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> expr_types.MatArrayBufferExpression:
+@concretize_layouts.register(pyop3.expr.MatArrayBufferExpression)
+def _(mat_expr: pyop3.expr.MatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.MatArrayBufferExpression:
     pruned_layoutss = []
     orig_layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for orig_layouts, axis_tree in zip(orig_layoutss, axis_trees, strict=True):
@@ -526,23 +526,23 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         return super().process(obj)
 
     @process.register
-    def _(self, op: expr_types.Operator, index, /, **kwargs) -> idict:
+    def _(self, op: pyop3.expr.Operator, index, /, **kwargs) -> idict:
         return utils.merge_dicts((self._call(operand, **kwargs) for operand in op.operands))
 
 
     @process.register(numbers.Number)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
-    @process.register(expr_types.OpaqueTerminal)
-    @process.register(expr_types.Scalar)
-    @process.register(expr_types.ScalarBufferExpression)
-    @process.register(expr_types.NaN)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    @process.register(pyop3.expr.OpaqueTerminal)
+    @process.register(pyop3.expr.Scalar)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    @process.register(pyop3.expr.NaN)
     def _(self, var: Any, index, /, **kwargs) -> idict:
         return idict()
 
 
-    @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.LinearDatBufferExpression, index, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], selector, **kwargs) -> idict:
+    @process.register(pyop3.expr.LinearDatBufferExpression)
+    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, index, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], selector, **kwargs) -> idict:
         axis_tree = utils.just_one(axis_trees)
         selector_ = selector[index] if selector is not None else None
         return idict({
@@ -550,8 +550,8 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
         })
 
 
-    @process.register(expr_types.NonlinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, index, /, *, axis_trees, selector, **kwargs) -> idict:
+    @process.register(pyop3.expr.NonlinearDatBufferExpression)
+    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, index, /, *, axis_trees, selector, **kwargs) -> idict:
         axis_tree = utils.just_one(axis_trees)
 
         candidates = {}
@@ -562,8 +562,8 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
             )
         return idict(candidates)
 
-    @process.register(expr_types.MatPetscMatBufferExpression)
-    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
+    @process.register(pyop3.expr.MatPetscMatBufferExpression)
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         costs = []
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
@@ -582,8 +582,8 @@ class TensorCandidateIndirectionsCollector(ExpressionVisitor):
 
     # Should be very similar to NonlinearDat case
     # NOTE: This is a nonlinear type
-    @process.register(expr_types.MatArrayBufferExpression)
-    def _(self, mat_expr: expr_types.MatArrayBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
+    @process.register(pyop3.expr.MatArrayBufferExpression)
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, index, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool, selector) -> idict:
         candidates = {}
         layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
         for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
@@ -621,10 +621,10 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
         raise TypeError(f"No handler defined for {type(obj).__name__}")
 
     @process.register(numbers.Number)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
-    @process.register(expr_types.NaN)
-    @process.register(expr_types.ScalarBufferExpression)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    @process.register(pyop3.expr.NaN)
+    @process.register(pyop3.expr.ScalarBufferExpression)
     def _(self, var: Any, index: int, /, *args, selector, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         if selector is not None:
             assert index not in selector
@@ -632,8 +632,8 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
         else:
             return ((var, 0, ()),)
 
-    @process.register(expr_types.Operator)
-    def _(self, op: expr_types.Operator, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
+    @process.register(pyop3.expr.Operator)
+    def _(self, op: pyop3.expr.Operator, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
         operand_candidatess = tuple(
             self._call(operand, visited_axes=visited_axes, loop_indices=loop_indices, compress=compress, selector=selector)
             for operand in op.operands
@@ -642,7 +642,7 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
         if selector is not None:
             if index in selector:
                 op_axes = utils.just_one(get_shape(op))
-                return expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
+                return pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
             else:
                 return type(op)(*operand_candidatess)
         else:
@@ -672,7 +672,7 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
                 if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
                     op_axes = utils.just_one(get_shape(op))
                     op_loop_axes = get_loop_axes(op)
-                    compressed_expr = expr_types.CompositeDat(op_axes, {op_axes.leaf_path: op})
+                    compressed_expr = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
 
                     op_cost = op_axes.local_max_size
                     for loop_axes in op_loop_axes.values():
@@ -683,8 +683,8 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
             return tuple(candidates)
 
 
-    @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, expr: expr_types.LinearDatBufferExpression, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
+    @process.register(pyop3.expr.LinearDatBufferExpression)
+    def _(self, expr: pyop3.expr.LinearDatBufferExpression, index, /, visited_axes, loop_indices, *, compress: bool, selector) -> tuple:
         # The cost of an expression dat (i.e. the memory volume) is given by...
         # Remember that the axes here described the outer loops that exist and that
         # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
@@ -702,7 +702,7 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
 
         if selector is not None:
             if index in selector:
-                return expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
+                return pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr})
             else:
                 return expr.__record_init__(layout=child)
         else:
@@ -716,7 +716,7 @@ class CandidateIndirectionsCollector(ExpressionVisitor):
 
             if compress:
                 if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost, _ in candidates):
-                    candidates.append((expr_types.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (index,)))
+                    candidates.append((pyop3.expr.CompositeDat(dat_axes, {dat_axes.leaf_path: expr}), dat_cost, (index,)))
             return tuple(candidates)
 
 
@@ -736,31 +736,31 @@ class MaterializedIndirectionsSetter(NodeVisitor):
 
 
     @process.register
-    def _(self, op: expr_types.Operator, index, /, *args, **kwargs) -> idict:
+    def _(self, op: pyop3.expr.Operator, index, /, *args, **kwargs) -> idict:
         return type(op)(*(self._call(operand, *args, **kwargs) for operand in op.operands))
 
 
     @process.register(numbers.Number)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
-    @process.register(expr_types.NaN)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    @process.register(pyop3.expr.NaN)
     def _(self, var: Any, index, /, *args, **kwargs) -> Any:
         return var
 
 
-    @process.register(expr_types.ScalarBufferExpression)
-    def _(self, buffer_expr: expr_types.ScalarBufferExpression, index, layouts, key):
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    def _(self, buffer_expr: pyop3.expr.ScalarBufferExpression, index, layouts, key):
         return buffer_expr
 
 
-    @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, buffer_expr: expr_types.LinearDatBufferExpression, index, layouts, key):
+    @process.register(pyop3.expr.LinearDatBufferExpression)
+    def _(self, buffer_expr: pyop3.expr.LinearDatBufferExpression, index, layouts, key):
         layout = linearize_expr(layouts[key + (index,)])
         return buffer_expr.__record_init__(layout=layout)
 
 
-    @process.register(expr_types.NonlinearDatBufferExpression)
-    def _(self, buffer_expr: expr_types.NonlinearDatBufferExpression, index, layouts, key):
+    @process.register(pyop3.expr.NonlinearDatBufferExpression)
+    def _(self, buffer_expr: pyop3.expr.NonlinearDatBufferExpression, index, layouts, key):
         new_layouts = {}
         for leaf_path in buffer_expr.layouts.keys():
             layout = layouts[key + ((index, leaf_path),)]
@@ -769,16 +769,16 @@ class MaterializedIndirectionsSetter(NodeVisitor):
         return buffer_expr.__record_init__(layouts=new_layouts)
 
 
-    @process.register(expr_types.MatPetscMatBufferExpression)
-    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, index, /, layouts, key) -> expr_types.MatPetscMatBufferExpression:
+    @process.register(pyop3.expr.MatPetscMatBufferExpression)
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, layouts, key) -> pyop3.expr.MatPetscMatBufferExpression:
         # TODO: linearise the layouts here like we do for dats (but with no path)
         row_layout = layouts[key + ((index, 0),)]
         column_layout = layouts[key + ((index, 1),)]
         return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
 
-    @process.register(expr_types.MatArrayBufferExpression)
-    def _(self, buffer_expr: expr_types.MatArrayBufferExpression, index, /, layouts, key):
+    @process.register(pyop3.expr.MatArrayBufferExpression)
+    def _(self, buffer_expr: pyop3.expr.MatArrayBufferExpression, index, /, layouts, key):
         new_buffer_layoutss = []
         buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
         for i, buffer_layouts in enumerate(buffer_layoutss):
@@ -800,28 +800,28 @@ def collect_axis_vars(obj: Any, /) -> OrderedSet:
 
 
 @collect_axis_vars.register
-def _(op: expr_types.Operator):
+def _(op: pyop3.expr.Operator):
     return utils.reduce("|", map(collect_axis_vars, op.operands))
 
 
 @collect_axis_vars.register(numbers.Number)
-@collect_axis_vars.register(expr_types.LoopIndexVar)
-@collect_axis_vars.register(expr_types.NaN)
+@collect_axis_vars.register(pyop3.expr.LoopIndexVar)
+@collect_axis_vars.register(pyop3.expr.NaN)
 def _(var):
     return OrderedSet()
 
-@collect_axis_vars.register(expr_types.AxisVar)
+@collect_axis_vars.register(pyop3.expr.AxisVar)
 def _(var):
     return OrderedSet([var])
 
 
-@collect_axis_vars.register(expr_types.LinearDatBufferExpression)
-def _(dat: expr_types.LinearDatBufferExpression, /) -> OrderedSet:
+@collect_axis_vars.register(pyop3.expr.LinearDatBufferExpression)
+def _(dat: pyop3.expr.LinearDatBufferExpression, /) -> OrderedSet:
     return collect_axis_vars(dat.layout)
 
 
-@collect_axis_vars.register(expr_types.NonlinearDatBufferExpression)
-def _(dat: expr_types.NonlinearDatBufferExpression, /) -> OrderedSet:
+@collect_axis_vars.register(pyop3.expr.NonlinearDatBufferExpression)
+def _(dat: pyop3.expr.NonlinearDatBufferExpression, /) -> OrderedSet:
     result = OrderedSet()
     for layout_expr in dat.layouts.values():
         result |= collect_axis_vars(layout_expr)
@@ -833,32 +833,32 @@ def collect_composite_dats(obj: Any) -> OrderedFrozenSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_composite_dats.register(expr_types.Operator)
-def _(op: expr_types.Operator, /) -> OrderedFrozenSet:
+@collect_composite_dats.register(pyop3.expr.Operator)
+def _(op: pyop3.expr.Operator, /) -> OrderedFrozenSet:
     return utils.reduce("|", (collect_composite_dats(operand) for operand in op.operands))
 
 
 @collect_composite_dats.register(numbers.Number)
-@collect_composite_dats.register(expr_types.AxisVar)
-@collect_composite_dats.register(expr_types.LoopIndexVar)
-@collect_composite_dats.register(expr_types.NaN)
-@collect_composite_dats.register(expr_types.ScalarBufferExpression)
+@collect_composite_dats.register(pyop3.expr.AxisVar)
+@collect_composite_dats.register(pyop3.expr.LoopIndexVar)
+@collect_composite_dats.register(pyop3.expr.NaN)
+@collect_composite_dats.register(pyop3.expr.ScalarBufferExpression)
 def _(op, /) -> OrderedFrozenSet:
     return OrderedFrozenSet()
 
 
-@collect_composite_dats.register(expr_types.LinearDatBufferExpression)
+@collect_composite_dats.register(pyop3.expr.LinearDatBufferExpression)
 def _(dat, /) -> OrderedFrozenSet:
     return collect_composite_dats(dat.layout)
 
 
-@collect_composite_dats.register(expr_types.CompositeDat)
+@collect_composite_dats.register(pyop3.expr.CompositeDat)
 def _(dat, /) -> OrderedFrozenSet:
     return OrderedFrozenSet([dat])
 
 
 @memory_cache(heavy=True)
-def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.Comm) -> expr_types.LinearDatBufferExpression:
+def materialize_composite_dat(composite_dat: pyop3.expr.CompositeDat, comm: MPI.Comm) -> pyop3.expr.LinearDatBufferExpression:
     axes = composite_dat.axis_tree
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
@@ -921,7 +921,7 @@ def materialize_composite_dat(composite_dat: expr_types.CompositeDat, comm: MPI.
     if axes.nest_indices:
         raise NotImplementedError("Need a buffer ref")
 
-    return expr_types.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
+    return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
@@ -939,13 +939,13 @@ def _(scalar) -> np.number:
     return scalar.value
 
 
-@estimate.register(expr_types.Mul)
-def _(mul: expr_types.Mul) -> int:
+@estimate.register(pyop3.expr.Mul)
+def _(mul: pyop3.expr.Mul) -> int:
     return estimate(mul.a) * estimate(mul.b)
 
 
-@estimate.register(expr_types.BufferExpression)
-def _(buffer_expr: expr_types.BufferExpression) -> numbers.Number:
+@estimate.register(pyop3.expr.BufferExpression)
+def _(buffer_expr: pyop3.expr.BufferExpression) -> numbers.Number:
     buffer = buffer_expr.buffer
     if buffer.size > 10:
         return buffer.max_value or 10
@@ -960,8 +960,8 @@ def get_shape(obj: Any, /) -> tuple[AxisTree, ...]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@get_shape.register(expr_types.Operator)
-def _(op: expr_types.Operator, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.Operator)
+def _(op: pyop3.expr.Operator, /) -> tuple[AxisTree, ...]:
     return (
         merge_axis_trees([
             utils.just_one(get_shape(operand))
@@ -970,36 +970,36 @@ def _(op: expr_types.Operator, /) -> tuple[AxisTree, ...]:
     )
 
 
-@get_shape.register(expr_types.AxisVar)
-def _(axis_var: expr_types.AxisVar, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.AxisVar)
+def _(axis_var: pyop3.expr.AxisVar, /) -> tuple[AxisTree, ...]:
     return (axis_var.axis.as_tree(),)
 
 
-@get_shape.register(expr_types.Dat)
-def _(dat: expr_types.Dat, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.Dat)
+def _(dat: pyop3.expr.Dat, /) -> tuple[AxisTree, ...]:
     return (dat.axes.materialize(),)
 
 
-@get_shape.register(expr_types.Mat)
-def _(mat: expr_types.Mat, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.Mat)
+def _(mat: pyop3.expr.Mat, /) -> tuple[AxisTree, ...]:
     return (mat.row_axes.materialize(), mat.column_axes.materialize())
 
 
-@get_shape.register(expr_types.CompositeDat)
-def _(cdat: expr_types.CompositeDat, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.CompositeDat)
+def _(cdat: pyop3.expr.CompositeDat, /) -> tuple[AxisTree, ...]:
     return (cdat.axis_tree,)
 
 
-@get_shape.register(expr_types.LinearDatBufferExpression)
-def _(dat_expr: expr_types.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
+@get_shape.register(pyop3.expr.LinearDatBufferExpression)
+def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> tuple[AxisTree, ...]:
     return get_shape(dat_expr.layout)
 
 
 @get_shape.register(numbers.Number)
-@get_shape.register(expr_types.LoopIndexVar)
-@get_shape.register(expr_types.NaN)
-@get_shape.register(expr_types.ScalarBufferExpression)
-@get_shape.register(expr_types.Scalar)
+@get_shape.register(pyop3.expr.LoopIndexVar)
+@get_shape.register(pyop3.expr.NaN)
+@get_shape.register(pyop3.expr.ScalarBufferExpression)
+@get_shape.register(pyop3.expr.Scalar)
 def _(obj: Any, /) -> tuple[AxisTree, ...]:
     return (UNIT_AXIS_TREE,)
 
@@ -1010,8 +1010,8 @@ def get_loop_axes(obj: Any) -> idict[LoopIndex: tuple[Axis, ...]]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@get_loop_axes.register(expr_types.Operator)
-def _(op: expr_types.Operator, /) -> tuple[AxisTree, ...]:
+@get_loop_axes.register(pyop3.expr.Operator)
+def _(op: pyop3.expr.Operator, /) -> tuple[AxisTree, ...]:
     # NOTE: could be cleaned up
     a_loop_axes = get_loop_axes(op.a)
     axes = collections.defaultdict(tuple, a_loop_axes)
@@ -1021,20 +1021,20 @@ def _(op: expr_types.Operator, /) -> tuple[AxisTree, ...]:
     return idict(axes)
 
 
-@get_loop_axes.register(expr_types.LinearDatBufferExpression)
-def _(dat_expr: expr_types.LinearDatBufferExpression, /):
+@get_loop_axes.register(pyop3.expr.LinearDatBufferExpression)
+def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /):
     return get_loop_axes(dat_expr.layout)
 
 
-@get_loop_axes.register(expr_types.LoopIndexVar)
-def _(loop_var: expr_types.LoopIndexVar, /):
+@get_loop_axes.register(pyop3.expr.LoopIndexVar)
+def _(loop_var: pyop3.expr.LoopIndexVar, /):
     return idict({loop_var.loop_index: (loop_var.axis,)})
 
 
 @get_loop_axes.register(numbers.Number)
-@get_loop_axes.register(expr_types.AxisVar)
-@get_loop_axes.register(expr_types.NaN)
-@get_loop_axes.register(expr_types.ScalarBufferExpression)
+@get_loop_axes.register(pyop3.expr.AxisVar)
+@get_loop_axes.register(pyop3.expr.NaN)
+@get_loop_axes.register(pyop3.expr.ScalarBufferExpression)
 def _(obj: Any, /):
     return idict()
 
@@ -1049,8 +1049,8 @@ def _(num: numbers.Number) -> numbers.Number:
     return num
 
 
-@get_local_max.register(expr_types.Expression)
-def _(expr: expr_types.Expression) -> numbers.Number:
+@get_local_max.register(pyop3.expr.Expression)
+def _(expr: pyop3.expr.Expression) -> numbers.Number:
     return expr.local_max
 
 
@@ -1064,16 +1064,16 @@ def _(num: numbers.Number, /) -> numbers.Number:
     return num
 
 
-@get_local_min.register(expr_types.Expression)
-def _(expr: expr_types.Expression, /) -> numbers.Number:
+@get_local_min.register(pyop3.expr.Expression)
+def _(expr: pyop3.expr.Expression, /) -> numbers.Number:
     return expr.local_min
 
 
-def find_max_value(expr: expr_types.Expression) -> numbers.Number:
+def find_max_value(expr: pyop3.expr.Expression) -> numbers.Number:
     return get_extremum(expr, "max")
 
 
-def find_min_value(expr: expr_types.Expression) -> numbers.Number:
+def find_min_value(expr: pyop3.expr.Expression) -> numbers.Number:
     return get_extremum(expr, "min")
 
 
@@ -1090,11 +1090,11 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
 
     # NOTE: might hit issues if things aren't linear
     loop_var_replace_map = {
-        axis.label: expr_types.LoopIndexVar(loop_index, axis)
+        axis.label: pyop3.expr.LoopIndexVar(loop_index, axis)
         for axis in axes.nodes
     }
     expr = replace_terminals(expr, loop_var_replace_map)
-    result = expr_types.Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
+    result = pyop3.expr.Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
 
     loop_(
         loop_index,
@@ -1104,17 +1104,17 @@ def get_extremum(expr, extremum: Literal["max", "min"]) -> numbers.Number:
     return utils.just_one(result.buffer._data)
 
 
-def max_(a, b, /, *, lazy: bool = False) -> expr_types.Conditional | numbers.Number:
+def max_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Number:
     if not lazy:
         return conditional(a > b, a, b)
     else:
-        return expr_types.Conditional(expr_types.GreaterThan(a, b), a, b)
+        return pyop3.expr.Conditional(pyop3.expr.GreaterThan(a, b), a, b)
 
-def min_(a, b, /, *, lazy: bool = False) -> expr_types.Conditional | numbers.Number:
+def min_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Number:
     if not lazy:
         return conditional(a < b, a, b)
     else:
-        return expr_types.Conditional(expr_types.LessThan(a, b), a, b)
+        return pyop3.expr.Conditional(pyop3.expr.LessThan(a, b), a, b)
 
 
 class DiskCacheKeyGetter(ExpressionVisitor):
@@ -1132,22 +1132,22 @@ class DiskCacheKeyGetter(ExpressionVisitor):
         return super().process(obj)
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)
+    @process.register(pyop3.expr.NaN)
     def _(self, obj: ExpressionT, /) -> Hashable:
         return (obj,)
 
-    @process.register(expr_types.Operator)
+    @process.register(pyop3.expr.Operator)
     @postorder
-    def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
+    def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
         return (type(op), visited)
 
 
-    @process.register(expr_types.AxisVar)
-    def _(self, axis_var: expr_types.AxisVar, /) -> Hashable:
+    @process.register(pyop3.expr.AxisVar)
+    def _(self, axis_var: pyop3.expr.AxisVar, /) -> Hashable:
         return (type(axis_var), self._get_tree_disk_cache_key(axis_var.axis.as_tree()))
 
-    @process.register(expr_types.LoopIndexVar)
-    def _(self, loop_var: expr_types.LoopIndexVar, /) -> Hashable:
+    @process.register(pyop3.expr.LoopIndexVar)
+    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> Hashable:
         return (
             type(loop_var),
             self._renamer.add(loop_var.loop_index),
@@ -1155,17 +1155,10 @@ class DiskCacheKeyGetter(ExpressionVisitor):
             self._get_tree_disk_cache_key(loop_var.axis.as_tree()),
         )
 
-    @process.register(expr_types.OpaqueTerminal)
-    def _(self, expr: expr_types.OpaqueTerminal, /) -> Hashable:
-        return (
-            type(expr),
-            expr.dtype,
-            self._renamer.add(expr.handle),
-        )
-
-    @process.register(expr_types.BufferExpression)
+    @process.register(pyop3.expr.OpaqueTerminal)
+    @process.register(pyop3.expr.BufferExpression)
     @postorder
-    def _(self, expr: expr_types.BufferExpression, visited: Mapping, /) -> Hashable:
+    def _(self, expr: pyop3.expr.BufferExpression, visited: Mapping, /) -> Hashable:
         return (
             type(expr),
             self._add_buffer(expr.buffer),
@@ -1204,22 +1197,22 @@ class ArgumentCollector(NodeCollector):
     def process(self, obj: Any) -> OrderedFrozenSet:
         return super().process(obj)
 
-    @process.register(expr_types.Operator)
+    @process.register(pyop3.expr.Operator)
     @postorder
-    def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
+    def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(*visited.values())
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
-    def _(self, expr: expr_types.ExpressionT, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.NaN)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    def _(self, expr: pyop3.expr.ExpressionT, /) -> OrderedFrozenSet:
         return OrderedFrozenSet()
 
     # TODO: AbstractBufferExpression
-    @process.register(expr_types.OpaqueTerminal)
-    @process.register(expr_types.Tensor)
-    @process.register(expr_types.BufferExpression)
+    @process.register(pyop3.expr.OpaqueTerminal)
+    @process.register(pyop3.expr.Tensor)
+    @process.register(pyop3.expr.BufferExpression)
     def _(self, arg: Any, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([arg])
 
@@ -1245,25 +1238,25 @@ class BufferCollector(NodeCollector):
     def process(self, obj: Any) -> OrderedFrozenSet:
         return super().process(obj)
 
-    @process.register(expr_types.Operator)
+    @process.register(pyop3.expr.Operator)
     @postorder
-    def _(self, op: expr_types.Operator, visited, /) -> OrderedFrozenSet:
+    def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
         return OrderedFrozenSet().union(*visited.values())
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)
-    def _(self, expr: expr_types.ExpressionT, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.NaN)
+    def _(self, expr: pyop3.expr.ExpressionT, /) -> OrderedFrozenSet:
         return OrderedFrozenSet()
 
-    @process.register(expr_types.AxisVar)
-    def _(self, axis_var: expr_types.AxisVar, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.AxisVar)
+    def _(self, axis_var: pyop3.expr.AxisVar, /) -> OrderedFrozenSet:
         if self.shallow:
             return OrderedFrozenSet()
         else:
             return self._collect_tree(axis_var.axis.as_tree())
 
-    @process.register(expr_types.LoopIndexVar)
-    def _(self, loop_var: expr_types.LoopIndexVar, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.LoopIndexVar)
+    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> OrderedFrozenSet:
         if self.shallow:
             return OrderedFrozenSet()
         else:
@@ -1272,31 +1265,28 @@ class BufferCollector(NodeCollector):
                 | self._collect_tree(loop_var.axis.as_tree())
             )
 
-    @process.register(expr_types.OpaqueTerminal)
-    def _(self, opaque, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet([opaque])
-
-    @process.register(expr_types.ScalarBufferExpression)
-    def _(self, scalar_expr: expr_types.ScalarBufferExpression, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.OpaqueTerminal)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    def _(self, scalar_expr: pyop3.expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([scalar_expr.buffer])
 
-    @process.register(expr_types.Dat)
-    def _(self, dat: expr_types.Dat, /) -> OrderedFrozenSet:
+    @process.register(pyop3.expr.Dat)
+    def _(self, dat: pyop3.expr.Dat, /) -> OrderedFrozenSet:
         if not self.shallow:
             raise NotImplementedError
         return OrderedFrozenSet([dat.buffer])
 
-    @process.register(expr_types.LinearDatBufferExpression)
+    @process.register(pyop3.expr.LinearDatBufferExpression)
     @postorder
-    def _(self, dat_expr: expr_types.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         if self.shallow:
             return OrderedFrozenSet([dat_expr.buffer])
         else:
             return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
 
-    @process.register(expr_types.NonlinearDatBufferExpression)
+    @process.register(pyop3.expr.NonlinearDatBufferExpression)
     @postorder
-    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
+    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 1
         if self.shallow:
             return OrderedFrozenSet([dat_expr.buffer])
@@ -1305,9 +1295,9 @@ class BufferCollector(NodeCollector):
                 *visited["layouts"].values()
             )
 
-    @process.register(expr_types.MatPetscMatBufferExpression)
+    @process.register(pyop3.expr.MatPetscMatBufferExpression)
     @postorder
-    def _(self, mat_expr: expr_types.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
         if self.shallow:
             return OrderedFrozenSet([mat_expr.buffer])
@@ -1316,9 +1306,9 @@ class BufferCollector(NodeCollector):
                 visited["row_layout"], visited["column_layout"]
             )
 
-    @process.register(expr_types.MatArrayBufferExpression)
+    @process.register(pyop3.expr.MatArrayBufferExpression)
     @postorder
-    def _(self, mat_expr: expr_types.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
         assert len(visited) == 2
         if self.shallow:
             return OrderedFrozenSet([mat_expr.buffer])
@@ -1355,12 +1345,12 @@ def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFroze
 #     def _(self, expr: ExpressionT) -> ExpressionT:
 #         return expr
 #
-#     @process.register(expr_types.Operator)
+#     @process.register(pyop3.expr.Operator)
 #     def _(self, expr: ExpressionT) -> ExpressionT:
 #         return self.reuse_if_untouched(expr)
 #
-#     @process.register(expr_types.MatPetscMatBufferExpression)
-#     def _(self, expr: expr_types.MatPetscMatBufferExpression) -> expr_types.MatPetscMatBufferExpression:
+#     @process.register(pyop3.expr.MatPetscMatBufferExpression)
+#     def _(self, expr: pyop3.expr.MatPetscMatBufferExpression) -> pyop3.expr.MatPetscMatBufferExpression:
 #         if isinstance(expr, numbers.Number):
 #             # If we have an expression like
 #             #
@@ -1395,13 +1385,13 @@ class LinearLayoutChecker(ExpressionVisitor):
         raise TypeError(f"invalid layout, got {type(obj).__name__}")
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
-    @process.register(expr_types.Operator)
-    @process.register(expr_types.LinearDatBufferExpression)
-    @process.register(expr_types.ScalarBufferExpression)
-    @process.register(expr_types.CompositeDat)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
+    @process.register(pyop3.expr.NaN)  # NaN layouts are allowed for zero-sized trees
+    @process.register(pyop3.expr.Operator)
+    @process.register(pyop3.expr.LinearDatBufferExpression)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    @process.register(pyop3.expr.CompositeDat)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
     @postorder
     def _(self, obj: ExpressionT, visited, /) -> None:
         pass
@@ -1418,18 +1408,18 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
         return super().process(obj, **kwargs)
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)  # NaN layouts are allowed for zero-sized trees
-    @process.register(expr_types.Operator)
-    @process.register(expr_types.AxisVar)
-    @process.register(expr_types.LoopIndexVar)
-    @process.register(expr_types.ScalarBufferExpression)
-    @process.register(expr_types.LinearDatBufferExpression)
+    @process.register(pyop3.expr.NaN)  # NaN layouts are allowed for zero-sized trees
+    @process.register(pyop3.expr.Operator)
+    @process.register(pyop3.expr.AxisVar)
+    @process.register(pyop3.expr.LoopIndexVar)
+    @process.register(pyop3.expr.ScalarBufferExpression)
+    @process.register(pyop3.expr.LinearDatBufferExpression)
     def _(self, expr: ExpressionT, /, **kwargs) -> ExpressionT:
         return self.reuse_if_untouched(expr, **kwargs)
 
-    @process.register(expr_types.NonlinearDatBufferExpression)
+    @process.register(pyop3.expr.NonlinearDatBufferExpression)
     @postorder
-    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, visited, /, *, path) -> None:
+    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, visited, /, *, path) -> None:
         if path is None:
             layout = utils.just_one(dat_expr.leaf_layouts.values())
         else:
@@ -1442,7 +1432,7 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
                 for path_, layout_ in dat_expr.leaf_layouts.items()
                 if is_subpath(path_, path)
             ))
-        return expr_types.LinearDatBufferExpression(dat_expr.buffer, layout)
+        return pyop3.expr.LinearDatBufferExpression(dat_expr.buffer, layout)
 
 
 def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
@@ -1455,20 +1445,20 @@ def expand_transforms(expr: Any, /, *args, **kwargs):
 
 
 @expand_transforms.register
-def _(op: expr_types.UnaryOperator, /, access_type):
+def _(op: pyop3.expr.UnaryOperator, /, access_type):
     bare_a, unpack_insns = expand_transforms(op.a, access_type)
     return (type(op)(bare_a), unpack_insns)
 
 
 @expand_transforms.register
-def _(op: expr_types.BinaryOperator, /, access_type):
+def _(op: pyop3.expr.BinaryOperator, /, access_type):
     bare_a, a_unpack_insns = expand_transforms(op.a, access_type)
     bare_b, b_unpack_insns = expand_transforms(op.b, access_type)
     return (type(op)(bare_a, bare_b), a_unpack_insns+b_unpack_insns)
 
 
 @expand_transforms.register
-def _(op: expr_types.TernaryOperator, /, access_type):
+def _(op: pyop3.expr.TernaryOperator, /, access_type):
     bare_operands = []
     unpack_insns = []
     for operand in op.operands:
@@ -1479,17 +1469,17 @@ def _(op: expr_types.TernaryOperator, /, access_type):
 
 
 @expand_transforms.register(numbers.Number)
-@expand_transforms.register(expr_types.AxisVar)
-@expand_transforms.register(expr_types.LoopIndexVar)
-@expand_transforms.register(expr_types.BufferExpression)
-@expand_transforms.register(expr_types.NaN)
+@expand_transforms.register(pyop3.expr.AxisVar)
+@expand_transforms.register(pyop3.expr.LoopIndexVar)
+@expand_transforms.register(pyop3.expr.BufferExpression)
+@expand_transforms.register(pyop3.expr.NaN)
 def _(var, /, access_type):
     return (var, ())
 
 
-@expand_transforms.register(expr_types.AggregateDat)
-@expand_transforms.register(expr_types.AggregateMat)
-def _(agg_mat: expr_types.AggregateMat, /, access_type):
+@expand_transforms.register(pyop3.expr.AggregateDat)
+@expand_transforms.register(pyop3.expr.AggregateMat)
+def _(agg_mat: pyop3.expr.AggregateMat, /, access_type):
     temporary = agg_mat.materialize()
     if access_type == ArrayAccessType.READ:
         insns = tuple(
@@ -1511,8 +1501,8 @@ def _(agg_mat: expr_types.AggregateMat, /, access_type):
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
-@expand_transforms.register(expr_types.Tensor)
-def _(tensor: expr_types.Tensor, /, access_type):
+@expand_transforms.register(pyop3.expr.Tensor)
+def _(tensor: pyop3.expr.Tensor, /, access_type):
     if not tensor.transform:
         return tensor, ()
     else:
@@ -1634,31 +1624,31 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
         return super().process(obj)
 
     @process.register(numbers.Number)
-    @process.register(expr_types.NaN)
-    @process.register(expr_types.Operator)
-    @process.register(expr_types.OpaqueTerminal)
+    @process.register(pyop3.expr.NaN)
+    @process.register(pyop3.expr.Operator)
+    @process.register(pyop3.expr.OpaqueTerminal)
     def _(self, expr: ExpressionT, /) -> ExpressionT:
         return self.reuse_if_untouched(expr)
 
-    @process.register(expr_types.AxisVar)
-    def _(self, axis_var: expr_types.AxisVar, /) -> expr_types.AxisVar:
+    @process.register(pyop3.expr.AxisVar)
+    def _(self, axis_var: pyop3.expr.AxisVar, /) -> pyop3.expr.AxisVar:
         relabeled_axis = canonicalize_axis_labels(axis_var.axis, self._relabeler)
         return axis_var.__record_init__(axis=relabeled_axis)
 
-    @process.register(expr_types.LoopIndexVar)
-    def _(self, loop_var: expr_types.LoopIndexVar, /) -> expr_types.LoopIndexVar:
+    @process.register(pyop3.expr.LoopIndexVar)
+    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
         relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler[loop_var.loop_index.id])
         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
         return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
 
-    @process.register(expr_types.Scalar)
-    @process.register(expr_types.ScalarBufferExpression)
+    @process.register(pyop3.expr.Scalar)
+    @process.register(pyop3.expr.ScalarBufferExpression)
     def _(self, scalar: ExpressionT, /) -> ExpressionT:
         return scalar
 
-    @process.register(expr_types.Dat)
-    def _(self, dat: expr_types.Dat, /) -> expr_types.Dat:
+    @process.register(pyop3.expr.Dat)
+    def _(self, dat: pyop3.expr.Dat, /) -> pyop3.expr.Dat:
         relabeled_axes = canonicalize_axis_labels(dat.axes, self._relabeler)
         if dat.transform is not None:
             if isinstance(dat.transform, ReshapeTensorTransform):
@@ -1676,8 +1666,8 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
             relabeled_transform = None
         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
 
-    @process.register(expr_types.Mat)
-    def _(self, mat: expr_types.Mat, /) -> expr_types.Mat:
+    @process.register(pyop3.expr.Mat)
+    def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
         relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)
         relabeled_column_axes = canonicalize_axis_labels(mat.column_axes, self._relabeler)
         if mat.transform is not None:
@@ -1696,13 +1686,13 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
             relabeled_transform = None
         return mat.__record_init__(row_axes=relabeled_row_axes, column_axes=relabeled_column_axes, _transform=relabeled_transform)
 
-    @process.register(expr_types.LinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.LinearDatBufferExpression, /) -> expr_types.LinearDatBufferExpression:
+    @process.register(pyop3.expr.LinearDatBufferExpression)
+    def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /) -> pyop3.expr.LinearDatBufferExpression:
         relabeled_layout = self(dat_expr.layout)
         return dat_expr.__record_init__(layout=relabeled_layout)
 
-    @process.register(expr_types.NonlinearDatBufferExpression)
-    def _(self, dat_expr: expr_types.NonlinearDatBufferExpression, /) -> expr_types.NonlinearDatBufferExpression:
+    @process.register(pyop3.expr.NonlinearDatBufferExpression)
+    def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /) -> pyop3.expr.NonlinearDatBufferExpression:
         relabeled_layouts = idict({
             path: self(layout) for path, layout in dat_expr.layouts.items()
         })

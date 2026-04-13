@@ -376,8 +376,8 @@ class ImplicitMatrixContext:
 
         # These are the sets of ISes of which the the row and column
         # space consist.
-        row_ises = self._y.function_space()._ises
-        col_ises = self._x.function_space()._ises
+        row_ises = self._y.function_space().field_ises
+        col_ises = self._x.function_space().field_ises
 
         try:
             row_inds = find_sub_block(row_is, row_ises, comm=self.comm)

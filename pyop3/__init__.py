@@ -1,4 +1,3 @@
-import os as _os
 from pyop3.config import config
 
 def _fixup_pytools():
@@ -19,7 +18,9 @@ del _fixup_pytools
 
 # think the command line is a better way to do this.
 def _init_likwid():
-    if "LIKWID_MODE" in _os.environ:
+    import os
+
+    if "LIKWID_MODE" in os.environ:
         # TODO: nice error message if import fails
         import atexit
         import pylikwid
@@ -51,7 +52,7 @@ from pyop3.tree.axis_tree import (  # noqa: F401
 )
 from pyop3.expr.visitors import collect_axis_vars, evaluate, replace, replace_terminals  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
-    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
+    ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec, PetscMatBuffer
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.tree.index_tree import (  # noqa: F401
@@ -78,10 +79,8 @@ from pyop3.insn import (  # noqa: F401
     READ,
     RW,
     WRITE,
-    DummyKernelArgument,
     Function,
     Loop,
-    OpaqueKernelArgument,
     ArrayAssignment,
     do_loop,
     loop_ as loop,
@@ -93,5 +92,3 @@ import pyop3.sf
 from pyop3.tree.index_tree.parse import as_index_forest
 from pyop3.tree import accumulate_path
 from pyop3.ir import LOOPY_TARGET, LOOPY_LANG_VERSION
-
-del _os

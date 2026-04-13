@@ -629,26 +629,75 @@ class PetscMatAxisSpec:
         return np.prod(self.block_shape, dtype=int)
 
 
-class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
-    """A buffer whose underlying data structure is a PETSc Mat."""
+@pyop3.record.record()
+class PetscMatBuffer(ConcreteBuffer):
+    """A buffer whose underlying data structure is a PETSc Mat.
 
-    DEFAULT_PREFIX = "petscmat"
+    Parameters
+    ----------
+    mat_spec
+        Only used for preallocation matrices... and actually the only real information
+        is the matrix type, which could be an argument to materialize...
+
+    """
+
+    # {{{ instance attrs
+
+    mat: PETSc.Mat
+    mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
+    _name: str
+    _constant: bool
+
+    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
+        return (
+            type(self),
+            self._mat_spec_instruction_executor_cache_key,
+            self._constant,
+            buffer_counter[self],
+        )
+
+    def __init__(
+        self,
+        mat: PETSc.Mat,
+        *,
+        mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
+        name:str | None = None,
+        prefix:str|None=None,
+        constant:bool=False
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self.mat = mat
+        self.mat_spec = mat_spec
+        self._name = name
+        self._constant = constant
+
+    # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, preallocator: bool = False, **kwargs):
+        mat = cls._make_petsc_mat(mat_spec, preallocator=preallocator)
+        if preallocator:
+            return cls(mat, mat_spec=mat_spec, **kwargs)
+        else:
+            return cls(mat, **kwargs)
+
+    # }}}
+
+
+    # {{{ interface impls
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
 
     dtype = ScalarType
-    constant = False
     rank_equal = False
 
     @property
-    @abc.abstractmethod
-    def mat(self) -> PETSc.Mat:
-        pass
-
-    @property
-    @abc.abstractmethod
-    def mat_spec(self) -> FullPetscMatBufferSpec:
-        pass
-
-    # {{{ interface impls
+    def comm(self) -> MPI.Comm:
+        return self.mat.comm  # NOTE: This isn't quite the right comm, this is the PETSc one!
 
     @property
     def state(self) -> int:
@@ -666,27 +715,22 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @property
     def handle(self) -> Any:
-        return self.petscmat
+        return self.mat
 
     def zero(self) -> None:
         self.mat.zeroEntries()
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat_spec.comm
 
     def zero(self) -> None:
         self.mat.zeroEntries()
 
     # }}}
 
-    @classmethod
-    @abc.abstractmethod
-    def empty(cls, *args, **kwargs):
-        pass
+    DEFAULT_PREFIX = "petscmat"
 
     @cached_property
     def _mat_spec_instruction_executor_cache_key(self) -> Hashable:
+        # FIXME: This is a hack, missing a lot of information from the mat spec
+        return self.mat.type
         if isinstance(self.mat_spec, np.ndarray):
             return tuple(self.mat_spec.flatten())
         else:
@@ -695,11 +739,6 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     @property
     def mat_type(self) -> str:
         return self.mat.type
-
-    # I think that this is a better attribute name, 'mat' is overloaded
-    @property
-    def petscmat(self):
-        return self.mat
 
     def assemble(self) -> None:
         self.mat.assemble()
@@ -760,114 +799,13 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     # TODO: Could also accept a vector here
     def set_diagonal(self, value: numbers.Number) -> None:
         value = utils.strict_cast(value, PETSc.ScalarType)
-        set_petsc_mat_diagonal(self.petscmat, value)
+        set_petsc_mat_diagonal(self.mat, value)
 
+    def materialize(self) -> PetscMatBuffer:
+        if self.mat.type != PETSc.Mat.Type.PREALLOCATOR:
+            raise TypeError("Can only materialize preallocator mats")
 
-@pyop3.record.record()
-class AllocatedPetscMatBuffer(PetscMatBuffer):
-    """A buffer whose underlying data structure is a PETSc Mat."""
-
-    # {{{ Instance attrs
-
-    _mat: PETSc.Mat
-    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
-    _name: str
-    _constant: bool
-
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        return (
-            type(self),
-            self._mat_spec_instruction_executor_cache_key,
-            self._constant,
-            self.dtype,
-            buffer_counter[self],
-        )
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
-    # }}}
-
-    # {{{ interface impls
-
-    mat: ClassVar[property] = pyop3.record.attr("_mat")
-    mat_spec: ClassVar[property] = pyop3.record.attr("_mat_spec")
-    name: ClassVar[property] = pyop3.record.attr("_name")
-    constant: ClassVar[property] = pyop3.record.attr("_constant")
-
-    # }}}
-
-    # {{{ factory methods
-
-    @classmethod
-    def empty(cls, mat_spec: PetscMatSpec | np.ndarray[PetscMatSpec], **kwargs):
-        mat = cls._make_petsc_mat(mat_spec)
-        return cls(mat, mat_spec, **kwargs)
-
-    # }}}
-
-
-@pyop3.record.record()
-class PetscMatPreallocatorBuffer(PetscMatBuffer):
-    """A buffer whose underlying data structure is a PETSc Mat."""
-
-    # {{{ Instance attrs
-
-    _mat: PETSc.Mat
-    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
-    _name: str
-    _constant: bool
-
-    _lazy_template: PETSc.Mat | None = None
-
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        return (
-            type(self),
-            self._mat_spec_instruction_executor_cache_key,
-            self._constant,
-            self.dtype,
-            buffer_counter[self],
-        )
-
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._mat = mat
-        self._mat_spec = mat_spec
-        self._name = name
-        self._constant = constant
-
-    # }}}
-
-    # {{{ interface impls
-
-    mat: ClassVar[property] = pyop3.record.attr("_mat")
-    mat_spec: ClassVar[property] = pyop3.record.attr("_mat_spec")
-    name: ClassVar[property] = pyop3.record.attr("_name")
-    constant: ClassVar[property] = pyop3.record.attr("_constant")
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.mat_spec.comm
-
-    # }}}
-
-    # {{{ factory methods
-
-    @classmethod
-    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], **kwargs):
-        mat = cls._make_petsc_mat(mat_spec, preallocator=True)
-        return cls(mat, mat_spec, **kwargs)
-
-    # }}}
-
-    def materialize(self) -> AllocatedPetscMatBuffer:
-        if not self._lazy_template:
+        if not hasattr(self, "_lazy_template"):
             self.assemble()
 
             template = self._make_petsc_mat(self.mat_spec)
@@ -882,7 +820,8 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        return AllocatedPetscMatBuffer(mat, self.mat_spec)
+        # return PetscMatBuffer(mat, self.mat_spec)
+        return PetscMatBuffer(mat)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
         if template.type == "nest":
@@ -920,14 +859,9 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return mat.duplicate(copy=copy)
 
 
-@pyop3.record.frozenrecord()
+# very unsure about this, needed?
+@pyop3.record.record()
 class BufferRef(ConcreteBuffer):
-
-    # # Placeholder for now because we spawn too many of these
-    # def __new__(cls, buffer, nest_indices=()):
-    #     if nest_indices == ():
-    #         return buffer
-    #     return object.__new__(cls)
 
     # {{{ interface impls
 
@@ -973,7 +907,7 @@ class BufferRef(ConcreteBuffer):
     # }}}
 
 
-@pyop3.record.frozenrecord()
+@pyop3.record.record()
 class PetscMatBufferSubMat(BufferRef, PetscMatBuffer):
 
     # {{{ instance attrs

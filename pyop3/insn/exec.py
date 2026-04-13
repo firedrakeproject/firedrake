@@ -279,16 +279,10 @@ class InstructionExecutionContext:
             return mat.buffer
 
     @_extract_buffer.register(pyop3.expr.ScalarBufferExpression)
-    def _(self, scalar):
-        return scalar.buffer
-
     @_extract_buffer.register(pyop3.expr.LinearDatBufferExpression)
-    def _(self, dat):
-        return dat.buffer
-
     @_extract_buffer.register(pyop3.expr.OpaqueTerminal)
-    def _(self, opaque, /):
-        return opaque
+    def _(self, expr, /):
+        return expr.buffer
 
 
 class Executable:

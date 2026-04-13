@@ -30,7 +30,7 @@ from pyop3.tree.axis_tree import (
     as_axis_tree_type,
 )
 from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
-from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
+from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import ScalarType
 from pyop3.utils import (
     just_one,
@@ -140,12 +140,7 @@ class Mat(Tensor):
             buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
 
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-
-        if not preallocator:
-            buffer = AllocatedPetscMatBuffer.empty(full_spec, **buffer_kwargs)
-        else:
-            buffer = PetscMatPreallocatorBuffer.empty(full_spec, **buffer_kwargs)
-
+        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod

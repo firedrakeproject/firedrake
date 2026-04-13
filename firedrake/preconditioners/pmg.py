@@ -293,9 +293,9 @@ class PMGBase(PCSNESBase):
         cctx._nullspace = self.coarsen_nullspace(fctx._nullspace, cV, interpolate)
         cctx._nullspace_T = self.coarsen_nullspace(fctx._nullspace_T, cV, interpolate)
         cctx._near_nullspace = self.coarsen_nullspace(fctx._near_nullspace, cV, interpolate)
-        cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
-        cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
-        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
+        cctx.set_nullspace(cctx._nullspace, cV.field_ises, transpose=False, near=False)
+        cctx.set_nullspace(cctx._nullspace_T, cV.field_ises, transpose=True, near=False)
+        cctx.set_nullspace(cctx._near_nullspace, cV.field_ises, transpose=False, near=True)
         return cdm
 
     def coarsen_quadrature(self, metadata, fdeg, cdeg):

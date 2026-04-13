@@ -14,8 +14,8 @@ from petsc4py import PETSc
 from immutabledict import immutabledict as idict
 from loopy.tools import LoopyKeyBuilder
 
-import pyop3.expr.base as expr_types
 from pyop3.cache import memory_cache
+import pyop3.expr
 from pyop3.expr.buffer import MatArrayBufferExpression, ScalarBufferExpression
 from pyop3.expr.tensor import mat
 from pyop3.expr.tensor.dat import AggregateDat
@@ -41,7 +41,6 @@ from pyop3.insn.base import (
     RW,
     WRITE,
     AssignmentType,
-    DummyKernelArgument,
     ArrayAccessType,
     enlist,
     maybe_enlist,
@@ -236,7 +235,7 @@ def _requires_pack_unpack(arg: insn_types.FunctionArgument) -> bool:
 
 
 @_requires_pack_unpack.register(Scalar)
-@_requires_pack_unpack.register(expr_types.OpaqueTerminal)
+@_requires_pack_unpack.register(pyop3.expr.OpaqueTerminal)
 def _(scalar: Scalar) -> bool:
     return False
 
@@ -335,7 +334,7 @@ def _(called_func: insn_types.CalledFunction, /) -> insn_types.InstructionList:
                 arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
 
             materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
-        elif isinstance(func_arg, expr_types.OpaqueTerminal):
+        elif isinstance(func_arg, pyop3.expr.OpaqueTerminal):
             materialized_arg = func_arg
         else:
             materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
@@ -826,15 +825,12 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
         utils.raise_visitor_type_error(argument)
 
     @_get_argument_key.register(numbers.Number)
-    @_get_argument_key.register(expr_types.AxisVar)
-    @_get_argument_key.register(expr_types.LoopIndexVar)
+    @_get_argument_key.register(pyop3.expr.AxisVar)
+    @_get_argument_key.register(pyop3.expr.LoopIndexVar)
     def _(self, var: Hashable, /) -> Hashable:
         return var
 
-    @_get_argument_key.register(expr_types.OpaqueTerminal)
-    def _(self, opaque_expr: OpaqueTerminal, /) -> Hashable:
-        return (type(opaque_expr), opaque_expr.dtype, self._buffer_arg_counter[opaque_expr.handle])
-
+    @_get_argument_key.register(pyop3.expr.OpaqueTerminal)
     @_get_argument_key.register(Tensor)
     def _(self, tensor: Tensor, /) -> Hashable:
         return tensor.instruction_executor_cache_key(self._buffer_arg_counter)
@@ -847,8 +843,8 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
         return (type(buffer_expr), self._get_buffer_key(buffer_expr.buffer), buffer_expr.layout)
 
-    @_get_argument_key.register(expr_types.Operator)
-    def _(self, op: expr_types.Operator, /) -> Hashable:
+    @_get_argument_key.register(pyop3.expr.Operator)
+    def _(self, op: pyop3.expr.Operator, /) -> Hashable:
         return (type(op), tuple(self._get_argument_key(operand) for operand in op.operands))
 
     def _get_buffer_key(self, buffer):

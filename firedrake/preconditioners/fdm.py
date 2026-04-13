@@ -425,7 +425,7 @@ class FDMPC(PCBase):
             y = Function(Vsub)
             sizes = (Vsub.template_vec.getSizes(),) * 2
             parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-                                  op3.OpaqueTerminal(op2.OpaqueType(K.result.klass), K.result.handle),
+                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result)),
                                   *args_acc,
                                   x.dat(op2.READ, x.cell_node_map()),
                                   y.dat(op2.INC, y.cell_node_map()))
@@ -780,7 +780,7 @@ class FDMPC(PCBase):
                 kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
                 raise NotImplementedError
                 assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                        *(op2.OpaqueTerminal(op2.OpaqueType("Mat"), arg.data) for arg in args),
+                                        *(op3.OpaqueTerminal(op3.PetscMatBuffer(arg.data)) for arg in args),
                                         *indices_acc)
                 self.assemblers.setdefault(key, assembler)
 
@@ -801,7 +801,7 @@ class ElementKernel:
 
     def make_args(self, *mats: PETSc.Mat) -> tuple[op3.OpaqueTerminal, ...]:
         return tuple(
-            op3.OpaqueTerminal(op3.dtypes.OpaqueType("Mat"), mat.handle)
+            op3.OpaqueTerminal(op3.PetscMatBuffer(mat))
             for mat in chain(mats, self.mats)
         )
 
@@ -1784,7 +1784,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     preallocator.destroy()
 
     # Now run the same loop but with the allocated matrix
-    Dmat_arg = op3.OpaqueTerminal(op3.dtypes.OpaqueType("Mat"), Dmat.handle)
+    Dmat_arg = op3.OpaqueTerminal(op3.PetscMatBuffer(Dmat))
     assembler(**{mat_args[0].name: Dmat_arg})
     Dmat.assemble()
     Dhat.destroy()

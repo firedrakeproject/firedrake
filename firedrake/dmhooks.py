@@ -373,7 +373,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Subspace is just a single FunctionSpace.
         idx, = fields
         subdm = W[idx].dm
-        iset = W._ises[idx]
+        iset = W.field_ises[idx]
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
 
@@ -391,7 +391,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W.field_ises[f].indices
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
