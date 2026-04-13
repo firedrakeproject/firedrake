@@ -90,6 +90,7 @@ class BlockJacobi {
         PetscErrorCode updateValuesPerBlock(Mat P) {
             PetscBLASInt dof, info;
             int numBlocks = dofsPerBlock.size();
+            PetscFunctionBegin;
             PetscCall(MatCreateSubMatrices(P, numBlocks, dofis.data(), dofis.data(), localmats_aij ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX, &localmats_aij));
             PetscScalar *vv;
             for(int p=0; p<numBlocks; p++) {
@@ -109,6 +110,7 @@ class BlockJacobi {
             PetscScalar dZero = 0.0;
 
             const PetscScalar *matvalues;
+            PetscFunctionBegin;
             for(size_t p=0; p<dofsPerBlock.size(); p++) {
                 dof = dofsPerBlock[p].size();
                 auto dofmap = dofsPerBlock[p];
@@ -260,6 +262,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
 
 
 PetscErrorCode PCSetup_TinyASM(PC pc) {
+    PetscFunctionBegin;
     PetscCall(PetscLogEventBegin(PC_tinyasm_setup, pc, 0, 0, 0));
     auto P = pc -> pmat;
     auto blockjacobi = (BlockJacobi *)pc->data;
@@ -269,6 +272,7 @@ PetscErrorCode PCSetup_TinyASM(PC pc) {
 }
 
 PetscErrorCode PCApply_TinyASM(PC pc, Vec b, Vec x) {
+    PetscFunctionBegin;
     PetscCall(PetscLogEventBegin(PC_tinyasm_apply, pc, 0, 0, 0));
     PetscCall(VecSet(x, 0.0));
     auto blockjacobi = (BlockJacobi *)pc->data;
@@ -298,6 +302,7 @@ PetscErrorCode PCApply_TinyASM(PC pc, Vec b, Vec x) {
 }
 
 PetscErrorCode PCDestroy_TinyASM(PC pc) {
+    PetscFunctionBegin;
     if(pc->data)
         delete (BlockJacobi *)pc->data;
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -305,6 +310,7 @@ PetscErrorCode PCDestroy_TinyASM(PC pc) {
 
 PetscErrorCode PCView_TinyASM(PC pc, PetscViewer viewer) {
     PetscBool isascii;
+    PetscFunctionBegin;
     PetscCall(PetscObjectTypeCompare((PetscObject) viewer, PETSCVIEWERASCII, &isascii));
     if(pc->data) {
         auto blockjacobi = (BlockJacobi *)pc->data;
@@ -323,6 +329,7 @@ PetscErrorCode PCView_TinyASM(PC pc, PetscViewer viewer) {
 }
 
 PetscErrorCode PCCreate_TinyASM(PC pc) {
+    PetscFunctionBegin;
     pc->data = NULL;
     pc->ops->apply = PCApply_TinyASM;
     pc->ops->setup = PCSetup_TinyASM;
