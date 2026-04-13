@@ -63,7 +63,6 @@ class ExtractSubBlock(MultiFunction):
             type(self)._index_inliner = self.IndexInliner()
         return self._index_inliner
 
-
     def _subspace_argument(self, a):
         return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
                        a.number(), part=a.part())
