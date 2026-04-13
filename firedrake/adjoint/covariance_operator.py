@@ -71,7 +71,7 @@ class NoiseBackendBase:
                  seed: int | None = None):
         self._V = V
         self._Vb = V.broken_space()
-        self._rng = rng or RandomGenerator(PCG64(seed=seed))
+        self._rng = rng or RandomGenerator(PCG64(seed=seed, comm=V.comm))
 
     @abc.abstractmethod
     def sample(self, *, rng=None,
