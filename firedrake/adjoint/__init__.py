@@ -46,7 +46,7 @@ from firedrake.adjoint.transformed_functional import L2RieszMap, L2TransformedFu
 from firedrake.adjoint.covariance_operator import (  # noqa F401
     WhiteNoiseGenerator, AutoregressiveCovariance, MixedCovarianceOperator,
     PyOP2NoiseBackend, PetscNoiseBackend, VOMNoiseBackend,
-    CovarianceMat, CovariancePC)
+    CovarianceMat)
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
 import types

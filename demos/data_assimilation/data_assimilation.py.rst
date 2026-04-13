@@ -499,7 +499,7 @@ On each block we use the :class:`~firedrake.adjoint.covariance_operator.Covarian
       'pc_type': 'python',
       'pc_python_type': 'firedrake.EnsembleBJacobiPC',
       'sub_pc_type': 'python',
-      'sub_pc_python_type': 'firedrake.adjoint.CovariancePC',
+      'sub_pc_python_type': 'firedrake.CovariancePC',
   }
 
 The ``schur_parameters`` specify the approximate Schur complement :math:`\mathbf{\tilde{S}}`, which is implemented with the :class:`~firedrake.preconditioners.adjoint.wc4dvar.WC4DVarSchurPC`.

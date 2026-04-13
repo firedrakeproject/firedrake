@@ -27,3 +27,4 @@ from firedrake.preconditioners.bddc import BDDCPC  # noqa: F401
 from firedrake.preconditioners.adjoint import (  # noqa: F401
     WC4DVarSchurPC, WC4DVarSaddlePC, AllAtOnceRFGaussSeidelPC,
 )
+from firedrake.preconditioners.covariance import CovariancePC  # noqa: F401

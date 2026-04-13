@@ -90,6 +90,7 @@ from firedrake.preconditioners import (  # noqa: F401
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
     PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
     WC4DVarSchurPC, WC4DVarSaddlePC, AllAtOnceRFGaussSeidelPC,
+    CovariancePC
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
