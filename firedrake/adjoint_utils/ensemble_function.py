@@ -48,7 +48,7 @@ class EnsembleFunctionMixin(OverloadedType):
         local_dot = sum(uself._ad_dot(uother, options=options)
                         for uself, uother in zip(self.subfunctions,
                                                  other.subfunctions))
-        return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
+        return self.function_space().ensemble.allreduce(local_dot)
 
     def _ad_init_zero(self, dual=False):
         from firedrake import EnsembleFunction

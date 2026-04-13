@@ -47,3 +47,9 @@ class NonUniqueMeshSequenceError(FiredrakeException):
     """Raised when calling `.unique()` on a MeshSequence which contains
     non-unique meshes.
     """
+
+
+class UnrecognisedDeviceError(FiredrakeException):
+    """Raised when a GPU device has been initialised in PETSc that Firedrake
+    does not support.
+    """

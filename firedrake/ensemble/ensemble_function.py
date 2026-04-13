@@ -217,8 +217,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     @PETSc.Log.EventDecorator()
     def __rmul__(self, other):
         new = self.copy()
-        for un in new.subfunctions:
-            un.assign(other*un)
+        if type(other) is type(self):
+            for un, uo in zip(new.subfunctions, other.subfunctions):
+                un.assign(uo*un)
+        else:
+            for un in new.subfunctions:
+                un.assign(other*un)
         return new
 
     @PETSc.Log.EventDecorator()
