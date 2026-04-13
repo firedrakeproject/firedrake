@@ -21,10 +21,10 @@ class CovariancePC(petsctools.PCBase):
 
     See Also
     --------
-    ~firedrake.adjoint.CovarianceOperatorBase
-    ~firedrake.adjoint.AutoregressiveCovariance
-    ~firedrake.adjoint.CovarianceMatCtx
-    ~firedrake.adjoint.CovarianceMat
+    ~firedrake.adjoint.covariance_operator.CovarianceOperatorBase
+    ~firedrake.adjoint.covariance_operator.AutoregressiveCovariance
+    ~firedrake.adjoint.covariance_operator.CovarianceMatCtx
+    ~firedrake.adjoint.covariance_operator.CovarianceMat
     """
     needs_python_pmat = True
     prefix = "covariance"

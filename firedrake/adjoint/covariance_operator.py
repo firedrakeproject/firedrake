@@ -517,7 +517,7 @@ class CovarianceOperatorBase:
     AutoregressiveCovariance
     CovarianceMatCtx
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
 
     @abc.abstractmethod
@@ -696,7 +696,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     WhiteNoiseGenerator
     CovarianceOperatorBase
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     diffusion_form
     """
 
@@ -934,7 +934,7 @@ class CovarianceMatCtx:
     CovarianceOperatorBase
     AutoregressiveCovariance
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     class Operation(Enum):
         """
@@ -945,7 +945,7 @@ class CovarianceMatCtx:
         CovarianceOperatorBase
         AutoregressiveCovariance
         CovarianceMat
-        CovariancePC
+        ~firedrake.preconditioners.covariance.CovariancePC
         """
         ACTION = 'action'
         INVERSE = 'inverse'
@@ -1060,7 +1060,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     AutoregressiveCovariance
     CovarianceMatCtx
     CovarianceMatCtx.Operation
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
