@@ -107,7 +107,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
     # it is everything that gets passed in
     @property
     @abc.abstractmethod
-    def buffer_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
+    def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
         """Mapping from name to tensor that is passed in as an argument."""
 
     @property
@@ -155,8 +155,8 @@ class Loop(Instruction):
     child_attrs = ("statements",)
 
     @cached_property
-    def buffer_arguments(self) -> OrderedFrozenSet[Tensor]:
-        return OrderedFrozenSet().union(*(stmt.buffer_arguments for stmt in self.statements))
+    def global_arguments(self) -> OrderedFrozenSet[Tensor]:
+        return OrderedFrozenSet().union(*(stmt.global_arguments for stmt in self.statements))
 
     @property
     def comm(self) -> MPI.Comm:
@@ -198,8 +198,8 @@ class InstructionList(Instruction):
         return utils.common_comm(self.instructions, "comm")
 
     @property
-    def buffer_arguments(self) -> OrderedFrozenSet[Tensor]:
-        return OrderedFrozenSet().union(*(insn.buffer_arguments for insn in self.instructions))
+    def global_arguments(self) -> OrderedFrozenSet[Tensor]:
+        return OrderedFrozenSet().union(*(insn.global_arguments for insn in self.instructions))
 
     # }}}
 
@@ -255,7 +255,7 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
         pass
 
     @property
-    def buffer_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
+    def global_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
         from pyop3.expr.visitors import collect_arguments
 
         return OrderedFrozenSet().union(

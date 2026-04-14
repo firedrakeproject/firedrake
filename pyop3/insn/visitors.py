@@ -837,8 +837,7 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
 
     @_get_argument_key.register(pyop3.expr.AggregateDat)
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> Hashable:
-        breakpoint()
-        return (type(agg_dat), self._get_buffer_key(buffer_expr.buffer))
+        return (type(agg_dat), tuple(self._get_argument_key(subdat) for subdat in agg_dat.subdats))
 
     @_get_argument_key.register(ScalarBufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:

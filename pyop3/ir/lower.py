@@ -701,7 +701,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(
         isinstance(arg.buffer, ConcreteBuffer) and isinstance(arg.buffer.handle, PETSc.Mat)
-        for arg in assignment.buffer_arguments
+        for arg in assignment.global_arguments
     ):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:

@@ -952,8 +952,8 @@ class SchurComplementKernel(ElementKernel):
 class SchurComplementPattern(SchurComplementKernel):
     """Kernel builder to pad with zeros the Schur complement sparsity pattern."""
     condense_code = dedent("""
-        PetscCall(MatProductNumeric(A11));
-        PetscCall(MatZeroEntries(B));
+        PetscCallVoid(MatProductNumeric(A11));
+        PetscCallVoid(MatZeroEntries(B));
         """)
 
     def condense(self, result=None):
@@ -971,21 +971,21 @@ class SchurComplementDiagonal(SchurComplementKernel):
         Vec vec;
         PetscInt n;
         PetscScalar *vals;
-        PetscCall(MatProductNumeric(A11));
-        PetscCall(MatProductNumeric(A10));
-        PetscCall(MatProductNumeric(A01));
-        PetscCall(MatProductNumeric(A00));
+        PetscCallVoid(MatProductNumeric(A11));
+        PetscCallVoid(MatProductNumeric(A10));
+        PetscCallVoid(MatProductNumeric(A01));
+        PetscCallVoid(MatProductNumeric(A00));
 
-        PetscCall(MatGetSize(A00, &n, NULL));
-        PetscCall(MatSeqAIJGetArray(A00, &vals));
-        PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, n, vals, &vec));
-        PetscCall(VecReciprocal(vec));
-        PetscCall(VecScale(vec, -1.0));
-        PetscCall(MatDiagonalScale(A01, vec, NULL));
-        PetscCall(VecDestroy(&vec));
-        PetscCall(MatSeqAIJRestoreArray(A00, &vals));
+        PetscCallVoid(MatGetSize(A00, &n, NULL));
+        PetscCallVoid(MatSeqAIJGetArray(A00, &vals));
+        PetscCallVoid(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, n, vals, &vec));
+        PetscCallVoid(VecReciprocal(vec));
+        PetscCallVoid(VecScale(vec, -1.0));
+        PetscCallVoid(MatDiagonalScale(A01, vec, NULL));
+        PetscCallVoid(VecDestroy(&vec));
+        PetscCallVoid(MatSeqAIJRestoreArray(A00, &vals));
 
-        PetscCall(MatProductNumeric(B));
+        PetscCallVoid(MatProductNumeric(B));
         """)
 
     def condense(self, result=None):
@@ -1008,11 +1008,11 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         const PetscInt *ai;
         PetscScalar *vals, *U;
         Mat X;
-        PetscCall(MatProductNumeric(A11));
-        PetscCall(MatProductNumeric(A01));
-        PetscCall(MatProductNumeric(A00));
-        PetscCall(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-        PetscCall(MatSeqAIJGetArray(A00, &vals));
+        PetscCallVoid(MatProductNumeric(A11));
+        PetscCallVoid(MatProductNumeric(A01));
+        PetscCallVoid(MatProductNumeric(A00));
+        PetscCallVoid(MatGetRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+        PetscCallVoid(MatSeqAIJGetArray(A00, &vals));
         irow = 0;
         while (irow < m && ai[irow + 1] - ai[irow] == 1) {
             vals[irow] = PetscSqrtReal(1.0 / vals[irow]);
@@ -1021,21 +1021,21 @@ class SchurComplementBlockCholesky(SchurComplementKernel):
         U = &vals[irow];
         while (irow < m) {
             bsize = ai[irow + 1] - ai[irow];
-            PetscCall(PetscBLASIntCast(bsize, &bn));
-            PetscCallBLAS("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
-            PetscCallBLAS("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
+            PetscCallVoid(PetscBLASIntCast(bsize, &bn));
+            PetscCallExternalVoid("LAPACKpotrf", LAPACKpotrf_("U", &bn, U, &bn, &lierr));
+            PetscCallExternalVoid("LAPACKtrtri", LAPACKtrtri_("U", "N", &bn, U, &bn, &lierr));
             for (PetscInt j = 0; j < bsize - 1; j++)
                 for (PetscInt i = j + 1; i < bsize; i++)
                     U[i + bsize * j] = 0.0;
             U += bsize * bsize;
             irow += bsize;
         }
-        PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-        PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-        PetscCall(MatProductGetMats(B, &X, NULL, NULL));
-        PetscCall(MatProductNumeric(X));
-        PetscCall(MatProductNumeric(B));
-        PetscCall(MatScale(B, -1.0));
+        PetscCallVoid(MatSeqAIJRestoreArray(A00, &vals));
+        PetscCallVoid(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+        PetscCallVoid(MatProductGetMats(B, &X, NULL, NULL));
+        PetscCallVoid(MatProductNumeric(X));
+        PetscCallVoid(MatProductNumeric(B));
+        PetscCallVoid(MatScale(B, -1.0));
         """)
 
     def condense(self, result=None):
@@ -1180,13 +1180,13 @@ class SchurComplementBlockInverse(SchurComplementKernel):
 
         lwork = -1;
         bsize = ai[m] - ai[m - 1];
-        PetscCall(PetscMalloc1(bsize, &ipiv));
-        PetscCall(PetscBLASIntCast(bsize, &bn));
-        PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, &swork, &lwork, &lierr));
+        PetscCallVoid(PetscMalloc1(bsize, &ipiv));
+        PetscCallVoid(PetscBLASIntCast(bsize, &bn));
+        PetscCallExternalVoid("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, &swork, &lwork, &lierr));
         bsize = (PetscInt)swork;
-        PetscCall(PetscBLASIntCast(bsize, &lwork));
-        PetscCall(PetscMalloc1(bsize, &work));
-        PetscCall(MatSeqAIJGetArray(A00, &vals));
+        PetscCallVoid(PetscBLASIntCast(bsize, &lwork));
+        PetscCallVoid(PetscMalloc1(bsize, &work));
+        PetscCallVoid(MatSeqAIJGetArray(A00, &vals));
         irow = 0;
         while (irow < m && ai[irow + 1] - ai[irow] == 1) {
             vals[irow] = 1.0 / vals[irow];
@@ -1195,18 +1195,18 @@ class SchurComplementBlockInverse(SchurComplementKernel):
         ainv = &vals[irow];
         while (irow < m) {
             bsize = ai[irow + 1] - ai[irow];
-            PetscCall(PetscBLASIntCast(bsize, &bn));
-            PetscCallBLAS("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, ainv, &bn, ipiv, &lierr));
-            PetscCallBLAS("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, work, &lwork, &lierr));
+            PetscCallVoid(PetscBLASIntCast(bsize, &bn));
+            PetscCallExternalVoid("LAPACKgetrf", LAPACKgetrf_(&bn, &bn, ainv, &bn, ipiv, &lierr));
+            PetscCallExternalVoid("LAPACKgetri", LAPACKgetri_(&bn, ainv, &bn, ipiv, work, &lwork, &lierr));
             ainv += bsize * bsize;
             irow += bsize;
         }
-        PetscCall(PetscFree2(ipiv, work));
-        PetscCall(MatSeqAIJRestoreArray(A00, &vals));
-        PetscCall(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+        PetscCallVoid(PetscFree2(ipiv, work));
+        PetscCallVoid(MatSeqAIJRestoreArray(A00, &vals));
+        PetscCallVoid(MatRestoreRowIJ(A00, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
 
-        PetscCall(MatScale(A00, -1.0));
-        PetscCall(MatProductNumeric(B));
+        PetscCallVoid(MatScale(A00, -1.0));
+        PetscCallVoid(MatProductNumeric(B));
         """)
 
     def condense(self, result=None):
@@ -1333,6 +1333,7 @@ class InteriorSolveKernel(ElementKernel):
         }""")
 
     def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
+        raise NotImplementedError
         self.child = kernel
         self.form = form
         self.fcp = fcp
@@ -1413,6 +1414,7 @@ class ImplicitSchurComplementKernel(ElementKernel):
         }""")
 
     def __init__(self, kernel, name=None):
+        raise NotImplementedError
         self.child = kernel
         super().__init__(kernel.result, name=name)
 

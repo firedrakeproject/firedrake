@@ -1212,6 +1212,7 @@ class ArgumentCollector(NodeCollector):
     # TODO: AbstractBufferExpression
     @process.register(pyop3.expr.OpaqueTerminal)
     @process.register(pyop3.expr.Tensor)
+    @process.register(pyop3.expr.AggregateDat)
     @process.register(pyop3.expr.BufferExpression)
     def _(self, arg: Any, /) -> OrderedFrozenSet:
         return OrderedFrozenSet([arg])

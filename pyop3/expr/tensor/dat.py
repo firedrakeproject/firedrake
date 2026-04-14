@@ -694,7 +694,21 @@ class CompositeDat(Terminal):
 @pyop3.record.record()
 class AggregateDat:
     """A dat formed of multiple subdats concatenated together."""
+
+    DEFAULT_PREFIX: ClassVar[str] = "aggdat"
+
+    # {{{ instance attrs
+
     subdats: np.ndarray[Dat]
+    name: str
+
+    def __init__(self, subdats, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self.subdats = subdats
+        self.name = name
+
+    # }}}
 
     @property
     def subtensors(self):

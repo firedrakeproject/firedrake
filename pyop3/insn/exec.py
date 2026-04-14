@@ -139,9 +139,10 @@ class InstructionExecutionContext:
         new_buffers = {}
         if kwargs:
             for arg_name, new_arg in kwargs.items():
-                buffer_name = self._argument_name_to_buffer_name_map[arg_name]
-                buffer = self._extract_buffer(new_arg)
-                new_buffers[buffer_name] = buffer
+                buffer_names = self._argument_name_to_buffer_name_map[arg_name]
+                buffers = self._extract_buffers(new_arg)
+                for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
+                    new_buffers[buffer_name] = buffer
 
         executable(**new_buffers)
 
@@ -189,14 +190,15 @@ class InstructionExecutionContext:
         # dat1 -> dat3 and dat2 -> dat4.
         if not self._has_called_compile:
             new_buffer_map = dict(executor.buffer_map)
-            for arg_index, buffer_name in argument_index_to_buffer_name_map.items():
-                buffer_name_in_kernel = executor._buffer_global_name_to_name_in_kernel_map[buffer_name]
-                # TODO: ick behaviour with buffer ref...
-                _, intent = executor.buffer_map[buffer_name_in_kernel]
-                arg = self.root_insn.buffer_arguments[arg_index]
-                buffer = self._extract_buffer(arg)
-                assert buffer is not None
-                new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
+            for arg_index, buffer_names in argument_index_to_buffer_name_map.items():
+                arg = self.root_insn.global_arguments[arg_index]
+                buffers = self._extract_buffers(arg)
+                assert len(buffers) > 0
+                for buffer_name, buffer in zip(buffer_names, buffers, strict=True):
+                    buffer_name_in_kernel = executor._buffer_global_name_to_name_in_kernel_map[buffer_name]
+                    # TODO: ick behaviour with buffer ref...
+                    _, intent = executor.buffer_map[buffer_name_in_kernel]
+                    new_buffer_map[buffer_name_in_kernel] = (buffer, intent)
             new_buffer_map = idict(new_buffer_map)
 
             # can we do this check more eagerly?
@@ -239,11 +241,17 @@ class InstructionExecutionContext:
 
     @cached_property
     def _argument_index_to_buffer_name_map(self) -> idict[int, str]:
-        return idict({i: arg.buffer.name for i, arg in enumerate(self.root_insn.buffer_arguments)})
+        return idict({
+            i: tuple(buf.name for buf in self._extract_buffers(arg))
+            for i, arg in enumerate(self.root_insn.global_arguments)
+        })
 
     @cached_property
     def _argument_name_to_buffer_name_map(self) -> idict:
-        return idict({arg.name: arg.buffer.name for arg in self.root_insn.buffer_arguments})
+        return idict({
+            arg.name: tuple(buf.name for buf in self._extract_buffers(arg))
+            for arg in self.root_insn.global_arguments
+        })
 
     @cached_property
     def _executor_cache_key(self) -> Hashable:
@@ -252,37 +260,33 @@ class InstructionExecutionContext:
         return get_instruction_executor_cache_key(self.root_insn)
 
     @functools.singledispatchmethod
-    def _extract_buffer(self, arg):
+    def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         utils.raise_visitor_type_error(arg)
 
-    @_extract_buffer.register(pyop3.expr.Scalar)
-    def _(self, scalar):
-        return scalar.buffer
+    @_extract_buffers.register(pyop3.expr.Scalar)
+    @_extract_buffers.register(pyop3.expr.Dat)
+    @_extract_buffers.register(pyop3.expr.ScalarBufferExpression)
+    @_extract_buffers.register(pyop3.expr.LinearDatBufferExpression)
+    @_extract_buffers.register(pyop3.expr.OpaqueTerminal)
+    def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        return (expr.buffer,)
 
-    @_extract_buffer.register(pyop3.expr.Dat)
-    def _(self, dat):
-        if not isinstance(dat.buffer.handle, np.ndarray):
-            raise NotImplementedError
-        return dat.buffer
-
-    @_extract_buffer.register(pyop3.expr.Mat)
-    def _(self, mat):
+    @_extract_buffers.register
+    def _(self, mat: pyop3.expr.Mat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         if isinstance(mat.buffer.handle, PETSc.Mat):
             match mat.buffer.handle.type:
                 case "nest":
                     return pyop3.buffer.PetscMatBufferSubMat(mat.buffer, mat.nest_indices)
                 case "python":
-                    return self._extract_buffer(mat.buffer.handle.getPythonContext().dat)
+                    return self._extract_buffers(mat.buffer.handle.getPythonContext().dat)
                 case _:
-                    return mat.buffer
+                    return (mat.buffer,)
         else:
-            return mat.buffer
+            return (mat.buffer,)
 
-    @_extract_buffer.register(pyop3.expr.ScalarBufferExpression)
-    @_extract_buffer.register(pyop3.expr.LinearDatBufferExpression)
-    @_extract_buffer.register(pyop3.expr.OpaqueTerminal)
-    def _(self, expr, /):
-        return expr.buffer
+    @_extract_buffers.register
+    def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        return tuple(buf for subdat in agg_dat.subdats for buf in self._extract_buffers(subdat))
 
 
 class Executable:
@@ -408,6 +412,7 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
+        # This is exactly the same as _buffer_refs!
         return tuple(buffer_ref for buffer_ref in self._buffer_refs)
 
     def __call__(self, **kwargs) -> None:
@@ -503,9 +508,18 @@ class CompiledCodeExecutor:
         return handle.ctypes.data
 
     @_as_exec_argument.register
-    def _(self, handle: PETSc.Mat) -> int:
-        assert handle.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
-        return handle.handle
+    def _(self, mat: PETSc.Mat) -> int:
+        # Sometime the matrix is in an invalid state and we cannot return a handle.
+        # This happens for example when reusing a loop that initially used a
+        # preallocator matrix. Once used the preallocator matrix is no longer in a
+        # valid state. This is generally fine though because when we compute things
+        # we replace this matrix with a fully allocated one. We therefore pass a
+        # None here and check things later.
+        if not mat:
+            return None
+
+        assert mat.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
+        return mat.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
         valid = (
