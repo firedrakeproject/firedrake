@@ -1426,15 +1426,17 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "Cells", comm=self._comm)
+        return op2.Set(size, "Cells", comm=self.comm)
     
-    @utils.cached_property
+    @cached_property
     def cell_facet_neighbours(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps each cell to its neighbours
         across each of its facets.
 
         The neighbouring cell across the `i`-th local facet of a cell with index `c` is given by
         `cell_facet_neighbours[c][i]`.
+
+        TODO: Add parallel extensions here
         """
         num_facets = self.ufl_cell().num_facets
         num_vertices = self.ufl_cell().num_vertices
@@ -1608,17 +1610,17 @@ class MeshTopology(AbstractMeshTopology):
 
         return o_coord_maps
     
-    @utils.cached_property
+    @cached_property
     def cell_facet_coord_transforms(self):
-        """Return affine reference-coordinate transforms between neighbouring cells across a given facet.
+        """Returns affine reference-coordinate transforms between neighbouring cells across a given facet.
 
         For each cell `c` and each local facet `i` of this cell, this method constructs the affine
         map
 
-            X' = A[c,i] X + b[c,i],
+            X' = A[c,i] @ X + b[c,i],
 
         where `X` are reference coordinates of a point lying on facet `i` in cell `c` 
-        and `X'` are the reference coordinates of the same point expressed in the neighbouring cell `c`
+        and `X'` are the reference coordinates of the same point expressed in the neighbouring cell
         across facet `i`.
 
         Returns

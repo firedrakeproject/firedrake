@@ -1063,7 +1063,7 @@ def _build_interpolation_callables(
                 target_ref_coords = target_mesh.reference_coordinates
                 m_ = target_ref_coords.cell_node_map()
                 parloop_args.append(target_ref_coords.dat(op2.READ, m_))
-
+    
     parloop = op2.ParLoop(*parloop_args)
     if isinstance(tensor, op2.Mat):
         return parloop, tensor.assemble
