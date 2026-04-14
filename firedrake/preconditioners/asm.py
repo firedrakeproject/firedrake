@@ -437,7 +437,8 @@ class ASMExtrudedStarPC(ASMStarPC):
 
             validate_overlap(mesh, base_depth, "star")
 
-            num_layer_seeds = nlayers-1 if (periodic or interval_depth) else nlayers
+            num_layer_seeds = nlayers-1 if (periodic or interval_depth > 0) else nlayers
+            # In the extruded direction we only need two colors (even/odd coloring)
             num_layer_colors = 2 if use_coloring else num_layer_seeds
 
             colors = get_colors(mesh, use_coloring, base_depth, distance=1)

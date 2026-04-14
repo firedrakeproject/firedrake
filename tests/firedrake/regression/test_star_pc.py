@@ -411,9 +411,12 @@ def test_asm_extruded_star(base, periodic, family, degree):
     assert errornorm(uexact, uh) < 1E-7
 
 
-def test_star_coloring():
-    nx = 8
+@pytest.mark.parametrize("extruded", [False, True], ids=["quad", "hex"])
+def test_star_coloring(extruded):
+    nx = 4
     mesh = UnitSquareMesh(nx, nx, quadrilateral=True)
+    if extruded:
+        mesh = ExtrudedMesh(mesh, nx)
 
     x = SpatialCoordinate(mesh)
     uexact = x[0]*(1-x[0]) * x[1]*(1-x[1])
@@ -434,7 +437,7 @@ def test_star_coloring():
         "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_ksp_type": "chebyshev",
         "pmg_mg_levels_pc_type": "python",
-        "pmg_mg_levels_pc_python_type": "firedrake.ASMStarPC",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
         "pmg_mg_levels_pc_star_construct_dim": 0,
         "pmg_mg_levels_pc_star_sub_sub_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_pc_star_use_coloring": color,
@@ -456,6 +459,8 @@ def test_star_coloring():
         if color:
             colors = mesh.topology_dm.createColoring(depth=0, distance=1)
             expected = len(colors)
+            if extruded:
+                expected *= 2
         else:
             CG1 = FunctionSpace(mesh, "Lagrange", 1)
             pstart, pend = CG1.dof_dset.layout_vec.getOwnershipRange()
