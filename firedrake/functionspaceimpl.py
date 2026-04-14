@@ -902,24 +902,14 @@ class FunctionSpace:
         #
         # The excessive tabulations should not impose a performance penalty
         # because the mappings are compressed during compilation.
-        node_point_map_array = numpy.full(self._nodes_axis.local_size, -1, dtype=IntType)
-        node_dof_map_array = node_point_map_array.copy()
-
         dof_axis = utils.just_one(
-            axis for axis in self.layout_axes.nodes if axis.label == "dof"
+            axis for axis in self.layout_axes.axes if axis.label == "dof"
         )
         ndofs = dof_axis.local_size.buffer.data_ro
+        node_to_points, node_to_dofs = dmcommon.prepare_node_maps(ndofs)
 
-        node = 0
-        for point, ndof in enumerate(ndofs):
-            for dof in range(ndof):
-                node_point_map_array[node] = point
-                node_dof_map_array[node] = dof
-                node += 1
-        assert (node_point_map_array >= 0).all() and (node_dof_map_array >= 0).all()
-
-        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_point_map_array)
-        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_dof_map_array)
+        node_point_map_dat = op3.Dat(self._nodes_axis, data=node_to_points)
+        node_dof_map_dat = op3.Dat(self._nodes_axis, data=node_to_dofs)
 
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
