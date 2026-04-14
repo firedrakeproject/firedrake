@@ -3455,7 +3455,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         warnings.warn(
             "Variable layer extrusion is deprecated and will be removed "
             "in the 2026.10.0 release. If possible we recommend using "
-            "Submesh instead. Please get in touch if this is a critical ",
+            "Submesh instead. Please get in touch if this is a critical "
             "issue for you.",
             FutureWarning,
         )
