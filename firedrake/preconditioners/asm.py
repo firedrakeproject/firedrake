@@ -218,7 +218,8 @@ class ASMVankaPC(ASMPatchPC):
             depth = mesh_dm.getDimension() - height
         validate_overlap(mesh, depth, "vanka")
 
-        exclude_subspaces = list(map(int, opts.getString("exclude_subspaces", default="-1").split(",")))
+        exclude = opts.getString("exclude_subspaces", default="-1")
+        exclude_subspaces = list(map(int, exclude.split(","))) if exclude else []
         include_subspaces = [i for i in range(len(V)) if i not in exclude_subspaces]
         include_type = opts.getString("include_type", default="star").lower()
         if include_type not in ["star", "entity"]:
@@ -621,9 +622,10 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         seed_points = seed_points.indices
     elif numpy.isscalar(seed_points):
         seed_points = (seed_points,)
-    V_points = []
-    Q_points = []
+    indices = []
     for seed in seed_points:
+        V_points = []
+        Q_points = []
         # Only build patches over owned DoFs
         if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
             continue
@@ -634,15 +636,15 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
             Q_points.extend(star)
         else:
             Q_points.append(seed)
-
         closure = []
         for s in reversed(star):
             cs, _ = mesh_dm.getTransitiveClosure(s, useCone=True)
             closure.extend(cs)
         # Grab unique points with stable ordering
-        V_points.extend(reversed(dict.fromkeys(closure)))
+        closure = reversed(dict.fromkeys(closure))
+        V_points.extend(closure)
+        indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
+        indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
 
-    indices = get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points)
-    indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
