@@ -5,6 +5,7 @@ running this file as a script.
 
 """
 import importlib.metadata
+import os
 from os.path import abspath, dirname, join, exists
 import shutil
 
@@ -207,6 +208,29 @@ def _make_name(params):
 def _test_io_backward_compat_base_idfunc(params):
     param_str = ['cell_type', 'periodic', 'extruded', 'extruded_periodic', 'extruded_real', 'immersed', 'mixed']
     return "-".join([f"{p_str}={p}" for p_str, p in zip(param_str, params)])
+
+
+def test_all_files_used():
+    unused_checkpoint_files = set(os.listdir(filedir))
+    assert len(unused_checkpoint_files) > 0
+    for version in SAVED_VERSIONS:
+        for params in test_io_backward_compat_base_params:
+            filename = "_".join([basename, version, _make_name(params) + ".h5"])
+            unused_checkpoint_files.discard(filename)
+
+        # also the timestepping file
+        filename = "_".join([basename, version, "timestepping" + ".h5"])
+        unused_checkpoint_files.discard(filename)
+    assert not unused_checkpoint_files, f"Checkpoint files {unused_checkpoint_files} are not tested"
+
+
+def test_version_has_corresponding_files(version):
+    for params in test_io_backward_compat_base_params:
+        filename = join(filedir, "_".join([basename, version, _make_name(params) + ".h5"]))
+        if exists(filename):
+            # at least one match, this is sufficient
+            return
+    raise AssertionError(f"Version '{version}' does not have any associated checkpoint files")
 
 
 @pytest.mark.skipcomplex
