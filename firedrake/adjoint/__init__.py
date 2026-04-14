@@ -44,9 +44,8 @@ from firedrake.adjoint.ensemble_reduced_functional import (  # noqa F401
     EnsembleReducedFunctional)
 from firedrake.adjoint.transformed_functional import L2RieszMap, L2TransformedFunctional  # noqa: F401
 from firedrake.adjoint.covariance_operator import (  # noqa F401
-    WhiteNoiseGenerator, AutoregressiveCovariance, MixedCovarianceOperator,
-    PyOP2NoiseBackend, PetscNoiseBackend, VOMNoiseBackend,
-    CovarianceMat)
+    WhiteNoiseGenerator, AutoregressiveCovariance, CovarianceMat,
+    PyOP2NoiseBackend, PetscNoiseBackend, VOMNoiseBackend, MixedCovarianceOperator)
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
 import types

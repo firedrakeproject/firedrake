@@ -5,7 +5,8 @@ import petsctools
 from firedrake import *
 from firedrake.adjoint import (
     WhiteNoiseGenerator, PyOP2NoiseBackend, PetscNoiseBackend,
-    VOMNoiseBackend, AutoregressiveCovariance, CovarianceMat)
+    VOMNoiseBackend, AutoregressiveCovariance, MixedCovarianceOperator,
+    CovarianceMat)
 
 
 def petsc2numpy_vec(petsc_vec):
@@ -270,6 +271,104 @@ def test_covariance_mat(m, family, operation):
     elif operation == 'inverse':
         x = Function(V).project(expr)
         y = Function(V.dual())
+        xcheck = x.copy(deepcopy=True)
+        ycheck = y.copy(deepcopy=True)
+
+        B.apply_inverse(xcheck, tensor=ycheck)
+
+    with x.dat.vec as xv, y.dat.vec as yv:
+        mat.mult(xv, yv)
+
+    # flip to primal space to calculate norms
+    if operation == 'inverse':
+        y = y.riesz_representation()
+        ycheck = ycheck.riesz_representation()
+
+    assert errornorm(ycheck, y)/norm(ycheck) < 1e-12
+
+    if operation == 'inverse':
+        y = y.riesz_representation()
+        ycheck = ycheck.riesz_representation()
+
+    ksp = PETSc.KSP().create()
+    ksp.setOperators(mat)
+
+    tol = 1e-8
+
+    petsctools.set_from_options(
+        ksp, options_prefix=str(operation),
+        parameters={
+            'ksp_monitor': None,
+            'ksp_type': 'richardson',
+            'ksp_max_it': 2,
+            'ksp_rtol': tol,
+            'pc_type': 'python',
+            'pc_python_type': 'firedrake.CovariancePC',
+        }
+    )
+    x.zero()
+
+    with x.dat.vec as xv, y.dat.vec as yv:
+        with petsctools.inserted_options(ksp):
+            ksp.solve(yv, xv)
+
+    # CovarianceOperator operations should
+    # be exact inverses of each other.
+    assert ksp.its == 1
+
+    if operation == 'action':
+        x = x.riesz_representation()
+        xcheck = xcheck.riesz_representation()
+
+    assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("operation", ("action", "inverse"))
+def test_mixed_covariance(operation):
+    """Test that covariance mat and pc apply correct and opposite actions.
+    """
+    nx = 20
+    L = 0.2
+    sigma = 0.9
+
+    mesh = UnitIntervalMesh(nx)
+    coords, = SpatialCoordinate(mesh)
+
+    V0 = FunctionSpace(mesh, "CG", 1)
+    V1 = FunctionSpace(mesh, "DG", 1)
+    W = V0*V1
+
+    Bc = AutoregressiveCovariance(V0, L, sigma, m=2, form="CG")
+    Bd = AutoregressiveCovariance(V1, 2*L, 2*sigma, m=2, form="IP")
+
+    B = MixedCovarianceOperator(W, [Bc, Bd])
+
+    mat = CovarianceMat(B, operation=operation)
+
+    expr_c = sin(2*pi*coords)
+    expr_d = cos(1*pi*coords)
+
+    if operation == 'action':
+        x = Function(W)
+        y = Function(W)
+
+        x.subfunctions[0].project(expr_c)
+        x.subfunctions[1].project(expr_d)
+        x = x.riesz_representation()
+
+        xcheck = x.copy(deepcopy=True)
+        ycheck = y.copy(deepcopy=True)
+
+        B.apply_action(xcheck, tensor=ycheck)
+
+    elif operation == 'inverse':
+        x = Function(W)
+        y = Function(W.dual())
+
+        x.subfunctions[0].project(expr_c)
+        x.subfunctions[1].project(expr_d)
+
         xcheck = x.copy(deepcopy=True)
         ycheck = y.copy(deepcopy=True)
 
