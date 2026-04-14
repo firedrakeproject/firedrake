@@ -467,7 +467,7 @@ def test_star_coloring(extruded):
             expected = pend - pstart
         assert npatches == expected
 
-    assert its[True] <= its[False]
+    assert its[True] == its[False]
 
 
 def test_vanka_coloring():
