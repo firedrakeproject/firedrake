@@ -212,7 +212,7 @@ def _test_io_backward_compat_base_idfunc(params):
 
 def test_all_files_used():
     unused_checkpoint_files = set(os.listdir(filedir))
-    assert len(unused_checkpoint_files) > 0
+    assert len(unused_checkpoint_files) > 0, "Did not find any checkpoint files, cannot check if they are used"
     for version in SAVED_VERSIONS:
         for params in test_io_backward_compat_base_params:
             filename = "_".join([basename, version, _make_name(params) + ".h5"])
