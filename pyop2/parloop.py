@@ -20,6 +20,23 @@ from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Ma
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.types.data_carrier import DataCarrier
 
+# import timeit
+# import atexit
+
+# PARLOOP_CALL_COUNT = 0 
+# PARLOOP_TOTAL_CORE_TIME = 0.0 # parloop total execution time on core part
+# PARLOOP_TOTAL_OWNED_TIME = 0.0 # parloop total execution on owned part
+
+# def _print_parloop_call_timing_summary():
+#     if PARLOOP_CALL_COUNT > 0:
+#         avg_core = PARLOOP_TOTAL_CORE_TIME / PARLOOP_CALL_COUNT
+#         avg_owned = PARLOOP_TOTAL_OWNED_TIME / PARLOOP_CALL_COUNT
+#         print(
+#             f"[timing_summary] Total no. of Parloop calls={PARLOOP_CALL_COUNT} | "
+#             f"Avg. Parloop execution time on core part={avg_core:.6e} s  | Avg. Parloop execution time on owned part={avg_owned:.6e} s  "
+#         )
+
+# atexit.register(_print_parloop_call_timing_summary)
 
 class ParloopArg(abc.ABC):
 
@@ -163,7 +180,7 @@ class PassthroughParloopArg(ParloopArg):
     def maps(self):
         return ()
 
-
+import inspect
 class Parloop:
     """A parallel loop invocation.
 
@@ -244,13 +261,42 @@ class Parloop:
     @mpi.collective
     def __call__(self):
         """Execute the kernel over all members of the iteration space."""
+        # caller = inspect.stack()
+        # print(
+        #     f"ParLoop kernel call from {caller[-2].function}-{caller[-3].function}-{caller[-4].function}"
+        #     # f"({caller.filename}:{caller.lineno})"
+        # )
+        # global PARLOOP_CALL_COUNT, PARLOOP_TOTAL_CORE_TIME, PARLOOP_TOTAL_OWNED_TIME
+
+        # PARLOOP_CALL_COUNT += 1
+
         self.increment_dat_version()
         self.zero_global_increments()
         orig_lgmaps = self.replace_lgmaps()
+        
+        # begin halo exchange
         self.global_to_local_begin()
+
+        # execute Parloop on core part
+        # tc0 = timeit.default_timer()
         self._compute(self.iterset.core_part)
+        # tc1 = timeit.default_timer()
+        # PARLOOP_TOTAL_CORE_TIME += tc1 - tc0
+
+        # end halo echange
         self.global_to_local_end()
+
+        # execute Parloop on owned part (same as core in serial)
+        # to0 = timeit.default_timer()
         self._compute(self.iterset.owned_part)
+        # to1 = timeit.default_timer()
+        # PARLOOP_TOTAL_OWNED_TIME +=  to1 - to0
+
+        # NOTE:
+        # From recording the execution time each _compute call, we observe that the execution of the Parloop
+        # on the owned part of the iteration set (which corresponds to the core part when running in serial) accounts 
+        # for approx 0.5% of total wall time. Therefore safeguarding is not worth it.
+
         requests = self.reduction_begin()
         self.local_to_global_begin()
         self.update_arg_data_state()

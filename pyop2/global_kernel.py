@@ -419,6 +419,7 @@ def _generate_code_from_global_kernel(kernel, comm):
     return code
 
 
+import ctypes
 @memory_cache(hashkey=lambda knl, _: knl.cache_key)
 @mpi.collective
 def compile_global_kernel(kernel, comm):
@@ -437,6 +438,8 @@ def compile_global_kernel(kernel, comm):
 
     """
     code = _generate_code_from_global_kernel(kernel, comm)
+
+    # TODO: Write a MLIR load function
 
     dll = load(
         code,

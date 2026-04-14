@@ -484,7 +484,7 @@ if configuration["print_cache_info"]:
     DEFAULT_CACHE = instrument(DEFAULT_CACHE)
     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
-
+import inspect
 # TODO: One day should use the compilation comm to do the bcast
 def parallel_cache(
     hashkey=default_parallel_hashkey,
@@ -523,6 +523,7 @@ def parallel_cache(
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
+            global i
             # Create a PyOP2 comm associated with the key, so it is decrefed
             # when the wrapper exits
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
@@ -534,7 +535,13 @@ def parallel_cache(
                     cache = comm_caches.setdefault(cache_id, make_cache())
                     _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
-                key = hashkey(*args, **kwargs)
+                key = hashkey(*args, **kwargs)                
+
+                # if func.__qualname__ == "compile_global_kernel":
+                #     caller = inspect.stack()[3]
+                #     print(f"    compile_global_kernel lookup from {caller.function}"
+                #           f"({caller.filename}:{caller.lineno})")
+
                 value = get_cache_entry(comm, cache, key)
 
                 if isinstance(cache, DictLikeDiskAccess):
@@ -585,7 +592,6 @@ def parallel_cache(
             return cache.setdefault(key, value)
         return wrapper
     return decorator
-
 
 def clear_memory_cache(comm):
     """ Completely remove all PyOP2 caches on a given communicator.
