@@ -272,7 +272,7 @@ class ASMLinesmoothPC(ASMPatchPC):
             raise NotImplementedError("Not implemented for general mixed meshes")
         assert mesh.cell_set._extruded
         dm = mesh.topology_dm
-        section = V.dm.getLocalSection()
+        section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
@@ -325,7 +325,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
 def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
-    section = W.dm.getLocalSection()
+    section = W.dm.getDefaultSection()
     # location of first dof on an entity
     basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
     # number of dofs on this entity
@@ -518,9 +518,15 @@ def validate_overlap(mesh, patch_dim, patch_type):
 
 
 def get_colors(mesh, use_coloring, depth, distance=1):
-    """For a given entity dimension (depth), constructs a coloring of the
-    entities if use_coloring=True, otherwise returns all entities visible by
-    this process.
+    """Returns a coloring of the mesh entities.
+
+    :arg mesh: the MeshTopology
+    :arg use_coloring: if True computes the coloring,
+        otherwise each entity gets its own color
+    :arg depth: the entity dimension
+    :arg distance: the coloring distance
+
+    :returns: an iterable of PETSc.IS or int defining each color
     """
     mesh_dm = mesh.topology_dm
     if use_coloring:
@@ -531,13 +537,13 @@ def get_colors(mesh, use_coloring, depth, distance=1):
 
 
 def get_entity_dofs(V, V_local_ises_indices, points):
-    """Return degrees of freedom associated to mesh entities (points of the DMPlex).
+    """Return degrees of freedom associated with mesh entities (points of the DMPlex).
 
     :arg V: the FunctionSpace to extract DOFs from
     :arg V_local_ises_indices: V.local_ises.indices
     :points: an iterable of mesh entities
 
-    :returns: a list with the DOFs of V associated to the mesh entities
+    :returns: a list with the DOFs of V associated with the mesh entities
     """
     indices = []
     for (i, W) in enumerate(V):
