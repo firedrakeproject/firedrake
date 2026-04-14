@@ -443,6 +443,10 @@ class CompiledCodeExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
+        utils.debug_assert(
+            lambda: all(arg is not None for arg in exec_arguments),
+            "Attempting to pass a null pointer to the executable",
+        )
         self.executable(*exec_arguments)
 
     def __str__(self) -> str:

@@ -787,7 +787,6 @@ class FDMPC(PCBase):
 
         args = assembler.statements[0].arguments
         assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
-        assembler()
 
 
 class ElementKernel:

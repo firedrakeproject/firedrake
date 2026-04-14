@@ -8,6 +8,7 @@ from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
 from mpi4py import MPI
 import numpy
+import firedrake.exceptions
 from firedrake import utils
 
 
@@ -418,15 +419,14 @@ class ASMExtrudedStarPC(ASMStarPC):
     _prefix = 'pc_star_'
 
     def get_patches(self, V):
-        raise NotImplementedError
-        mesh = V.mesh()
-        if len(set(mesh)) == 1:
-            mesh_unique = mesh.unique()
-        else:
+        return super().get_patches(V)
+        try:
+            mesh = V.mesh().unique()
+        except firedrake.exceptions.NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh_unique.topology_dm
-        nlayers = mesh_unique.layers
-        if not mesh_unique.extruded:
+        mesh_dm = mesh.topology_dm
+        nlayers = mesh.layers
+        if not mesh.extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
         periodic = mesh.extruded_periodic
 
