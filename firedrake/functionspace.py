@@ -31,7 +31,8 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     vfamily :
         The finite element in the vertical dimension (extruded meshes
         only).
@@ -86,7 +87,8 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name:
         An optional name for the function space.
     vfamily :
@@ -125,7 +127,8 @@ def DualSpace(mesh, family, degree=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     name :
         An optional name for the function space.
     vfamily:
@@ -164,7 +167,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None, name=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     dim :
         An optional number of degrees of freedom per function space
         node (defaults to the geometric dimension of the mesh).
@@ -216,7 +220,8 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     family :
         The finite element family.
     degree :
-        The degree of the finite element.
+        The degree of the finite element. If unspecified this will default
+        to the lowest degree available for the given family.
     shape :
         An optional shape for the tensor-valued degrees of freedom at
         each function space node (defaults to a square tensor using the

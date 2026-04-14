@@ -53,7 +53,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         "topological_dimension": cell.topological_dimension,
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
-        "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
+        "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 20,
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension),
         "X_isub_dX": X_isub_dX(cell.topological_dimension),

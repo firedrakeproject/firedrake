@@ -157,10 +157,13 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
+    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
+    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # Dodgy links
 linkcheck_ignore = [
+    r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
     r'https://www\.apl\.washington\.edu/',
