@@ -520,16 +520,10 @@ def get_colors(mesh, use_coloring, depth, distance=1):
     this process.
     """
     mesh_dm = mesh.topology_dm
-    point_subset = None
     if use_coloring:
         colors = mesh_dm.createColoring(depth=depth, distance=distance)
-        if point_subset is not None:
-            colors = tuple(numpy.intersect1d(point_subset, color.indices) for color in colors)
     else:
-        if point_subset is None:
-            colors = range(*mesh_dm.getDepthStratum(depth))
-        else:
-            colors = point_subset
+        colors = range(*mesh_dm.getDepthStratum(depth))
     return colors
 
 

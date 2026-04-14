@@ -11,7 +11,7 @@ def problem_type(request):
     return request.param
 
 
-@pytest.fixture(params=["petscasm", "tinyasm", "petscasm-coloring"])
+@pytest.fixture(params=["petscasm", "tinyasm"])
 def backend(request):
     return request.param
 
@@ -25,10 +25,6 @@ def filter_warnings(caller):
 def test_star_equivalence(problem_type, backend):
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    use_coloring = False
-    if backend.endswith("coloring"):
-        backend, _ = backend.split("-")
-        use_coloring = True
 
     if problem_type == "scalar":
         base = UnitSquareMesh(10, 10, distribution_parameters=distribution_parameters)
@@ -173,7 +169,6 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_mat_type": "aij",
                        "mg_coarse_pc_type": "lu"}
 
-    star_params["mg_levels_pc_star_use_coloring"] = use_coloring
     star_params["mg_levels_pc_star_backend"] = backend
     star_params["mg_levels_pc_star_mat_ordering_type"] = "rcm"
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
@@ -187,10 +182,6 @@ def test_star_equivalence(problem_type, backend):
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
-    if use_coloring:
-        l = len(mh) - 1
-        star_patches = len(star_solver.snes.ksp.pc.getMGSmoother(l).pc.getPythonContext().asmpc.getASMSubKSP())
-        assert star_patches < 12
 
 
 def test_vanka_equivalence(problem_type):
@@ -418,3 +409,123 @@ def test_asm_extruded_star(base, periodic, family, degree):
     expected = 7
     assert solver.snes.getLinearSolveIterations() <= expected
     assert errornorm(uexact, uh) < 1E-7
+
+
+def test_star_coloring():
+    nx = 8
+    mesh = UnitSquareMesh(nx, nx, quadrilateral=True)
+
+    x = SpatialCoordinate(mesh)
+    uexact = x[0]*(1-x[0]) * x[1]*(1-x[1])
+
+    V = FunctionSpace(mesh, "Lagrange", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = a(v, uexact)
+    bcs = DirichletBC(V, uexact, "on_boundary")
+
+    params = lambda color: {
+        "ksp_type": "cg",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse_ksp_type": "preonly",
+        "pmg_mg_coarse_pc_type": "lu",
+        "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "pmg_mg_levels_ksp_type": "chebyshev",
+        "pmg_mg_levels_pc_type": "python",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMStarPC",
+        "pmg_mg_levels_pc_star_construct_dim": 0,
+        "pmg_mg_levels_pc_star_sub_sub_pc_factor_mat_solver_type": "mumps",
+        "pmg_mg_levels_pc_star_use_coloring": color,
+    }
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+
+    its = {}
+    for color in (True, False):
+        uh.zero()
+        solver = LinearVariationalSolver(problem, solver_parameters=params(color))
+        solver.solve()
+
+        pmg = solver.snes.ksp.pc.getPythonContext().ppc
+        npatches = len(pmg.getMGSmoother(1).pc.getPythonContext().asmpc.getASMSubKSP())
+        its[color] = solver.snes.getLinearSolveIterations()
+
+        if color:
+            colors = mesh.topology_dm.createColoring(depth=0, distance=1)
+            expected = len(colors)
+        else:
+            CG1 = FunctionSpace(mesh, "Lagrange", 1)
+            pstart, pend = CG1.dof_dset.layout_vec.getOwnershipRange()
+            expected = pend - pstart
+        assert npatches == expected
+
+    assert its[True] <= its[False]
+
+
+
+def test_vanka_coloring():
+    nx = 4
+    refine = 1
+    base = UnitSquareMesh(nx, nx, quadrilateral=False)
+    mh = MeshHierarchy(base, refine)
+    mesh = mh[-1]
+
+    x = SpatialCoordinate(mesh)
+    psi = x[0]*(1-x[0]) * x[1]*(1-x[1])
+    uexact = curl(psi)
+    pexact = x[0]
+
+    V = VectorFunctionSpace(mesh, "Lagrange", 2)
+    Q = FunctionSpace(mesh, "Lagrange", 1)
+    Z = V * Q
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+
+    a = (inner(grad(u), grad(v)) * dx
+         - inner(p, div(v)) * dx
+         - inner(div(u), q) * dx)
+
+    test, trial = a.arguments()
+    L = a(test, as_vector([uexact[0], uexact[1], pexact]))
+    bcs = DirichletBC(Z.sub(0), uexact, "on_boundary")
+
+    params = lambda color: {
+        "ksp_type": "fgmres",
+        "pc_type": "mg",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        "mg_coarse_pc_factor_mat_solver_type": "mumps",
+        "mg_levels_ksp_type": "gmres",
+        "mg_levels_ksp_max_it": 2,
+        "mg_levels_pc_type": "python",
+        "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
+        "mg_levels_pc_vanka_sub_sub_pc_factor_mat_solver_type": "mumps",
+        "mg_levels_pc_vanka_exclude_subspaces": "1",
+        "mg_levels_pc_vanka_construct_dim": 0,
+        "mg_levels_pc_vanka_use_coloring": color,
+    }
+
+    zh = Function(Z)
+    problem = LinearVariationalProblem(a, L, zh, bcs=bcs)
+
+    its = {}
+    for color in (True, False):
+        zh.zero()
+        solver = LinearVariationalSolver(problem, solver_parameters=params(color))
+        solver.solve()
+        gmg = solver.snes.ksp.pc
+        npatches = len(gmg.getMGSmoother(refine).pc.getPythonContext().asmpc.getASMSubKSP())
+        its[color] = solver.snes.getLinearSolveIterations()
+
+        if color:
+            colors = mesh.topology_dm.createColoring(depth=0, distance=2)
+            expected = len(colors)
+        else:
+            pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()
+            expected = pend - pstart
+        assert npatches == expected
+
+    assert its[True] <= its[False]
