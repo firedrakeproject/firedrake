@@ -807,9 +807,7 @@ class FunctionSpace:
 
         constraints = [AxisConstraint(mesh_axis)]
 
-        unconstrained_sec, constrained_sec = dmcommon.partition_constrained_points(plex, self.local_section, self.boundary_set)
-        num_unconstrained_dofs = dmcommon.section_dofs(unconstrained_sec) // self.block_size
-        num_constrained_dofs = dmcommon.section_dofs(constrained_sec) // self.block_size
+        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(self._mesh, self.local_section, self.block_size, self.boundary_set)
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)

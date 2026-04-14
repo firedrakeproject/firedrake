@@ -835,6 +835,11 @@ class InstructionExecutorCacheKeyGetter(InstructionCacheKeyGetter):
     def _(self, tensor: Tensor, /) -> Hashable:
         return tensor.instruction_executor_cache_key(self._buffer_arg_counter)
 
+    @_get_argument_key.register(pyop3.expr.AggregateDat)
+    def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> Hashable:
+        breakpoint()
+        return (type(agg_dat), self._get_buffer_key(buffer_expr.buffer))
+
     @_get_argument_key.register(ScalarBufferExpression)
     def _(self, buffer_expr: BufferExpression, /) -> Hashable:
         return (type(buffer_expr), self._get_buffer_key(buffer_expr.buffer))

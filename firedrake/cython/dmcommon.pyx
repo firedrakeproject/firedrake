@@ -280,20 +280,6 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, 
     return section
 
 
-def section_dofs(section: PETSc.Section) -> np.ndarray:
-    """Unpack the DoFs of a section and reorder."""
-    p_start, p_end = section.getChart()
-    dofs = np.empty(p_end-p_start, dtype=IntType)
-    for i, p in enumerate(range(p_start, p_end)):
-        dofs[i] = section.getDof(p)
-
-    renumbering = section.getPermutation()
-    if renumbering is not None:
-        dofs = dofs[renumbering.indices]
-
-    return dofs
-
-
 def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: bool = False) -> PETSc.IS:
     """Return the section offsets for a given set of points."""
     offsets = np.empty(selected_points.size, dtype=IntType)
@@ -3632,10 +3618,13 @@ def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientati
         CHKERR(PetscFree(new_values))
 
 
-def partition_constrained_points(plex, section, boundary_set):
+def partition_constrained_points(mesh, section, block_size, boundary_set):
     """Split a section into unconstrained and constrained sets."""
+    mesh_axis = mesh.flat_points
+    num_points = mesh_axis.local_size
+    plex = mesh.topology_dm
     # identify constrained points
-    constrained_points = PETSc.IS().createGeneral(np.empty([], dtype=IntType), comm=MPI.COMM_SELF)
+    constrained_points = set()
     if boundary_set:
         for marker in boundary_set:
             if marker == "on_boundary":
@@ -3643,27 +3632,79 @@ def partition_constrained_points(plex, section, boundary_set):
                 marker = 1
             else:
                 label = FACE_SETS_LABEL
-
             n = plex.getStratumSize(label, marker)
             if n == 0:
                 continue
-            marked_points = plex.getStratumIS(label, marker)
-            constrained_points = constrained_points.union(marked_points)
+            points = plex.getStratumIS(label, marker).indices
+            constrained_points.update(points)
 
-    # now partition the section
-    unconstrained_section = section.clone()
-    constrained_section = PETSc.Section().create(comm=section.comm)
-    constrained_section.setChart(*section.getChart())
-    constrained_section.setPermutation(section.getPermutation())
+    num_constrained_points = len(constrained_points)
+    num_unconstrained_points = num_points - num_constrained_points
 
-    for constrained_point in constrained_points.indices:
-        ndof = section.getDof(constrained_point)
-        unconstrained_section.setDof(constrained_point, 0)
-        constrained_section.setDof(constrained_point, ndof)
+    num_unconstrained_dofs = np.empty(num_points, dtype=IntType)
+    num_constrained_dofs = np.empty_like(num_unconstrained_dofs)
+    for old_pt in range(mesh_axis.local_size):
+        if mesh._is_renumbered:
+            new_pt = mesh._old_to_new_point_renumbering.indices[old_pt]
+        else:
+            new_pt = old_pt
 
-    unconstrained_section.setUp()
-    constrained_section.setUp()
-    return unconstrained_section, constrained_section
+        ndofs = section.getDof(old_pt) // block_size
+
+        if old_pt not in constrained_points:
+            num_unconstrained_dofs[new_pt] = ndofs
+            num_constrained_dofs[new_pt] = 0
+        else:
+            num_unconstrained_dofs[new_pt] = 0
+            num_constrained_dofs[new_pt] = ndofs
+
+    return num_unconstrained_dofs, num_constrained_dofs
+
+    # This is an older, faster, and incorrect impl of the same thing
+    # # identify constrained points
+    # constrained_points = PETSc.IS().createGeneral(np.empty([], dtype=IntType), comm=MPI.COMM_SELF)
+    # if boundary_set:
+    #     for marker in boundary_set:
+    #         if marker == "on_boundary":
+    #             label = "exterior_facets"
+    #             marker = 1
+    #         else:
+    #             label = FACE_SETS_LABEL
+    #
+    #         n = plex.getStratumSize(label, marker)
+    #         if n == 0:
+    #             continue
+    #         marked_points = plex.getStratumIS(label, marker)
+    #         constrained_points = constrained_points.union(marked_points)
+    # constrained_points = constrained_points.indices
+    #
+    # # now split the section apart
+    # p_start, p_end = section.getChart()
+    # num_points = p_end - p_start
+    # num_constrained_points = len(constrained_points)
+    # num_unconstrained_points = num_points - num_constrained_points
+    #
+    # perm = section.getPermutation().indices
+    #
+    # num_unconstrained_dofs = np.empty(num_points, dtype=IntType)
+    # num_constrained_dofs = np.empty_like(num_unconstrained_dofs)
+    # for old_pt in range(*section.getChart()):
+    #     if perm is not None:
+    #         new_pt = perm[old_pt]
+    #     else:
+    #         new_pt = old_pt
+    #
+    #     ndofs = section.getDof(old_pt) // block_size
+    #
+    #     # NOTE: More efficient to use a hash thing here
+    #     if old_pt not in constrained_points:
+    #         num_unconstrained_dofs[new_pt] = ndofs
+    #         num_constrained_dofs[new_pt] = 0
+    #     else:
+    #         num_unconstrained_dofs[new_pt] = 0
+    #         num_constrained_dofs[new_pt] = ndofs
+    #
+    # return num_unconstrained_dofs, num_constrained_dofs
 
 
 def prepare_node_maps(ndofs):

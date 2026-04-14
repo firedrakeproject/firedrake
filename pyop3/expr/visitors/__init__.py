@@ -1666,6 +1666,13 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
             relabeled_transform = None
         return dat.__record_init__(axes=relabeled_axes, _transform=relabeled_transform)
 
+    @process.register(pyop3.expr.AggregateDat)
+    def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
+        relabeled_subdats = np.asarray(
+            [self(subdat) for subdat in agg_dat.subdats], dtype=object
+        )
+        return agg_dat.__record_init__(subdats=relabeled_subdats)
+
     @process.register(pyop3.expr.Mat)
     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:
         relabeled_row_axes = canonicalize_axis_labels(mat.row_axes, self._relabeler)

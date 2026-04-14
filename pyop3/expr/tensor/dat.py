@@ -690,6 +690,7 @@ class CompositeDat(Terminal):
     dtype = IntType
 
 
+# TODO: This has to obey some interface...
 @pyop3.record.record()
 class AggregateDat:
     """A dat formed of multiple subdats concatenated together."""
@@ -698,6 +699,10 @@ class AggregateDat:
     @property
     def subtensors(self):
         return self.subdats
+
+    @property
+    def size(self):
+        return sum(subdat.size for subdat in self.subdats)
 
     def with_context(self, context):
         cf_submats = np.empty_like(self.subdats)

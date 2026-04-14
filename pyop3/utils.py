@@ -575,14 +575,11 @@ def pretty_type(obj: Any) -> str:
     return f"{type_.__module__}.{type_.__name__}"
 
 
-@functools.singledispatch
 def safe_equals(a, b, /) -> bool:
-    return a == b
-
-
-@safe_equals.register(np.ndarray)
-def _(a, b, /) -> bool:
-    return (a == b).all()
+    if any(isinstance(x, np.ndarray) for x in [a, b]):
+        return (a == b).all()
+    else:
+        return bool(a == b)
 
 
 def raise_visitor_type_error(obj):

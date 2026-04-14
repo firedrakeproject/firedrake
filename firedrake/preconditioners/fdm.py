@@ -759,14 +759,13 @@ class FDMPC(PCBase):
             loop_info = get_iteration_spec(Vrow.mesh(), "cell")
             element_kernel = self._element_kernels[Vrow, Vcol]
             kernel = element_kernel.kernel(on_diag=on_diag, addv=addv)
+            mat_args = element_kernel.make_args(A)
             assembler = op3.loop(
                 loop_info.loop_index,
                 kernel(
-                    *element_kernel.make_args(A),
+                    *mat_args,
                     pack(coefficients, loop_info),
-                    *(
-                        pack(idat, loop_info) for idat in indices_acc
-                    ),
+                    *(pack(idat, loop_info) for idat in indices_acc),
                 ),
             )
             self.assemblers.setdefault(key, assembler)
@@ -776,15 +775,18 @@ class FDMPC(PCBase):
                 assembler = self.assemblers[key]
             except KeyError:
                 # Determine the global sparsity pattern by inserting a constant sparse element matrix
-                args = assembler.arguments[:2]
                 kernel = ElementKernel(PETSc.Mat(), name="preallocate").kernel(mat_type=mat_type, on_diag=on_diag, addv=addv)
-                raise NotImplementedError
-                assembler = op2.ParLoop(kernel, Vrow.mesh().cell_set,
-                                        *(op3.OpaqueTerminal(op3.PetscMatBuffer(arg.data)) for arg in args),
-                                        *indices_acc)
+                assembler = op3.loop(
+                    loop_info.loop_index,
+                    kernel(
+                        *mat_args[:2],
+                        *(pack(idat, loop_info) for idat in indices_acc),
+                    )
+                )
                 self.assemblers.setdefault(key, assembler)
 
-        assembler.arguments[0].data = A.handle
+        args = assembler.statements[0].arguments
+        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A))})
         assembler()
 
 
@@ -855,12 +857,19 @@ class ElementKernel:
             self.name,
             code,
             [
-                # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
-                ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
-                ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
+                *self._kernel_args,
                 *((iname, IntType, op3.READ) for iname in indices),
             ],
             preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>"), ("50_preambles", "\n".join(preambles))],
+        )
+
+    @property
+    def _kernel_args(self):
+        return (
+            # FIXME: intent here should be OK to be WRITE but loopy was complaining
+            # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
         )
 
 
@@ -868,21 +877,26 @@ class TripleProductKernel(ElementKernel):
     """Kernel builder to assemble a triple product of the form L * C * R for each cell,
     where L, C, R are sparse matrices and the entries of C are updated on each cell."""
     code = dedent("""
-        PetscErrorCode %(name)s(const Mat A, const Mat B,
-                                const PetscScalar *restrict coefficients,
-                                %(indices)s) {
-            Mat C;
-            PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-            PetscCall(MatSetValuesArray(C, coefficients));
-            PetscCall(MatProductNumeric(B));
-            PetscCall(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
-            return PETSC_SUCCESS;
-        }""")
+        Mat C;
+        PetscCallVoid(MatProductGetMats(B, NULL, &C, NULL));
+        PetscCallVoid(MatSetValuesArray(C, coefficients));
+        PetscCallVoid(MatProductNumeric(B));
+        PetscCallVoid(MatSetValuesLocalSparse(A, B, %(rows)s, %(cols)s, %(addv)d));
+    """)
 
     def __init__(self, L, C, R, name=None):
-        raise NotImplementedError("look at coefficients")
         self.product = partial(L.matMatMult, C, R)
         super().__init__(self.product(), name=name)
+
+    @property
+    def _kernel_args(self):
+        return (
+            # FIXME: intent here should be OK to be WRITE but loopy was complaining
+            # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("coefficients", ScalarType, op3.READ),
+        )
 
 
 class SchurComplementKernel(ElementKernel):
@@ -920,6 +934,19 @@ class SchurComplementKernel(ElementKernel):
 
     def condense(self, result=None):
         return result
+
+    @property
+    def _kernel_args(self):
+        return (
+            # FIXME: intent here should be OK to be WRITE but loopy was complaining
+            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A11", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A10", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A01", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A00", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("coefficients", ScalarType, op3.READ),
+        )
 
 
 class SchurComplementPattern(SchurComplementKernel):
