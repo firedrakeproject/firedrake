@@ -441,6 +441,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             # In the extruded direction we only need two colors (even/odd coloring)
             num_layer_colors = 2 if use_coloring else num_layer_seeds
 
+            # Loop through the coloring of the base mesh
             colors = get_colors(mesh, use_coloring, base_depth, distance=1)
             for color in colors:
                 points = get_star_points(mesh_dm, ordering, self.prefix, color)
@@ -449,6 +450,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points = numpy.asarray(points)
                 points -= pstart  # offset by chart start
 
+                # Loop through the coloring of the extruded direction
                 for layer_color in range(num_layer_colors):
                     indices = []
                     for layer_seed in range(layer_color, num_layer_seeds, num_layer_colors):
@@ -529,7 +531,14 @@ def get_colors(mesh, use_coloring, depth, distance=1):
 
 
 def get_entity_dofs(V, V_local_ises_indices, points):
-    """Extract degrees of freedom associated to mesh entities (points of the DMPlex)."""
+    """Return degrees of freedom associated to mesh entities (points of the DMPlex).
+
+    :arg V: the FunctionSpace to extract DOFs from
+    :arg V_local_ises_indices: V.local_ises.indices
+    :points: an iterable of mesh entities
+
+    :returns: a list with the DOFs of V associated to the mesh entities
+    """
     indices = []
     for (i, W) in enumerate(V):
         section = W.dm.getDefaultSection()
@@ -545,7 +554,15 @@ def get_entity_dofs(V, V_local_ises_indices, points):
 
 
 def get_star_points(mesh_dm, ordering, prefix, seed_points):
-    """Get DMPlex points in the star of each point in seed_points."""
+    """Get DMPlex points in the star of each point in seed_points.
+
+    :arg mesh_dm: the DMPlex
+    :arg ordering: a Mat.OrderingType indicating the ordering type
+    :arg prefix: the PETSc.Options prefix to further specify the ordering
+    :seed_points: an iterable point indices to compute the star for
+
+    :returns: A list of the points in the star
+    """
     if isinstance(seed_points, PETSc.IS):
         seed_points = seed_points.indices
     elif numpy.isscalar(seed_points):
@@ -563,7 +580,17 @@ def get_star_points(mesh_dm, ordering, prefix, seed_points):
 
 
 def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_points):
-    """Build index sets for star patches."""
+    """Return DOFs in the star of each point in seed_points.
+
+    :arg V: the FunctionSpace to extract DOFs from
+    :arg V_local_ises_indices: V.local_ises.indices
+    :arg mesh_dm: the DMPlex
+    :arg ordering: a Mat.OrderingType indicating the ordering type
+    :arg prefix: the PETSc.Options prefix to further specify the ordering
+    :seed_points: an iterable point indices to construct the star patches
+
+    :returns: A PETSc.IS with the degrees of freedom in the star patches
+    """
     points = get_star_points(mesh_dm, ordering, prefix, seed_points)
     indices = get_entity_dofs(V, V_local_ises_indices, points)
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
@@ -571,7 +598,18 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
 
 
 def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, include_star, seed_points):
-    """Build index sets for Vanka patches."""
+    """Return DOFs in the Vanka patches constructed at each point in seed_points.
+
+    :arg Z: a tuple of the included/excluded FunctionSpaces to extract DOFs from
+    :arg Z_local_ises_indices: (Z[0].local_ises.indices, Z[1].local_ises.indices)
+    :arg mesh_dm: the DMPlex
+    :arg ordering: a Mat.OrderingType indicating the ordering type
+    :arg prefix: the PETSc.Options prefix to further specify the ordering
+    :arg include_star: whether to include DOFs of Z[1] in the star or just the entity
+    :seed_points: an iterable point indices to construct the Vanka patches
+
+    :returns: A PETSc.IS with the degrees of freedom in the Vanka patches
+    """
     if isinstance(seed_points, PETSc.IS):
         seed_points = seed_points.indices
     elif numpy.isscalar(seed_points):

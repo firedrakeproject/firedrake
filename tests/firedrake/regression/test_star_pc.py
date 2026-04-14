@@ -470,7 +470,6 @@ def test_star_coloring(extruded):
     assert its[True] <= its[False]
 
 
-
 def test_vanka_coloring():
     nx = 4
     refine = 1
