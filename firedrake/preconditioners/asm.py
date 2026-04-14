@@ -594,7 +594,7 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
     :arg mesh_dm: the DMPlex
     :arg ordering: a Mat.OrderingType indicating the ordering type
     :arg prefix: the PETSc.Options prefix to further specify the ordering
-    :seed_points: an iterable point indices to construct the star patches
+    :seed_points: an iterable of point indices to construct the star patches
 
     :returns: A PETSc.IS with the degrees of freedom in the star patches
     """
@@ -613,7 +613,7 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
     :arg ordering: a Mat.OrderingType indicating the ordering type
     :arg prefix: the PETSc.Options prefix to further specify the ordering
     :arg include_star: whether to include DOFs of Z[1] in the star or just the entity
-    :seed_points: an iterable point indices to construct the Vanka patches
+    :seed_points: an iterable of point indices to construct the Vanka patches
 
     :returns: A PETSc.IS with the degrees of freedom in the Vanka patches
     """
