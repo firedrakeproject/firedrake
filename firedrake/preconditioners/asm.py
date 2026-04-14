@@ -272,7 +272,7 @@ class ASMLinesmoothPC(ASMPatchPC):
             raise NotImplementedError("Not implemented for general mixed meshes")
         assert mesh.cell_set._extruded
         dm = mesh.topology_dm
-        section = V.dm.getDefaultSection()
+        section = V.dm.getLocalSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
@@ -325,7 +325,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
 def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
-    section = W.dm.getDefaultSection()
+    section = W.dm.getLocalSection()
     # location of first dof on an entity
     basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
     # number of dofs on this entity
@@ -541,7 +541,7 @@ def get_entity_dofs(V, V_local_ises_indices, points):
     """
     indices = []
     for (i, W) in enumerate(V):
-        section = W.dm.getDefaultSection()
+        section = W.dm.getLocalSection()
         for p in points:
             dof = section.getDof(p)
             if dof <= 0:
