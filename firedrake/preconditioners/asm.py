@@ -1,7 +1,6 @@
 import abc
 
 from pyop2.datatypes import IntType
-from firedrake.cython import dmcommon
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
@@ -179,7 +178,7 @@ class ASMStarPC(ASMPatchPC):
         V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
 
         # Build index sets for the patches
-        colors = get_colors(mesh, use_coloring, depth, distance=1)
+        colors = get_colors(mesh_dm, use_coloring, depth, distance=1)
         ises = [build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, self.prefix, color)
                 for color in colors]
         return ises
@@ -240,13 +239,7 @@ class ASMVankaPC(ASMPatchPC):
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
-        plex = mesh.topology_dm
-        adj = plex.getBasicAdjacency()
-        if use_coloring:
-            dmcommon.set_adjacency_callback(plex, "vanka")
-            PETSc.Options().setValue("mat_coloring_type", "id")
-        colors = get_colors(mesh, use_coloring, depth, distance=2)
-        plex.setBasicAdjacency(*adj)
+        colors = get_colors(mesh_dm, use_coloring, depth, distance=3)
         ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
                                     include_star, color) for color in colors]
         return ises
@@ -450,7 +443,7 @@ class ASMExtrudedStarPC(ASMStarPC):
             num_layer_colors = 2 if use_coloring else num_layer_seeds
 
             # Loop through the coloring of the base mesh
-            colors = get_colors(mesh, use_coloring, base_depth, distance=1)
+            colors = get_colors(mesh_dm, use_coloring, base_depth, distance=1)
             for color in colors:
                 points = get_star_points(mesh_dm, ordering, self.prefix, color)
                 if len(points) == 0:
@@ -528,10 +521,10 @@ def validate_overlap(mesh, patch_dim, patch_type):
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
 
 
-def get_colors(mesh, use_coloring, depth, distance=1):
+def get_colors(mesh_dm, use_coloring, depth, distance=1):
     """Returns a coloring of the mesh entities.
 
-    :arg mesh: the MeshTopology
+    :arg mesh_dm: the DMPlex
     :arg use_coloring: if True computes the coloring,
         otherwise each entity gets its own color
     :arg depth: the entity dimension
@@ -539,8 +532,9 @@ def get_colors(mesh, use_coloring, depth, distance=1):
 
     :returns: an iterable of PETSc.IS or int defining each color
     """
-    mesh_dm = mesh.topology_dm
     if use_coloring:
+        if distance > 2:
+            PETSc.Options().setValue("mat_coloring_type", "power")
         colors = mesh_dm.createColoring(depth=depth, distance=distance)
     else:
         colors = range(*mesh_dm.getDepthStratum(depth))
