@@ -505,7 +505,6 @@ def test_vanka_coloring():
         "mg_levels_ksp_max_it": 2,
         "mg_levels_pc_type": "python",
         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
-        "mg_levels_pc_vanka_sub_sub_pc_factor_mat_solver_type": "mumps",
         "mg_levels_pc_vanka_exclude_subspaces": "1",
         "mg_levels_pc_vanka_construct_dim": 0,
         "mg_levels_pc_vanka_use_coloring": color,
