@@ -261,12 +261,12 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
      * Mapping coordinates from physical to reference space
      */
 
-    %(ScalarType)s *X = result->X;
+    %(RealType)s *X = result->X;
     %(init_X)s
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
+        %(RealType)s dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
