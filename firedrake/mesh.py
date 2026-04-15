@@ -20,6 +20,7 @@ import rtree
 from textwrap import dedent
 from pathlib import Path
 import typing
+import warnings
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -3451,7 +3452,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :arg layers:         number of extruded cell layers in the "vertical"
                          direction.  One may also pass an array of
                          shape (cells, 2) to specify a variable number
-                         of layers.  In this case, each entry is a pair
+                         of layers (deprecated).  In this case, each entry is a pair
                          ``[a, b]`` where ``a`` indicates the starting
                          cell layer of the column and ``b`` the number
                          of cell layers in that column.
@@ -3515,6 +3516,13 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     name = name if name is not None else mesh.name + "_extruded"
     layers = np.asarray(layers, dtype=IntType)
     if layers.shape:
+        warnings.warn(
+            "Variable layer extrusion is deprecated and will be removed "
+            "in the 2026.10.0 release. If possible we recommend using "
+            "Submesh instead. Please get in touch if this is a critical "
+            "issue for you.",
+            FutureWarning,
+        )
         if periodic:
             raise ValueError("Must provide constant layer for periodic extrusion")
         if layers.shape != (mesh.cell_set.total_size, 2):
