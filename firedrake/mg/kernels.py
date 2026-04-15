@@ -58,6 +58,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         "dX_norm_square": dX_norm_square(cell.topological_dimension),
         "X_isub_dX": X_isub_dX(cell.topological_dimension),
         "IntType": as_cstr(IntType),
+        "RealType": RealType_c,
     }
 
     evaluate_template_c = """#include <math.h>
@@ -66,7 +67,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
 %(to_reference_coords_newton_step)s
 
-static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
+static inline void to_reference_coords_kernel(%(RealType)s *X, const PetscScalar *x0, const PetscScalar *C)
 {
     const int space_dim = %(geometric_dimension)d;
 

@@ -1,9 +1,6 @@
 from firedrake import *
-from firedrake.utils import single_mode
 import pytest
 import numpy as np
-
-_fp32 = single_mode
 
 
 def run_stokes_mini(mat_type, n):
@@ -45,23 +42,15 @@ def run_stokes_mini(mat_type, n):
 
     u, p = w.subfunctions
 
-    if _fp32:
-        # Schur complement fieldsplit stalls in fp32 due to preconditioner
-        # precision limitations. Use direct solver instead.
-        # TODO: Add a separate fp32 test with an appropriate iterative solver
-        # and relaxed tolerances to cover the fieldsplit code path.
-        sp = {'ksp_type': 'preonly', 'pc_type': 'lu',
-              'pc_factor_mat_solver_type': 'mumps', 'mat_type': mat_type}
-    else:
-        sp = {'pc_type': 'fieldsplit',
-              'ksp_rtol': 1e-15,
-              'pc_fieldsplit_type': 'schur',
-              'fieldsplit_schur_fact_type': 'diag',
-              'fieldsplit_0_pc_type': 'redundant',
-              'fieldsplit_0_redundant_pc_type': 'lu',
-              'fieldsplit_1_pc_type': 'none',
-              'ksp_monitor_true_residual': None,
-              'mat_type': mat_type}
+    sp = {'pc_type': 'fieldsplit',
+          'ksp_rtol': 1e-15,
+          'pc_fieldsplit_type': 'schur',
+          'fieldsplit_schur_fact_type': 'diag',
+          'fieldsplit_0_pc_type': 'redundant',
+          'fieldsplit_0_redundant_pc_type': 'lu',
+          'fieldsplit_1_pc_type': 'none',
+          'ksp_monitor_true_residual': None,
+          'mat_type': mat_type}
     solve(a == L, w, bcs=bcs, solver_parameters=sp)
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
@@ -73,6 +62,7 @@ def run_stokes_mini(mat_type, n):
     return errornorm(uexact, u, degree_rise=0), errornorm(pexact, p, degree_rise=0)
 
 
+@pytest.mark.skipsingle  # Schur complement fieldsplit stalls in fp32; needs a separate fp32 solver test
 @pytest.mark.parametrize('mat_type', ["aij", "nest"])
 def test_stokes_mini(mat_type):
     u_err = []

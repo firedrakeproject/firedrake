@@ -280,5 +280,3 @@ def garbage_cleanup():
     """Fixture that runs the parallel garbage collector."""
     yield
     PETSc.garbage_cleanup(MPI.COMM_WORLD)
-
-

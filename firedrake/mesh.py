@@ -472,7 +472,8 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
     :arg comm: communicator to build the mesh on. Must be a PyOP2 internal communicator
     :kwarg name: name of the plex
     """
-    # DMPlexCreateFromCellList expects int32 cells and PetscReal coords.
+    # petsc4py's createFromCellList converts coords via iarray_r (NPY_PETSC_REAL),
+    # so passing PETSc.RealType is correct. The underlying C API accepts PetscReal.
     with temp_internal_comm(comm) as icomm:
         if comm.rank == 0:
             cells = np.asarray(cells, dtype=np.int32)
