@@ -282,8 +282,3 @@ def garbage_cleanup():
     PETSc.garbage_cleanup(MPI.COMM_WORLD)
 
 
-@pytest.fixture
-def fp32_tolerance():
-    """Precision-aware tolerance fixture for fp32 compatibility."""
-    from firedrake.utils import single_mode
-    return 1e-4 if single_mode else 1e-10

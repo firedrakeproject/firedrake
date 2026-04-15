@@ -1,12 +1,12 @@
 from firedrake import *
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, single_mode
 from firedrake.solving_utils import DEFAULT_KSP_PARAMETERS
 import pytest
 import numpy as np
 from mpi4py import MPI
 
-_fp32 = PETSc.ScalarType == np.float32
+_fp32 = single_mode
 
 
 @pytest.fixture

@@ -1,9 +1,9 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
-from petsc4py import PETSc
 
-_fp32 = PETSc.ScalarType == np.float32
+_fp32 = single_mode
 
 
 def run_stokes_mini(mat_type, n):
@@ -48,6 +48,8 @@ def run_stokes_mini(mat_type, n):
     if _fp32:
         # Schur complement fieldsplit stalls in fp32 due to preconditioner
         # precision limitations. Use direct solver instead.
+        # TODO: Add a separate fp32 test with an appropriate iterative solver
+        # and relaxed tolerances to cover the fieldsplit code path.
         sp = {'ksp_type': 'preonly', 'pc_type': 'lu',
               'pc_factor_mat_solver_type': 'mumps', 'mat_type': mat_type}
     else:

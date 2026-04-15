@@ -1,9 +1,9 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
-from petsc4py import PETSc
 
-_fp32 = PETSc.ScalarType == np.float32
+_fp32 = single_mode
 
 
 @pytest.fixture(scope='module', params=[False, True])
