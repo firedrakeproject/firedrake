@@ -496,12 +496,12 @@ def test_vanka_coloring():
     bcs = DirichletBC(Z.sub(0), uexact, "on_boundary")
 
     params = lambda color: {
-        "ksp_type": "fgmres",
+        "ksp_type": "gmres",
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
         "mg_coarse_pc_factor_mat_solver_type": "mumps",
-        "mg_levels_ksp_type": "gmres",
+        "mg_levels_ksp_type": "chebyshev",
         "mg_levels_ksp_max_it": 2,
         "mg_levels_pc_type": "python",
         "mg_levels_pc_python_type": "firedrake.ASMVankaPC",
@@ -512,11 +512,13 @@ def test_vanka_coloring():
 
     zh = Function(Z)
     problem = LinearVariationalProblem(a, L, zh, bcs=bcs)
+    nsp = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
 
     its = {}
     for color in (True, False):
         zh.zero()
-        solver = LinearVariationalSolver(problem, solver_parameters=params(color))
+        solver = LinearVariationalSolver(problem, solver_parameters=params(color),
+                                         nullspace=nsp, transpose_nullspace=nsp)
         solver.solve()
         gmg = solver.snes.ksp.pc
         npatches = len(gmg.getMGSmoother(refine).pc.getPythonContext().asmpc.getASMSubKSP())
