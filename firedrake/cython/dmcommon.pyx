@@ -3761,6 +3761,52 @@ cdef int DMPlexGetAdjacency_Closure_Star_Ridge(
     return 0
 
 
+cdef int DMPlexGetAdjacency_Vanka(PETSc.PetscDM dm,
+                                  PetscInt p,
+                                  PetscInt *adjSize,
+                                  PetscInt adj[],
+                                  void *ctx) noexcept nogil:
+
+    cdef:
+        PetscInt *star1 = NULL, *star2 = NULL;
+        PetscInt *closure1 = NULL, *closure2 = NULL;
+        PetscInt numAdj = 0
+        PetscInt maxAdjSize = adjSize[0]
+        PetscInt point, s1, s2, c1, c2, q
+        PetscInt star1Size, star2Size, closure1Size, closure2Size
+
+    numAdj = 0
+    point = p
+    CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_FALSE, &star1Size, &star1))
+    for s1 in range(star1Size):
+        point = star1[2*s1]
+        CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_TRUE, &closure1Size, &closure1))
+        for c1 in range(closure1Size):
+            point = closure1[2*c1]
+            CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_FALSE, &star2Size, &star2))
+            for s2 in range(star2Size):
+                point = star2[2*s2]
+                CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_TRUE, &closure2Size, &closure2))
+                for c2 in range(closure2Size):
+                    point = closure2[2*c2]
+                    # This is just ensuring that the adjacency is unique.
+                    for q in range(numAdj):
+                        if point == adj[q]:
+                            break
+                    else:
+                        adj[numAdj] = point
+                        numAdj += 1
+                    # Too many adjacent points for the provided output array.
+                    if numAdj > maxAdjSize:
+                        CHKERR(PETSC_ERR_LIB)
+                CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closure2Size, &closure2))
+            CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_FALSE, &star2Size, &star2))
+        CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closure1Size, &closure1))
+    CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_FALSE, &star1Size, &star1))
+    adjSize[0] = numAdj
+    return 0
+
+
 def set_adjacency_callback(
     PETSc.DM dm not None,
     overlap_type,
@@ -3801,7 +3847,10 @@ def set_adjacency_callback(
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(label, ilocal[p] if ilocal else p, 1))
         CHKERR(DMLabelCreateIndex(label, pStart, pEnd))
-    if overlap_type == DistributedMeshOverlapType.FACET:
+
+    if overlap_type == "vanka":
+        CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Vanka, NULL))
+    elif overlap_type == DistributedMeshOverlapType.FACET:
         CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
     elif overlap_type == DistributedMeshOverlapType.RIDGE:
         CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Closure_Star_Ridge, NULL))

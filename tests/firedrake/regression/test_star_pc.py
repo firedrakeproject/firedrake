@@ -1,7 +1,8 @@
 import pytest
 import warnings
 from firedrake import *
-from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.cython import dmcommon
+from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
@@ -523,7 +524,10 @@ def test_vanka_coloring():
         its[color] = solver.snes.getLinearSolveIterations()
 
         if color:
-            colors = mesh.topology_dm.createColoring(depth=0, distance=2)
+            plex = mesh.topology_dm
+            dmcommon.set_adjacency_callback(plex, "vanka")
+            PETSc.Options().setValue("mat_coloring_type", "id")
+            colors = plex.createColoring(depth=0, distance=2)
             expected = len(colors)
         else:
             pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()

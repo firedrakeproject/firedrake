@@ -1,6 +1,7 @@
 import abc
 
 from pyop2.datatypes import IntType
+from firedrake.cython import dmcommon
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
@@ -239,7 +240,13 @@ class ASMVankaPC(ASMPatchPC):
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
+        plex = mesh.topology_dm
+        adj = plex.getBasicAdjacency()
+        if use_coloring:
+            dmcommon.set_adjacency_callback(plex, "vanka")
+            PETSc.Options().setValue("mat_coloring_type", "id")
         colors = get_colors(mesh, use_coloring, depth, distance=2)
+        plex.setBasicAdjacency(*adj)
         ises = [build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, self.prefix,
                                     include_star, color) for color in colors]
         return ises
