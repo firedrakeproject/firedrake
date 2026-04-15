@@ -42,16 +42,16 @@ def run_stokes_mini(mat_type, n):
 
     u, p = w.subfunctions
 
-    sp = {'pc_type': 'fieldsplit',
-          'ksp_rtol': 1e-15,
-          'pc_fieldsplit_type': 'schur',
-          'fieldsplit_schur_fact_type': 'diag',
-          'fieldsplit_0_pc_type': 'redundant',
-          'fieldsplit_0_redundant_pc_type': 'lu',
-          'fieldsplit_1_pc_type': 'none',
-          'ksp_monitor_true_residual': None,
-          'mat_type': mat_type}
-    solve(a == L, w, bcs=bcs, solver_parameters=sp)
+    solve(a == L, w, bcs=bcs,
+          solver_parameters={'pc_type': 'fieldsplit',
+                             'ksp_rtol': 1e-15,
+                             'pc_fieldsplit_type': 'schur',
+                             'fieldsplit_schur_fact_type': 'diag',
+                             'fieldsplit_0_pc_type': 'redundant',
+                             'fieldsplit_0_redundant_pc_type': 'lu',
+                             'fieldsplit_1_pc_type': 'none',
+                             'ksp_monitor_true_residual': None,
+                             'mat_type': mat_type})
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
