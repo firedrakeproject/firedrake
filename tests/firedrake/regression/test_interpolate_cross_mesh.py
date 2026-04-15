@@ -44,7 +44,8 @@ def make_high_order(m_low_order, degree):
         "circlemanifold_to_high_order",
         "unitsquare_from_high_order",
         "unitsquare_to_high_order",
-        "extrudedcube",
+        # This test uses VertexOnlyMesh which is broken in fp32 (petsc4py DMSwarm.getField/PETSC_DOUBLE)
+        pytest.param("extrudedcube", marks=pytest.mark.skipsingle),
         "unitsquare_vfs",
         "unitsquare_tfs",
         "unitsquare_N1curl_source",
