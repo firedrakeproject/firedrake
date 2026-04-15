@@ -454,7 +454,9 @@ class ASMExtrudedStarPC(ASMStarPC):
                 # Loop through the coloring of the extruded direction
                 for layer_color in range(num_layer_colors):
                     indices = []
-                    # offset by the layer color, finish when you run out colors, stride by the number of colors
+                    # offset by the layer color
+                    # loop until you reach the last point
+                    # stride by the number of colors
                     for layer_seed in range(layer_color, num_layer_seeds, num_layer_colors):
                         # Get DoF indices for patch
                         for i, W in enumerate(V):

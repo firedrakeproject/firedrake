@@ -439,7 +439,6 @@ def test_star_coloring(extruded):
         "pmg_mg_levels_pc_type": "python",
         "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
         "pmg_mg_levels_pc_star_construct_dim": 0,
-        "pmg_mg_levels_pc_star_sub_sub_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_pc_star_use_coloring": color,
     }
 
