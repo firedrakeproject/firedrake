@@ -218,6 +218,9 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
+
+          pip install --force-reinstall 'git+https://github.com/FEniCS/ufl.git@2025.3.0'
+
           firedrake-clean
           pip list
 
