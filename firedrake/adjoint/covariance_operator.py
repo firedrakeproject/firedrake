@@ -638,7 +638,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
     --------
     CovarianceOperatorBase
     CovarianceMat
-    CovariancePC
+    ~firedrake.preconditioners.covariance.CovariancePC
     """
     def __init__(self, W: WithGeometry, subcovariances: Iterable[CovarianceOperatorBase]):
         if len(subcovariances) != len(W.subspaces):
@@ -657,7 +657,6 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
         self._subcovariances = subcovariances
         self._rngs = [cov.rng() for cov in self.subcovariances]
 
-    @property
     def function_space(self):
         return self._W
 
@@ -752,6 +751,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         :func:`.diffusion_form` will be used to generate the diffusion
         form. Otherwise assumed to be a ufl.Form on ``V``.
         Defaults to ``AutoregressiveCovariance.DiffusionForm.CG``.
+    weight :
+        Weighting to normalise the diffusion operator into a correlation operator.
+        Defaults to 1. Only used if ``form`` is a ``ufl.Form``.
     bcs :
         Boundary conditions for the diffusion operator.
     solver_parameters :
@@ -793,7 +795,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     def __init__(self, V: WithGeometry, L: float | Constant,
                  sigma: float | Constant = 1., m: int = 2,
                  rng: WhiteNoiseGenerator | None = None,
-                 seed: int | None = None, form=None,
+                 seed: int | None = None,
+                 form=None, weight: Constant | None = None,
                  bcs: BCBase | Iterable[BCBase] | None = None,
                  solver_parameters: dict | None = None,
                  options_prefix: str | None = None,
@@ -820,16 +823,17 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         if self.iterations > 0:
             # Calculate diffusion operator parameters
-            self.kappa = Constant(kappa_m(L, m))
-            self.lambda_m = Constant(lambda_m(L, m))
-            self._weight = Constant(sigma*sqrt(self.lambda_m))
 
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
             if isinstance(form, self.DiffusionForm):
+                self.kappa = Constant(kappa_m(L, m))
+                self.lambda_m = Constant(lambda_m(L, m))
+                self._weight = Constant(sigma*sqrt(self.lambda_m))
                 K = diffusion_form(u, v, self.kappa, formulation=form)
             else:
                 K = form
+                self._weight = weight or Constant(1.0)
 
             M = inner(u, v)*dx
 
@@ -931,7 +935,8 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
 
 def diffusion_form(u, v, kappa: Constant | Function,
-                   formulation: AutoregressiveCovariance.DiffusionForm):
+                   formulation: AutoregressiveCovariance.DiffusionForm,
+                   cell_size=None):
     """
     Convenience function for common diffusion forms.
 
@@ -952,6 +957,9 @@ def diffusion_form(u, v, kappa: Constant | Function,
         The diffusion coefficient.
     formulation :
         The type of diffusion form.
+    cell_size :
+        The cell size used to calculate the interior penalty stabilisation.
+        Defaults to ``CellSize(mesh)``. Ignored if formulation is ``CG``.
 
     Returns
     -------
@@ -974,7 +982,7 @@ def diffusion_form(u, v, kappa: Constant | Function,
     elif formulation == AutoregressiveCovariance.DiffusionForm.IP:
         mesh = v.function_space().mesh()
         n = FacetNormal(mesh)
-        h = CellSize(mesh)
+        h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
         alpha_h = Constant(4.0)/h_avg
         return (
