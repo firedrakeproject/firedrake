@@ -533,9 +533,15 @@ def get_colors(mesh_dm, use_coloring, depth, distance=1):
     :returns: an iterable of PETSc.IS or int defining each color
     """
     if use_coloring:
-        if distance > 2:
-            PETSc.Options().setValue("mat_coloring_type", "power")
+        opts_modified = False
+        opts = PETSc.Options()
+        if "mat_coloring_type" not in opts:
+            opts_modified = True
+            coloring_type = "power" if distance > 2 else "greedy"
+            opts.setValue("mat_coloring_type", coloring_type)
         colors = mesh_dm.createColoring(depth=depth, distance=distance)
+        if opts_modified:
+            opts.delValue("mat_coloring_type")
     else:
         colors = range(*mesh_dm.getDepthStratum(depth))
     return colors
