@@ -570,7 +570,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # Mark OP2 entities and derive the resulting Plex renumbering
         with PETSc.Log.Event("Mesh: numbering"):
             self._mark_entity_classes()
-            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+            self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(IntType)
             if perm_is:
                 self._dm_renumbering = perm_is
             else:
@@ -1922,13 +1922,13 @@ class ExtrudedMeshTopology(MeshTopology):
         :returns: the number of nodes in each of core, owned, and ghost classes.
         """
         if real_tensorproduct:
-            nodes = np.asarray(nodes_per_entity)
+            nodes = np.asarray(nodes_per_entity, dtype=IntType)
             nodes_per_entity = sum(nodes[:, i] for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
         elif self.variable_layers:
             return extnum.node_classes(self, nodes_per_entity)
         else:
-            nodes = np.asarray(nodes_per_entity)
+            nodes = np.asarray(nodes_per_entity, dtype=IntType)
             if self.extruded_periodic:
                 nodes_per_entity = sum(nodes[:, i]*(self.layers - 1) for i in range(2))
             else:
@@ -2656,7 +2656,7 @@ values from f.)"""
             (cell number, reference coordinates) of type (int, numpy array),
             or, when point is not in the domain, (None, None).
         """
-        x = np.asarray(x)
+        x = np.asarray(x, dtype=np.float64)
         if x.size != self.geometric_dimension:
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension))
@@ -4361,7 +4361,7 @@ def _parent_mesh_embedding(
             global_idxs_global = np.arange(coords_global.shape[0])
             input_coords_idxs_local = np.arange(ncoords_local)
             input_coords_idxs_global = input_coords_idxs_local
-            input_ranks_local = np.zeros(ncoords_local, dtype=int)
+            input_ranks_local = np.zeros(ncoords_local, dtype=IntType)
             input_ranks_global = input_ranks_local
         else:
             # Here, we have to assume that all points we can see are unique.
@@ -4377,7 +4377,7 @@ def _parent_mesh_embedding(
             # The below code looks complicated but it's just an allgather of the
             # (variable length) coords_local array such that they are concatenated.
             coords_local_size = np.array(coords_local.size)
-            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
+            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=IntType)
             icomm.Allgatherv(coords_local_size, coords_local_sizes)
             coords_global = np.empty(
                 (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
@@ -4391,12 +4391,12 @@ def _parent_mesh_embedding(
             # global_idxs_global = np.arange(startidx, endidx)
             global_idxs_global = np.arange(coords_global.shape[0])
             input_coords_idxs_local = np.arange(ncoords_local)
-            input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+            input_coords_idxs_global = np.empty(ncoords_global, dtype=IntType)
             icomm.Allgatherv(
                 input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
             )
-            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
-            input_ranks_global = np.empty(ncoords_global, dtype=int)
+            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=IntType)
+            input_ranks_global = np.empty(ncoords_global, dtype=IntType)
             icomm.Allgatherv(
                 input_ranks_local, (input_ranks_global, ncoords_local_allranks)
             )
@@ -4535,7 +4535,7 @@ def _parent_mesh_embedding(
     global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
     reference_coords = np.compress(locally_visible, reference_coords, axis=0)
     parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
-    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
+    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(IntType)
     input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
     input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
 
@@ -4596,7 +4596,7 @@ def _swarm_original_ordering_preserve(
     )
 
     reference_coords_local_size = np.array(reference_coords_local.size)
-    reference_coords_local_sizes = np.empty(comm.size, dtype=int)
+    reference_coords_local_sizes = np.empty(comm.size, dtype=IntType)
     comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
     reference_coords_global = np.empty(
         (ncoords_global, reference_coords_local.shape[1]),
