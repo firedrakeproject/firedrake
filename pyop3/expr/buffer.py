@@ -12,7 +12,7 @@ from pyop3 import utils
 from pyop3.node import NodeVisitor
 from pyop3.tree import is_subpath
 from pyop3.tree.axis_tree import UNIT_AXIS_TREE
-from pyop3.buffer import BufferRef, AbstractBuffer, ArrayBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import DistributedObject
 
 from .base import Expression, as_str
@@ -67,7 +67,7 @@ class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: BufferRef
+    _buffer: AbstractBuffer
 
     def __init__(self, buffer) -> None:
         object.__setattr__(self, "_buffer", buffer)
@@ -210,7 +210,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     """
     # {{{ instance attrs
 
-    _buffer: BufferRef
+    _buffer: AbstractBuffer
     layouts: idict
 
     def __post_init__(self) -> None:
@@ -271,7 +271,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: BufferRef
+    _buffer: AbstractBuffer
     row_layout: ExprT
     column_layout: ExprT
 
@@ -320,7 +320,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 
-    _buffer: BufferRef
+    _buffer: AbstractBuffer
     row_layouts: idict
     column_layouts: idict
 
@@ -330,7 +330,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
         object.__setattr__(self, "column_layouts", column_layouts)
 
     def __post_init__(self) -> None:
-        assert isinstance(self._buffer, BufferRef)
+        assert isinstance(self._buffer, AbstractBuffer)
         assert isinstance(self.row_layouts, idict)
         assert isinstance(self.column_layouts, idict)
 

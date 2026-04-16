@@ -313,10 +313,11 @@ def test_mixed_bcs(diagonal):
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
+    _, label1 = W._labels
     if diagonal:
-        data = A.dat[1].data_ro
+        data = A.dat[label1].data_ro
     else:
-        data = A.M[1, 1].values.diagonal()
+        data = A.M[label1, label1].values.diagonal()
     assert np.allclose(data[bc.nodes], 1.0)
 
 
@@ -422,9 +423,11 @@ def test_bcs_mixed_real():
     u0, u1 = TrialFunctions(V)
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
-    A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0, 1].values, [[0.00], [0.25], [0.25], [0.00]])
-    assert np.allclose(A.M[1, 0].values, [[0.00, 0.25, 0.25, 0.00]])
+    A = assemble(a, bcs=bc)
+
+    label0, label1 = V._labels
+    assert np.allclose(A.M[label0, label1].values, [[0.00], [0.25], [0.25], [0.00]])
+    assert np.allclose(A.M[label1, label0].values, [[0.00, 0.25, 0.25, 0.00]])
 
 
 def test_bcs_mixed_real_vector():

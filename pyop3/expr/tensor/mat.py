@@ -304,20 +304,24 @@ class Mat(Tensor):
 
         self.assemble()
 
-        # TODO: Should use something similar to buffer_indices to select the
-        # right indices.
         if isinstance(self.buffer, PetscMatBuffer):
-            petscmat = self.buffer.mat
-            if self.buffer.mat_type == "nest":
-                # TODO: What if we don't fully index?
-                # Should the buffer be responsible for this?
-                for ri, ci in self.nest_indices:
-                    petscmat = petscmat.getNestSubMatrix(ri, ci)
+            mat = self.buffer.mat
+            if mat.type == PETSc.Mat.Type.NEST:
+                for row_index, column_index in self.nest_indices:
+                    mat = mat.getNestSubMatrix(row_index, column_index)
 
-            if petscmat.type == PETSc.Mat.Type.PYTHON:
-                return petscmat.getPythonContext().dat.data_ro
+            if mat.type == PETSc.Mat.Type.PYTHON:
+                context = mat.getPythonContext()
+                values = mat.getPythonContext().dat.buffer.data_ro
+                if isinstance(context, pyop3.expr.tensor.RowDatPythonMatContext):
+                    return values.reshape((-1, 1))
+                else:
+                    assert isinstance(context, pyop3.expr.tensor.ColumnDatPythonMatContext) 
+                    return values.reshape((1, -1))
             else:
-                return petscmat[self.row_axes.with_region_labels(regions)._buffer_indices, self.column_axes.with_region_labels(regions)._buffer_indices]
+                row_indices = self.row_axes.with_region_labels(regions)._buffer_indices
+                column_indices = self.column_axes.with_region_labels(regions)._buffer_indices
+                return mat[row_indices, column_indices]
         else:
             raise NotImplementedError
 
@@ -382,6 +386,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
 
 # TODO: I don't think that this needs to be a Dat, a vec or array buffer is fine
+# 16/04/26 revisited this, yep I think that that's right
 class DatPythonMatContext:
 
     def __init__(self, dat: Dat):

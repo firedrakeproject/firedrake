@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ctypes
+import dataclasses
 import itertools
+import functools
 import textwrap
 import typing
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
@@ -14,6 +17,7 @@ from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
 from pyop3.dtypes import as_cstr
+from typing import Any
 
 import loopy as lp
 
@@ -27,7 +31,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 import petsctools
 
-import ctypes
+import pyop3 as op3
 import pyop3.compile
 from pyop3.mpi import COMM_SELF
 
@@ -36,6 +40,31 @@ if typing.TYPE_CHECKING:
 
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
+
+
+@dataclasses.dataclass(frozen=True)
+class EntityNodeMap:
+    space: WithGeometry
+    integral_type: str
+
+    dtype = PETSc.IntType
+
+    @property
+    def values(self) -> np.ndarray:
+        match self.integral_type:
+            case "cell":
+                return self.space.cell_node_list
+            case "interior_facet":
+                return self.space.interior_facet_node_list
+            case "exterior_facet":
+                return self.space.exterior_facet_node_list
+            case _:
+                raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
+
+    @property
+    def arity(self) -> int:
+        _, arity_ = self.values.shape
+        return arity_
 
 
 class PatchCallable:
@@ -102,8 +131,8 @@ class PatchCallable:
         return ctypes.addressof(self._ctypes_struct)
 
     def _set_up(self) -> tuple[
-        list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant],
-        dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str],
+        list[tuple[op3.Dat, tuple[Hashable, np.ndarray] | None] | op3.Scalar],
+        dict[Hashable, str],
         int | None,
     ]:
         """Process ``form``, ``kinfo`` and ``state``.
@@ -111,32 +140,32 @@ class PatchCallable:
         Returns
         -------
         args
-            List of PyOP2 objects that are used in the wrapper kernel. The
+            List of pyop3 objects that are used in the wrapper kernel. The
             order matches the order that arguments are passed into the local
             kernel. The output tensor and optional state dat are not included.
             Dats are included as a 2-tuple of ``(dat, map)`` where ``map``
             can be `None`.
         names
-            Mapping from PyOP2 objects to their names in the wrapper kernel.
+            Mapping from pyop3 objects to their names in the wrapper kernel.
         state_index
             Index of the state coefficient in the local kernel. `None` if
             state is not provided.
 
         """
-        args: list[tuple[op2.Dat, op2.Map | None] | op2.Global | op2.Constant] = []
-        names: dict[op2.Dat | op2.Map | op2.Global | op2.Constant, str] = {}
+        args: list[tuple[op3.Dat, EntityNodeMap | None] | op3.Scalar] = []
+        names: dict[op3.Dat | op3.Scalar | EntityNodeMap, str] = {}
         state_index: int | None = None
 
         dat_name_counter = itertools.count()
         glob_name_counter = itertools.count()
         map_name_counter = itertools.count()
 
-        def add_dat(dat, map_):
+        def add_dat(dat, cdim, map_):
             if dat not in names:
                 names[dat] = f"dat_{next(dat_name_counter)}"
-            if map_ is not None and map_ not in names:
+            if map_ is not None:
                 names[map_] = f"map_{next(map_name_counter)}"
-            args.append((dat, map_))
+            args.append((dat, cdim, map_))
 
         def add_glob(glob):
             if glob not in names:
@@ -144,7 +173,8 @@ class PatchCallable:
             args.append(glob)
 
         def add_coeff(coeff):
-            add_dat(coeff.dat, self._get_map(coeff.function_space()))
+            space = coeff.function_space()
+            add_dat(coeff.dat, space.block_size, self._get_map(space))
 
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
@@ -177,9 +207,9 @@ class PatchCallable:
             add_glob(all_constants[constant_index].dat)
 
         if self.kinfo.integral_type == "interior_facet":
-            add_dat(self._mesh.interior_facets.local_facet_dat, None)
+            add_dat(self._mesh.interior_facets.local_facet_dat, 2, None)
         elif self.kinfo.integral_type == "exterior_facet":
-            add_dat(self._mesh.exterior_facets.local_facet_dat, None)
+            add_dat(self._mesh.exterior_facets.local_facet_dat, 1, None)
 
         return args, names, state_index
 
@@ -194,8 +224,8 @@ class PatchCallable:
         flat_args = []
         maps = []
         for arg in self._args:
-            if isinstance(arg, tuple):  # (dat, map)
-                dat, map_ = arg
+            if isinstance(arg, tuple):  # (dat, cdim, map)
+                dat, cdim, map_ = arg
                 flat_args.append(dat)
                 if map_ is not None and map_ not in maps:
                     maps.append(map_)
@@ -207,8 +237,8 @@ class PatchCallable:
     def _mesh(self):
         return extract_domains(self.form)[self.kinfo.domain_number]
 
-    def _get_map(self, space):
-        return space.entity_node_map(self._mesh.topological, self.kinfo.integral_type, None, None)
+    def _get_map(self, space: WithGeometry) -> EntityNodeMap:
+        return EntityNodeMap(space, self.kinfo.integral_type)
 
     @cached_property
     def _wrapper_kernel_code(self) -> str:
@@ -223,11 +253,10 @@ class PatchCallable:
         spaces = map(operator.methodcaller("function_space"), self.form.arguments())
         sizes = []
         for space in spaces:
-            map_ = self._get_map(space)
-            size = sum(
-                map_.arity*dset.cdim
-                for map_, dset in zip(map_, space.dof_dset, strict=True)
-            )
+            size = 0
+            for subspace in space:
+                _, arity = subspace.cell_node_list.shape
+                size += arity * subspace.block_size
             sizes.append(size)
         if len(self.form.arguments()) == 2:
             row_size, column_size = sizes
@@ -264,18 +293,16 @@ for (int32_t k=0; k<{size}; k++) {{
 
         # now handle the other arguments
         for arg in self._args:
-            if isinstance(arg, tuple):  # (dat, map)
-                dat, map_ = arg
-                assert isinstance(dat, op2.Dat)
-                cdim = dat.dataset.cdim
+            if isinstance(arg, tuple):  # (dat, cdim, map)
+                dat, cdim, map_ = arg
+                assert isinstance(dat, op3.Dat)
                 dat_name = self._names[dat]
                 if map_ is None:
                     local_kernel_args.append(f"&({dat_name}[{cdim}*j])")
                 else:
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
-                    arity = map_.arity
-                    temps.append((temp_name, (arity, cdim)))
+                    temps.append((temp_name, (map_.arity, cdim)))
 
                     local_kernel_args.append(temp_name)
 
@@ -286,7 +313,7 @@ for (int32_t k=0; k<{arity}; k++)
                     pack_insns.append(pack_insn)
 
             else:
-                assert isinstance(arg, op2.Global | op2.Constant)
+                assert isinstance(arg, op3.Scalar)
                 local_kernel_args.append(self._names[arg])
 
         # optional state, can be any of the coefficients
@@ -533,7 +560,7 @@ PetscErrorCode ComputeResidual(PC pc,
             point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
 
         struct_args = [
-            *(karg for arg in self._wrapper_kernel_args for karg in arg._kernel_args_),
+            *(_get_ctypes_arg(arg) for arg in self._wrapper_kernel_args),
             point2facet,
         ]
         return Struct(*struct_args)
@@ -605,7 +632,7 @@ def bcdofs(bc, ghost=True):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
             else:
-                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).block_size for j in range(idx))
+                offset += sum(Z.sub(j).axes.local_size * Z.sub(j).block_size for j in range(idx))
         else:
             raise NotImplementedError("How are you taking a .sub?")
 
@@ -621,7 +648,7 @@ def bcdofs(bc, ghost=True):
         stop = bs
     nodes = bc.nodes
     if not ghost:
-        nodes = nodes[nodes < Z.axes.owned.size]
+        nodes = nodes[nodes < Z.axes.owned.local_size]
 
     return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 
@@ -681,9 +708,9 @@ class PlaneSmoother:
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
             CGk = V.reconstruct(family="Lagrange")
-            coordinates = assemble(interpolate(coordinates, CGk, access=op2.MAX))
+            coordinates = assemble(interpolate(coordinates, CGk, access=op3.MAX))
 
-        select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
+        select = partial(select_entity, dm=dm, exclude="firedrake_is_ghost")
         entities = [(p, self.coords(dm, p, coordinates)) for p in
                     filter(select, range(*dm.getChart()))]
 
@@ -1019,3 +1046,18 @@ class PatchSNES(SNESBase, PatchBase):
         y.scale(-1)
         snes.setConvergedReason(self.patch.getConvergedReason())
         pop_appctx(self.plex)
+
+
+@functools.singledispatch
+def _get_ctypes_arg(arg: Any):
+    op3.utils.raise_visitor_type_error(arg)
+
+
+@_get_ctypes_arg.register
+def _(dat: op3.Dat):
+    return dat.buffer._data.ctypes.data
+
+
+@_get_ctypes_arg.register
+def _(map_: EntityNodeMap):
+    return map_.values.ctypes.data

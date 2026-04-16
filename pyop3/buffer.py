@@ -92,6 +92,10 @@ class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
     def is_nested(self) -> bool:
         pass
 
+    def restrict_nest(self):
+        assert not self.is_nested
+        return self
+
     # }}}
 
     def copy(self) -> AbstractBuffer:
@@ -713,6 +717,17 @@ class PetscMatBuffer(ConcreteBuffer):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
+    def restrict_nest(self, row_index: int, column_index: int) -> PetscMatBuffer:
+        # NOTE: mat_spec isn't a good abstraction, don't like passing along here
+        assert self.is_nested
+        mat = self.mat.getNestSubMatrix(row_index, column_index)
+        if self.mat_spec is not None:
+            mat_spec = self.mat_spec[row_index, column_index]
+        else:
+            mat_spec = None
+        name = f"{self.name}_{row_index}_{column_index}"
+        return type(self)(mat, mat_spec=mat_spec, name=name, constant=self.constant)
+
     @property
     def handle(self) -> Any:
         return self.mat
@@ -802,9 +817,6 @@ class PetscMatBuffer(ConcreteBuffer):
         set_petsc_mat_diagonal(self.mat, value)
 
     def materialize(self) -> PetscMatBuffer:
-        if self.mat.type != PETSc.Mat.Type.PREALLOCATOR:
-            raise TypeError("Can only materialize preallocator mats")
-
         if not hasattr(self, "_lazy_template"):
             self.assemble()
 
@@ -824,14 +836,17 @@ class PetscMatBuffer(ConcreteBuffer):
         return PetscMatBuffer(mat)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
-        if template.type == "nest":
+        if template.type == PETSc.Mat.Type.NEST:
             for i, j in np.ndindex(template.getNestSize()):
                 subpreallocator = preallocator.getNestSubMatrix(i, j)
                 submat = template.getNestSubMatrix(i, j)
                 self._preallocate(subpreallocator, submat)
-        elif template.type == "python":
+        elif template.type == PETSc.Mat.Type.PYTHON:
             pass
         else:
+            if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
+                raise TypeError("Can only materialize preallocator mats")
+
             preallocator.preallocatorPreallocate(template)
 
 
@@ -857,90 +872,3 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return duplicated_mat
     else:
         return mat.duplicate(copy=copy)
-
-
-# very unsure about this, needed?
-@pyop3.record.record()
-class BufferRef(ConcreteBuffer):
-
-    # {{{ interface impls
-
-    @property
-    def constant(self) -> bool:
-        return self.buffer.constant
-
-    def duplicate(self) -> bool:
-        raise NotImplementedError
-
-    def zero(self) -> None:
-        raise NotImplementedError
-
-    @property
-    def state(self) -> int:
-        return self.buffer.state
-
-    def inc_state(self) -> None:
-        self.buffer.inc_state()
-
-    # redundant???
-    @property
-    def is_nested(self) -> bool:
-        return len(self.nest_indices) > 0
-
-    @property
-    @abc.abstractmethod
-    def handle(self):
-        pass
-
-    @property
-    def name(self) -> str:
-        return self.buffer.name
-
-    @property
-    def dtype(self):
-        return self.buffer.dtype
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    # }}}
-
-
-@pyop3.record.record()
-class PetscMatBufferSubMat(BufferRef, PetscMatBuffer):
-
-    # {{{ instance attrs
-
-    buffer: ConcreteBuffer
-    nest_indices: tuple[tuple[int, ...], ...] = ()
-
-    def instruction_executor_cache_key(self, buffer_counter: Mapping[AbstractBuffer, int]) -> Hashable:
-        # NOTE: This may be overly restrictive. We should be able to swap in submat from a matnest with
-        # normal mats into generated code
-        return (type(self), self.buffer.instruction_executor_cache_key(buffer_counter), self.nest_indices)
-
-    # }}}
-
-    @property
-    def mat(self) -> PETSc.Mat:
-        return self.buffer.mat
-
-    @property
-    def mat_spec(self) -> FullPetscMatBufferSpec:
-        raise NotImplementedError
-
-    # not valid
-    def empty(self):
-        raise AssertionError
-
-    @property
-    def handle(self):
-        handle_ = self.buffer.handle
-        for row_index, column_index in self.nest_indices:
-            handle_ = handle_.getNestSubMatrix(row_index, column_index)
-
-        if handle_.type == PETSc.Mat.Type.PYTHON:
-            handle_ = handle_.getPythonContext().handle
-
-        return handle_

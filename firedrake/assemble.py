@@ -1633,6 +1633,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if V.index is None:
             index = Ellipsis
         else:
+            # TODO: use field_axis instead
             index = utils.single_valued(
                 axes.trees[0].root.component_labels[V.index]
                 for axes in [tensor.M.row_axes, tensor.M.column_axes]
@@ -1642,9 +1643,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # if fs.topological != self.topological:
             #     raise RuntimeError("Dirichlet BC defined on a different function space")
             if space.topological != spaces[0].topological:
-                raise TypeError("bc space does not match the test function space")
+                raise RuntimeError("bc space does not match the test function space")
             elif space.topological != spaces[1].topological:
-                raise TypeError("bc space does not match the trial function space")
+                raise RuntimeError("bc space does not match the trial function space")
 
             # for some reason I need to do this first, is this still the case?
             mat.assemble()
@@ -1672,17 +1673,17 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # is ignored by PyOP2 in this case.
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
-                if j != index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], index, j, component, bc.node_set)
+                if j != V.index and _is_real_space(s):
+                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], V.index, j, component, bc.node_set)
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
-                if i != index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, index, component, bc.node_set)
+                if i != V.index and _is_real_space(s):
+                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, V.index, component, bc.node_set)
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
                     raise NotImplementedError
-                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, V.index, j, component, bc.node_set)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
@@ -1900,26 +1901,25 @@ class ParloopBuilder:
         i, j = indices
         row_bcs, column_bcs = self._filter_bcs(i or 0, j or 0)
 
-        row_space = matrix.arguments()[0].function_space()
-        column_space = matrix.arguments()[1].function_space()
-
-        if petscmat.type == "nest":
+        if petscmat.type == PETSc.Mat.Type.NEST:
             petscmat = petscmat.getNestSubMatrix(i, j)
 
-            row_space = row_space[i]
-            column_space = column_space[i]
             row_label = row_space.field_axis.component_labels[i]
             row_axes = row_axes[row_label]
             column_label = column_space.field_axis.component_labels[j]
             column_axes = column_axes[column_label]
 
+        if petscmat.type == PETSc.Mat.Type.PYTHON:
+            return None
+
         row_lgmap, column_lgmap = petscmat.getLGMap()
 
-        masked_row_lgmap = mask_lgmap(
-            row_space, row_axes, row_lgmap, row_bcs, row_space.shape
-        )
+        row_shape = row_space.shape if len(row_space) == 1 else ()
+        column_shape = column_space.shape if len(column_space) == 1 else ()
+
+        masked_row_lgmap = mask_lgmap(row_space, row_axes, row_lgmap, row_bcs, row_shape)
         masked_column_lgmap = mask_lgmap(
-            column_space, column_axes, column_lgmap, column_bcs, column_space.shape
+            column_space, column_axes, column_lgmap, column_bcs, column_shape
         )
         return (masked_row_lgmap, masked_column_lgmap)
 

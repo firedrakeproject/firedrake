@@ -31,7 +31,7 @@ from pyop3.tree.axis_tree import (
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
 from pyop3.expr.base import Terminal
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.log import warning

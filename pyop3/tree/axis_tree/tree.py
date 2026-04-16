@@ -2448,11 +2448,11 @@ def trim_axis_targets(targets, to_trim):
 
 def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:
     if isinstance(candidate, AxisForest):
-        return next(
-            candidate_
-            for candidate_ in candidate.trees
-            if axis_tree_is_valid_subset(candidate_, target)
-        )
+        for candidate_ in candidate.trees:
+            if axis_tree_is_valid_subset(candidate_, target):
+                return candidate_
+        else:
+            raise AssertionError
     else:
         assert axis_tree_is_valid_subset(candidate, target)
         return candidate

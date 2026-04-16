@@ -1,4 +1,5 @@
 import abc
+import warnings
 
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
@@ -32,6 +33,7 @@ class ASMPatchPC(PCBase):
         _, P = pc.getOperators()
         dm = pc.getDM()
         self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
+        opts = PETSc.Options(self.prefix)
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
@@ -48,7 +50,6 @@ class ASMPatchPC(PCBase):
         asmpc.setOptionsPrefix(self.prefix + "sub_")
         asmpc.setOperators(*pc.getOperators())
 
-        opts = PETSc.Options(self.prefix)
         backend = opts.getString("backend", default="petscasm").lower()
         # Either use PETSc's ASM PC or use TinyASM (as simple ASM
         # implementation designed to be fast for small block sizes).
@@ -108,7 +109,7 @@ class ASMPatchPC(PCBase):
             self._patch_statistics.append(msg)
 
     @abc.abstractmethod
-    def get_patches(self, V):
+    def get_patches(self, V, *, columns: bool):
         ''' Get the patches used for PETSc PCASM
 
         :param  V: the :class:`~.FunctionSpace`.
@@ -153,18 +154,26 @@ class ASMStarPC(ASMPatchPC):
     _prefix = "pc_star_"
 
     def get_patches(self, V):
-        mesh = V.mesh()
-        if len(set(mesh)) == 1:
-            mesh_unique = mesh.unique()
-        else:
+        try:
+            mesh = V.mesh().unique()
+        except firedrake.exceptions.NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh_unique.topology_dm
+        mesh_dm = mesh.topology_dm
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
         depth = opts.getInt("construct_dim", default=0)
         ordering = opts.getString("mat_ordering_type", default="natural")
-        validate_overlap(mesh_unique, depth, "star")
+        validate_overlap(mesh, depth, "star")
+
+        column = _get_columns_option(opts, mesh)
+
+        if column:
+            mesh_dm = mesh._base_mesh.topology_dm
+            sections = [Vsub._base_mesh_section for Vsub in V]
+        else:
+            mesh_dm = mesh.topology_dm
+            sections = [Vsub.local_section for Vsub in V]
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
@@ -184,16 +193,13 @@ class ASMStarPC(ASMPatchPC):
 
             # Get DoF indices for patch
             indices = []
-            for (i, W) in enumerate(V):
-                section = W.dm.getDefaultSection()
+            for i, section in enumerate(sections):
                 for p in pt_array.tolist():
                     dof = section.getDof(p)
                     if dof <= 0:
                         continue
                     off = section.getOffset(p)
-                    # Local indices within W
-                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
-                    indices.extend(V_local_ises_indices[i][W_indices])
+                    indices.extend(V_local_ises_indices[i][off:off+dof])
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
 
@@ -218,6 +224,9 @@ class ASMVankaPC(ASMPatchPC):
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
         mesh_dm = mesh_unique.topology_dm
+
+        if mesh_unique.extruded:
+            raise NotImplementedError("Need to do column patch")
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -306,14 +315,13 @@ class ASMLinesmoothPC(ASMPatchPC):
     _prefix = "pc_linesmooth_"
 
     def get_patches(self, V):
-        mesh = V.mesh()
-        if len(set(mesh)) == 1:
-            mesh_unique = mesh.unique()
-        else:
+        try:
+            mesh = V.mesh().unique()
+        except firedrake.exceptions.NonUniqueMeshSequenceError:
             raise NotImplementedError("Not implemented for general mixed meshes")
-        assert mesh_unique.extruded
-        dm = mesh_unique.topology_dm
-        base_dm = mesh_unique._base_mesh.topology_dm
+        assert mesh.extruded
+
+        base_dm = mesh._base_mesh.topology_dm
         section = V._base_mesh_section
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
@@ -411,126 +419,22 @@ class ASMExtrudedStarPC(ASMStarPC):
     '''Patch-based PC using Star of mesh entities implmented as an
     :class:`ASMPatchPC`.
 
+    This class is deprecated. You should use ASMStarPC passing the option
+    column = 0 instead.
+
     ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
     specified by `pc_star_construct_dim`.
     '''
 
-    _prefix = 'pc_star_'
-
-    def get_patches(self, V):
-        return super().get_patches(V)
-        try:
-            mesh = V.mesh().unique()
-        except firedrake.exceptions.NonUniqueMeshSequenceError:
-            raise NotImplementedError("Not implemented for general mixed meshes")
-        mesh_dm = mesh.topology_dm
-        nlayers = mesh.layers
-        if not mesh.extruded:
-            return super(ASMExtrudedStarPC, self).get_patches(V)
-        periodic = mesh.extruded_periodic
-
-        # Obtain the topological entities to use to construct the stars
-        opts = PETSc.Options(self.prefix)
-        depth = opts.getInt("construct_dim", default=0)
-        ordering = opts.getString("mat_ordering_type", default="natural")
-
-        # Accessing .indices causes the allocation of a global array,
-        # so we need to cache these for efficiency
-        V_ises = tuple(iset.indices for iset in V.local_ises)
-        basemeshoff = []
-        basemeshdof = []
-        basemeshlayeroffsets = []
-        for (i, W) in enumerate(V):
-            boff, bdof, blayer_offsets = get_basemesh_nodes(W)
-            basemeshoff.append(boff)
-            basemeshdof.append(bdof)
-            basemeshlayeroffsets.append(blayer_offsets)
-
-        # Build index sets for the patches
-        ises = []
-        # Build a base_depth-star on the base mesh and extrude it by an
-        # interval_depth-star on the interval mesh such that the depths sum to depth
-        # and 0 <= interval_depth <= 1.
-        #
-        # Vertex-stars: depth = 0 = 0 + 0.
-        # 0 + 0 -> vertex-star = (2D vertex-star) x (1D vertex-star)
-        #
-        # Edge-stars: depth = 1 = 1 + 0 = 0 + 1.
-        # 1 + 0 -> horizontal edge-star = (2D edge-star) x (1D vertex-star)
-        # 0 + 1 -> vertical edge-star = (2D vertex-star) x (1D interior)
-        #
-        # Face-stars: depth = 2 = 2 + 0 = 1 + 1.
-        # 2 + 0 -> horizontal face-star = (2D interior) x (1D vertex-star)
-        # 1 + 1 -> vertical face-star = (2D edge-star) x (1D interior)
-        pstart, _ = mesh_dm.getChart()
-        for base_depth in range(depth+1):
-            interval_depth = depth - base_depth
-            if interval_depth == 0:
-                # extrude by 1D vertex-star
-                layer_entities = [(1, 1), (1, 0), (0, 0)]
-            elif interval_depth == 1:
-                # extrude by 1D interior
-                layer_entities = [(1, 0)]
-            else:
-                continue
-
-            validate_overlap(mesh_unique, base_depth, "star")
-            start, end = mesh_dm.getDepthStratum(base_depth)
-            for seed in range(start, end):
-                # Only build patches over owned DoFs
-                if mesh_dm.getLabelValue("firedrake_is_ghost", seed) != -1:
-                    continue
-
-                # Create point list from mesh DM
-                points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
-                points = order_points(mesh_dm, points, ordering, self.prefix)
-                points -= pstart  # offset by chart start
-
-                num_seeds = nlayers
-                if periodic or interval_depth:
-                    num_seeds -= 1
-                for layer_seed in range(num_seeds):
-                    indices = []
-                    # Get DoF indices for patch
-                    for i, W in enumerate(V):
-                        iset = V_ises[i]
-                        for layer_dim, layer_shift in layer_entities:
-                            layer = layer_seed - layer_shift
-                            if periodic:
-                                # Handle periodic case
-                                layer = layer % (nlayers-1)
-                            elif layer < 0 or (layer + layer_dim) >= nlayers:
-                                # We are out of bounds
-                                continue
-
-                            for p in points:
-                                # How to walk up one layer
-                                blayer_offset = basemeshlayeroffsets[i][p]
-                                if blayer_offset <= 0:
-                                    # In this case we don't have any dofs on
-                                    # this entity.
-                                    continue
-                                # Offset in the global array for the bottom of
-                                # the column
-                                off = basemeshoff[i][p]
-                                # Number of dofs in the interior of the
-                                # vertical interval cell on top of this base
-                                # entity
-                                dof = basemeshdof[i][p]
-                                # Hard-code taking the star
-                                if layer_dim == 0:
-                                    begin = off + layer * blayer_offset
-                                    end = off + layer * blayer_offset + dof
-                                else:
-                                    begin = off + layer * blayer_offset + dof
-                                    end = off + (layer + 1) * blayer_offset
-                                zlice = slice(W.block_size * begin, W.block_size * end)
-                                indices.extend(iset[zlice])
-
-                    iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
-                    ises.append(iset)
-        return ises
+    def __init__(self, *args, **kwargs):
+        # make sure not passing columns...
+        warnings.warn(
+            "ASMExtrudedStarPC is deprecated. Please use ASMStarPC instead. "
+            "You will have to specify column=0.",
+            FutureWarning,
+        )
+        super().__init__(*args, **kwargs)
 
 
 def validate_overlap(mesh, patch_dim, patch_type):
@@ -554,3 +458,34 @@ def validate_overlap(mesh, patch_dim, patch_type):
         if overlap_depth < patch_depth:
             warning(f"Mesh overlap depth of {overlap_depth} does not support {patch_type}-patches. "
                     "Did you forget to set overlap_type in your mesh's distribution_parameters?")
+
+
+# TODO: This function only exists to be a central place to catch deprecated behaviour.
+# We should be able to remove it when the deprecation cycle is complete.
+def _get_columns_option(opts, mesh):
+    # NOTE: What if we extrude multiple times? How can we specify different column types?
+    # Or is that just a bad idea?
+
+    if opts.hasName("column"):
+        columns = opts.getBool("column")
+        if columns and not mesh.extruded:
+            raise ValueError("Can only pass 'columns' on an extruded mesh")
+    else:
+        if mesh.extruded:
+            warnings.warn(
+                f"""\
+**IMPORTANT**
+
+You are using {type(self).__name__} on an extruded mesh without specifying
+the 'columns' option. The current behaviour is for the patch to be over the
+base mesh and covering the full column. THIS IS GOING TO CHANGE AS THE DEFAULT
+BEHAVIOUR. In future releases of Firedrake the patches will by default only
+cover the DoFs immediately surrounding the vertex.
+
+To continue to keep this behaviour you have to pass the option 'PREFIX + column = 1'.""",
+                FutureWarning,
+            )
+            columns = True
+        else:
+            columns = False
+    return columns

@@ -280,10 +280,7 @@ def _(num: numbers.Integral, /, *, axes, path) -> Index:
 
     # match on component label
     else:
-        try:
-            component = just_one(c for c in axis.components if c.label == num)
-        except:
-            breakpoint()
+        component = just_one(c for c in axis.components if c.label == num)
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:

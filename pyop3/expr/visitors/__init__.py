@@ -18,7 +18,7 @@ from pyop3.config import config
 from pyop3.expr.tensor.base import OutOfPlaceCallableTensorTransform, ReshapeTensorTransform
 from pyop3.node import NodeVisitor, NodeCollector, NodeTransformer, postorder
 from pyop3.expr.tensor import Scalar
-from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ConcreteBuffer, NullBuffer, PetscMatBufferSubMat
+from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ConcreteBuffer, NullBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 
 import pyop3.expr
@@ -256,6 +256,7 @@ def _(op: pyop3.expr.Conditional, /, loop_context):
 
 
 @restrict_to_context.register(pyop3.expr.Tensor)
+@restrict_to_context.register(pyop3.expr.AggregateDat)  # should be a Tensor
 def _(array: pyop3.expr.Tensor, /, loop_context):
     return array.with_context(loop_context)
 
@@ -446,10 +447,11 @@ def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr
 
 @concretize_layouts.register(pyop3.expr.Mat)
 def _(mat: pyop3.expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.BufferExpression:
+    buffer = mat.buffer
     nest_indices = ()
     row_axes = matching_axis_tree(mat.row_axes, axis_trees[0])
     column_axes = matching_axis_tree(mat.column_axes, axis_trees[1])
-    if mat.buffer.is_nested:
+    if buffer.is_nested:
         if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
             raise NotImplementedError
 
@@ -461,18 +463,29 @@ def _(mat: pyop3.expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr
         row_axes = row_axes.restrict_nest(row_label)
         column_axes = column_axes.restrict_nest(column_label)
 
-    # For PETSc matrices we must always tabulate the indices
-    # NOTE: we can't check isinstance(PetscMatBuffer) here because of MATPYTHON
-    if isinstance(mat.buffer, ConcreteBuffer) and isinstance(mat.buffer.handle, PETSc.Mat):
-        if nest_indices:
-            buffer_ref = PetscMatBufferSubMat(mat.buffer, nest_indices)
+        buffer = buffer.restrict_nest(row_index, column_index)
+
+    if isinstance(buffer, PetscMatBuffer):
+        if buffer.mat.type == PETSc.Mat.Type.PYTHON:
+            context = buffer.mat.getPythonContext()
+            if isinstance(context, pyop3.expr.tensor.mat.RowDatPythonMatContext):
+                if column_axes.size != 1:
+                    raise NotImplementedError("Currently cannot deal with non-unit columns")
+                row_layouts = row_axes.leaf_subst_layouts
+                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
+            else:
+                assert isinstance(context, pyop3.expr.tensor.mat.ColumnDatPythonMatContext)
+                if row_axes.size != 1:
+                    raise NotImplementedError("Currently cannot deal with non-unit rows")
+                row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
+                column_layouts = column_axes.leaf_subst_layouts
+            mat_expr = pyop3.expr.MatArrayBufferExpression(context.dat.buffer, row_layouts, column_layouts)
         else:
-            buffer_ref = mat.buffer
-        mat_expr = pyop3.expr.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
+            mat_expr = pyop3.expr.MatPetscMatBufferExpression.from_axis_trees(buffer, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts
         column_layouts = column_axes.leaf_subst_layouts
-        mat_expr = pyop3.expr.MatArrayBufferExpression(mat.buffer, row_layouts, column_layouts)
+        mat_expr = pyop3.expr.MatArrayBufferExpression(buffer, row_layouts, column_layouts)
 
     return concretize_layouts(mat_expr, axis_trees)
 

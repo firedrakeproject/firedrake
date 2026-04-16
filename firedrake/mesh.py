@@ -6247,6 +6247,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None, ignore_halo=
     return submesh
 
 
+# Idea: could this inherit from LoopIndex? Then can carry extra information...
 @dataclasses.dataclass(frozen=True)
 class IterationSpec:
     mesh: MeshGeometry
@@ -6291,6 +6292,7 @@ def _get_iteration_spec_get_key(mesh, *args, **kwargs) -> Hashable:
     return utils.freeze((args, kwargs))
 
 
+# TODO: Make this be mesh.iter() instead
 @cached_on(_get_iteration_spec_get_obj, _get_iteration_spec_get_key)
 def get_iteration_spec(
     mesh: MeshGeometry,

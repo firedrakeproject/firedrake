@@ -137,7 +137,7 @@ class Visitor(abc.ABC):
         Returns:
             Processed :py:class:`Expr`.
         """
-        raise AssertionError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
+        raise TypeError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
 
     # }}}
 

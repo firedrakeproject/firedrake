@@ -1788,7 +1788,7 @@ class MixedFunctionSpace:
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
         :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
-        if val is not None and val.size != self.axes.size:
+        if val is not None and val.size != self.axes.local_size:
             raise ValueError("Provided array has the wrong number of entries")
 
         if val is not None:

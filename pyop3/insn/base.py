@@ -17,7 +17,6 @@ from typing import Any, ClassVar, Iterable, Tuple
 from immutabledict import immutabledict as idict
 import loopy as lp
 import numpy as np
-from pyop3.buffer import BufferRef, PetscMatBufferSubMat
 from pyop3.expr.buffer import LinearDatBufferExpression, ScalarBufferExpression
 import pytools
 from mpi4py import MPI
@@ -105,6 +104,7 @@ class Instruction(Node, DistributedObject, abc.ABC):
     # FIXME: This is very similar to PreprocessedOperation.buffers but *not the same*
     #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
     # it is everything that gets passed in
+    # TODO: Call 'named_terminals'? because that's the type that we have...
     @property
     @abc.abstractmethod
     def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:

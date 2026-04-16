@@ -170,6 +170,9 @@ class InstructionExecutionContext:
             insn = expand_transforms(insn)
 
         insn = concretize_layouts(insn)
+        import pyop3
+        if isinstance(insn, pyop3.insn.NullInstruction):
+            breakpoint()
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
@@ -271,18 +274,24 @@ class InstructionExecutionContext:
     def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         return (expr.buffer,)
 
-    @_extract_buffers.register
-    def _(self, mat: pyop3.expr.Mat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-        if isinstance(mat.buffer.handle, PETSc.Mat):
-            match mat.buffer.handle.type:
-                case "nest":
-                    return pyop3.buffer.PetscMatBufferSubMat(mat.buffer, mat.nest_indices)
-                case "python":
-                    return self._extract_buffers(mat.buffer.handle.getPythonContext().dat)
-                case _:
-                    return (mat.buffer,)
-        else:
-            return (mat.buffer,)
+    # NOTE: This applies generally to other nested things
+    @_extract_buffers.register(pyop3.expr.Mat)
+    def _(self, mat: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
+        buffer = mat.buffer
+        if buffer.is_nested:
+            try:
+                nest_indices = utils.just_one(mat.nest_indices)
+            except ValueError:
+                raise NotImplementedError("Recursively nested MATNESTs not supported")
+            buffer = buffer.restrict_nest(*nest_indices)
+
+        if (
+            isinstance(buffer, pyop3.buffer.PetscMatBuffer)
+            and buffer.handle.type == PETSc.Mat.Type.PYTHON
+        ):
+            buffer = buffer.handle.getPythonContext().dat.buffer
+
+        return (buffer,)
 
     @_extract_buffers.register
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
@@ -403,7 +412,7 @@ class CompiledCodeExecutor:
         self.comm = comm
 
     @cached_property
-    def _buffer_refs(self) -> tuple[BufferRef]:
+    def _buffer_refs(self) -> tuple[BufferRef]:  # BufferRef is gone
         return tuple(ref for ref, _ in self.buffer_map.values())
 
     @cached_property
@@ -522,7 +531,7 @@ class CompiledCodeExecutor:
         if not mat:
             return None
 
-        assert mat.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
+        assert mat.type != PETSc.Mat.Type.NEST
         return mat.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:

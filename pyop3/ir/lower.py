@@ -26,12 +26,13 @@ import pymbolic as pym
 from immutabledict import immutabledict as idict
 
 import pyop3.dtypes
+import pyop3.expr
 from pyop3 import exceptions as exc, utils, expr as op3_expr, mpi, pyop2_utils
 from pyop3.cache import memory_and_disk_cache
 from pyop3.expr import NonlinearDatBufferExpression
 from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBufferSubMat
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -158,7 +159,7 @@ class LoopyCodegenContext(CodegenContext):
 
         self._add_instruction(insn)
 
-    def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
+    def add_buffer(self, buffer, intent: Intent | None = None) -> str:
         # TODO: This should check to make sure that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
@@ -174,11 +175,14 @@ class LoopyCodegenContext(CodegenContext):
         #     dat2[i] = dat1[2*i]
         #
         # is not.
+        if buffer.nest_indices:
+            breakpoint()  # old code, don't think that we need it...
+        if buffer.is_nested:
+            raise NotImplementedError("Currently handle nesting outside the generated code")
 
-        buffer = buffer_ref
-        buffer_key = (buffer.name, buffer_ref.nest_indices)
+        buffer_key = (buffer.name, buffer.nest_indices)
         if isinstance(buffer, NullBuffer):
-            assert not buffer_ref.nest_indices
+            assert not buffer.nest_indices
             # 'intent' is not important for temporaries
             if buffer_key in self._kernel_names:
                 return self._kernel_names[buffer_key]
@@ -196,7 +200,7 @@ class LoopyCodegenContext(CodegenContext):
                     self.global_buffer_intents[buffer_key] = RW
                 return self._kernel_names[buffer_key]
 
-            if isinstance(buffer_ref.handle, np.ndarray):
+            if isinstance(buffer.handle, np.ndarray):
                 # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
                 # that it is correctly included in the cache key).
                 # Inject constant buffer data into the generated code if sufficiently small
@@ -223,12 +227,14 @@ class LoopyCodegenContext(CodegenContext):
                 shape = self._temporary_shapes.get(buffer_key, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(buffer_ref.handle, PETSc.Mat)
+                assert isinstance(buffer.handle, PETSc.Mat)
+
+                assert buffer.handle.type not in {"nest", "python"}
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
 
-            self.global_buffers[buffer_key] = buffer_ref
+            self.global_buffers[buffer_key] = buffer
             self.global_buffer_intents[buffer_key] = intent
             self._arguments.append(loopy_arg)
 
@@ -699,10 +705,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
-    if any(
-        isinstance(arg.buffer, ConcreteBuffer) and isinstance(arg.buffer.handle, PETSc.Mat)
-        for arg in assignment.global_arguments
-    ):
+    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:
         compile_array_assignment(
