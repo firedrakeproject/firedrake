@@ -147,11 +147,11 @@ class ASMStarPC(ASMPatchPC):
 
     ASMStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
-    specified by `pc_star_construct_dim`.
+    specified by ``pc_star_construct_dim``.
 
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    ``pc_star_use_coloring``.
     '''
 
     _prefix = "pc_star_"
@@ -190,11 +190,11 @@ class ASMVankaPC(ASMPatchPC):
 
     ASMVankaPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the closure of the star of the mesh entity
-    specified by `pc_vanka_construct_dim` (or codim).
+    specified by ``pc_vanka_construct_dim`` (or ``pc_vanka_construct_codim``).
 
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
-    `pc_vanka_use_coloring`.
+    ``pc_vanka_use_coloring``.
     '''
 
     _prefix = "pc_vanka_"
@@ -370,11 +370,11 @@ class ASMExtrudedStarPC(ASMStarPC):
 
     ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
     consists of all DoFs on the topological star of the mesh entity
-    specified by `pc_star_construct_dim`.
+    specified by ``pc_star_construct_dim``.
 
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    ``pc_star_use_coloring``.
     '''
 
     _prefix = 'pc_star_'
