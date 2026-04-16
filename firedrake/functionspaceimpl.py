@@ -199,7 +199,7 @@ class WithGeometryBase:
         if type(element) is finat.ufl.MixedElement:
             if not isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
-        assert function_space.component is None or isinstance(function_space.component, int)
+        assert function_space.component is None or isinstance(function_space.component, tuple)
 
         self.topological = function_space
         self.parent = parent
