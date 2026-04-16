@@ -2643,7 +2643,6 @@ values from f.)"""
         gdim = self.geometric_dimension
         current_level = [rtree.root_node(mesh_rtree)]
         for _ in range(max_level):
-            print(f"Level {_}: {len(current_level)} nodes, max level {max_level}")
             next_level = []
             for node in current_level:
                 next_level.extend(rtree.node_children(node))
