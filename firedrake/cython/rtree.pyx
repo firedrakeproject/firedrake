@@ -300,7 +300,6 @@ cdef class RTreeNodeChildren(object):
     def __dealloc__(self):
         if self.children != <RTreeNodeH**>0:
             rtree_node_children_free(self.children, self.nchildren)
-            print(f"Deallocated {self.nchildren} child nodes")
             self.children = <RTreeNodeH**>0
             self.nchildren = 0
 
@@ -342,7 +341,6 @@ cdef class RTreeNode(object):
             # The RTreeNodeChildren class facilitates this.
             rtree_node_free(self.node_handle)
             self.node_handle = <RTreeNodeH*>0
-            print("node deallocated")
 
 def root_node(RTree rtree):
     """Return the root node of the Rtree."""
@@ -356,7 +354,7 @@ def root_node(RTree rtree):
 
 
 def node_children(RTreeNode node):
-    """Return the children of an R-tree node as a list of RTreeNodeHs."""
+    """Return the children of an Rtree node as a list of RTreeNodeHs."""
     cdef:
         RTreeNodeH** children
         size_t nchildren
