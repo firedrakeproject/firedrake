@@ -118,6 +118,7 @@ the overhead of calling many KSP solves for each patch.::
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMExtrudedStarPC",
           "pc_star_use_coloring": True,
+          "pc_star_sub_sub_pc_type": "lu",
       },
   }
 
