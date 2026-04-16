@@ -7,6 +7,9 @@ from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
+from petsc4py import PETSc
+from functools import cache
+from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
 
 
@@ -21,6 +24,64 @@ complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "comp
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
+
+
+@cache
+def device_matrix_type(warn: bool = True) -> str | None:
+    r"""Get device matrix type
+
+    Attempt to initialise a GPU device and return the PETSc mat_type
+    compatible with that device, or None if no device is detected.
+    Typical Usage Example:
+    mat_type = device_matrix_type(pc.comm.rank == 0)
+
+    Parameters
+    ----------
+    warn
+        Emit a warning containing the reason a device mat_type
+        has not been returned. Defaults to False.
+
+    Raises
+    ------
+    UnrecognisedDeviceError
+        Raised when PETSc initialises a GPU device that
+        Firedrake does not understand
+
+    Returns
+    -------
+    str | None
+        The PETSc mat_type compatible with the GPU device detected on
+        this system or None
+
+    """
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
+    try:
+        dev = PETSc.Device.create()
+    except PETSc.Error:
+        # Could not initialise device - not a failure condition as this could
+        # be a GPU-enabled PETSc installation running on a CPU-only host.
+        if warn:
+            warnings.warn(
+                "This installation of Firedrake is GPU-enabled, but no GPU device has been detected"
+            )
+        return None
+    dev_type = dev.getDeviceType()
+    dev.destroy()
+    if dev_type not in _device_mat_type_map:
+        raise UnrecognisedDeviceError(
+            f"Unknown device type: {dev_type} initialised by PETSc. Firedrake "
+            f"currently understands {', '.join([k for k in _device_mat_type_map if k != 'HOST'])}"
+            "devices"
+        )
+
+    if warn:
+        if dev_type == "HOST":
+            warnings.warn(
+                "This installation of Firedrake is not GPU-enabled, to enable GPU functionality "
+                "PETSc will need to be rebuilt with some GPU capability appropriate for this system "
+                "(e.g. '--with-cuda=1')."
+            )
+    return _device_mat_type_map[dev_type]
 
 
 def _new_uid(comm):
