@@ -142,7 +142,7 @@ class ASMPatchPC(PCBase):
 
 
 class ASMStarPC(ASMPatchPC):
-    '''Patch-based PC using Star of mesh entities implmented as an
+    '''Patch-based PC using Star of mesh entities implemented as an
     :class:`ASMPatchPC`.
 
     ASMStarPC is an additive Schwarz preconditioner where each patch
