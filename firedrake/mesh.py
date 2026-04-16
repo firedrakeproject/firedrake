@@ -3017,10 +3017,13 @@ values from f.)"""
         fiat_element = new_coordinates.function_space().finat_element.fiat_equivalent
         nodes = fiat_element.dual_basis()
         ref_pts = []
-        for node in nodes:
-            # Assert singleton point for each node.
-            pt, = node.get_point_dict().keys()
-            ref_pts.append(pt)
+        entity_ids = fiat_element.entity_dofs()
+        for dim in sorted(entity_ids):
+            for entity in sorted(entity_ids[dim]):
+                for i in entity_ids[dim][entity]:
+                    # Assert singleton point for each node.
+                    pt, = nodes[i].get_point_dict().keys()
+                    ref_pts.append(pt)
         reference_points = np.array(ref_pts)
 
         # Construct numpy arrays for physical domain data
@@ -3030,8 +3033,8 @@ values from f.)"""
         curved_points = np.zeros(
             (ng_dimension, reference_points.shape[0], self.geometric_dimension)
         )
+        self.netgen_mesh.Curve(1)
         self.netgen_mesh.CalcElementMapping(reference_points, physical_points)
-        # NOTE: This will segfault for MeshHierarchy on a netgen CSG geometry
         self.netgen_mesh.Curve(order)
         self.netgen_mesh.CalcElementMapping(reference_points, curved_points)
         curved = ng_element.NumPy()["curved"]
@@ -3056,7 +3059,6 @@ values from f.)"""
         permutation = find_permutation(
             own_physical_points,
             new_coordinates.dat.data_ro_with_halos[broken_indices].real,
-            tol=permutation_tol,
         )
         self.comm.Barrier()
         # Apply the permutation to each cell in turn
