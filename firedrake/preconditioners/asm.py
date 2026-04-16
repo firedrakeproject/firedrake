@@ -218,8 +218,7 @@ class ASMVankaPC(ASMPatchPC):
             depth = mesh_dm.getDimension() - height
         validate_overlap(mesh, depth, "vanka")
 
-        exclude = opts.getString("exclude_subspaces", default="-1")
-        exclude_subspaces = list(map(int, exclude.split(","))) if exclude else []
+        exclude_subspaces = opts.getIntArray("exclude_subspaces", default=[])
         include_subspaces = [i for i in range(len(V)) if i not in exclude_subspaces]
         include_type = opts.getString("include_type", default="star").lower()
         if include_type not in ["star", "entity"]:
