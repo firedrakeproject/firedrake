@@ -330,9 +330,9 @@ Visualising a vertex-only mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
-In particular, :func:`pointplot <firedrake.pyplot.pointplot>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
+In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
 Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
-which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`pointplot <firedrake.pyplot.pointplot>` gives the user the freedom to pass 
+which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
 either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
 
 .. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
@@ -351,7 +351,7 @@ to ensure the points remain visible.
    :start-after: [test_vom_plotting_3d_manual_examples 1]
    :end-before: [test_vom_plotting_3d_manual_examples 2]
 
-As :func:`pointplot <firedrake.pyplot.pointplot>` is exposed as a standalone plotting method, it is possible to combine it with any other plots in one single figure. 
+As :func:`scatter <firedrake.pyplot.scatter>` is exposed as a standalone plotting method, it is possible to combine it with any other plots in one single figure. 
 The example below demonstrates this by superimposing the scatter plot of point data onto a :func:`tripcolor <firedrake.pyplot.tripcolor>` plot of a field
 defined on the parent mesh.
 

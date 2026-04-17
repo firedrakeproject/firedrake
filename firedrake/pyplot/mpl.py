@@ -27,7 +27,7 @@ from ufl.domain import extract_unique_domain
 
 
 __all__ = [
-    "plot", "triplot", "pointplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
+    "plot", "triplot", "scatter", "tricontourf", "tricontour", "trisurf", "tripcolor",
     "quiver", "streamplot", "FunctionPlotter"
 ]
 
@@ -83,7 +83,7 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
-def pointplot(vom: MeshGeometry | Function, axes:matplotlib.axes.Axes = None, **kwargs) -> matplotlib.collections.PathCollection:
+def scatter(vom: MeshGeometry | Function, axes:matplotlib.axes.Axes = None, **kwargs) -> matplotlib.collections.PathCollection:
     r"""Plot a VertexOnlyMesh as a scatter plot.
 
     Parameters
