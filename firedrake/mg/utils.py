@@ -135,15 +135,15 @@ def physical_node_locations(V):
     mesh = V.mesh()
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
-    cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
+    cache = mesh.geometric_shared_data_cache["hierarchy_physical_node_locations"]
     key = (element, V.boundary_set)
     try:
         return cache[key]
     except KeyError:
-        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension()))
+        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
+        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)
 
 

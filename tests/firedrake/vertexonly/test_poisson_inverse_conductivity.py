@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from pyadjoint.tape import get_working_tape, pause_annotation
+from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
 
 
 @pytest.fixture(autouse=True)

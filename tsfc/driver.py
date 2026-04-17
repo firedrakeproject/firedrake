@@ -1,34 +1,37 @@
 import collections
 import time
 import sys
-import numpy
 from itertools import chain
-from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
+from finat.physically_mapped import NeedsCoordinateMappingElement
 
 import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
 
 import finat
+from finat.element_factory import as_fiat_cell
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
+from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
-from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants
+from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
+from tsfc.exceptions import MismatchingDomainError
+
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
 
 
 TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
-                                              ["domain", "integral_type", "subdomain_id", "domain_number",
+                                              ["domain", "integral_type", "subdomain_id", "domain_number", "domain_integral_type_map",
                                                "arguments",
                                                "coefficients", "coefficient_split", "coefficient_numbers"])
 TSFCIntegralDataInfo.__doc__ = """
@@ -89,13 +92,17 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         complex_mode=complex_mode,
     )
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
+
+    validate_domains(form_data.preprocessed_form)
+
     # Create local kernels.
     kernels = []
     for integral_data in form_data.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
-        if kernel is not None:
-            kernels.append(kernel)
+        if integral_data.integrals:
+            kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
+            if kernel is not None:
+                kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
 
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
@@ -115,14 +122,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     parameters = preprocess_parameters(parameters)
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
     if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
         raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     kernel_name = f"{prefix}_{integral_type}_integral"
-    # Dict mapping domains to index in original_form.ufl_domains()
-    domain_numbering = form_data.original_form.domain_numbering()
-    domain_number = domain_numbering[integral_data.domain]
     # This is which coefficient in the original form the
     # current coefficient is.
     # Consider f*v*dx + g*v*ds, the full form contains two
@@ -137,23 +140,32 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
             if coeff in form_data.coefficient_split:
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
+    mesh = integral_data.domain
+    all_meshes = extract_domains(form_data.original_form)
+    domain_number = all_meshes.index(mesh)
+
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
+        domain_integral_type_map={mesh: integral_data.domain_integral_type_map.get(mesh, None) for mesh in all_meshes},
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
+
     builder = firedrake_interface_loopy.KernelBuilder(
         integral_data_info,
         scalar_type,
         diagonal=diagonal,
     )
-    builder.set_coordinates(mesh)
-    builder.set_cell_sizes(mesh)
+    builder.set_entity_numbers(all_meshes)
+    builder.set_entity_orientations(all_meshes)
+    builder.set_coordinates(all_meshes)
+    builder.set_cell_orientations(all_meshes)
+    builder.set_cell_sizes(all_meshes)
     builder.set_coefficients()
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
@@ -166,6 +178,31 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+
+
+def validate_domains(form):
+    if len(extract_domains(form)) == 1:
+        # Not a multi-domain form, we do not need to keep checking
+        return
+
+    for itg in form.integrals():
+        # Check that all domains are related to each other
+        domain = itg.ufl_domain()
+        for other_domain in itg.extra_domain_integral_type_map():
+            if domain.submesh_youngest_common_ancestor(other_domain) is None:
+                raise MismatchingDomainError("Assembly of forms over unrelated meshes is not supported. "
+                                             "Try using Submeshes or cross-mesh interpolation.")
+
+        # Check that all Arguments and Coefficients are defined on the valid domains
+        valid_domains = set(itg.extra_domain_integral_type_map())
+        valid_domains.add(domain)
+
+        itg_domains = set(extract_domains(itg))
+        if len(itg_domains - valid_domains) > 0:
+            raise MismatchingDomainError("Argument or Coefficient domain not found in integral. "
+                                         "Possibly, the form contains coefficients on different meshes "
+                                         "and requires measure intersection, for example: "
+                                         'Measure("dx", argument_mesh, intersect_measures=[Measure("dx", coefficient_mesh)]).')
 
 
 def preprocess_parameters(parameters):
@@ -183,15 +220,14 @@ def preprocess_parameters(parameters):
     return parameters
 
 
-def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
+def compile_expression_dual_evaluation(expression, ufl_element, *,
                                        domain=None, interface=None,
-                                       parameters=None):
+                                       parameters=None, name=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
     :arg expression: UFL expression
-    :arg to_element: A FInAT element for the target space
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg interface: backend module for the kernel interface
@@ -208,9 +244,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
 
-    if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
-        raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
-
     orig_coefficients = extract_coefficients(expression)
     if isinstance(expression, ufl.Interpolate):
         v, operand = expression.argument_slots()
@@ -223,6 +256,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+    operand = simplify_abs(operand, complex_mode)
 
     # Reconstructed Interpolate with mapped operand
     expression = ufl.Interpolate(operand, v)
@@ -242,11 +276,17 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if domain is None:
         domain = extract_unique_domain(expression)
     assert domain is not None
+    builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
+    # Need this ad-hoc fix for now.
+    for c in coefficients:
+        d = extract_unique_domain(c)
+        builder._domain_integral_type_map[d] = "cell"
 
     elements = [f.ufl_element() for f in (*coefficients, *arguments)]
 
@@ -255,7 +295,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient
-        builder.set_cell_sizes(domain)
+        builder.set_cell_orientations((domain, ))
+        builder.set_cell_sizes((domain, ))
         coefficients = [coords_coefficient] + coefficients
         needs_external_coords = True
     builder.set_coefficients(coefficients)
@@ -270,12 +311,19 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
+                      integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
-                      integral_type="cell",
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
+
+    # Create the finat element for the target space
+    try:
+        to_element = builder.create_element(ufl_element)
+    except KeyError:
+        # FInAT only elements
+        raise NotImplementedError(f"Don't know how to create FIAT element for {ufl_element}")
 
     # Allow interpolation onto QuadratureElements to refer to the quadrature
     # rule they represent
@@ -289,14 +337,17 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
-    evaluation, basis_indices = to_element.dual_evaluation(fn)
+    if isinstance(to_element, NeedsCoordinateMappingElement):
+        ctx = fem.PointSetContext(**kernel_cfg)
+        mt = analyse_modified_terminal(ufl.Coefficient(dual_arg.ufl_function_space().dual()))
+        coordinate_mapping = fem.CoordinateMapping(mt, ctx)
+    else:
+        coordinate_mapping = None
+    evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
 
     # Compute the action against the dual argument
-    if dual_arg in coefficients:
-        name = f"w_{coefficients.index(dual_arg)}"
-        shape = tuple(i.extent for i in basis_indices)
-        size = numpy.prod(shape, dtype=int)
-        gem_dual = gem.reshape(gem.Variable(name, shape=(size,)), shape)
+    if isinstance(dual_arg, ufl.Cofunction):
+        gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
@@ -305,6 +356,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         argument_multiindices[dual_arg.number()] = basis_indices
 
     argument_multiindices = dict(sorted(argument_multiindices.items()))
+
+    # Unroll
+    max_extent = parameters["unroll_indexsum"]
+    if max_extent:
+        def predicate(index):
+            return index.extent <= max_extent
+        evaluation, = gem.optimise.unroll_indexsum([evaluation], predicate=predicate)
 
     # Build kernel body
     return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
@@ -321,7 +379,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"])
+    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"], name=name)
 
 
 class DualEvaluationCallable(object):

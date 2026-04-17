@@ -3,6 +3,7 @@ import pytest
 from enum import Enum, auto
 from numpy.testing import assert_allclose
 import numpy as np
+from ufl.duals import is_primal
 from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
@@ -11,20 +12,8 @@ import petsctools
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
 @pytest.mark.skipcomplex
@@ -192,9 +181,9 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         mfn_parameters = dict(mfn_parameters)
 
         space = v.function_space()
-        if not ufl.duals.is_primal(space):
+        if not is_primal(space):
             space = space.dual()
-        if not ufl.duals.is_primal(space):
+        if not is_primal(space):
             raise NotImplementedError("Mixed primal/dual space case not implemented")
         comm = v.comm
 
@@ -243,7 +232,7 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
             if mfn.getConvergedReason() <= 0:
                 raise RuntimeError("Convergence failure")
 
-        if ufl.duals.is_primal(v):
+        if is_primal(v):
             u = Function(space)
         else:
             u = Cofunction(space.dual())

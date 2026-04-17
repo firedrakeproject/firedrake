@@ -1,5 +1,5 @@
 from firedrake import *
-from firedrake import matrix
+from firedrake.matrix import Matrix, AssembledMatrix
 import pytest
 
 
@@ -33,7 +33,7 @@ def mat_type(request):
 def test_assemble_returns_matrix(a):
     A = assemble(a)
 
-    assert isinstance(A, matrix.Matrix)
+    assert isinstance(A, Matrix)
 
 
 def test_solve_with_assembled_matrix(a):

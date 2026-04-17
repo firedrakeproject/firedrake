@@ -6,26 +6,14 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
+@pytest.fixture(autouse=True)
+def autouse_set_test_tape(set_test_tape):
+    pass
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=1234))
-
-
-@pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
 
 
 @pytest.mark.skipcomplex
@@ -89,7 +77,7 @@ def test_assemble_1_forms_tlm(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     v = TestFunction(V)
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
     w1 = assemble(inner(f, v) * dx)
     w2 = assemble(inner(f**2, v) * dx)

@@ -291,7 +291,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
     tmp = numpy.copy(layer_extents)
     # To get owned points correct, we do a reduction over the SF.
-    CHKERR(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
+    CHKERRMPI(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
     CHKERR(PetscSFReduceBegin(sf.sf, contig.ob_mpi,
                               <const void*>layer_extents.data,
                               <void *>tmp.data,
@@ -300,7 +300,7 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
                             <const void*>layer_extents.data,
                             <void *>tmp.data,
                             EXTENTS_REDUCER))
-    CHKERR(MPI_Op_free(&EXTENTS_REDUCER))
+    CHKERRMPI(MPI_Op_free(&EXTENTS_REDUCER))
     layer_extents[:] = tmp[:]
     # OK, now we have the correct extents for owned points, but
     # potentially incorrect extents for ghost points, so do a SF Bcast
@@ -564,7 +564,7 @@ def top_bottom_boundary_nodes(mesh,
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
-    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets()
+    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets
     assert facet_points.shape[0] == n_vert_facet + 2
 
     bottom_facet = facet_points[n_vert_facet]
