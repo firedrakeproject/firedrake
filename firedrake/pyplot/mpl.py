@@ -31,7 +31,6 @@ __all__ = [
     "quiver", "streamplot", "FunctionPlotter"
 ]
 
-
 def toreal(array, component):
     if array.dtype.kind == "c":
         assert component in {"real", "imag"}
@@ -84,18 +83,29 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
-def pointplot(vom, axes=None, **kwargs):
+def pointplot(vom: MeshGeometry | Function, axes:matplotlib.axes.Axes = None, **kwargs) -> matplotlib.collections.PathCollection:
     r"""Plot a VertexOnlyMesh as a scatter plot.
 
-    :arg vom: either `~.MeshGeometry` object that is a VertexOnlyMesh or a `~.Function` defined on it
-    :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot the mesh
-    :arg kwargs: keyword arguments passed to :meth:`scatter <matplotlib.axes.Axes.scatter>`
-    :return: a :class:`matplotlib.collections.PathCollection` artist.
+    Parameters
+    ----------
+    vom
+        A ``VertexOnlyMesh`` or a scalar-valued :class:`~.Function` defined on one.
+        If a :class:`~.Function` is provided, its values are used to colour the points.
+    axes
+        The axes on which to plot. If not provided, the current active axes are used.
+    **kwargs
+        Additional keyword arguments passed to :meth:`matplotlib.axes.Axes.scatter`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The scatter plot artist.
     """
-    if not (isinstance(vom, Function)
-            and isinstance(vom.function_space().mesh().topology, VertexOnlyMeshTopology)) \
-            and not isinstance(vom.topology, VertexOnlyMeshTopology):
-        raise TypeError("Expected a VertexOnlyMesh or a Function defined on it.")
+    is_vom = isinstance(vom, MeshGeometry) and isinstance(vom.topology, VertexOnlyMeshTopology)
+    is_function_on_vom = isinstance(vom, Function) and isinstance(vom.function_space().mesh().topology, VertexOnlyMeshTopology)
+
+    if not (is_vom or is_function_on_vom):
+        raise TypeError("Expected a VertexOnlyMesh or a Function defined on one.")
 
     if isinstance(vom, Function):
         if len(vom.ufl_shape) == 0:
@@ -385,14 +395,23 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 
 @PETSc.Log.EventDecorator()
-def quiver(function, *, complex_component="real", **kwargs):
-    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`
+def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
+    r"""Make a quiver plot of a 2D vector Firedrake function.
 
-    :arg function: the vector field to plot
-    :kwarg complex_component: If plotting complex data, which
-        component? (``'real'`` or ``'imag'``). Default is ``'real'``.
-    :arg kwargs: same as for matplotlib :func:`quiver <matplotlib.pyplot.quiver>`
-    :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
+    Parameters
+    ----------
+    function
+        The 2D vector field to plot.
+    complex_component
+        Which component to plot if the data is complex. Either ``'real'``
+        or ``'imag'``. Defaults to ``'real'``.
+    **kwargs
+        Additional keyword arguments passed to :func:`matplotlib.pyplot.quiver`.
+
+    Returns
+    -------
+    matplotlib.quiver.Quiver
+        The quiver plot artist.
     """
     if function.ufl_shape != (2,):
         raise ValueError("Quiver plots only defined for 2D vector fields!")
