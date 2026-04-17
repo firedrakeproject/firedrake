@@ -152,9 +152,9 @@ class ASMStarPC(ASMPatchPC):
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
     `pc_star_use_coloring`.
-    
-    The mesh entities in the patches may be reordered by applying a 
-    matrix reordering to the connectivity graph with the option 
+
+    The mesh entities in the patches may be reordered by applying a
+    matrix reordering to the connectivity graph with the option
     `pc_star_mat_ordering_type`.
     '''
 
@@ -199,7 +199,7 @@ class ASMVankaPC(ASMPatchPC):
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
     `pc_vanka_use_coloring`.
-    
+
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
     `pc_vanka_mat_ordering_type`.
@@ -382,7 +382,7 @@ class ASMExtrudedStarPC(ASMStarPC):
     Non-overlapping patches may be optionally grouped together via a
     coloring of the mesh entities. This is specified via the option
     `pc_star_use_coloring`.
-    
+
     The mesh entities in the patches may be reordered by applying a
     matrix reordering to the connectivity graph with the option
     `pc_star_mat_ordering_type`.
