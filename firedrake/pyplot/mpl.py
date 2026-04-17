@@ -31,6 +31,7 @@ __all__ = [
     "quiver", "streamplot", "FunctionPlotter"
 ]
 
+
 def toreal(array, component):
     if array.dtype.kind == "c":
         assert component in {"real", "imag"}
@@ -83,7 +84,7 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
-def scatter(vom: MeshGeometry | Function, axes:matplotlib.axes.Axes = None, **kwargs) -> matplotlib.collections.PathCollection:
+def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes = None, **kwargs) -> matplotlib.collections.PathCollection:
     r"""Plot a VertexOnlyMesh as a scatter plot.
 
     Parameters
