@@ -1627,7 +1627,8 @@ class MeshTopology(AbstractMeshTopology):
 
         Returns
         -------
-        (A_dat, b_dat) indexed by global cell ID and local facet ID in each cell.
+        tuple
+            (A_dat, b_dat) indexed by global cell ID and local facet ID in each cell.
             The two `pyop2.Dat` objects store the matrix and translation vector of
             each cell-to-cell reference coordinate transforms.
         """
