@@ -28,7 +28,7 @@ from ufl.domain import extract_unique_domain
 
 __all__ = [
     "plot", "triplot", "pointplot", "tricontourf", "tricontour", "trisurf", "tripcolor",
-    "quiver", "quiver_vom", "streamplot", "FunctionPlotter"
+    "quiver", "streamplot", "FunctionPlotter"
 ]
 
 
@@ -84,18 +84,33 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
-def pointplot(vom, function=None, axes=None, **kwargs):
-    r"""Plot a VertexOnlyMesh as a point scatter plot
+def pointplot(vom, axes=None, **kwargs):
+    r"""Plot a VertexOnlyMesh as a scatter plot.
 
-    :arg vom: a `~.MeshGeometry` object that is a VertexOnlyMesh
-    :arg function: an optional `~.Function` defined on the VertexOnlyMesh to be plotted
+    :arg vom: either `~.MeshGeometry` object that is a VertexOnlyMesh or a `~.Function` defined on it
     :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot the mesh
     :arg kwargs: keyword arguments passed to :func:`scatter <matplotlib.axes.Axes.scatter>`
     :return: matplotlib.collections :class:`PathCollection` artist
     """
-    if not isinstance(vom.topology, VertexOnlyMeshTopology):
-        raise TypeError("Expected a VertexOnlyMesh")
-    
+    if not (isinstance(vom, Function)
+            and isinstance(vom.function_space().mesh().topology, VertexOnlyMeshTopology)) \
+            and not isinstance(vom.topology, VertexOnlyMeshTopology):
+        raise TypeError("Expected a VertexOnlyMesh or a Function defined on it.")
+
+    if isinstance(vom, Function):
+        if len(vom.ufl_shape) == 0:
+            # scalar field: colour points by value
+            kwargs["c"] = vom.dat.data_ro
+        elif len(vom.ufl_shape) == 1:
+            # vector field: use quiver instead
+            raise TypeError("Use `quiver` to plot vector-valued fields on a VertexOnlyMesh.")
+        else:
+            raise TypeError(
+                f"Cannot plot a rank-{len(vom.ufl_shape)} tensor field; "
+                "only scalar fields are supported in this method. "
+                "Alternatively, use `quiver` to plot vector-valued fields.")
+        vom = vom.function_space().mesh()
+
     gdim = vom.geometric_dimension
     coords = toreal(vom.coordinates.dat.data_ro_with_halos, "real")
 
@@ -106,25 +121,12 @@ def pointplot(vom, function=None, axes=None, **kwargs):
         else:
             axes = fig.add_subplot(111)
 
-    kwargs.setdefault("zorder", 5) # this makes sure that points are drawn on top of the parent mesh lines
-    kwargs.setdefault("s", 10) # controls scatter dot size
+    kwargs.setdefault("zorder", 5)  # this makes sure that points are drawn on top of the parent mesh lines
+    kwargs.setdefault("s", 10)  # controls scatter dot size
     kwargs.setdefault("c", "red")  # default colour if no function provided
 
-    if function is not None:
-        if function.function_space().mesh() is not vom:
-            raise ValueError("The Function must be defined on the VertexOnlyMesh to be plotted")
-        if len(function.ufl_shape) == 0:
-            # scalar field: colour points by value
-            kwargs["c"] = function.dat.data_ro
-        elif len(function.ufl_shape) == 1:
-            # vector field: draw arrows at point positions
-            # for a cleaner implementation: do this in a separate function `quiver_vom`
-            NotImplementedError("Plotting vector fields on a VertexOnlyMesh is not support by pointplot. Use quiver_vom instead.")
-        else:
-            raise ValueError("Can only plot scalar or vector valued Functions on a VertexOnlyMesh")
-    
     collection = axes.scatter(*(coords.T), **kwargs)
-    
+
     _autoscale_view(axes, coords)
     return collection
 
@@ -226,6 +228,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
+
     for marker, color in zip(markers, colors):
         vertices = []
         for typ in ["interior", "exterior"]:
@@ -399,37 +402,16 @@ def quiver(function, *, complex_component="real", **kwargs):
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    coords = toreal(extract_unique_domain(function).coordinates.dat.data_ro, "real")
-    V = extract_unique_domain(function).coordinates.function_space()
-    function_interp = assemble(interpolate(function, V))
-    vals = toreal(function_interp.dat.data_ro, complex_component)
+    mesh = function.function_space().mesh()
+    coords = toreal(mesh.coordinates.dat.data_ro, "real")
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        vals = toreal(function.dat.data_ro, complex_component)
+    else:
+        V = mesh.coordinates.function_space()
+        function_interp = assemble(interpolate(function, V))
+        vals = toreal(function_interp.dat.data_ro, complex_component)
+
     C = np.linalg.norm(vals, axis=1)
-    return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
-
-@PETSc.Log.EventDecorator()
-def quiver_vom(function, **kwargs):
-    r"""Make a quiver plot of a vector :class:`~.Function` defined on a :class:`.VertexOnlyMesh`.
-    
-    :arg function: the 2D vector field to plot
-    :arg kwargs: keyword arguments passed to :func:`quiver <matplotlib.pyplot.quiver>`
-    :return: matplotlib :class:`Quiver <matplotlib.quiver.Quiver>` object
-    """
-    vom = function.function_space().mesh()
-
-    if not isinstance(vom.topology, VertexOnlyMeshTopology):
-        raise TypeError("Expected a Function defined on a VertexOnlyMesh")
-    
-    if function.ufl_shape != (2, ):
-        raise ValueError("Quiver plots only defined for 2D vector fields!")
-    
-    axes = kwargs.pop("axes", None)
-    if axes is None:
-        fig = plt.figure()
-        axes = fig.add_subplot(111)
-
-    coords = toreal(vom.coordinates.dat.data_ro, "real")
-    vals = toreal(function.dat.data_ro, "real")
-    C = np.linalg.norm(vals, axis=1) # colour by magnitude
     return axes.quiver(*(coords.T), *(vals.T), C, **kwargs)
 
 
