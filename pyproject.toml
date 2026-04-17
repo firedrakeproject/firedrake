@@ -28,7 +28,7 @@ dependencies = [
   "numpy",
   "packaging",
   "petsc4py==3.25.0",
-  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
+  "petsctools>=2026.0",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2026.4.0",
