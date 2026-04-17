@@ -34,7 +34,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFu
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator', 'TopologyVersionMismatchError']
 
-class TopologyVersionMismatchError(RuntimeError):
+class TopologyVersionMismatchError(ValueError):
     """Raised when a Function's mesh topology does not match the topology version stored on its mesh object. """
     pass
 
