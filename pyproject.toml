@@ -2,7 +2,7 @@
 name = "firedrake"
 # <year>.<month>.<patch>
 # TODO RELEASE
-version = "2026.4.0.dev0"
+version = "2026.4.1.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -29,7 +29,7 @@ dependencies = [
   "numpy",
   "packaging",
   "petsc4py==3.25.0",
-  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
+  "petsctools>=2026.0",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2026.4.0",
