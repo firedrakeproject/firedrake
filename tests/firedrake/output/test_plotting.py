@@ -194,6 +194,7 @@ def test_quiver_plot():
     assert arrows is not None
     fig.colorbar(arrows)
 
+
 @pytest.mark.skipplot
 def test_quiver_plot_vom():
     mesh = UnitSquareMesh(10, 10)
@@ -386,6 +387,7 @@ def test_tripcolor_movie():
     # Use a method of the animation to prevent warning about it being unused
     movie.to_jshtml()
 
+
 @pytest.mark.skipplot
 def test_pointplot():
     mesh = UnitSquareMesh(10, 10)
@@ -396,6 +398,7 @@ def test_pointplot():
 
     assert sc is not None
     assert len(sc.get_offsets()) == vom.num_vertices()
+
 
 @pytest.mark.skipplot
 def test_pointplot_3d():
@@ -409,6 +412,7 @@ def test_pointplot_3d():
     assert sc is not None
     assert len(sc.get_offsets()) == vom.num_vertices()
 
+
 @pytest.mark.skipplot
 def test_pointplot_scalar_field():
     mesh = UnitSquareMesh(10, 10)
@@ -420,8 +424,3 @@ def test_pointplot_scalar_field():
     fig, axes = plt.subplots()
     sc = pointplot(vom=f, axes=axes)
     assert np.allclose(sc.get_array(), f.dat.data_ro)
-
-
-
-
-
