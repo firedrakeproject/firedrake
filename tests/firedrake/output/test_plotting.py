@@ -389,32 +389,32 @@ def test_tripcolor_movie():
 
 
 @pytest.mark.skipplot
-def test_pointplot():
+def test_scatter():
     mesh = UnitSquareMesh(10, 10)
     vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
 
     fig, axes = plt.subplots()
-    sc = pointplot(vom, axes=axes)
+    sc = scatter(vom, axes=axes)
 
     assert sc is not None
     assert len(sc.get_offsets()) == vom.num_vertices()
 
 
 @pytest.mark.skipplot
-def test_pointplot_3d():
+def test_scatter_3d():
     mesh = UnitCubeMesh(5, 5, 5)
     coords_3d = np.random.rand(20, 3)
     vom = VertexOnlyMesh(mesh, coords_3d)
 
     fig = plt.figure()
     axes = fig.add_subplot(111, projection='3d')
-    sc = pointplot(vom, axes=axes)
+    sc = scatter(vom, axes=axes)
     assert sc is not None
     assert len(sc.get_offsets()) == vom.num_vertices()
 
 
 @pytest.mark.skipplot
-def test_pointplot_scalar_field():
+def test_scatter_scalar_field():
     mesh = UnitSquareMesh(10, 10)
     vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
     V = FunctionSpace(vom, "DG", 0)
@@ -422,5 +422,5 @@ def test_pointplot_scalar_field():
     f.dat.data[:] = [1.0, 2.0, 3.0]
 
     fig, axes = plt.subplots()
-    sc = pointplot(vom=f, axes=axes)
+    sc = scatter(vom=f, axes=axes)
     assert np.allclose(sc.get_array(), f.dat.data_ro)
