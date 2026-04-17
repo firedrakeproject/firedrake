@@ -153,7 +153,9 @@ class ASMStarPC(ASMPatchPC):
     coloring of the mesh entities. This is specified via the option
     `pc_star_use_coloring`.
     
-    The mesh entities in the patches may be reordered by applying a matrix reordering to the connectivity graph with the option `pc_star_mat_ordering_type`.
+    The mesh entities in the patches may be reordered by applying a 
+    matrix reordering to the connectivity graph with the option 
+    `pc_star_mat_ordering_type`.
     '''
 
     _prefix = "pc_star_"
@@ -198,7 +200,9 @@ class ASMVankaPC(ASMPatchPC):
     coloring of the mesh entities. This is specified via the option
     `pc_vanka_use_coloring`.
     
-    The mesh entities in the patches may be reordered by applying a matrix reordering to the connectivity graph with the option `pc_vanka_mat_ordering_type`.
+    The mesh entities in the patches may be reordered by applying a
+    matrix reordering to the connectivity graph with the option
+    `pc_vanka_mat_ordering_type`.
    '''
 
     _prefix = "pc_vanka_"
@@ -379,7 +383,9 @@ class ASMExtrudedStarPC(ASMStarPC):
     coloring of the mesh entities. This is specified via the option
     `pc_star_use_coloring`.
     
-    The mesh entities in the patches may be reordered by applying a matrix reordering to the connectivity graph with the option `pc_star_mat_ordering_type`.
+    The mesh entities in the patches may be reordered by applying a
+    matrix reordering to the connectivity graph with the option
+    `pc_star_mat_ordering_type`.
     '''
 
     _prefix = 'pc_star_'
