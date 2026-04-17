@@ -28,7 +28,9 @@ jobs:
 
   colab:
     name: Update Colab notebooks (release only)
-    if: github.ref_name == 'release'
+    # TODO: Undo this when Colab switches to the latest version of Firedrake
+    # if: github.ref_name == 'release'
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
