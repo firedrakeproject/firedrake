@@ -51,7 +51,7 @@ class HypreAMS(PCBase):
 
         # Get the auxiliary Lagrange space and the coordinate space
         P1_element = FiniteElement("Lagrange", degree=1)
-        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension())
+        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension)
         if V.shape:
             P1_element = TensorElement(P1_element, shape=V.shape)
         P1 = V.reconstruct(element=P1_element)

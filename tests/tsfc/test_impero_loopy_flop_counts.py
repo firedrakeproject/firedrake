@@ -32,7 +32,7 @@ def count_loopy_flops(kernel):
 
 @pytest.fixture(params=[interval, triangle, quadrilateral,
                         TensorProductCell(triangle, interval)],
-                ids=lambda cell: cell.cellname())
+                ids=lambda cell: cell.cellname)
 def cell(request):
     return request.param
 

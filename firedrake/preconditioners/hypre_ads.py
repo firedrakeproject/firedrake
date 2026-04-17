@@ -30,9 +30,9 @@ class HypreADS(PCBase):
 
         # Get the auxiliary Nedelec and Lagrange spaces and the coordinate space
         cell = V.ufl_element().cell
-        NC1_element = FiniteElement("N1curl" if cell.is_simplex() else "NCE", cell=cell, degree=1)
+        NC1_element = FiniteElement("N1curl" if cell.is_simplex else "NCE", cell=cell, degree=1)
         P1_element = FiniteElement("Lagrange", cell=cell, degree=1)
-        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension())
+        coords_element = VectorElement(P1_element, dim=mesh.geometric_dimension)
         if V.shape:
             NC1_element = TensorElement(NC1_element, shape=V.shape)
             P1_element = TensorElement(P1_element, shape=V.shape)

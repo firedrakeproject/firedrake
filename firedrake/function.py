@@ -13,9 +13,10 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
-from functools import partial
+from functools import partial, cached_property
 from typing import Tuple
 
+import petsctools
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
@@ -73,15 +74,13 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         # User comm
         self.comm = function_space.comm
-        # Internal comm
-        self._comm = mpi.internal_comm(function_space.comm, self)
         self._function_space = function_space
-        self.uid = utils._new_uid(self._comm)
+        self.uid = utils._new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
-            assert val.comm == self._comm
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
@@ -111,7 +110,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def ufl_id(self):
         return self.uid
 
-    @utils.cached_property
+    @cached_property
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
@@ -119,7 +118,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -308,7 +307,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         current = super(Function, self).__dir__()
         return list(dict.fromkeys(dir(self._data) + current))
 
-    @utils.cached_property
+    @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
@@ -316,7 +315,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @utils.cached_property
+    @cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
@@ -382,9 +381,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         firedrake.function.Function
             Returns `self`
         """
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V, **kwargs)
+        interp = interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
@@ -407,29 +406,43 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            Expression to be assigned.
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        allow_missing_dofs : bool
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Function` s on the same :class:`.WithGeometry` as the
+        assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
         both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+        expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+        should be used.
 
-        .. note::
-
-            Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
-            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
-            should be used.
         """
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
@@ -440,7 +453,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
@@ -502,7 +515,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
-    @utils.cached_property
+    @cached_property
+    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -527,6 +541,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return c_function
 
     @property
+    @PETSc.Log.EventDecorator()
     def _ctypes(self):
         mesh = extract_unique_domain(self)
         c_function = self._constant_ctypes
@@ -597,20 +612,24 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         tolerance = kwargs.get('tolerance', None)
         mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
         else:
-            mesh.tolerance = tolerance
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        if tolerance is None:
+            tolerance = mesh_unique.tolerance
+        else:
+            mesh_unique.tolerance = tolerance
 
         # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        if mesh.variable_layers:
+        if mesh_unique.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -619,9 +638,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = self._comm.bcast(arg, root=0)
-        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
+        with mpi.temp_internal_comm(self.comm) as icomm:
+            root_arg = icomm.bcast(arg, root=0)
+            same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+            diff_arg = icomm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -701,7 +721,7 @@ class PointNotInDomainError(Exception):
         self.point = point
 
     def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
@@ -732,7 +752,7 @@ class PointEvaluator:
         self.points = np.asarray(points, dtype=utils.ScalarType)
         if not self.points.shape:
             self.points = self.points.reshape(-1)
-        gdim = mesh.geometric_dimension()
+        gdim = mesh.geometric_dimension
         if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
             raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
         self.points = self.points.reshape(-1, gdim)
@@ -782,7 +802,7 @@ class PointEvaluator:
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
-        function_mesh = function.function_space().mesh()
+        function_mesh = function.function_space().mesh().unique()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
@@ -831,7 +851,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
     from pyop2.parloop import generate_single_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
@@ -866,8 +885,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
+            f"-I{rtree.finder.get_include()}",
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ],
         ldargs=ldargs,
         comm=function.comm
     )

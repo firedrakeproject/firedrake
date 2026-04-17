@@ -7,7 +7,9 @@ from pyop2.datatypes import IntType
 import petsctools
 import firedrake
 import firedrake.cython.dmcommon as dmcommon
-from firedrake.utils import cached_property
+from functools import cached_property
+
+from firedrake import utils
 from firedrake.cython import mgimpl as impl
 from .utils import set_level
 
@@ -54,13 +56,6 @@ class HierarchyBase(object):
         if not all(m.comm == comm for m in self):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
-
-    @cached_property
-    def _comm(self):
-        _comm = self[0]._comm
-        if not all(m._comm == _comm for m in self):
-            raise NotImplementedError("All meshes in hierarchy must be on same communicator")
-        return _comm
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -120,12 +115,9 @@ def MeshHierarchy(mesh, refinement_levels,
     """
 
     if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
-        try:
-            from ngsPETSc import NetgenHierarchy
-        except ImportError:
-            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
-                              "are installed and available to Firedrake (see "
-                              "https://www.firedrakeproject.org/install.html#netgen).")
+        utils.check_netgen_installed()
+        from firedrake.mg.netgen import NetgenHierarchy
+
         if hasattr(mesh, "netgen_mesh"):
             return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
         else:
@@ -134,9 +126,8 @@ def MeshHierarchy(mesh, refinement_levels,
     # Effectively "invert" addOverlap().
     # -- The resulting plex is to have the identical data structure as the one before addOverlap().
     #    This is algorithmically guaranteed.
-    dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
-    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
+    cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "depth", tdim, True)
     cdm.removeLabel("pyop2_core")
     cdm.removeLabel("pyop2_owned")
     cdm.removeLabel("pyop2_ghost")
@@ -160,7 +151,7 @@ def MeshHierarchy(mesh, refinement_levels,
             # of the boundary we're trying to conform to.  This
             # doesn't DTRT really for cubed sphere meshes (the
             # refined meshes are no longer gnonomic).
-            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension())
+            coords = cdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
     lgmaps_without_overlap = [impl.create_lgmap(dm) for dm in dms]
@@ -173,7 +164,7 @@ def MeshHierarchy(mesh, refinement_levels,
     meshes = [mesh] + [
         mesh_builder(
             dm,
-            dim=mesh.geometric_dimension(),
+            dim=mesh.geometric_dimension,
             distribution_parameters=parameters,
             reorder=reorder,
             comm=mesh.comm,

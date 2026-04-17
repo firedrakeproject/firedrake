@@ -371,7 +371,7 @@ def base(request):
 @pytest.mark.parametrize("periodic", (False, True), ids=("extruded", "extruded-periodic"))
 def test_asm_extruded_star(base, periodic, family, degree):
     mesh = ExtrudedMesh(base, 5, periodic=periodic)
-    if mesh.topological_dimension() == 2:
+    if mesh.topological_dimension == 2:
         family = family.replace("N", "RT")
     V = FunctionSpace(mesh, family, degree)
     space = V.ufl_element().sobolev_space

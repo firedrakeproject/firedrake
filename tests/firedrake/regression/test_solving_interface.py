@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm
@@ -345,7 +346,7 @@ def test_solve_pre_apply_bcs(mesh, mixed):
 
     # Hyperelastic energy functional
     lam = Constant(1E3)
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     F = grad(u) + Identity(dim)
     J = det(F)
     logJ = 0.5*ln(J**2)
