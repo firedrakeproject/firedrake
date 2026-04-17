@@ -194,6 +194,20 @@ def test_quiver_plot():
     assert arrows is not None
     fig.colorbar(arrows)
 
+@pytest.mark.skipplot
+def test_quiver_plot_vom():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+    V = VectorFunctionSpace(vom, "DG", 0)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(as_vector((-x[1], x[0])))
+
+    fig, axes = plt.subplots()
+    arrows = quiver(f, axes=axes)
+    assert arrows is not None
+    fig.colorbar(arrows)
+
 
 @pytest.mark.skipplot
 def test_streamplot():
@@ -404,7 +418,7 @@ def test_pointplot_scalar_field():
     f.dat.data[:] = [1.0, 2.0, 3.0]
 
     fig, axes = plt.subplots()
-    sc = pointplot(vom, function=f, axes=axes)
+    sc = pointplot(vom=f, axes=axes)
     assert np.allclose(sc.get_array(), f.dat.data_ro)
 
 
