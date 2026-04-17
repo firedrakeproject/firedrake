@@ -21,7 +21,7 @@ def test_vom_plotting_2d_manual_examples():
     # Define a scalar field on the vertex-only mesh and use it to colour points
     V = FunctionSpace(vom, "DG", 0)
     f = Function(V)
-    f.dat.data_wo[:] = vom.coordinates.dat.data_ro[:, 0] # colour by x-coordinate
+    f.dat.data_wo[:] = vom.coordinates.dat.data_ro[:, 0]  # colour by x-coordinate
 
     fig, axes = plt.subplots()
     triplot(mesh, axes=axes)
@@ -49,7 +49,7 @@ def test_vom_plotting_2d_manual_examples():
     # Define a vector field on the vertex-only mesh and plot its magnitude and direction at every point
     V_vec = VectorFunctionSpace(vom, "DG", 0, dim=2)
     v = Function(V_vec)
-    v.dat.data_wo[:] = vom.coordinates.dat.data_ro - 0.5 # point away from the centre at (0.5, 0.5)
+    v.dat.data_wo[:] = vom.coordinates.dat.data_ro - 0.5  # point away from the centre at (0.5, 0.5)
 
     fig, axes = plt.subplots()
     triplot(mesh, axes=axes)
@@ -60,7 +60,6 @@ def test_vom_plotting_2d_manual_examples():
 
 
 def test_vom_plotting_3d_manual_examples():
-
 
     # [test_vom_plotting_3d_manual_examples 1]
     # Plot the vertex-only mesh embedded in a 2D parent mesh
@@ -73,7 +72,7 @@ def test_vom_plotting_3d_manual_examples():
 
     # Reduce the opacity of the mesh interior facets
     triplot(mesh_3d, axes=axes, interior_kw={'alpha': 0.05}, boundary_kw={'alpha': 0.1})
-    
+
     # Increase point size and disable depthshade so that all points are equally visible
     scatter(vom_3d, axes=axes, s=40, depthshade=False)
     axes.set_aspect("equal")
