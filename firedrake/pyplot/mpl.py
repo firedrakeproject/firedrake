@@ -89,8 +89,8 @@ def pointplot(vom, axes=None, **kwargs):
 
     :arg vom: either `~.MeshGeometry` object that is a VertexOnlyMesh or a `~.Function` defined on it
     :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot the mesh
-    :arg kwargs: keyword arguments passed to :func:`scatter <matplotlib.axes.Axes.scatter>`
-    :return: matplotlib.collections :class:`PathCollection` artist
+    :arg kwargs: keyword arguments passed to :meth:`scatter <matplotlib.axes.Axes.scatter>`
+    :return: a :class:`matplotlib.collections.PathCollection` artist.
     """
     if not (isinstance(vom, Function)
             and isinstance(vom.function_space().mesh().topology, VertexOnlyMeshTopology)) \
