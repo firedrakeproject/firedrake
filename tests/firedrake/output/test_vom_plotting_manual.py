@@ -12,7 +12,7 @@ def test_vom_plotting_2d_manual_examples():
     # Plot the vertex-only mesh embedded in a 2D parent mesh
     fig, axes = plt.subplots()
     triplot(mesh, axes=axes)
-    pointplot(vom, axes=axes)
+    scatter(vom, axes=axes)
     axes.set_aspect("equal")
     axes.legend()
     fig.show()
@@ -24,7 +24,7 @@ def test_vom_plotting_2d_manual_examples():
 
     fig, axes = plt.subplots()
     triplot(mesh, axes=axes)
-    sc = pointplot(f, axes=axes, cmap="plasma")
+    sc = scatter(f, axes=axes, cmap="plasma")
     fig.colorbar(sc, ax=axes, label="x-coordinate")
     axes.set_aspect("equal")
     fig.show()
@@ -39,7 +39,7 @@ def test_vom_plotting_2d_manual_examples():
 
     fig, axes = plt.subplots()
     tripcolor(u, axes=axes, cmap="viridis")
-    pointplot(vom, axes=axes, c="white", edgecolors="black", s=20)
+    scatter(vom, axes=axes, c="white", edgecolors="black", s=20)
     axes.set_aspect("equal")
     fig.show()
     # [test_vom_plotting_2d_manual_examples 4]
@@ -52,7 +52,7 @@ def test_vom_plotting_2d_manual_examples():
 
     fig, axes = plt.subplots()
     triplot(mesh, axes=axes)
-    pointplot(vom, axes=axes)
+    scatter(vom, axes=axes)
     quiver(v, axes=axes)
     fig.show()
     # [test_vom_plotting_2d_manual_examples 6]
@@ -74,7 +74,7 @@ def test_vom_plotting_3d_manual_examples():
     triplot(mesh_3d, axes=axes, interior_kw={'alpha': 0.05}, boundary_kw={'alpha': 0.1})
     
     # Increase point size and disable depthshade so that all points are equally visible
-    pointplot(vom_3d, axes=axes, s=40, depthshade=False)
+    scatter(vom_3d, axes=axes, s=40, depthshade=False)
     axes.set_aspect("equal")
     fig.show()
     # [test_vom_plotting_3d_manual_examples 2]
