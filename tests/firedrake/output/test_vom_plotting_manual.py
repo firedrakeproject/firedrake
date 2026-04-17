@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.pyplot import *
+import numpy as np
 import matplotlib.pyplot as plt
 
 
