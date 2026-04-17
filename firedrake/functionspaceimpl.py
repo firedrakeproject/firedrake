@@ -628,7 +628,155 @@ class AxisConstraint:
         return type(self)(self.axis, self.within_axes | constraint)
 
 
-class FunctionSpace:
+class AbstractFunctionSpace:
+
+    # {{{ entity/offset maps
+
+    @cached_property
+    def cell_node_map(self) -> op3.Map:
+        return self._iterset_to_node_map("cell")
+
+    @cached_property
+    def interior_facet_node_map(self) -> op3.Map:
+        return self._iterset_to_node_map("interior_facet")
+
+    @cached_property
+    def exterior_facet_node_map(self) -> op3.Map:
+        return self._iterset_to_node_map("exterior_facet")
+
+    @cached_method()
+    def _iterset_to_node_map(self, iter_type):
+        map_dat = self._iterset_to_node_map_dat(iter_type)
+
+        src_axis, dest_axis = map_dat.axes.nodes
+        return op3.Map(
+            {
+                idict({src_axis.label: src_axis.component.label}): [
+                    [op3.TabulatedMapComponent("nodes", None, map_dat)]
+                ],
+            }, 
+            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
+            name=dest_axis.label
+        )
+
+    @cached_property
+    def cell_node_map_dat(self) -> op3.Dat:
+        return self._iterset_to_node_map_dat("cell")
+
+    @cached_property
+    def exterior_facet_node_map_dat(self) -> op3.Dat:
+        return self._iterset_to_node_map_dat("exterior_facet")
+
+    @cached_property
+    def interior_facet_node_map_dat(self) -> op3.Dat:
+        return self._iterset_to_node_map_dat("interior_facet")
+
+    # TODO bad name, call cell_node_map_array instead
+    @cached_property
+    def cell_node_list(self) -> numpy.ndarray:
+        """Return an array mapping mesh cells to function space nodes."""
+        values = self.cell_node_map_dat.data_ro
+        return values.reshape((self.mesh().unique().cells.owned.local_size, -1))
+
+    @cached_property
+    def exterior_facet_node_list(self) -> numpy.ndarray:
+        """Return an array mapping exterior facets to function space nodes."""
+        values = self.exterior_facet_node_dat.data_ro
+        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+
+    @cached_property
+    def interior_facet_node_list(self) -> numpy.ndarray:
+        """Return an array mapping interior facets to function space nodes."""
+        values = self.interior_facet_node_dat.data_ro
+        return values.reshape((self.mesh().unique().interior_facets.owned.local_size, -1))
+
+    @cached_property
+    def cell_dof_map_dat(self) -> op3.Dat:
+        return self._iterset_to_dof_map_dat("cell")
+
+    @cached_property
+    def exterior_facet_dof_map_dat(self) -> op3.Dat:
+        return self._iterset_to_dof_map_dat("exterior_facet")
+
+    @cached_property
+    def interior_facet_dof_map_dat(self) -> op3.Dat:
+        return self._iterset_to_dof_map_dat("interior_facet")
+
+    @cached_property
+    def cell_dof_map_array(self) -> numpy.ndarray:
+        """A numpy array mapping mesh cells to function space offsets."""
+        values = self.cell_dof_map_dat.data_ro
+        return values.reshape((self.mesh().unique().cells.owned.local_size, -1))
+
+    @cached_property
+    def exterior_facet_dof_map_array(self) -> numpy.ndarray:
+        """A numpy array mapping exterior facets to function space offsets."""
+        values = self.exterior_facet_dof_map_dat.data_ro
+        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+
+    @cached_property
+    def interior_facet_dof_map_array(self) -> numpy.ndarray:
+        """A numpy array mapping interior facets to function space offsets."""
+        values = self.interior_facet_dof_map_dat.data_ro
+        return values.reshape((self.mesh().unique().interior_facets.owned.local_size, -1))
+
+    @_with_mesh_heavy_cache
+    def _iterset_to_node_map_dat(
+        self,
+        iter_type: Literal["cell", "exterior_facet", "interior_facet"],
+    ) -> op3.Dat:
+        if len(self) > 1 or self.parent:
+            raise TypeError(
+                "Cannot map to function space nodes for a mixed function space. "
+                "This is because the strides between nodes is not constant as "
+                "they are interleaved with the nodes of the other spaces."
+            )
+
+        dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
+        nodal_map_axes = dof_map_dat.axes.blocked(self.shape)
+        nodal_map_data = dof_map_dat.data_ro[::self.block_size] // self.block_size
+        return op3.Dat(nodal_map_axes, data=nodal_map_data)
+
+    def _iterset_to_dof_map_dat(
+        self,
+        iter_type: Literal["cell", "exterior_facet", "interior_facet"],
+    ) -> op3.Dat:
+        """Return a dat mapping iteration entities to offsets."""
+        from firedrake import pack
+
+        if self.parent:
+            parent_dof_map_dat = self.parent._iterset_to_dof_map_dat(iter_type)
+            field_label = self.parent.field_axis.component_labels[self.index]
+            return parent_dof_map_dat[:, field_label]
+
+        # Create an array of offsets
+        offsets = op3.Dat(
+            self.plex_axes,
+            data=numpy.arange(self.plex_axes.local_size, dtype=IntType),
+        )
+
+        # Now pack this for use in a parloop
+        loop_info = get_iteration_spec(self.mesh(), iter_type)
+        packed_offsets = pack(offsets, self, loop_info)
+
+        # Create the array to store the indirection map. If mixed then this stores
+        # offsets per entity then per field.
+        map_axes = loop_info.iterset.materialize()  # outer axis is cells etc
+        map_axes = map_axes.add_subtree(None, packed_offsets.axes.materialize())
+        map_ = op3.Dat.empty(map_axes, dtype=IntType, prefix="map")
+
+        # Finally compute
+        op3.loop(
+            p := loop_info.loop_index,
+            map_[p].assign(packed_offsets),
+            eager=True,
+        )
+        return map_
+
+    # }}}
+
+
+class FunctionSpace(AbstractFunctionSpace):
     r"""A representation of a function space.
 
     A :class:`FunctionSpace` associates degrees of freedom with
@@ -664,7 +812,7 @@ class FunctionSpace:
 
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, element, name=None, *, layout=None):
-        super(FunctionSpace, self).__init__()
+        super().__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
@@ -801,6 +949,8 @@ class FunctionSpace:
     def axis_constraints(self) -> tuple[AxisConstraint]:
         from firedrake.cython import dmcommon
 
+        assert self.parent is None, "axis_constraints not valid for indexed spaces"
+
         mesh_axis = self._mesh.flat_points
         num_points = mesh_axis.local_size
         plex = self._mesh.topology_dm
@@ -847,6 +997,10 @@ class FunctionSpace:
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
+        if self.parent is not None:
+            field_label = self.parent.field_axis.component_labels[self.index]
+            return self.parent.plex_axes[field_label]
+
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
@@ -875,6 +1029,10 @@ class FunctionSpace:
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
+        if self.parent is not None:
+            field_label = self.parent.field_axis.component_labels[self.index]
+            return self.parent.nodal_axes[field_label]
+
         # Create the axis tree without index information
         axis_tree = self._nodes_axis.as_tree()
         for i, dim in enumerate(self.shape):
@@ -1059,6 +1217,10 @@ class FunctionSpace:
 
     @_mesh_cached
     def _make_local_section(self):
+        if self.parent:
+            parent_section = self.parent.local_section
+            breakpoint()
+
         dm = self._mesh.topology_dm
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, self._mesh.num_points)
@@ -1069,14 +1231,11 @@ class FunctionSpace:
         entity_dofs = _num_entity_dofs(self.finat_element)
 
         if type(self._mesh.topology) is MeshTopology:
-            stratum_ranges = {
-            }
             for dim in range(dm.getDimension()+1):
                 ndofs = entity_dofs[dim] * self.block_size
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
-            stratum_ranges = {0: (0, dm.getLocalSize())}
             ndofs = entity_dofs[0] * self.block_size
             for pt in range(dm.getLocalSize()):
                 section.setDof(pt, ndofs)
@@ -1104,114 +1263,6 @@ class FunctionSpace:
             section.setUp()
 
         return section
-
-    @cached_property
-    def cell_node_map(self) -> op3.Map:
-        return self._iterset_to_node_map("cell")
-
-    @cached_property
-    def interior_facet_node_map(self) -> op3.Map:
-        return self._iterset_to_node_map("interior_facet")
-
-    @cached_property
-    def exterior_facet_node_map(self) -> op3.Map:
-        return self._iterset_to_node_map("exterior_facet")
-
-
-    @cached_method()
-    def _iterset_to_node_map(self, iter_type):
-        map_dat = self._iterset_to_node_map_dat(iter_type)
-
-        src_axis, dest_axis = map_dat.axes.nodes
-        return op3.Map(
-            {
-                idict({src_axis.label: src_axis.component.label}): [
-                    [op3.TabulatedMapComponent("nodes", None, map_dat)]
-                ],
-            }, 
-            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=dest_axis.label
-        )
-
-    @cached_property
-    def cell_node_list(self):
-        r"""A numpy array mapping mesh cells to function space nodes."""
-        return self.cell_node_dat.data_ro
-
-    # old, there is a general answer
-    @cached_property
-    @_with_mesh_heavy_cache
-    def cell_node_dat(self) -> op3.Dat:
-        # internal detail really, do not expose in pyop3/__init__.py
-        from pyop3.expr.visitors import loopified_shape, get_shape
-        from firedrake.pack import transform_packed_cell_closure_dat
-
-        mesh = self.mesh()
-
-        indices_axes = self.axes.blocked(self.shape)
-        indices_array = numpy.arange(indices_axes.local_size, dtype=IntType)
-        indices_dat = op3.Dat(indices_axes, data=indices_array)
-
-        cell_index = self._mesh.cells.owned.iter()
-
-        scalar_space = self
-        if self.shape:
-            scalar_space = self.sub(0)
-
-        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], scalar_space, cell_index)
-        expr_shape = get_shape(map_expr)[0]
-        map_axes = op3.AxisTree(self._mesh.cells.owned.root)
-        map_axes = map_axes.add_subtree(map_axes.leaf_path, expr_shape)
-        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
-
-        op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
-
-        # now reshape things because we want to have 2 axes: cells and nodes
-        node_axis = op3.Axis(expr_shape.size)
-        map_axes = op3.AxisTree.from_iterable([self._mesh.cells.owned.root, node_axis])
-        map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
-
-        return map_dat
-
-    @property
-    def interior_facet_node_map_dat(self) -> op3.Dat:
-        return self._iterset_to_node_map_dat("interior_facet")
-
-    @property
-    def exterior_facet_node_map_dat(self) -> op3.Dat:
-        return self._iterset_to_node_map_dat("exterior_facet")
-
-    @utils.cached_method()
-    def _iterset_to_node_map_dat(self, iter_type: Literal["cell", "exterior_facet", "interior_facet"]) -> op3.Dat:
-        from firedrake.pack import pack
-
-        scalar_space = self
-        if self.shape:
-            scalar_space = self.sub(0)
-
-
-        iter_spec = get_iteration_spec(self.mesh(), iter_type)
-
-        indices_array = numpy.arange(scalar_space.axes.local_size, dtype=IntType)
-        indices_dat = op3.Dat(scalar_space.axes, data=indices_array)
-        packed_indices_dat = pack(indices_dat, scalar_space, iter_spec)
-
-        map_axes = iter_spec.iterset.materialize()
-        map_axes = map_axes.add_subtree(None, packed_indices_dat.axes.materialize())
-        map_dat = op3.Dat.full(map_axes, -1, dtype=IntType, prefix="map")
-
-        op3.loop(
-            p := iter_spec.loop_index,
-            map_dat[p].assign(packed_indices_dat),
-            eager=True,
-        )
-
-        # now reshape things because we want to have 2 axes: iterset and nodes
-        map_axes = iter_spec.iterset.materialize()
-        map_axes = map_axes.add_axis(map_axes.leaf_path, op3.Axis(packed_indices_dat.size))
-        map_dat = op3.Dat(map_axes, buffer=map_dat.buffer, prefix="map")
-
-        return map_dat
 
     @cached_property
     def topological(self):
@@ -1314,11 +1365,6 @@ class FunctionSpace:
             return op3.Dat(self.axes, data=data.flatten(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
-
-    # this is redundant
-    def cell_closure_map(self, cell):
-        """Return a map from cells to cell closures."""
-        return self.mesh()._fiat_closure(cell)
 
     def entity_node_map(self, iteration_spec):
         r"""Return entity node map rebased on ``source_mesh``.
@@ -1512,7 +1558,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         )
 
 
-class MixedFunctionSpace:
+class MixedFunctionSpace(AbstractFunctionSpace):
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -1528,7 +1574,7 @@ class MixedFunctionSpace:
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, mesh, name=None, *, layout=None, _labels=None):
-        super(MixedFunctionSpace, self).__init__()
+        super().__init__()
         if not isinstance(mesh, MeshSequenceTopology):
             raise TypeError(f"mesh must be MeshSequenceTopology: got {mesh}")
         if len(mesh) != len(spaces):
@@ -1549,6 +1595,7 @@ class MixedFunctionSpace:
             layout = ("field", tuple(subspace.layout for subspace in spaces))
 
         self.layout = layout
+        self._orig_spaces = spaces
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
@@ -1593,7 +1640,7 @@ class MixedFunctionSpace:
         axis_tree = op3.AxisTree(self.field_axis)
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(
-            self.field_axis.components, self._spaces, strict=True
+            self.field_axis.components, self._orig_spaces, strict=True
         ):
             if mode == "plex":
                 subaxes = subspace.plex_axes
@@ -1629,7 +1676,7 @@ class MixedFunctionSpace:
     def axis_constraints(self) -> tuple[AxisConstraint]:
         return merge_axis_constraints(
             self.field_axis,
-            [space.axis_constraints for space in self._spaces],
+            [space.axis_constraints for space in self._orig_spaces],
         )
 
     @cached_property
@@ -1638,6 +1685,10 @@ class MixedFunctionSpace:
             [op3.AxisComponent(1, label) for label in self._labels],
             "field",
         )
+
+    @_mesh_cached
+    def _make_local_section(self):
+        breakpoint()
 
     def mesh(self):
         return self._mesh

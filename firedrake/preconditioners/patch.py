@@ -4,6 +4,7 @@ import ctypes
 import dataclasses
 import itertools
 import functools
+import numbers
 import textwrap
 import typing
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
@@ -43,7 +44,7 @@ __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
 
 @dataclasses.dataclass(frozen=True)
-class EntityNodeMap:
+class EntityDofMap:
     space: WithGeometry
     integral_type: str
 
@@ -53,11 +54,11 @@ class EntityNodeMap:
     def values(self) -> np.ndarray:
         match self.integral_type:
             case "cell":
-                return self.space.cell_node_list
+                return self.space.cell_dof_map_array
             case "interior_facet":
-                return self.space.interior_facet_node_list
+                return self.space.interior_facet_dof_map_array
             case "exterior_facet":
-                return self.space.exterior_facet_node_list
+                return self.space.exterior_facet_dof_map_array
             case _:
                 raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
 
@@ -152,20 +153,22 @@ class PatchCallable:
             state is not provided.
 
         """
-        args: list[tuple[op3.Dat, EntityNodeMap | None] | op3.Scalar] = []
-        names: dict[op3.Dat | op3.Scalar | EntityNodeMap, str] = {}
+        args: list[tuple[op3.Dat, EntityDofMap | None] | op3.Scalar] = []
+        names: dict[op3.Dat | op3.Scalar | EntityDofMap, str] = {}
         state_index: int | None = None
 
         dat_name_counter = itertools.count()
         glob_name_counter = itertools.count()
         map_name_counter = itertools.count()
 
-        def add_dat(dat, cdim, map_):
+        def add_dat(dat, map_):
             if dat not in names:
                 names[dat] = f"dat_{next(dat_name_counter)}"
-            if map_ is not None:
+            if isinstance(map_, EntityDofMap):
                 names[map_] = f"map_{next(map_name_counter)}"
-            args.append((dat, cdim, map_))
+            else:
+                assert isinstance(map_, numbers.Integral)
+            args.append((dat, map_))
 
         def add_glob(glob):
             if glob not in names:
@@ -174,7 +177,7 @@ class PatchCallable:
 
         def add_coeff(coeff):
             space = coeff.function_space()
-            add_dat(coeff.dat, space.block_size, self._get_map(space))
+            add_dat(coeff.dat, self._get_map(space))
 
         all_meshes = extract_domains(self.form)
         for domain_number in self.kinfo.active_domain_numbers.coordinates:
@@ -207,9 +210,9 @@ class PatchCallable:
             add_glob(all_constants[constant_index].dat)
 
         if self.kinfo.integral_type == "interior_facet":
-            add_dat(self._mesh.interior_facets.local_facet_dat, 2, None)
+            add_dat(self._mesh.interior_facet_local_facet_indices, 2)
         elif self.kinfo.integral_type == "exterior_facet":
-            add_dat(self._mesh.exterior_facets.local_facet_dat, 1, None)
+            add_dat(self._mesh.exterior_facet_local_facet_indices, 1)
 
         return args, names, state_index
 
@@ -224,10 +227,10 @@ class PatchCallable:
         flat_args = []
         maps = []
         for arg in self._args:
-            if isinstance(arg, tuple):  # (dat, cdim, map)
-                dat, cdim, map_ = arg
+            if isinstance(arg, tuple):  # (dat, map)
+                dat, map_ = arg
                 flat_args.append(dat)
-                if map_ is not None and map_ not in maps:
+                if isinstance(map_, EntityDofMap) and map_ not in maps:
                     maps.append(map_)
             else:
                 flat_args.append(arg)
@@ -237,8 +240,8 @@ class PatchCallable:
     def _mesh(self):
         return extract_domains(self.form)[self.kinfo.domain_number]
 
-    def _get_map(self, space: WithGeometry) -> EntityNodeMap:
-        return EntityNodeMap(space, self.kinfo.integral_type)
+    def _get_map(self, space: WithGeometry) -> EntityDofMap:
+        return EntityDofMap(space, self.kinfo.integral_type)
 
     @cached_property
     def _wrapper_kernel_code(self) -> str:
@@ -250,14 +253,10 @@ class PatchCallable:
 
         # handle the output temporary
         temp_name = f"t_{next(temp_counter)}"
-        spaces = map(operator.methodcaller("function_space"), self.form.arguments())
-        sizes = []
-        for space in spaces:
-            size = 0
-            for subspace in space:
-                _, arity = subspace.cell_node_list.shape
-                size += arity * subspace.block_size
-            sizes.append(size)
+        sizes = [
+            self._get_map(space).arity
+            for space in map(operator.methodcaller("function_space"), self.form.arguments())
+        ]
         if len(self.form.arguments()) == 2:
             row_size, column_size = sizes
 
@@ -293,23 +292,22 @@ for (int32_t k=0; k<{size}; k++) {{
 
         # now handle the other arguments
         for arg in self._args:
-            if isinstance(arg, tuple):  # (dat, cdim, map)
-                dat, cdim, map_ = arg
+            if isinstance(arg, tuple):  # (dat, map)
+                dat, map_ = arg
                 assert isinstance(dat, op3.Dat)
                 dat_name = self._names[dat]
-                if map_ is None:
-                    local_kernel_args.append(f"&({dat_name}[{cdim}*j])")
+                if isinstance(map_, numbers.Integral):
+                    local_kernel_args.append(f"&({dat_name}[{map_}*j])")
                 else:
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
-                    temps.append((temp_name, (map_.arity, cdim)))
+                    temps.append((temp_name, (map_.arity,)))
 
                     local_kernel_args.append(temp_name)
 
                     pack_insn = f"""\
-for (int32_t k=0; k<{arity}; k++)
-  for (int32_t l=0; l<{cdim}; l++)
-    {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
+for (int32_t k=0; k<{map_.arity}; k++)
+  {temp_name}[k] = {dat_name}[{map_name}[j*{map_.arity}+k]];"""
                     pack_insns.append(pack_insn)
 
             else:
@@ -948,9 +946,12 @@ class PatchBase(PCSNESBase):
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         numpy.array([W.block_size for
+                                         # numpy.array([W.block_size for
+                                         #              W in V], dtype=PETSc.IntType),
+                                         numpy.array([1 for
                                                       W in V], dtype=PETSc.IntType),
-                                         [W.cell_node_list for W in V],
+                                         # [W.cell_node_list for W in V],
+                                         [W.cell_dof_map_array for W in V],
                                          offsets,
                                          ghost_bc_nodes,
                                          global_bc_nodes)
@@ -1011,10 +1012,7 @@ class PatchPC(PCBase, PatchBase):
         patch.setOperators(A, P)
 
     def apply(self, pc, x, y):
-        print()
-        print(f"x ({x.handle}) = ", x.array_r)
         self.patch.apply(x, y)
-        print("y = ", y.array_r)
 
     def applyTranspose(self, pc, x, y):
         self.patch.applyTranspose(x, y)
@@ -1059,5 +1057,5 @@ def _(dat: op3.Dat):
 
 
 @_get_ctypes_arg.register
-def _(map_: EntityNodeMap):
+def _(map_: EntityDofMap):
     return map_.values.ctypes.data

@@ -1042,7 +1042,10 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, con
 @_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
 def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = utils.just_one(paths)
-    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+    try:
+        return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+    except:
+        breakpoint()
 
 
 @_lower_expr.register(op3_expr.MatPetscMatBufferExpression)

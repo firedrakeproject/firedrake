@@ -38,8 +38,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         R = TensorFunctionSpace(mesh, "CG", 1)
         V = P*Q*R
 
-    shape = V.value_shape
-    rhs = numpy.full(shape, 1, dtype=float)
+    rhs = numpy.full(V.value_shape, 1, dtype=float)
 
     u = TrialFunction(V)
     v = TestFunction(V)

@@ -29,7 +29,7 @@ from pyop3.tree.axis_tree import (
     as_axis_tree_type,
 )
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
-from pyop3.tree import LoopIndex
+from pyop3.tree.index_tree import LoopIndex, ScalarIndex
 from pyop3.expr.base import Terminal
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
@@ -700,12 +700,16 @@ class AggregateDat:
     # {{{ instance attrs
 
     subdats: np.ndarray[Dat]
+    axis: Axis
     name: str
 
-    def __init__(self, subdats, *, name: str | None = None, prefix: str | None = None):
+    def __init__(self, subdats, axis: Axis, *, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
+        # TODO: check size 1 for each axis component and # components must match # subdats
+
         self.subdats = subdats
+        self.axis = axis
         self.name = name
 
     # }}}
@@ -714,15 +718,23 @@ class AggregateDat:
     def subtensors(self):
         return self.subdats
 
+    def __iter__(self):
+        return iter([
+            (
+                ScalarIndex(self.axis.label, component_label, 0), subdat
+            )
+            for (component_label, subdat) in zip(self.axis.component_labels, self.subdats, strict=True)
+        ])
+
     @property
     def size(self):
         return sum(subdat.size for subdat in self.subdats)
 
     def with_context(self, context):
-        cf_submats = np.empty_like(self.subdats)
-        for loc, submat in np.ndenumerate(self.subdats):
-            cf_submats[loc] = submat.with_context(context)
-        return type(self)(cf_submats)
+        cf_subdats = np.empty_like(self.subdats)
+        for loc, subdat in np.ndenumerate(self.subdats):
+            cf_subdats[loc] = subdat.with_context(context)
+        return self.__record_init__(subdats=cf_subdats)
 
     @cached_property
     def axes(self) -> AxisTree:
@@ -730,7 +742,7 @@ class AggregateDat:
             row_submat.axes.materialize()
             for row_submat in self.subdats
         )
-        axes = AxisTree(Axis({i: 1 for i, _ in enumerate(sub_axess)}))
+        axes = AxisTree(self.axis)
         for leaf_path, subtree in zip(axes.leaf_paths, sub_axess, strict=True):
             axes = axes.add_subtree(leaf_path, subtree)
         return axes

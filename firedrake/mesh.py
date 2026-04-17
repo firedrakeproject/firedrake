@@ -6319,6 +6319,8 @@ def get_iteration_spec(
 
      :returns: A :class:`pyop2.types.set.Subset` for iteration.
         """
+    mesh = mesh.unique()
+
     match integral_type:
         case "cell":
             iterset = mesh.cells.owned

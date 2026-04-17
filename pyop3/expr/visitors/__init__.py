@@ -433,8 +433,6 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.Scal
 
 @concretize_layouts.register(pyop3.expr.Dat)
 def _(dat: pyop3.expr.Dat, /, axis_trees: Iterable[AxisTree, ...]) -> pyop3.expr.DatBufferExpression:
-    if dat.buffer.is_nested:
-        raise NotImplementedError("TODO")
     axis_tree = utils.just_one(axis_trees)
     dat_axes = matching_axis_tree(dat.axes, axis_tree)
     if dat_axes.is_linear:
@@ -1493,23 +1491,23 @@ def _(var, /, access_type):
 
 @expand_transforms.register(pyop3.expr.AggregateDat)
 @expand_transforms.register(pyop3.expr.AggregateMat)
-def _(agg_mat: pyop3.expr.AggregateMat, /, access_type):
-    temporary = agg_mat.materialize()
+def _(agg_tensor: pyop3.expr.AggregateMat, /, access_type):
+    temporary = agg_tensor.materialize()
     if access_type == ArrayAccessType.READ:
         insns = tuple(
             temporary[ix].assign(submat)
-            for ix, submat in np.ndenumerate(agg_mat.subtensors)
+            for ix, submat in agg_tensor
         )
     elif access_type == ArrayAccessType.WRITE:
         insns = tuple(
             submat.assign(temporary[ix])
-            for ix, submat in np.ndenumerate(agg_mat.subtensors)
+            for ix, submat in agg_tensor
         )
     else:
         assert access_type == ArrayAccessType.INC
         insns = tuple(
             submat.iassign(temporary[ix])
-            for ix, submat in np.ndenumerate(agg_mat.subtensors)
+            for ix, submat in agg_tensor
         )
     return temporary, insns
 
@@ -1682,10 +1680,11 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
 
     @process.register(pyop3.expr.AggregateDat)
     def _(self, agg_dat: pyop3.expr.AggregateDat, /) -> pyop3.expr.AggregateDat:
+        relabeled_axis = canonicalize_axis_labels(agg_dat.axis, self._relabeler)
         relabeled_subdats = np.asarray(
             [self(subdat) for subdat in agg_dat.subdats], dtype=object
         )
-        return agg_dat.__record_init__(subdats=relabeled_subdats)
+        return agg_dat.__record_init__(subdats=relabeled_subdats, axis=relabeled_axis)
 
     @process.register(pyop3.expr.Mat)
     def _(self, mat: pyop3.expr.Mat, /) -> pyop3.expr.Mat:

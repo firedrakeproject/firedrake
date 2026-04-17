@@ -62,7 +62,7 @@ def _(
     if packed_dats.size == 1:
         return packed_dats.item()
     else:
-        return op3.AggregateDat(packed_dats)
+        return op3.AggregateDat(packed_dats, space.field_axis)
 
 
 def _pack_dat_nonmixed(
