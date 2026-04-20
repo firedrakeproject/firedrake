@@ -121,7 +121,7 @@ def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = No
                 "only 1D Functions are supported by this method. "
                 "For 2D Functions, use quiver.")
         vom = vom.function_space().mesh()
-    
+
     if vom.comm.size > 1:
         raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
@@ -280,10 +280,10 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
     Q = function.function_space()
     mesh = Q.mesh()
-    
+
     if mesh.comm.size > 1:
         raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
-    
+
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
@@ -441,7 +441,7 @@ def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> 
     mesh = function.function_space().mesh()
     if mesh.comm.size > 1:
         raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
-    
+
     coords = toreal(mesh.coordinates.dat.data_ro, "real")
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
         vals = toreal(function.dat.data_ro, complex_component)
@@ -707,7 +707,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     """
     if function.ufl_shape != (2,):
         raise ValueError("Streamplot only defined for 2D vector fields!")
-    
+
     mesh = extract_unique_domain(function)
     if mesh.comm.size > 1:
         raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
@@ -837,7 +837,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     :arg kwargs: same as for matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
-     
+
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -851,7 +851,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     for ii, line in enumerate([function, *args]):
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
-    
+
         if extract_unique_domain(line).comm.size > 1:
             raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
