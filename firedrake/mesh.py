@@ -2671,8 +2671,7 @@ values from f.)"""
         Returns
         -------
         numpy.ndarray
-            Array of shape `(n_boxes, 2, gdim)` containing all the bounding boxes
-            at the chosen level.
+            Array of shape `(n_boxes, 2, gdim)` containing bounding boxes
         """
         tree_depth = rtree.tree_depth(self.rtree)
         if tree_depth == 0:
