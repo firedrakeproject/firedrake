@@ -70,6 +70,7 @@ from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
+    SerialExecutionOnlyError
 )
 from firedrake.function import (  # noqa: F401
     Function, PointNotInDomainError,

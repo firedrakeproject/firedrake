@@ -20,7 +20,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
+                       SerialExecutionOnlyError, Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
@@ -114,13 +114,16 @@ def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = No
             kwargs["c"] = vom.dat.data_ro
         elif len(vom.ufl_shape) == 1:
             # vector field: use quiver instead
-            raise TypeError("Use `quiver` to plot vector-valued fields on a VertexOnlyMesh.")
+            raise ValueError("Expected 1D Function. Use quiver to plot 2D Functions.")
         else:
-            raise TypeError(
+            raise ValueError(
                 f"Cannot plot a rank-{len(vom.ufl_shape)} tensor field; "
-                "only scalar fields are supported in this method. "
-                "Alternatively, use `quiver` to plot vector-valued fields.")
+                "only 1D Functions are supported by this method. "
+                "For 2D Functions, use quiver.")
         vom = vom.function_space().mesh()
+    
+    if vom.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
     gdim = vom.geometric_dimension
     coords = toreal(vom.coordinates.dat.data_ro_with_halos, "real")
@@ -129,8 +132,10 @@ def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = No
         fig = plt.figure()
         if gdim == 3:
             axes = fig.add_subplot(111, projection="3d")
-        else:
+        elif gdim == 2:
             axes = fig.add_subplot(111)
+        else:
+            raise ValueError("Scatter is only supported for 2D and 3D meshes.")
 
     kwargs.setdefault("zorder", 5)  # this makes sure that points are drawn on top of the parent mesh lines
     kwargs.setdefault("s", 10)  # controls scatter dot size
@@ -159,6 +164,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     :arg boundary_kw: keyword arguments to apply when plotting the mesh boundary
     :return: list of matplotlib :class:`Collection <matplotlib.collections.Collection>` objects
     """
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
@@ -272,6 +280,10 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
     Q = function.function_space()
     mesh = Q.mesh()
+    
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+    
     if len(function.ufl_shape) == 1:
         element = function.ufl_element().sub_elements[0]
         Q = FunctionSpace(mesh, element)
@@ -379,6 +391,10 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
     Q = function.function_space()
     mesh = Q.mesh()
+
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     if mesh.geometric_dimension == 3:
         return _trisurf_3d(axes, function, *args, complex_component=complex_component, **_kwargs)
     _kwargs.update({"shade": False})
@@ -423,6 +439,9 @@ def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> 
         axes = figure.add_subplot(111)
 
     mesh = function.function_space().mesh()
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+    
     coords = toreal(mesh.coordinates.dat.data_ro, "real")
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
         vals = toreal(function.dat.data_ro, complex_component)
@@ -462,6 +481,9 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     :returns: a generator of the position, velocity, and timestep ``(x, v, dt)``
     """
     mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
+
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
@@ -685,13 +707,16 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     """
     if function.ufl_shape != (2,):
         raise ValueError("Streamplot only defined for 2D vector fields!")
+    
+    mesh = extract_unique_domain(function)
+    if mesh.comm.size > 1:
+        raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111)
 
-    mesh = extract_unique_domain(function)
     if resolution is None:
         coords = toreal(mesh.coordinates.dat.data_ro, "real")
         resolution = (coords.max(axis=0) - coords.min(axis=0)).max() / 20
@@ -812,6 +837,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     :arg kwargs: same as for matplotlib :class:`PathPatch <matplotlib.patches.PathPatch>`
     :return: list of matplotlib :class:`Line2D <matplotlib.lines.Line2D>`
     """
+     
     axes = kwargs.pop("axes", None)
     if axes is None:
         figure = plt.figure()
@@ -825,6 +851,9 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
     for ii, line in enumerate([function, *args]):
         if isinstance(line, MeshGeometry):
             raise TypeError("Expected Function, not Mesh; see firedrake.triplot")
+    
+        if extract_unique_domain(line).comm.size > 1:
+            raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
         if extract_unique_domain(line).geometric_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
