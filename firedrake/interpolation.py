@@ -590,12 +590,12 @@ class CrossMeshInterpolator(Interpolator):
             def callable() -> PETSc.Mat:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if self.into_quadrature_space:
-                    source_space = self.ufl_interpolate.function_space()
+                    source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
-                        I = AssembledMatrix((Argument(source_space, 0), Argument(self.target_space.dual(), 1)), None, res)
+                        I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
                         return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
-                        I = AssembledMatrix((Argument(self.target_space.dual(), 0), Argument(source_space, 1)), None, res)
+                        I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
                         return assemble(action(self._interpolate_from_quadrature, I)).petscmat
                 else:
                     return res
