@@ -53,3 +53,8 @@ class UnrecognisedDeviceError(FiredrakeException):
     """Raised when a GPU device has been initialised in PETSc that Firedrake
     does not support.
     """
+
+
+class SerialExecutionOnlyError(FiredrakeException):
+    """Raised when calling any Firedrake method that only runs in serial.
+    """
