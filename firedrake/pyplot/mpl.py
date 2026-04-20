@@ -85,12 +85,12 @@ def _get_collection_types(gdim, tdim):
 
 @PETSc.Log.EventDecorator()
 def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
-    r"""Plot a 2D or 3D VertexOnlyMesh as a scatter plot.
+    r"""Plot a 2D or 3D :func:`.VertexOnlyMesh` as a scatter plot.
 
     Parameters
     ----------
     vom
-        A ``VertexOnlyMesh`` or a scalar-valued :class:`~.Function` defined on one.
+        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
         If a :class:`~.Function` is provided, its values are used to colour the points.
     axes
         The axes on which to plot. If not provided, the current active axes are used.
