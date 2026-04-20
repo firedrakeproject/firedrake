@@ -118,7 +118,7 @@ def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = No
         else:
             raise ValueError(
                 f"Cannot plot a rank-{len(vom.ufl_shape)} tensor field; "
-                "only 1D Functions are supported by this method. "
+                "only scalar-valued Functions are supported by this method. "
                 "For 2D Functions, use quiver.")
         vom = vom.function_space().mesh()
 
