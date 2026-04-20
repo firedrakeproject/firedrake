@@ -114,7 +114,7 @@ def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = No
             kwargs["c"] = vom.dat.data_ro
         elif len(vom.ufl_shape) == 1:
             # vector field: use quiver instead
-            raise ValueError("Expected 1D Function. Use quiver to plot 2D Functions.")
+            raise ValueError("Expected a scalar-valued Function. Use quiver to plot vector-valued Functions.")
         else:
             raise ValueError(
                 f"Cannot plot a rank-{len(vom.ufl_shape)} tensor field; "
