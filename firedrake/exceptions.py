@@ -53,3 +53,18 @@ class UnrecognisedDeviceError(FiredrakeException):
     """Raised when a GPU device has been initialised in PETSc that Firedrake
     does not support.
     """
+
+
+class PointNotInDomainError(FiredrakeException):
+    r"""Raised when attempting to evaluate a function outside its domain,
+    and no fill value was given.
+
+    Attributes: domain, point
+    """
+
+    def __init__(self, domain, point):
+        self.domain = domain
+        self.point = point
+
+    def __str__(self):
+        return f"Domain {self.domain} does not contain point {self.point}"

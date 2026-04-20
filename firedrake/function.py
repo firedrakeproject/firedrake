@@ -30,9 +30,10 @@ from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
+from firedrake.exceptions import PointNotInDomainError
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -707,21 +708,6 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     def __str__(self):
         return ufl2unicode(self)
-
-
-class PointNotInDomainError(Exception):
-    r"""Raised when attempting to evaluate a function outside its domain,
-    and no fill value was given.
-
-    Attributes: domain, point
-    """
-
-    def __init__(self, domain, point):
-        self.domain = domain
-        self.point = point
-
-    def __str__(self):
-        return f"Domain {self.domain} does not contain point {self.point}"
 
 
 class PointEvaluator:
