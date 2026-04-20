@@ -413,7 +413,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
-    r"""Make a quiver plot of a 2D vector Firedrake function.
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`.
 
     Parameters
     ----------
