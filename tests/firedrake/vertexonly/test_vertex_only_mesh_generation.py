@@ -485,11 +485,3 @@ def test_pyop2_labelling():
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
     assert vm.cell_set.total_size == 0
-
-if __name__ == "__main__":
-    import debugpy
-    debugpy.listen(4000 + COMM_WORLD.rank)
-    debugpy.wait_for_client()
-    # pytest.main([__file__ + "::test_generate_random_parallel[cube-100-coords]"])
-    # pytest.main([__file__ + "::test_redistribution"])
-    pytest.main([__file__ + "::test_partition_behaviour_2d_3procs"])
