@@ -12,10 +12,10 @@ shape_names = {
     }
 
 firedrake_cells = ("interval",
-                    "triangle",
-                    "tetrahedron",
-                    "quadrilateral",
-                    "hexahedron")
+                   "triangle",
+                   "tetrahedron",
+                   "quadrilateral",
+                   "hexahedron")
 
 
 def cells(cell_list):
