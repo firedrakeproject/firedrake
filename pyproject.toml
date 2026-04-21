@@ -41,7 +41,6 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
-  "rtree>=1.2",
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
@@ -165,7 +164,6 @@ requires = [
   "petsctools",
   "pkgconfig",
   "pybind11",
-  "rtree>=1.2",
   "setuptools>=77.0.3",
 ]
 build-backend = "setuptools.build_meta"
