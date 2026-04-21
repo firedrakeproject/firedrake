@@ -136,10 +136,10 @@ def _make_kernel_args(kernel, element, *args):
     # kernels if they are deemed not-necessary.
     # For further information, see the same note in interpolation.py.
     mask = [True] * len(args)
-    # Drop the source coordinates if the element is affinely-mapped.
+    # Drop source mesh quantities if they do not appear in the kernel.
     mask[1] = kernel.needs_cell_sizes
     mask[2] = kernel.needs_external_coords
-    # Drop the target location if the element is constant.
+    # Drop the target coordinates if the element is constant.
     is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
     mask[-1] = not is_constant
     kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
