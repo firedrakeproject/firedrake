@@ -92,9 +92,9 @@ static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar 
     return evaluate_template_c % code
 
 
-def compile_element(operand, dual_arg, parameters=None,
-                    name="evaluate"):
-    """Generate code for point evaluations.
+def dual_evaluation_kernel(operand, dual_arg, parameters=None,
+                           name="evaluate"):
+    """Generate kernel for dual evaluation.
 
     Parameters
     ----------
@@ -105,8 +105,8 @@ def compile_element(operand, dual_arg, parameters=None,
 
     Returns
     -------
-    str
-        The generated code
+    op2.Kernel
+        The kernel
     """
     source_mesh = extract_unique_domain(operand)
     target_space = dual_arg.arguments()[0].ufl_function_space()
@@ -126,10 +126,30 @@ def compile_element(operand, dual_arg, parameters=None,
                                                 ufl_element,
                                                 parameters=parameters,
                                                 name="pyop2_kernel_"+name)
+    return kernel
+
+
+def compile_element(operand, dual_arg, parameters=None,
+                    name="evaluate"):
+    """Generate code for point evaluations.
+
+    Parameters
+    ----------
+    operand: ufl.Expr
+        A primal expression
+    dual_arg: ufl.Coargument | ufl.Cofunction
+        A dual argument or coefficient
+
+    Returns
+    -------
+    str
+        The generated code
+    """
+    kernel = dual_evaluation_kernel(operand, dual_arg, parameters=parameters, name=name)
     return lp.generate_code_v2(kernel.ast).device_code()
 
 
-def _make_kernel_args(element, *args):
+def _make_kernel_args(kernel, element, *args):
     """Returns a string of argument names to call the kernel.
        Discards coordinate arguments if they do not appear in the kernel."""
     # NOTE: TSFC will sometimes drop run-time arguments in generated
@@ -137,8 +157,8 @@ def _make_kernel_args(element, *args):
     # For further information, see the same note in interpolation.py.
     mask = [True] * len(args)
     # Drop the source coordinates if the element is affinely-mapped.
-    needs_coordinates = element.mapping != "affine"
-    mask[1] = needs_coordinates
+    mask[1] = kernel.needs_cell_sizes
+    mask[2] = kernel.needs_external_coords
     # Drop the target location if the element is constant.
     is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
     mask[-1] = not is_constant
@@ -177,16 +197,18 @@ def prolong_kernel(expression, Vf):
     try:
         return cache[key]
     except KeyError:
-        evaluate_code = compile_element(expression, ufl.TestFunction(Vf.dual()))
+        kernel = dual_evaluation_kernel(expression, ufl.TestFunction(Vf.dual()))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(expression.ufl_element())
+        num_verts = len(element.cell.get_vertices())
 
-        my_kernel = """#include <petsc.h>
+        kernel_code = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc%(cell_sizes)s)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -232,7 +254,8 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": _make_kernel_args(element, "R", "Xci", "fi", "Xref"),
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
+               "kernel_args": _make_kernel_args(kernel, element, "R", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -241,7 +264,9 @@ def prolong_kernel(expression, Vf):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_prolong"))
+        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
+        return cache.setdefault(key, transfer_kernel)
 
 
 def restrict_kernel(Vf, Vc):
@@ -260,17 +285,19 @@ def restrict_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
-        evaluate_code = compile_element(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
+        kernel = dual_evaluation_kernel(ufl.TestFunction(Vc.dual()), ufl.Cofunction(Vf))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
+        num_verts = len(element.cell.get_vertices())
 
-        my_kernel = """#include <petsc.h>
+        kernel_code = """#include <petsc.h>
         %(to_reference)s
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc)
+        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc%(cell_sizes)s)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -316,7 +343,8 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "kernel_args": _make_kernel_args(element, "Ri", "Xc", "b", "Xref"),
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
+               "kernel_args": _make_kernel_args(kernel, element, "Ri", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -324,7 +352,9 @@ def restrict_kernel(Vf, Vc):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        return cache.setdefault(key, op2.Kernel(my_kernel, name="pyop2_kernel_restrict"))
+        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_restrict")
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
+        return cache.setdefault(key, transfer_kernel)
 
 
 def inject_kernel(Vf, Vc):
