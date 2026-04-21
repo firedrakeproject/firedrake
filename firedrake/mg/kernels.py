@@ -129,26 +129,6 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
     return kernel
 
 
-def compile_element(operand, dual_arg, parameters=None,
-                    name="evaluate"):
-    """Generate code for point evaluations.
-
-    Parameters
-    ----------
-    operand: ufl.Expr
-        A primal expression
-    dual_arg: ufl.Coargument | ufl.Cofunction
-        A dual argument or coefficient
-
-    Returns
-    -------
-    str
-        The generated code
-    """
-    kernel = dual_evaluation_kernel(operand, dual_arg, parameters=parameters, name=name)
-    return lp.generate_code_v2(kernel.ast).device_code()
-
-
 def _make_kernel_args(kernel, element, *args):
     """Returns a string of argument names to call the kernel.
        Discards coordinate arguments if they do not appear in the kernel."""
