@@ -34,9 +34,7 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         cellnames = cells(cell_list)
         shape = shape_names[value_rank]
 
-        if family in {"Q", "DQ", "DQ L2"}:
-            cell = cell_list[-1]
-        elif family in {"NCE", "NCF"}:
+        if family in {"NCE", "NCF"}:
             cell = TensorProductCell(quadrilateral, interval)
         else:
             cell = cell_list[0]
