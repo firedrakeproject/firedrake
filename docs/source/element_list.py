@@ -46,8 +46,9 @@ with open("element_list.csv", 'w', newline='') as csvfile:
 
         try:
             finat_element.dual_basis
-            interpolatable = "Yes"
         except NotImplementedError:
             interpolatable = "No"
+        else:
+            interpolatable = "Yes"
 
         csvwriter.writerow((family, short_name, shape, cellnames, interpolatable))
