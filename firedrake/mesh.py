@@ -2689,7 +2689,7 @@ values from f.)"""
 
         Returns
         -------
-        :class:`~firedrake.cython.rstar.RTree`
+        :class:`~firedrake.cython.rtree.RTree`
             A global Rtree whose leaf ids are MPI rank numbers.
         """
         gdim = self.geometric_dimension
@@ -3873,7 +3873,7 @@ def _pic_swarm_in_mesh(
     fields=None,
     tolerance=None,
     redundant=True,
-    exclude_halos=False,
+    exclude_halos=True,
 ):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
@@ -3903,6 +3903,10 @@ def _pic_swarm_in_mesh(
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
+    :kwarg exclude_halos: If True, the DMSwarm will not contain any points in
+        the mesh halos. If False, it will but the global index of the points
+        in the halos will match a global index of a point which is not in the
+        halo.
     :returns: (swarm, input_ordering_swarm, n_missing_points)
         - swarm: the immersed DMSwarm
         - input_ordering_swarm: a DMSwarm with points in the same order and with the
@@ -4006,7 +4010,7 @@ def _pic_swarm_in_mesh(
         input_idxs_on_leaves,
         global_idxs_on_leaves,
         coords_recv,
-    ) = _parent_mesh_embedding_new(
+    ) = _parent_mesh_embedding(
         parent_mesh,
         coords,
         tolerance,
@@ -4445,7 +4449,7 @@ def _embedding_star_forest(
 
 
 @PETSc.Log.EventDecorator()
-def _parent_mesh_embedding_new(
+def _parent_mesh_embedding(
     parent_mesh,
     coords,
     tolerance,
@@ -4460,68 +4464,72 @@ def _parent_mesh_embedding_new(
 
     Parameters
     ----------
-    parent_mesh : ``Mesh``
+    parent_mesh : Mesh
         The parent mesh to embed in.
-    coords : ``np.ndarray`` of shape ``(npoints, coordsdim)``
-        The coordinates to embed.  For ``redundant=True`` only rank 0 coords
-        are used.
-    tolerance : ``float``
+    coords : np.ndarray 
+        The array coordinates to embed, of shape `(npoints, dim)`.
+        For ``redundant=True`` only rank 0's coordinates are used.
+    tolerance : float
         The relative tolerance (i.e. as defined on the reference cell) for the
         distance a point can be from a cell and still be considered to be in
         the cell. Note that this tolerance uses an L1
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
-        mesh's ``tolerance`` property. Changing this from default will
+        mesh's `tolerance` property. Changing this from default will
         cause the parent mesh's rtree to be rebuilt which can take some
         time.
-    redundant : ``bool``
+    redundant : bool
         If True, only rank 0's coordinates are embedded.
-    exclude_halos : ``bool``
+    exclude_halos : bool
         If True, the embedded SF excludes halo leaves and contains only
         winning owned leaves.
-    remove_missing_points : ``bool``
+    remove_missing_points : bool
         If True, missing points are removed from embedded leaves.
         If False, missing points that have local leaves are retained in
-        embedded leaves on their input rank with ``parent_cell_nums=-1`` and
-        ``reference_coords=NaN``.
+        embedded leaves on their input rank with `parent_cell_nums=-1` and
+        `reference_coords=NaN`.
 
     Returns
     -------
-    embedded_sf : ``PETSc.SF``
+    embedded_sf : PETSc.SF
         The star forest connecting root points to the 'winning' leaf point(s).
         Each root may be connected to multiple leaves if halos are included.
-    winner_cells : ``np.ndarray`` of shape ``(nroots,)``
-        Firedrake cell number on the winner rank for each root point.
-        ``-1`` for missing points.
-    winner_ref_coords : ``np.ndarray`` of shape ``(nroots, ref_dim)``
-        Reference coordinates inside the winner cell.  NaN for missing points.
-    winner_ranks : ``np.ndarray`` of shape ``(nroots,)``
-        MPI rank that owns the winning cell.  ``-1`` for missing points.
-    global_idxs : ``np.ndarray`` of shape ``(nroots,)``
-        Rank-ordered global indices
-    n_missing_points : ``int``
-        Global number of points not found in any mesh cell.
-    parent_cell_nums_leaves : ``np.ndarray`` of shape ``(n_recv_total,)``
-        Local Firedrake cell numbers as seen on this (leaf) rank for each
-        received candidate point.
-    reference_coords_leaves : ``np.ndarray`` of shape ``(n_recv_total, ref_dim)``
-        Reference coordinates on this rank for each received candidate.
-    leaf_is_winner : ``np.ndarray`` of shape ``(n_recv_total,)``
-        Boolean mask: True for the single leaf that is the winner for its root.
-    is_min_candidate : ``np.ndarray`` of shape ``(n_recv_total,)``
-        Boolean mask: True for leaves achieving the global minimum distance
-        (includes owner + genuine halo copies at exact partition boundaries).
-    winner_ranks_on_leaves : ``np.ndarray`` of shape ``(n_recv_total,)``
-        The winner rank broadcast back to each leaf.
-    coords_recv : ``np.ndarray`` of shape ``(n_recv_total, gdim)``
-        Physical coordinates that were broadcast to this rank's leaf buffer.
+    winner_cells : np.ndarray
+        An array of shape `(nroots,)` containing the Firedrake cell number on
+        the winner rank for each root point. -1 for missing points.
+    winner_ref_coords : np.ndarray
+        An array of shape of shape `(nroots, ref_dim)`, containing the reference
+        coordinates inside the winner cell of each point. NaN for missing points.
+    winner_ranks : np.ndarray
+        An array of shape `(nroots,)`. containing the MPI ranks that own the winning
+        cells for each point. -1 for missing points.
+    global_idxs : np.ndarray
+        An array of shape `(nroots,)` containing the global indices of each point.
+    n_missing_points : int
+        The number of points not found in any mesh cell.
+    parent_cell_nums_leaves : np.ndarray 
+        An array of shape `(nleaves,)`, containing the local Firedrake cell 
+        numbers as seen on this rank for each received candidate point.
+    reference_coords_leaves : np.ndarray
+        An array of shape `(nleaves, ref_dim)`, containing the reference coordinates
+        on this rank for each received candidate.
+    leaf_is_winner : np.ndarray
+        An array of shape `(nleaves,)`, containing True for the single leaf that is
+        the winner for its root, and False otherwise.
+    is_min_candidate : ``np.ndarray`` 
+        An array of shape `(nleaves,)`, containing True for leaves achieving the
+        global minimum distance, and False otherwise.
+    winner_ranks_on_leaves : ``np.ndarray``
+        An array of shape `(nleaves,)`, containing the winner rank broadcast back to each leaf.
+    coords_recv : ``np.ndarray`` 
+        An array of shape `(nleaves, gdim)`, containing the coordinates that were
+        broadcast to this rank's leaf candidates.
     """
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
 
-    # Define some helper functions
     def _locate_cells(xs: np.ndarray, cells_ignore=None):
         # Given an array of coordinates, returns the cell numbers, reference coordinates,
         # and L1 distances to the reference cell for each coodinate. 
@@ -4603,17 +4611,6 @@ def _parent_mesh_embedding_new(
     # The point is visible on this rank if it was found in a cell (parent_cell_num != -1)
     locally_visible = parent_cell_nums != -1
 
-    # Get parent mesh rank ownership information.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
-    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell
-    dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm,
-        parent_mesh.topology._cell_numbering,
-        visible_ranks,
-    )
-
     # Reduce minimum distance over candidate leaves back to roots
     # Non-visible candidates are set to np.inf so they won't affect the minimum
     ref_cell_dists_l1_visible = np.where(locally_visible, ref_cell_dists_l1, np.inf)
@@ -4629,6 +4626,14 @@ def _parent_mesh_embedding_new(
     # Candidate leaves are those that are visible and have the minimum L1 distance.
     is_min_candidate = locally_visible & (ref_cell_dists_l1_visible == ref_cell_dists_min_on_leaves)
 
+    # Determine the owning rank for each candidate leaf. First we need to determine which ranks are currently visible.
+    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
+    visible_ranks[:parent_mesh.cell_set.size] = comm.rank
+    visible_ranks[parent_mesh.cell_set.size:] = -1
+    # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
+    dmcommon.exchange_cell_orientations(
+        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+    )
     owning_ranks = _owning_ranks(parent_cell_nums, visible_ranks)
 
     # Tie-break among candidates by highest owner rank.

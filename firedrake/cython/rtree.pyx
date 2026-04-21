@@ -75,7 +75,7 @@ cdef extern from "rtree-capi.h":
     )
 
 cdef class RTree(object):
-    """Python class for holding a spatial index."""
+    """Python class for holding an Rtree."""
 
     cdef RTreeH* tree
     cdef object __weakref__
@@ -93,7 +93,7 @@ cdef class RTree(object):
 
     @property
     def ctypes(self):
-        """Returns a ctypes pointer to the native spatial index."""
+        """Returns a ctypes pointer to the rtree."""
         return ctypes.c_void_p(<uintptr_t> self.tree)
 
 
@@ -108,18 +108,18 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
 
     Parameters
     ----------
-    coords_min : (n, dim) array
-        The lower corner coordinates of the bounding boxes.
-    regions_hi : (n, dim) array
-        The upper corner coordinates of the bounding boxes.
-    ids : (n,) array, optional
-        Integer ids for each box. If not provided, defaults to 0, 1, ..., n-1.
+    coords_min : numpy.ndarray
+        Lower corner coordinates of the bounding boxes, with shape `(n, dim)`.
+    coords_max : numpy.ndarray
+        Upper corner coordinates of the bounding boxes, with shape `(n, dim)`.
+    ids : numpy.ndarray
+        Optional integer ids for each box, with shape `(n,)`. If not provided,
+        defaults to `0, 1, ..., n-1`.
 
     Returns
     -------
     RTree
-        An RTree object containing the built R*-tree.
-        An RTree object containing the built R*-tree.
+        An RTree object containing the Rtree.
     """    
     cdef:
         RTreeH* rtree
@@ -146,7 +146,7 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
         dim
     )
     if err != Success:
-        raise RuntimeError("RTree_FromArray failed")
+        raise RuntimeError("rtree_bulk_load failed")
 
     return RTree(<uintptr_t>rtree)
 
@@ -205,10 +205,16 @@ def discover_ranks(
         np.ndarray[np.int32_t, ndim=1, mode="c"] fromranks_out
         np.ndarray[np.int32_t, ndim=1, mode="c"] recv_counts_out
         PetscMPIInt k
+        dict[int, list[int]] rank_to_indices
+        set[int] seen_ranks
+        list[int] all_indices
+
+    rank_to_indices = {}
+    all_indices = []
 
     # map dest_rank -> list of point indices to send there
-    rank_to_indices: dict[int, list[int]] = {}
     for i in range(n_points):
+        seen_ranks = set()
         err = rtree_locate_all_at_point(
             rtree.tree,
             <const double *>&points[i, 0],
@@ -221,14 +227,13 @@ def discover_ranks(
             raise RuntimeError("rtree_locate_all_at_point failed")
 
         # Points may lie in multiple bounding boxes owned by the same rank
-        seen_ranks: set[int] = set()
         for j in range(nids_out):
             seen_ranks.add(<int>ids_out[j])
         err = rtree_free_ids(ids_out, nids_out)
         if err != Success:
             raise RuntimeError("rtree_free_ids failed")
-
         ids_out = NULL
+
         for dest_rank in seen_ranks:
             if dest_rank in rank_to_indices:
                 rank_to_indices[dest_rank].append(i)
@@ -239,7 +244,6 @@ def discover_ranks(
     toranks = np.empty(nto, dtype=np.int32)
     send_counts = np.empty(nto, dtype=np.int32)
     send_offsets = np.empty(nto + 1, dtype=np.int32)
-    all_indices: list[int] = []
     send_offsets[0] = 0
     for i, (rank, idx_list) in enumerate(rank_to_indices.items()):
         toranks[i] = rank
