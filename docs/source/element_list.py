@@ -44,13 +44,10 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         ufl_elem = FiniteElement(family, cell=cell, degree=degree_range[0])
         finat_element = create_element(ufl_elem)
 
-        if short_name in {"BDMCF", "BDMCE"}:
+        try:
+            finat_element.dual_basis
+            interpolatable = "Yes"
+        except NotImplementedError:
             interpolatable = "No"
-        else:
-            try:
-                finat_element.dual_basis
-                interpolatable = "Yes"
-            except NotImplementedError:
-                interpolatable = "No"
 
         csvwriter.writerow((family, short_name, shape, cellnames, interpolatable))

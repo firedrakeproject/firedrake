@@ -269,9 +269,10 @@ Supported finite elements
 
 Firedrake supports the use of the following finite elements. The last column
 specifies if we support interpolation **into** a function space built from the element.
+Interpolation **from** a function space is universally supported.
 
 .. csv-table::
-    :header: "Name", "Short name", "Value shape", "Valid cells", "Supports interpolation?"
+    :header: "Name", "Short name", "Value shape", "Valid cells", "Valid interpolation target?"
     :widths: 20, 10, 10, 40, 10
     :file: element_list.csv
 
