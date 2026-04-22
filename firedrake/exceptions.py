@@ -55,6 +55,11 @@ class UnrecognisedDeviceError(FiredrakeException):
     """
 
 
+class SerialExecutionOnlyError(FiredrakeException):
+    """Raised when calling any Firedrake method that only runs in serial.
+    """
+
+
 class PointNotInDomainError(FiredrakeException):
     r"""Raised when attempting to evaluate a function outside its domain,
     and no fill value was given.

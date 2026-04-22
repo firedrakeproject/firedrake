@@ -326,6 +326,49 @@ points per element could be specfied to when calling :func:`plot
 To install matplotlib_, please look at the installation instructions of
 matplotlib.
 
+Visualising a vertex-only mesh
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
+In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
+Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
+which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
+either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 1]
+   :end-before: [test_vom_plotting_2d_manual_examples 2]
+
+
+The visualisation works equally well in 3D. It is advisable, however, to reduce the opacity of the mesh's interior facets
+to ensure the points remain visible.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_3d_manual_examples 1]
+   :end-before: [test_vom_plotting_3d_manual_examples 2]
+
+As :func:`scatter <firedrake.pyplot.scatter>` is exposed as a standalone plotting method, it is possible to combine it with any other plots in one single figure. 
+The example below demonstrates this by superimposing the scatter plot of point data onto a :func:`tripcolor <firedrake.pyplot.tripcolor>` plot of a field
+defined on the parent mesh.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 3]
+   :end-before: [test_vom_plotting_2d_manual_examples 4]
+
+Last but not least, vector fields defined on a vertex-only mesh can be visualised using
+:func:`quiver <firedrake.pyplot.quiver>` which will show both the magnitude and direction of the vectors at each point.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 5]
+   :end-before: [test_vom_plotting_2d_manual_examples 6]
 
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org
