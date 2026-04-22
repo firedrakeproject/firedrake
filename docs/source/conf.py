@@ -181,7 +181,7 @@ linkcheck_ignore = [
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
     r'https://www.ox.ac.uk',
-    r'https://buy.crosscountrytrains.co.uk'
+    r'https://buy.crosscountrytrains.co.uk',
 ]
 linkcheck_timeout = 30
 
