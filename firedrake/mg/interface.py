@@ -285,7 +285,6 @@ def inject(fine, coarse):
 
 def apply_entity_permutation(f, V):
     """Permute the Function f with the same entity ordering as the FunctionSpace V.
-    
     The multigrid transfer kernels require geometric quantities of the source mesh
     to have the same entity ordering as the source Function being transfered.
     We need to permute f if V is a RestrictedFunctionSpace, because the
