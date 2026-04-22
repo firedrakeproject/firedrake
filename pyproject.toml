@@ -35,10 +35,11 @@ dependencies = [
   # "petsc4py==3.24.5",
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
+  "platformdirs",
   "progress",
+  "pymbolic",
   # TODO RELEASE
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint@master",
-  "pycparser",
   "pytools[siphash]",
   "requests",
   "scipy",
