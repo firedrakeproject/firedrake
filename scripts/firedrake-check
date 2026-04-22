@@ -23,6 +23,8 @@ TESTS = {
         "tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]",
         # near nullspace
         "tests/firedrake/regression/test_nullspace.py::test_near_nullspace",
+        # GPU offload
+        "tests/firedrake/offload/test_poisson_offloading_pc.py::test_poisson_offload",
     ),
     2: (
         # HDF5/checkpointing
