@@ -84,7 +84,7 @@ def _get_collection_types(gdim, tdim):
 
 
 @PETSc.Log.EventDecorator()
-def scatter(vom: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
+def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
     r"""Plot a 2D or 3D :func:`.VertexOnlyMesh` as a scatter plot.
 
     Parameters
