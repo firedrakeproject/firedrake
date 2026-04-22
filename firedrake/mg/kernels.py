@@ -18,6 +18,7 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
+import pyop2
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -105,7 +106,7 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
 
     Returns
     -------
-    op2.Kernel
+    pyop2.op2.Kernel
         The kernel
     """
     source_mesh = extract_unique_domain(operand)
