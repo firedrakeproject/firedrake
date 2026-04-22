@@ -75,7 +75,7 @@ def prolong(coarse, fine):
         Vf = fine.function_space()
         Vc = coarse.function_space()
 
-        coarse_coords = get_coordinates(Vc)
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse, Vf)
@@ -90,7 +90,7 @@ def prolong(coarse, fine):
             coarse_coords.dat(op2.READ, fine_to_coarse_coords),
         ]
         if kernel.needs_cell_sizes:
-            coarse_cell_sizes = get_cell_sizes(Vc)
+            coarse_cell_sizes = Vc.mesh().cell_sizes
             fine_to_coarse_sizes = utils.fine_node_to_coarse_node_map(Vf, coarse_cell_sizes.function_space())
             kernel_args.append(coarse_cell_sizes.dat(op2.READ, fine_to_coarse_sizes))
         # Have to do this, because the node set core size is not right for
@@ -158,7 +158,7 @@ def restrict(fine_dual, coarse_dual):
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf.dual())
 
-        coarse_coords = get_coordinates(Vc.dual())
+        coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.restrict_kernel(Vf, Vc)
@@ -169,7 +169,7 @@ def restrict(fine_dual, coarse_dual):
             coarse_coords.dat(op2.READ, fine_to_coarse_coords)
         ]
         if kernel.needs_cell_sizes:
-            coarse_cell_sizes = get_cell_sizes(Vc)
+            coarse_cell_sizes = Vc.mesh().cell_sizes
             fine_to_coarse_sizes = utils.fine_node_to_coarse_node_map(Vf, coarse_cell_sizes.function_space())
             kernel_args.append(coarse_cell_sizes.dat(op2.READ, fine_to_coarse_sizes))
         # Have to do this, because the node set core size is not right for
@@ -239,7 +239,7 @@ def inject(fine, coarse):
         Vc = coarse.function_space()
         Vf = fine.function_space()
         if not dg:
-            fine_coords = get_coordinates(Vf)
+            fine_coords = Vf.mesh().coordinates
             coarse_to_fine = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
             node_locations = utils.physical_node_locations(Vc)
@@ -250,7 +250,7 @@ def inject(fine, coarse):
                 fine_coords.dat(op2.READ, coarse_to_fine_coords)
             ]
             if kernel.needs_cell_sizes:
-                fine_cell_sizes = get_cell_sizes(Vf)
+                fine_cell_sizes = Vf.mesh().cell_sizes
                 coarse_to_fine_sizes = utils.coarse_node_to_fine_node_map(Vc, fine_cell_sizes.function_space())
                 kernel_args.append(fine_cell_sizes.dat(op2.READ, coarse_to_fine_sizes))
             # Have to do this, because the node set core size is not right for
@@ -260,8 +260,8 @@ def inject(fine, coarse):
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, coarse.node_set, *kernel_args)
         else:
-            coarse_coords = get_coordinates(Vc)
-            fine_coords = get_coordinates(Vf)
+            coarse_coords = Vc.mesh().coordinates
+            fine_coords = Vf.mesh().coordinates
             coarse_cell_to_fine_nodes = utils.coarse_cell_to_fine_node_map(Vc, Vf)
             coarse_cell_to_fine_coords = utils.coarse_cell_to_fine_node_map(Vc, fine_coords.function_space())
             # Have to do this, because the node set core size is not right for
@@ -281,27 +281,3 @@ def inject(fine, coarse):
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
     return coarse
-
-
-def apply_entity_permutation(f, V):
-    """Permute the Function f with the same entity ordering as the FunctionSpace V.
-    
-    The multigrid transfer kernels require geometric quantities of the source mesh
-    to have the same entity ordering as the source Function being transfered.
-    We need to permute f if V is a RestrictedFunctionSpace, because the
-    geometric quantities will live on an unrestricted FunctionSpace.
-    """
-    if V.boundary_set:
-        W = V.reconstruct(element=f.function_space().ufl_element())
-        f = Function(W).assign(f)
-    return f
-
-
-def get_coordinates(V):
-    """Return mesh coordinates with the same entity ordering as V."""
-    return apply_entity_permutation(V.mesh().coordinates, V)
-
-
-def get_cell_sizes(V):
-    """Return cell sizes with the same entity ordering as V."""
-    return apply_entity_permutation(V.mesh().cell_sizes, V)
