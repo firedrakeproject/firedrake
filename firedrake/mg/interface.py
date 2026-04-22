@@ -283,8 +283,14 @@ def inject(fine, coarse):
     return coarse
 
 
-def _topology_permutation(f, V):
-    """Permute the Function f with the same entity ordering as the FunctionSpace V."""
+def apply_entity_permutation(f, V):
+    """Permute the Function f with the same entity ordering as the FunctionSpace V.
+    
+    The multigrid transfer kernels require geometric quantities of the source mesh
+    to have the same entity ordering as the source Function being transfered.
+    We need to permute f if V is a RestrictedFunctionSpace, because the
+    geometric quantities will live on an unrestricted FunctionSpace.
+    """
     if V.boundary_set:
         W = V.reconstruct(element=f.function_space().ufl_element())
         f = Function(W).assign(f)
@@ -293,9 +299,9 @@ def _topology_permutation(f, V):
 
 def get_coordinates(V):
     """Return mesh coordinates with the same entity ordering as V."""
-    return _topology_permutation(V.mesh().coordinates, V)
+    return apply_entity_permutation(V.mesh().coordinates, V)
 
 
 def get_cell_sizes(V):
     """Return cell sizes with the same entity ordering as V."""
-    return _topology_permutation(V.mesh().cell_sizes, V)
+    return apply_entity_permutation(V.mesh().cell_sizes, V)
