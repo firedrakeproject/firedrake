@@ -89,6 +89,7 @@ from firedrake.preconditioners import (  # noqa: F401
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
     PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
+    WC4DVarSchurPC, WC4DVarSaddlePC, AllAtOnceRFGaussSeidelPC,
     CovariancePC
 )
 from firedrake.mesh import (  # noqa: F401
