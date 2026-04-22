@@ -422,5 +422,5 @@ def test_scatter_scalar_field():
     f.dat.data[:] = [1.0, 2.0, 3.0]
 
     fig, axes = plt.subplots()
-    sc = scatter(vom=f, axes=axes)
+    sc = scatter(f, axes=axes)
     assert np.allclose(sc.get_array(), f.dat.data_ro)

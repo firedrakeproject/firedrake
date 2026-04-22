@@ -2,7 +2,7 @@
 name = "firedrake"
 # <year>.<month>.<patch>
 # TODO RELEASE
-version = "2025.11.0.dev0"
+version = "2026.5.0.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -25,8 +25,9 @@ dependencies = [
   # TODO RELEASE
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
   "h5py>3.12.1",
+  "firedrake-rtree",
   "immutabledict",
-  "libsupermesh",
+  "libsupermesh>=2026.0",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -40,7 +41,6 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
-  "rtree>=1.2",
   "scipy",
   "sympy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
@@ -154,7 +154,8 @@ docker = [  # Used in firedrake-vanilla container
 [build-system]
 requires = [
   "Cython>=3.0",
-  "libsupermesh",
+  "firedrake-rtree",
+  "libsupermesh>=2026.0",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
@@ -163,7 +164,6 @@ requires = [
   "petsctools",
   "pkgconfig",
   "pybind11",
-  "rtree>=1.2",
   "setuptools>=77.0.3",
 ]
 build-backend = "setuptools.build_meta"
