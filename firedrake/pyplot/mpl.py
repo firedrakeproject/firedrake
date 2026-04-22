@@ -89,7 +89,7 @@ def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes
 
     Parameters
     ----------
-    vom
+    vom_or_function
         A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
         If a :class:`~.Function` is provided, its values are used to colour the points.
     axes
@@ -102,25 +102,27 @@ def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes
     matplotlib.collections.PathCollection
         The scatter plot artist.
     """
-    is_vom = isinstance(vom, MeshGeometry) and isinstance(vom.topology, VertexOnlyMeshTopology)
-    is_function_on_vom = isinstance(vom, Function) and isinstance(vom.function_space().mesh().topology, VertexOnlyMeshTopology)
+    is_vom = isinstance(vom_or_function, MeshGeometry) and isinstance(vom_or_function.topology, VertexOnlyMeshTopology)
+    is_function_on_vom = isinstance(vom_or_function, Function) and isinstance(vom_or_function.function_space().mesh().topology, VertexOnlyMeshTopology)
 
     if not (is_vom or is_function_on_vom):
         raise TypeError("Expected a VertexOnlyMesh or a Function defined on one.")
 
-    if isinstance(vom, Function):
-        if len(vom.ufl_shape) == 0:
+    if isinstance(vom_or_function, Function):
+        if len(vom_or_function.ufl_shape) == 0:
             # scalar field: colour points by value
-            kwargs["c"] = vom.dat.data_ro
-        elif len(vom.ufl_shape) == 1:
+            kwargs["c"] = vom_or_function.dat.data_ro
+        elif len(vom_or_function.ufl_shape) == 1:
             # vector field: use quiver instead
             raise ValueError("Expected a scalar-valued Function. Use quiver to plot vector-valued Functions.")
         else:
             raise ValueError(
-                f"Cannot plot a rank-{len(vom.ufl_shape)} tensor field; "
+                f"Cannot plot a rank-{len(vom_or_function.ufl_shape)} tensor field; "
                 "only scalar-valued Functions are supported by this method. "
                 "For vector-valued Functions, use quiver.")
-        vom = vom.function_space().mesh()
+        vom = vom_or_function.function_space().mesh()
+    else:
+        vom = vom_or_function
 
     if vom.comm.size > 1:
         raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
