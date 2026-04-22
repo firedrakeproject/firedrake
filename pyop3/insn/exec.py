@@ -170,9 +170,6 @@ class InstructionExecutionContext:
             insn = expand_transforms(insn)
 
         insn = concretize_layouts(insn)
-        import pyop3
-        if isinstance(insn, pyop3.insn.NullInstruction):
-            breakpoint()
         insn = insert_literals(insn)
         insn = materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
@@ -309,8 +306,8 @@ class Executable:
         return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "form" in str(self.code):
-        # #     # breakpoint()
+        if len(self.code.callables_table) > 1 and "expression" in str(self.code):
+            breakpoint()
         #     import pyop3.debug
         #     pyop3.debug.maybe_breakpoint()
         # if len(self.loopy_code.callables_table) > 1:

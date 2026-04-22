@@ -175,8 +175,6 @@ class LoopyCodegenContext(CodegenContext):
         #     dat2[i] = dat1[2*i]
         #
         # is not.
-        if buffer.nest_indices:
-            breakpoint()  # old code, don't think that we need it...
         if buffer.is_nested:
             raise NotImplementedError("Currently handle nesting outside the generated code")
 
@@ -479,18 +477,15 @@ def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompil
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
     ]
 
-    try:
-        translation_unit = lp.make_kernel(
-            context.domains,
-            context.instructions,
-            context.arguments,
-            name=function_name,
-            target=LOOPY_TARGET,
-            lang_version=LOOPY_LANG_VERSION,
-            preambles=preambles,
-        )
-    except:
-        breakpoint()
+    translation_unit = lp.make_kernel(
+        context.domains,
+        context.instructions,
+        context.arguments,
+        name=function_name,
+        target=LOOPY_TARGET,
+        lang_version=LOOPY_LANG_VERSION,
+        preambles=preambles,
+    )
     translation_unit = lp.merge((translation_unit, *context.subkernels))
 
     entrypoint = translation_unit.default_entrypoint
@@ -549,18 +544,15 @@ def _(assignment: AbstractAssignment, /) -> idict:
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
-    try:
-        return idict(
-            {
-                (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
-                for lp_arg, arg in zip(
-                    call.function.code.default_entrypoint.args, call.arguments, strict=True
-                )
-                if isinstance(lp_arg, lp.ArrayArg)
-            }
-        )
-    except:
-        breakpoint()
+    return idict(
+        {
+            (arg.buffer.name, arg.buffer.nest_indices): lp_arg.shape
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
+            )
+            if isinstance(lp_arg, lp.ArrayArg)
+        }
+    )
 
 
 @functools.singledispatch
@@ -1042,10 +1034,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, con
 @_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
 def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = utils.just_one(paths)
-    try:
-        return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
-    except:
-        breakpoint()
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(op3_expr.MatPetscMatBufferExpression)

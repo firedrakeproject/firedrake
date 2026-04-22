@@ -871,9 +871,6 @@ class FunctionSpace(AbstractFunctionSpace):
         self.layout = layout
         self.extruded = isinstance(mesh, ExtrudedMeshTopology)
 
-        # initialise collective cached properties
-        self.local_section = self._make_local_section()
-
     @cached_property
     def cell_boundary_masks(self):
         edofs_key = entity_dofs_key(self.finat_element.entity_dofs())
@@ -929,9 +926,13 @@ class FunctionSpace(AbstractFunctionSpace):
         facet_points = numpy.asarray(facet_points, dtype=IntType)
         return (closure_section, closure_indices, facet_points)
 
-    @property
-    @cached_on(lambda self: self.mesh().topology)
+    @cached_property
+    @_mesh_cached
     def layout_axes(self) -> AxisTree:
+        if self.parent:
+            field_label = self.parent.field_axis.component_labels[self.index]
+            return self.parent.layout_axes[field_label]
+
         # idea is to define this for this and mixed function space etc - this is the
         # *data layout* which is different to .axes (which is always the same for a
         # given space regardless of the data layout).
@@ -957,7 +958,36 @@ class FunctionSpace(AbstractFunctionSpace):
 
         constraints = [AxisConstraint(mesh_axis)]
 
-        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(self._mesh, self.local_section, self.block_size, self.boundary_set)
+        # Create an (unpermuted) mapping from plex point to number of DoFs
+        ndofs_array = numpy.empty(num_points, dtype=IntType)
+        entity_dofs = _num_entity_dofs(self.finat_element)
+        dm = self.mesh().topology_dm
+        if type(self._mesh.topology) is MeshTopology:
+            for dim in range(dm.getDimension()+1):
+                p_start, p_end = dm.getDepthStratum(dim)
+                ndofs_array[p_start:p_end] = entity_dofs[dim]
+
+        elif type(self._mesh.topology) is VertexOnlyMeshTopology:
+            ndofs_array[...] = entity_dofs[0]
+
+        else:
+            assert self.extruded
+
+            # TODO: put in Cython
+            dim_label = dm.getLabel("depth")
+            base_dim_label = dm.getLabel("base_dim")
+            for pt in range(*dm.getChart()):
+                dim = dim_label.getValue(pt)
+                base_dim = base_dim_label.getValue(pt)
+                if base_dim == dim:
+                    # vertex
+                    ndofs = entity_dofs[base_dim, 0]
+                else:
+                    # edge
+                    ndofs = entity_dofs[base_dim, 1]
+                ndofs_array[pt] = ndofs
+
+        num_unconstrained_dofs, num_constrained_dofs = dmcommon.partition_constrained_points(self._mesh, ndofs_array, self.block_size, self.boundary_set)
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
@@ -1108,18 +1138,16 @@ class FunctionSpace(AbstractFunctionSpace):
     ``None``."""
 
     def __eq__(self, other):
-        if not isinstance(other, FunctionSpace):
-            return False
-        # FIXME: Think harder about equality
-        return self.mesh() == other.mesh() and \
-            self.ufl_element() == other.ufl_element() and \
-            self.component == other.component
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
+        return (
+            type(other) is type(self)
+            and other.mesh() == self.mesh()
+            and other.ufl_element() == self.ufl_element()
+            and other.component == self.component
+            and other.index == self.index
+        )
 
     def __hash__(self):
-        return hash((self.mesh(), self.ufl_element()))
+        return hash((self.mesh(), self.ufl_element(), self.index, self.component))
 
     @cached_property
     def _ad_parent_space(self):
@@ -1215,54 +1243,16 @@ class FunctionSpace(AbstractFunctionSpace):
         is_.setBlockSize(self.block_size)
         return (is_,)
 
+    @cached_property
     @_mesh_cached
-    def _make_local_section(self):
-        if self.parent:
-            parent_section = self.parent.local_section
-            breakpoint()
+    def local_section(self):
+        from firedrake.cython import dmcommon
 
-        dm = self._mesh.topology_dm
-        section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, self._mesh.num_points)
-
-        if self._mesh._new_to_old_point_renumbering is not None:
-            section.setPermutation(self._mesh._new_to_old_point_renumbering)
-
-        entity_dofs = _num_entity_dofs(self.finat_element)
-
-        if type(self._mesh.topology) is MeshTopology:
-            for dim in range(dm.getDimension()+1):
-                ndofs = entity_dofs[dim] * self.block_size
-                for pt in range(*dm.getDepthStratum(dim)):
-                    section.setDof(pt, ndofs)
-        elif type(self._mesh.topology) is VertexOnlyMeshTopology:
-            ndofs = entity_dofs[0] * self.block_size
-            for pt in range(dm.getLocalSize()):
-                section.setDof(pt, ndofs)
-        else:
-            assert self.extruded
-
-            dim_label = dm.getLabel("depth")
-            base_dim_label = dm.getLabel("base_dim")
-            for pt in range(*dm.getChart()):
-                dim = dim_label.getValue(pt)
-                base_dim = base_dim_label.getValue(pt)
-                if base_dim == dim:
-                    # vertex
-                    ndofs = entity_dofs[base_dim, 0] * self.block_size
-                else:
-                    # edge
-                    ndofs = entity_dofs[base_dim, 1] * self.block_size
-                section.setDof(pt, ndofs)
-
-        if self._ufl_function_space.ufl_element().family() == "Real":
-            p_start, p_end = section.getChart()
-            for p in range(p_start, p_end):
-                section.setOffset(p, 0)
-        else:
-            section.setUp()
-
-        return section
+        axis_section = self.layout_axes.section({}, "mylabel")
+        # The section returned by pyop3 deals with mesh points according to their final
+        # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
+        # old numbering).
+        return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
 
     @cached_property
     def topological(self):
@@ -1618,9 +1608,8 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     parent = None
     rank = 1
 
-    # TODO:
-    # @cached_on(mesh)?
     @cached_property
+    @_mesh_cached
     def layout_axes(self) -> op3.AxisTree:
         return layout_from_spec(self.layout, self.axis_constraints)
 
@@ -1686,9 +1675,11 @@ class MixedFunctionSpace(AbstractFunctionSpace):
             "field",
         )
 
+    @cached_property
     @_mesh_cached
-    def _make_local_section(self):
-        breakpoint()
+    def local_section(self):
+        raise NotImplementedError("Default data layout of mixed (fields outermost) "
+                                  "prohibits making a section")
 
     def mesh(self):
         return self._mesh

@@ -6553,8 +6553,9 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 
     (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)
-    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                  (topology.num_vertices, gdim))
+    breakpoint()
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,
                                            name=_generate_default_mesh_coordinates_name(topology.name))

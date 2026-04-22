@@ -1057,36 +1057,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def global_size(self):
         return self.comm.allreduce(self.owned.local_size)
 
-    # old
-    @cached_property
-    def alloc_size(self):
-        assert False, "old code"
-        return self._alloc_size()
-
+    @abc.abstractmethod
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
-        from pyop3 import Dat
-
-        path = as_path(path)
-        axis = self.node_map[path]
-
-        subpath = path | {axis.label: component.label}
-        if subpath in self.leaf_paths:
-            size_expr = 1
-        else:
-            size_expr = self.materialize().subtree(subpath).local_size
-
-        size_dat = Dat.empty(axis.linearize(component.label).regionless(), dtype=IntType)
-
-        size_dat.assign(size_expr, eager=True, eager_strategy="compile")
-
-        sizes = size_dat.buffer.data_ro
-
-        section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, component.local_size)
-        for point in range(component.local_size):
-            section.setDof(point, sizes[point])
-        section.setUp()
-        return section
+        pass
 
     @cached_property
     def owned(self):
@@ -1324,6 +1297,35 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @property
     def comm(self):
         return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
+
+    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+        # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
+        from pyop3 import Dat
+
+        path = as_path(path)
+        component_label = as_component_label(component)
+        axis = self.node_map[path]
+        component = utils.just_one(c for c in axis.components if c.label == component_label)
+
+        subpath = path | {axis.label: component_label}
+        if subpath in self.leaf_paths:
+            size_expr = 1
+        else:
+            size_expr = self.materialize().subtree(subpath).local_size
+
+        size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
+
+        size_dat.assign(size_expr, eager=True, eager_strategy="compile")
+
+        sizes = size_dat.buffer.data_ro
+
+        section = PETSc.Section().create(comm=self.comm)
+        section.setChart(0, component.local_size)
+        for point in range(component.local_size):
+            section.setDof(point, sizes[point])
+
+        section.setUp()  # instead of setting the offset
+        return section
 
     # }}}
 
@@ -1568,6 +1570,37 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=unindexed_blocked,
             targets=targets_blocked,
         )
+
+    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+        from pyop3 import Dat
+
+        path = as_path(path)
+        component_label = as_component_label(component)
+        axis = self.node_map[path]
+        component = utils.just_one(c for c in axis.components if c.label == component_label)
+
+        subpath = path | {axis.label: component_label}
+        if subpath in self.leaf_paths:
+            size_expr = 1
+        else:
+            size_expr = self.materialize().subtree(subpath).local_size
+        offset_expr = self.subst_layouts()[subpath]
+
+        size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
+        offset_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
+
+        size_dat.assign(size_expr, eager=True, eager_strategy="compile")
+        offset_dat.assign(offset_expr, eager=True, eager_strategy="compile")
+
+        sizes = size_dat.buffer.data_ro
+        offsets = offset_dat.buffer.data_ro
+
+        section = PETSc.Section().create(comm=self.comm)
+        section.setChart(0, component.local_size)
+        for point in range(component.local_size):
+            section.setDof(point, sizes[point])
+            section.setOffset(point, offsets[point])
+        return section
 
     # }}}
 

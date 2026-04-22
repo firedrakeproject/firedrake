@@ -943,16 +943,10 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
 
-        offsets = numpy.append([0], numpy.cumsum([W.dof_count
-                                                  for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         # numpy.array([W.block_size for
-                                         #              W in V], dtype=PETSc.IntType),
-                                         numpy.array([1 for
-                                                      W in V], dtype=PETSc.IntType),
-                                         # [W.cell_node_list for W in V],
+                                         numpy.array([1 for W in V], dtype=PETSc.IntType),
                                          [W.cell_dof_map_array for W in V],
-                                         offsets,
+                                         numpy.array([0 for W in V], dtype=PETSc.IntType),
                                          ghost_bc_nodes,
                                          global_bc_nodes)
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)

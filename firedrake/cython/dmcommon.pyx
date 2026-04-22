@@ -292,6 +292,30 @@ def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: 
     return offsets_is
 
 
+def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
+    p_start, p_end = section.getChart()
+    new_section: PETSc.Section = PETSc.Section().create(comm=section.comm)
+    new_section.setChart(p_start, p_end)
+    # this doesnt do the right thing
+    # CHKERR(PetscSectionPermute(section.sec, perm.iset, &new_section.sec))
+
+    cdef:
+        PetscInt p, pnew, dof, offset
+
+    permvals: np.ndarray = perm.indices
+
+    for p in range(p_start, p_end):
+        pnew = permvals[p]
+
+        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+        CHKERR(PetscSectionSetDof(new_section.sec, pnew, dof))
+
+        CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
+        CHKERR(PetscSectionSetOffset(new_section.sec, pnew, offset))
+
+    return new_section
+
+
 # TODO: This should be in petsc4py
 def intersect_is(is1: PETSc.IS, is2: PETSc.IS) -> PETSc.IS:
     """Return the intersection of two PETSc ISs."""
@@ -3618,7 +3642,7 @@ def exchange_cell_orientations(mesh, PETSc.Section section, np.ndarray orientati
         CHKERR(PetscFree(new_values))
 
 
-def partition_constrained_points(mesh, section, block_size, boundary_set):
+def partition_constrained_points(mesh, ndofs_array, block_size, boundary_set):
     """Split a section into unconstrained and constrained sets."""
     mesh_axis = mesh.flat_points
     num_points = mesh_axis.local_size
@@ -3649,7 +3673,7 @@ def partition_constrained_points(mesh, section, block_size, boundary_set):
         else:
             new_pt = old_pt
 
-        ndofs = section.getDof(old_pt) // block_size
+        ndofs = ndofs_array[old_pt]
 
         if old_pt not in constrained_points:
             num_unconstrained_dofs[new_pt] = ndofs

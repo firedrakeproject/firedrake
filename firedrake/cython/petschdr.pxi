@@ -131,6 +131,7 @@ cdef extern from "petscvec.h" nogil:
 
 cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
+    PetscErrorCode PetscSectionSetOffset(PETSc.PetscSection,PetscInt,PetscInt)
     PetscErrorCode PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     PetscErrorCode PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
     PetscErrorCode PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
@@ -141,6 +142,7 @@ cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetConstraintIndices(PETSc.PetscSection,PetscInt, const PetscInt**)
     PetscErrorCode PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
+    PetscErrorCode PetscSectionPermute(PETSc.PetscSection,PETSc.PetscIS,PETSc.PetscSection*)
     PetscErrorCode ISGetIndices(PETSc.PetscIS,PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS,PetscInt*)
     PetscErrorCode ISGetLocalSize(PETSc.PetscIS,PetscInt*)
