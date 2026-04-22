@@ -1026,7 +1026,7 @@ def _build_interpolation_callables(
         parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
 
     if oriented:
-        co = target_mesh.cell_orientations()
+        co = source_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
 
     if needs_cell_sizes:
