@@ -18,7 +18,6 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
-import pyop2
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
