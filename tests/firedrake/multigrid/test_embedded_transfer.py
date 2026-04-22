@@ -40,13 +40,20 @@ def V(mesh, space, degree):
         return FunctionSpace(mesh, space, degree, variant="integral")
 
 
-@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
-def test_transfer(op, V):
-
-    def expr(V):
-        x = SpatialCoordinate(V.mesh())
+def expr(V):
+    x = SpatialCoordinate(V.mesh())
+    rank = len(V.value_shape)
+    if rank == 0:
+        return sum(x)
+    elif rank == 1:
         return {H1: x, HCurl: perp(x), HDiv: x}[V.ufl_element().sobolev_space]
+    elif rank == 2:
+        return sym(outer(x, Constant([1]*len(x))))
+    else:
+        raise ValueError("Unexpected value shape")
 
+
+def run_transfer(op, V):
     mh, _ = get_level(V.mesh())
     Vf = V
     Vc = V.reconstruct(mh[0])
@@ -85,6 +92,18 @@ def test_transfer(op, V):
         uf.interpolate(expr(Vf))
         inject(uf, uc)
         assert errornorm(expr(Vc), uc) < 1E-13
+
+
+@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
+def test_transfer(op, V):
+    run_transfer(op, V)
+
+
+@pytest.mark.parametrize("family,degree", [("AWc", 3)])
+@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
+def test_transfer_zany(op, mesh, family, degree):
+    V = FunctionSpace(mesh, family, degree)
+    run_transfer(op, V)
 
 
 @pytest.fixture
