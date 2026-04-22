@@ -357,6 +357,12 @@ class AbstractMeshTopology(abc.ABC):
             Submesh parent.
 
         """
+        if comm.size == 1:
+            # in serial the point sf isn't initialised
+            p_start, p_end = topology_dm.getChart()
+            serial_sf = op3.sf.local_sf(p_end-p_start, comm)
+            topology_dm.setPointSF(serial_sf.sf)
+
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
@@ -6555,7 +6561,6 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
     coordinates_fs = functionspace.FunctionSpace(topology, element)
     coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                  (topology.num_vertices, gdim))
-    breakpoint()
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,
                                            name=_generate_default_mesh_coordinates_name(topology.name))

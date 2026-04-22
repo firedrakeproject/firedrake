@@ -470,7 +470,7 @@ def refine(dm, comm):
     return fdm
 
 
-def attach_hooks(dm, level=None, sf=None, section=None):
+def attach_hooks(dm, level=None, sf=None, local_section=None, global_section=None):
     """Attach callback hooks to a DM.
 
     :arg DM: The DM to attach callbacks to.
@@ -483,8 +483,10 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     # Data layout
     if sf is not None:
         dm.setPointSF(sf)
-    if section is not None:
-        dm.setDefaultSection(section)
+    if local_section is not None:
+        dm.setLocalSection(local_section)
+    if global_section is not None:
+        dm.setGlobalSection(global_section)
 
     # Multilevel hierarchies
     dm.setRefine(refine)

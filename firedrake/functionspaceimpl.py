@@ -630,6 +630,18 @@ class AxisConstraint:
 
 class AbstractFunctionSpace:
 
+    # {{{ PETSc
+
+    @cached_property
+    def dm(self):
+        r"""A PETSc DM describing the data layout for this FunctionSpace."""
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    # }}}
+
+
     # {{{ entity/offset maps
 
     @cached_property
@@ -1162,13 +1174,6 @@ class FunctionSpace(AbstractFunctionSpace):
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
-    @cached_property
-    def dm(self):
-        r"""A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = PETSc.DMShell().create(comm=self.comm)
@@ -1176,7 +1181,7 @@ class FunctionSpace(AbstractFunctionSpace):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             section=self.local_section)
+                             local_section=self.local_section, global_section=self.global_section)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -1207,6 +1212,8 @@ class FunctionSpace(AbstractFunctionSpace):
     @_with_mesh_heavy_cache
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this set of axes."""
+        if self.parent:
+            return self.parent.template_vec
         vec = PETSc.Vec().create(comm=self.comm)
         vec.setSizes(
             (self.layout_axes.owned.local_size, self.layout_axes.global_size),
@@ -1248,11 +1255,19 @@ class FunctionSpace(AbstractFunctionSpace):
     def local_section(self):
         from firedrake.cython import dmcommon
 
+        # TODO: This can be made generic to all layouts if we just specify the mesh axis here somehow
+        # When this fails this means that we cannot validly create a section. Examples include for
+        # mixed spaces if the field axis is outermost.
         axis_section = self.layout_axes.section({}, "mylabel")
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
         return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
+
+    @cached_property
+    @_mesh_cached
+    def global_section(self):
+        return _create_global_section(self.local_section, self.axes.owned.local_size, self.mesh().topology_dm.getPointSF())
 
     @cached_property
     def topological(self):
@@ -1840,13 +1855,6 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
-    @cached_property
-    def dm(self):
-        r"""A PETSc DM describing the data layout for fieldsplit solvers."""
-        dm = self._dm()
-        dmhooks.set_function_space(dm, self)
-        return dm
-
     def _dm(self):
         from firedrake.mg.utils import get_level
 
@@ -2415,3 +2423,21 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)
+
+
+def _create_global_section(local_section: PETSc.Section, local_size: int, point_sf: PETSc.SF) -> PETSc.Section:
+    if point_sf.comm.size > 1:
+        # see https://petsc.org/release/manualpages/PetscSection/PetscSectionCreateGlobalSection/
+        raise NotImplementedError("TODO: need to invert ghost entries...")
+
+    global_section = local_section.clone()
+
+    # Take the local offsets and add an offset that is the number of local DoFs. We
+    # can't use any existing PETSc routines for this (e.g. createGlobalSection) because
+    # those assume that the DoFs in the local section sum to the total number of local
+    # DoFs, which isn't true for subspaces of a mixed function space.
+    start = point_sf.comm.tompi4py().exscan(local_size) or 0
+    for p in range(*local_section.getChart()):
+        offset = local_section.getOffset(p)
+        global_section.setOffset(p, offset+start)
+    return global_section

@@ -1058,7 +1058,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, *, local: bool = True) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1298,7 +1298,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def comm(self):
         return utils.single_comm(self.nodes, "comm", allow_undefined=True) or MPI.COMM_SELF
 
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, *, local: bool = True) -> PETSc.Section:
+        if not local:
+            raise NotImplementedError
+
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat
 
@@ -1571,7 +1574,10 @@ class IndexedAxisTree(AbstractAxisTree):
             targets=targets_blocked,
         )
 
-    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT, *, local: bool = True) -> PETSc.Section:
+        if not local:
+            raise NotImplementedError
+
         from pyop3 import Dat
 
         path = as_path(path)

@@ -943,6 +943,9 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
 
+        breakpoint()
+        mytest = pyop3.sf.create_petsc_section_sf(V[1].mesh().topology_dm.getPointSF(), V[1].local_section)
+
         patch.setPatchDiscretisationInfo([W.dm for W in V],
                                          numpy.array([1 for W in V], dtype=PETSc.IntType),
                                          [W.cell_dof_map_array for W in V],

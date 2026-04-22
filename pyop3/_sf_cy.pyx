@@ -52,7 +52,7 @@ def filter_petsc_sf(
     return create_petsc_section_sf(sf, section)
 
 
-def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSection_py) -> PETSc.SF:
+def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSection_py, local_size: int) -> PETSc.SF:
     """Create the halo exchange sf.
 
     Parameters
@@ -90,14 +90,14 @@ def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSectio
     pStart, pEnd = local_sec.getChart()
     assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
     assert pStart == 0
-    m = 0
+    # m = 0
     local_offsets = np.empty(pEnd - pStart, dtype=IntType)
     remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
     for p in range(pStart, pEnd):
         CHKERR_c(petsc_c.PetscSectionGetDof(local_sec.sec, p, &dof))
         CHKERR_c(petsc_c.PetscSectionGetOffset(local_sec.sec, p, &off))
         local_offsets[p] = off
-        m += dof
+        # m += dof  # use local size instead
     unit = MPI._typedict[np.dtype(IntType).char]
     point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
     point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
@@ -122,7 +122,8 @@ def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSectio
             dof_iremote[n].index = remote_offsets[p] + j
             n += 1
     halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
-    CHKERR_c(petsc_c.PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, petsc_c.PETSC_OWN_POINTER, dof_iremote, petsc_c.PETSC_OWN_POINTER))
+    # CHKERR_c(petsc_c.PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, petsc_c.PETSC_OWN_POINTER, dof_iremote, petsc_c.PETSC_OWN_POINTER))
+    CHKERR_c(petsc_c.PetscSFSetGraph(halo_exchange_sf.sf, local_size, n, dof_ilocal, petsc_c.PETSC_OWN_POINTER, dof_iremote, petsc_c.PETSC_OWN_POINTER))
     return halo_exchange_sf
 
 
