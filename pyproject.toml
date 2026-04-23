@@ -120,8 +120,8 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-# TODO RELEASE
-#  "slepc4py==3.25.0",
+  # TODO RELEASE
+  # "slepc4py==3.25.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
