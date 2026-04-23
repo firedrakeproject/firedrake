@@ -34,12 +34,10 @@
 """Common utility classes/functions."""
 
 
-import os
 import sys
 import numpy as np
 from decorator import decorator
 import argparse
-import petsc4py
 
 from pyop2.exceptions import DataTypeError, DataValueError
 from pyop2.configuration import configuration
@@ -300,26 +298,3 @@ def trim(docstring):
 
 def strip(code):
     return '\n'.join([l for l in code.splitlines() if l.strip() and l.strip() != ';'])
-
-
-def get_petsc_dir():
-    """Attempts to find the PETSc directory on the system
-    """
-    petsc_config = petsc4py.get_config()
-    petsc_dir = petsc_config["PETSC_DIR"]
-    petsc_arch = petsc_config["PETSC_ARCH"]
-    pathlist = [petsc_dir]
-    if petsc_arch:
-        pathlist.append(os.path.join(petsc_dir, petsc_arch))
-    return tuple(pathlist)
-
-
-def get_petsc_variables():
-    """Attempts obtain a dictionary of PETSc configuration settings
-    """
-    path = [get_petsc_dir()[-1], "lib/petsc/conf/petscvariables"]
-    variables_path = os.path.join(*path)
-    with open(variables_path) as fh:
-        # Split lines on first '=' (assignment)
-        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
-    return {k.strip(): v.strip() for k, v in splitlines}

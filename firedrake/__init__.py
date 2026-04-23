@@ -70,10 +70,10 @@ from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
+    SerialExecutionOnlyError, PointNotInDomainError,
 )
 from firedrake.function import (  # noqa: F401
-    Function, PointNotInDomainError,
-    CoordinatelessFunction, PointEvaluator
+    Function, CoordinatelessFunction, PointEvaluator
 )
 from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
@@ -88,7 +88,8 @@ from firedrake.preconditioners import (  # noqa: F401
     ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
     LORPC, GTMGPC, PMGPC, PMGSNES, HypreAMS, HypreADS, FDMPC,
-    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC
+    PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
+    CovariancePC
 )
 from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
