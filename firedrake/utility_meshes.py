@@ -2142,8 +2142,6 @@ def IcosahedralSphereMesh(
         comm=comm,
     )
     if degree > 1:
-        dparams = m._distribution_parameters
-        did_reordering = m._did_reordering
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
@@ -2157,8 +2155,6 @@ def IcosahedralSphereMesh(
             permutation_name=permutation_name,
             comm=comm,
         )
-        m._distribution_parameters = dparams
-        m._did_reordering = did_reordering
     m._radius = radius
     return m
 

@@ -3098,13 +3098,16 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension <= V.value_size
+    orig_mesh = V.mesh()
+    assert orig_mesh.ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
     mesh._tolerance = tolerance
+    mesh._did_reordering = orig_mesh._did_reordering
+    mesh._distribution_parameters = orig_mesh._distribution_parameters
     return mesh
 
 
