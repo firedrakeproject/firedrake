@@ -51,7 +51,6 @@ class TransferManager(object):
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
-
         if isinstance(element.cell, ufl.TensorProductCell):
             if isinstance(element, finat.ufl.TensorProductElement):
                 return all(self.is_native(e, gdim, op) for e in element.factor_elements)
@@ -59,18 +58,20 @@ class TransferManager(object):
                 return all(self.is_native(e, gdim, op) for e in element.sub_elements)
 
         # Can we interpolate into this element?
+        # Piola-mapped elements on manifolds
+        # have degrees of freedom evaluating to
+        # different values on either side of a facet
+        tdim = element.cell.topological_dimension
+        if tdim != gdim and element.mapping() != "identity":
+            return False
+
         finat_element = create_element(element)
         try:
             finat_element.dual_basis
         except NotImplementedError:
             return False
         else:
-            # We can only interpolate into CG/DG spaces on manifold meshes
-            tdim = element.cell.topological_dimension
-            if tdim != gdim and (element.sobolev_space not in {ufl.H1, ufl.L2}):
-                return False
-            else:
-                return True
+            return True
 
     def _native_transfer(self, element, gdim, op):
         try:
