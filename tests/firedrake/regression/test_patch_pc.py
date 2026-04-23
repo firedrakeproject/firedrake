@@ -44,13 +44,13 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     v = TestFunction(V)
 
     if problem_type == "mixed":
+        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
         # We also test patch pc with kernel argument compression.
         i = 1  # only active index
         f = Function(V)
         fval = numpy.full(V.sub(i).value_shape, 1.0, dtype=float)
         f.sub(i).interpolate(Constant(fval))
-        # a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
-        a = inner(grad(u), grad(v))*dx  # debugging without function
+        a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
         L = inner(Constant(rhs), v)*dx
         bcs = [DirichletBC(Q, 0, "on_boundary")
                for Q in V.subspaces]

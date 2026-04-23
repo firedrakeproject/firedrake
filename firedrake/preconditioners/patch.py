@@ -52,14 +52,6 @@ class EntityNodeMap:
         if len(space) > 1:
             raise NotImplementedError("Not expecting a mixed space here")
 
-        if space.parent:
-            # If we are a subspace then we want to discard this information
-            # because when this code is actually called PETSc will have
-            # pulled apart the spaces and so it will no longer be the case
-            # that they are stored contiguously. We therefore need maps
-            # starting from zero offset.
-            space = space.collapse()
-
         object.__setattr__(self, "space", space)
         object.__setattr__(self, "integral_type", integral_type)
 
@@ -297,6 +289,12 @@ for (int32_t k=0; k<{row_size}*{column_size}; k++)
             unpack_insn = (
                 f"MatSetValues(J, {row_size}, &(activeDofsArray[{row_size}*i]), {column_size}, &(activeDofsArray[{column_size}*i]), {temp_name}, ADD_VALUES);"
             )
+#             unpack_insn = f"""\
+# for (int ii=0; ii<{row_size}; ii++)
+#   for (int jj=0; jj<{column_size}; jj++)
+#     printf("%f ", {temp_name}[{column_size}*ii+jj]);
+# printf("\\n");
+# MatSetValues(J, {row_size}, &(activeDofsArray[{row_size}*i]), {column_size}, &(activeDofsArray[{column_size}*i]), {temp_name}, ADD_VALUES);"""
         else:
             size, = sizes
 
@@ -971,21 +969,22 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
 
-        dms = []
-        block_sizes = []
-        node_maps = []
-        offsets = []
-        offset = 0
-        for Vsub in V:
-            dms.append(Vsub.dm)
-            # for some reason only the cell->node map is wanted here regardless of integral type
-            Vsub_node_map = EntityNodeMap(Vsub, "cell")
-            block_sizes.append(Vsub_node_map.cdim)
-            node_maps.append(Vsub_node_map.values)
-            offsets.append(offset)
-            offset += Vsub.dof_count
+        if len(V) > 1:
+            # Basically setPatchDiscretisationInfo takes a lot of Firedrake-y inputs
+            # like the cell node list instead of things like DMs, ISes and Sections.
+            # This means that things fall apart for mixed because we interleave the spaces.
+            # The answer is to use 'field_ises' for the mixed DM and such to convert
+            # the field-local sections into 'global' offsets.
+            # Related: https://gitlab.com/petsc/petsc/-/blob/main/src/binding/petsc4py/src/petsc4py/PETSc/PC.pyx?ref_type=heads#L2458
+            raise NotImplementedError("PCPatch+mixed requires IS-related fixes in PETSc")
+
+        dms = [Vsub.dm for Vsub in V]
+        block_sizes = [Vsub.block_size for Vsub in V]
+        cell_node_maps = [Vsub.cell_node_map_array for Vsub in V]
+        offsets = numpy.append([0], numpy.cumsum([W.dof_count
+                                                  for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo(
-            dms, block_sizes, node_maps, offsets, ghost_bc_nodes, global_bc_nodes
+            dms, block_sizes, cell_node_maps, offsets, ghost_bc_nodes, global_bc_nodes
         )
 
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)

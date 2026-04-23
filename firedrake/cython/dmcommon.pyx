@@ -296,8 +296,10 @@ def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
     p_start, p_end = section.getChart()
     new_section: PETSc.Section = PETSc.Section().create(comm=section.comm)
     new_section.setChart(p_start, p_end)
-    # this doesnt do the right thing
-    # CHKERR(PetscSectionPermute(section.sec, perm.iset, &new_section.sec))
+
+    # This isn't actually needed in this routine because we set the DoFs and
+    # offsets directly but without it we get other garbled sections later on.
+    new_section.setPermutation(perm)
 
     cdef:
         PetscInt p, pnew, dof, offset

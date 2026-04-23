@@ -714,8 +714,7 @@ class AbstractFunctionSpace:
     @cached_property
     def cell_node_map_array(self) -> numpy.ndarray:
         """Return an array mapping mesh cells to function space nodes."""
-        values = self.cell_node_map_dat.data_ro
-        return values.reshape((self.mesh().unique().cells.owned.local_size, -1))
+        return self._reshape_entity_map(self.cell_node_map_dat.data_ro, "cell")
 
     @property
     @deprecated("cell_node_map_array")
@@ -725,8 +724,7 @@ class AbstractFunctionSpace:
     @cached_property
     def exterior_facet_node_map_array(self) -> numpy.ndarray:
         """Return an array mapping exterior facets to function space nodes."""
-        values = self.exterior_facet_node_map_dat.data_ro
-        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+        return self._reshape_entity_map(self.cell_node_map_dat.data_ro, "cell")
 
     @property
     @deprecated("exterior_facet_node_map_array")
@@ -736,13 +734,30 @@ class AbstractFunctionSpace:
     @cached_property
     def interior_facet_node_map_array(self) -> numpy.ndarray:
         """Return an array mapping interior facets to function space nodes."""
-        values = self.interior_facet_node_map_dat.data_ro
-        return values.reshape((self.mesh().unique().interior_facets.owned.local_size, -1))
+        return self._reshape_entity_map(self.interior_facet_node_map_dat.data_ro, "interior_facet")
 
     @property
     @deprecated("interior_facet_node_map_array")
     def interior_facet_node_list(self) -> numpy.ndarray:
         return self.interior_facet_node_map_array
+
+    @_with_mesh_heavy_cache
+    def _iterset_to_node_map_dat(
+        self,
+        iter_type: Literal["cell", "exterior_facet", "interior_facet"],
+    ) -> op3.Dat:
+        if len(self) > 1 or self.parent:
+            raise TypeError(
+                "Cannot map to function space nodes for a mixed function space. "
+                "This is because the strides between nodes is not constant as "
+                "they are interleaved with the nodes of the other spaces."
+            )
+
+        dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
+        node_map_axes = dof_map_dat.axes.blocked(self.shape)
+        dof_map_array = self._reshape_entity_map(dof_map_dat.data_ro, iter_type)
+        node_map_array = dof_map_array[:, ::self.block_size] // self.block_size
+        return op3.Dat(node_map_axes, data=node_map_array)
 
     @cached_property
     def cell_dof_map_dat(self) -> op3.Dat:
@@ -759,37 +774,17 @@ class AbstractFunctionSpace:
     @cached_property
     def cell_dof_map_array(self) -> numpy.ndarray:
         """A numpy array mapping mesh cells to function space offsets."""
-        values = self.cell_dof_map_dat.data_ro
-        return values.reshape((self.mesh().unique().cells.owned.local_size, -1))
+        return self._reshape_entity_map(self.cell_dof_map_dat.data_ro, "cell")
 
     @cached_property
     def exterior_facet_dof_map_array(self) -> numpy.ndarray:
         """A numpy array mapping exterior facets to function space offsets."""
-        values = self.exterior_facet_dof_map_dat.data_ro
-        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+        return self._reshape_entity_map(self.exterior_facet_dof_map_dat.data_ro, "exterior_facet")
 
     @cached_property
     def interior_facet_dof_map_array(self) -> numpy.ndarray:
         """A numpy array mapping interior facets to function space offsets."""
-        values = self.interior_facet_dof_map_dat.data_ro
-        return values.reshape((self.mesh().unique().interior_facets.owned.local_size, -1))
-
-    @_with_mesh_heavy_cache
-    def _iterset_to_node_map_dat(
-        self,
-        iter_type: Literal["cell", "exterior_facet", "interior_facet"],
-    ) -> op3.Dat:
-        if len(self) > 1 or self.parent:
-            raise TypeError(
-                "Cannot map to function space nodes for a mixed function space. "
-                "This is because the strides between nodes is not constant as "
-                "they are interleaved with the nodes of the other spaces."
-            )
-
-        dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
-        nodal_map_axes = dof_map_dat.axes.blocked(self.shape)
-        nodal_map_data = dof_map_dat.data_ro[::self.block_size] // self.block_size
-        return op3.Dat(nodal_map_axes, data=nodal_map_data)
+        return self._reshape_entity_map(self.interior_facet_dof_map_dat.data_ro, "interior_facet")
 
     def _iterset_to_dof_map_dat(
         self,
@@ -826,6 +821,19 @@ class AbstractFunctionSpace:
             eager=True,
         )
         return map_
+
+    def _reshape_entity_map(self, map_array: numpy.ndarray, iter_type: str) -> numpy.ndarray:
+        mesh = self.mesh().unique()
+        match iter_type:
+            case "cell":
+                iterset = mesh.cells
+            case "exterior_facet":
+                iterset = mesh.exterior_facets
+            case "interior_facet":
+                iterset = mesh.interior_facets
+            case _:
+                raise AssertionError
+        return map_array.reshape((iterset.owned.local_size, -1))
 
     # }}}
 
