@@ -75,11 +75,13 @@ def prolong(coarse, fine):
         Vf = fine.function_space()
         Vc = coarse.function_space()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
-        kernel = kernels.prolong_kernel(coarse, Vf)
+
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
+
+        kernel = kernels.prolong_kernel(coarse, Vf)
         kernel_args = [
             fine.dat(op2.WRITE),
             coarse.dat(op2.READ, compose_map(coarse)),
@@ -243,9 +245,9 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-        compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
 
         if not dg:
+            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
             kernel_args = [
                 coarse.dat(op2.WRITE),
@@ -269,6 +271,7 @@ def inject(fine, coarse):
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, coarse.node_set, *kernel_args)
         else:
+            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
             coarse_coords = Vc.mesh().coordinates
             fine_coords = Vf.mesh().coordinates
             # Have to do this, because the node set core size is not right for

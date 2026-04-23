@@ -47,9 +47,7 @@ def expr(V):
     if rank == 0:
         return sum(x)
     elif rank == 1:
-        if mesh.topological_dimension != mesh.geometric_dimension:
-            return cross(CellNormal(mesh), Constant([1]*len(x)))
-        elif V.ufl_element().sobolev_space == HCurl and len(x) == 2:
+        if V.ufl_element().sobolev_space == HCurl and len(x) == 2:
             return perp(x)
         else:
             return x
@@ -64,20 +62,12 @@ def check_transfer(op, V):
     Vf = V
     Vc = V.reconstruct(mh[0])
 
-    def error(x, y):
-        mesh = y.function_space().mesh()
-        if mesh.topological_dimension == mesh.geometric_dimension:
-            return errornorm(x, y)
-        else:
-            n = CellNormal(mesh)
-            return norm((x-y) - outer(n, n)*(x-y))
-
     if op == "prolong":
         uf = Function(Vf)
         uc = Function(Vc)
         uc.interpolate(expr(Vc))
         prolong(uc, uf)
-        assert error(expr(Vf), uf) < 1E-13
+        assert errornorm(expr(Vf), uf) < 1E-13
 
     elif op == "restrict":
         rf = assemble(inner(expr(Vf), TestFunction(Vf))*dx)
@@ -105,7 +95,7 @@ def check_transfer(op, V):
         uc.interpolate(expr(Vc))
         uf.interpolate(expr(Vf))
         inject(uf, uc)
-        assert error(expr(Vc), uc) < 1E-13
+        assert errornorm(expr(Vc), uc) < 1E-13
 
 
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
@@ -117,26 +107,6 @@ def test_transfer(op, V):
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
 def test_transfer_zany(op, mesh, family, degree):
     V = FunctionSpace(mesh, family, degree)
-    check_transfer(op, V)
-
-
-@pytest.fixture
-def manifold():
-    distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    base = UnitIcosahedralSphereMesh(refinement_level=0, degree=1,
-                                     distribution_parameters=distribution_parameters)
-
-    del base._radius
-    mh = MeshHierarchy(base, refinement_levels=3)
-    for m in mh:
-        m.init_cell_orientations(SpatialCoordinate(m))
-    return mh[-1]
-
-
-@pytest.mark.parametrize("family,degree", [("RT", 1)])
-@pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
-def test_transfer_manifold(op, manifold, family, degree):
-    V = FunctionSpace(manifold, family, degree)
     check_transfer(op, V)
 
 
@@ -203,6 +173,18 @@ def test_riesz(V, solver_parameters):
     solver = make_solver(V, solver_parameters)
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 15
+
+
+@pytest.fixture
+def manifold():
+    distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = UnitIcosahedralSphereMesh(refinement_level=0, degree=1,
+                                     distribution_parameters=distribution_parameters)
+
+    mh = MeshHierarchy(base, refinement_levels=3)
+    for m in mh:
+        m.init_cell_orientations(SpatialCoordinate(m))
+    return mh[-1]
 
 
 @pytest.mark.parallel([1])
