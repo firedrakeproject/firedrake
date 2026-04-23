@@ -187,7 +187,8 @@ def manifold():
     return mh[-1]
 
 
-@pytest.mark.parallel([1])
+@pytest.mark.skipcomplexnoslate
+@pytest.mark.parallel([1, 3])
 def test_riesz_manifold(manifold, solver_parameters):
     V = FunctionSpace(manifold, "RT", 1)
     solver = make_solver(V, solver_parameters)
