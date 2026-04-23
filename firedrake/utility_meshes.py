@@ -2193,6 +2193,7 @@ def UnitIcosahedralSphereMesh(
         refinement_level=refinement_level,
         degree=degree,
         reorder=reorder,
+        distribution_parameters=distribution_parameters,
         comm=comm,
         name=name,
         distribution_name=distribution_name,

@@ -137,8 +137,9 @@ def _make_kernel_args(kernel, element, *args):
     # For further information, see the same note in interpolation.py.
     mask = [True] * len(args)
     # Drop source mesh quantities if they do not appear in the kernel.
-    mask[1] = kernel.needs_cell_sizes
-    mask[2] = kernel.needs_external_coords
+    mask[1] = kernel.oriented
+    mask[2] = kernel.needs_cell_sizes
+    mask[3] = kernel.needs_external_coords
     # Drop the target coordinates if the element is constant.
     is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
     mask[-1] = not is_constant
@@ -188,7 +189,8 @@ def prolong_kernel(expression, Vf):
         %(to_reference)s
         %(evaluate)s
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc%(cell_sizes)s)
+        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc
+                                         %(cell_orient)s%(cell_sizes)s)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -234,8 +236,9 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "R", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -245,6 +248,7 @@ def prolong_kernel(expression, Vf):
                "tdim": element.cell.get_spatial_dimension()}
 
         transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
+        transfer_kernel.oriented = kernel.oriented
         transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
         return cache.setdefault(key, transfer_kernel)
 
@@ -277,7 +281,8 @@ def restrict_kernel(Vf, Vc):
         %(evaluate)s
 
         __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc%(cell_sizes)s)
+        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc
+                                          %(cell_orient)s%(cell_sizes)s)
         {
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
@@ -323,8 +328,9 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "Ri", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -333,6 +339,7 @@ def restrict_kernel(Vf, Vc):
                "tdim": element.cell.get_spatial_dimension()}
 
         transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_restrict")
+        transfer_kernel.oriented = kernel.oriented
         transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
         return cache.setdefault(key, transfer_kernel)
 
