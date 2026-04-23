@@ -470,23 +470,21 @@ def refine(dm, comm):
     return fdm
 
 
-def attach_hooks(dm, level=None, sf=None, local_section=None, global_section=None):
+def attach_hooks(dm, level=None, sf=None, section=None):
     """Attach callback hooks to a DM.
 
     :arg DM: The DM to attach callbacks to.
     :arg level: Optional refinement level.
     :arg sf: Optional PETSc SF object describing the DM's ``points``.
-    :arg section: Optional PETSc Section object describing the DM's
+    :arg section: Optional (local) PETSc Section object describing the DM's
         data layout.
     """
     from firedrake.mg.ufl_utils import create_interpolation, create_injection
     # Data layout
     if sf is not None:
         dm.setPointSF(sf)
-    if local_section is not None:
-        dm.setLocalSection(local_section)
-    if global_section is not None:
-        dm.setGlobalSection(global_section)
+    if section is not None:
+        dm.setLocalSection(section)
 
     # Multilevel hierarchies
     dm.setRefine(refine)

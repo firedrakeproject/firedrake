@@ -44,9 +44,24 @@ __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
 
 @dataclasses.dataclass(frozen=True)
-class EntityDofMap:
+class EntityNodeMap:
     space: WithGeometry
     integral_type: str
+
+    def __init__(self, space: WithGeometry, integral_type: str) -> None:
+        if len(space) > 1:
+            raise NotImplementedError("Not expecting a mixed space here")
+
+        if space.parent:
+            # If we are a subspace then we want to discard this information
+            # because when this code is actually called PETSc will have
+            # pulled apart the spaces and so it will no longer be the case
+            # that they are stored contiguously. We therefore need maps
+            # starting from zero offset.
+            space = space.collapse()
+
+        object.__setattr__(self, "space", space)
+        object.__setattr__(self, "integral_type", integral_type)
 
     dtype = PETSc.IntType
 
@@ -54,11 +69,11 @@ class EntityDofMap:
     def values(self) -> np.ndarray:
         match self.integral_type:
             case "cell":
-                return self.space.cell_dof_map_array
+                return self.space.cell_node_map_array
             case "interior_facet":
-                return self.space.interior_facet_dof_map_array
+                return self.space.interior_facet_node_map_array
             case "exterior_facet":
-                return self.space.exterior_facet_dof_map_array
+                return self.space.exterior_facet_node_map_array
             case _:
                 raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
 
@@ -66,6 +81,10 @@ class EntityDofMap:
     def arity(self) -> int:
         _, arity_ = self.values.shape
         return arity_
+
+    @property
+    def cdim(self) -> int:
+        return self.space.block_size
 
 
 class PatchCallable:
@@ -153,8 +172,8 @@ class PatchCallable:
             state is not provided.
 
         """
-        args: list[tuple[op3.Dat, EntityDofMap | None] | op3.Scalar] = []
-        names: dict[op3.Dat | op3.Scalar | EntityDofMap, str] = {}
+        args: list[tuple[op3.Dat, EntityNodeMap | None] | op3.Scalar] = []
+        names: dict[op3.Dat | op3.Scalar | EntityNodeMap, str] = {}
         state_index: int | None = None
 
         dat_name_counter = itertools.count()
@@ -164,7 +183,7 @@ class PatchCallable:
         def add_dat(dat, map_):
             if dat not in names:
                 names[dat] = f"dat_{next(dat_name_counter)}"
-            if isinstance(map_, EntityDofMap):
+            if isinstance(map_, EntityNodeMap):
                 names[map_] = f"map_{next(map_name_counter)}"
             else:
                 assert isinstance(map_, numbers.Integral)
@@ -177,6 +196,8 @@ class PatchCallable:
 
         def add_coeff(coeff):
             space = coeff.function_space()
+            if len(space) > 1:
+                raise NotImplementedError("Currently do not support adding mixed coefficients")
             add_dat(coeff.dat, self._get_map(space))
 
         all_meshes = extract_domains(self.form)
@@ -230,7 +251,7 @@ class PatchCallable:
             if isinstance(arg, tuple):  # (dat, map)
                 dat, map_ = arg
                 flat_args.append(dat)
-                if isinstance(map_, EntityDofMap) and map_ not in maps:
+                if isinstance(map_, EntityNodeMap) and map_ not in maps:
                     maps.append(map_)
             else:
                 flat_args.append(arg)
@@ -240,8 +261,8 @@ class PatchCallable:
     def _mesh(self):
         return extract_domains(self.form)[self.kinfo.domain_number]
 
-    def _get_map(self, space: WithGeometry) -> EntityDofMap:
-        return EntityDofMap(space, self.kinfo.integral_type)
+    def _get_map(self, space: WithGeometry) -> EntityNodeMap:
+        return EntityNodeMap(space, self.kinfo.integral_type)
 
     @cached_property
     def _wrapper_kernel_code(self) -> str:
@@ -253,10 +274,14 @@ class PatchCallable:
 
         # handle the output temporary
         temp_name = f"t_{next(temp_counter)}"
-        sizes = [
-            self._get_map(space).arity
-            for space in map(operator.methodcaller("function_space"), self.form.arguments())
-        ]
+        spaces = map(operator.methodcaller("function_space"), self.form.arguments())
+        sizes = []
+        for space in spaces:
+            size = 0
+            for subspace in space:
+                map_ = self._get_map(subspace)
+                size += map_.arity * map_.cdim
+            sizes.append(size)
         if len(self.form.arguments()) == 2:
             row_size, column_size = sizes
 
@@ -299,15 +324,18 @@ for (int32_t k=0; k<{size}; k++) {{
                 if isinstance(map_, numbers.Integral):
                     local_kernel_args.append(f"&({dat_name}[{map_}*j])")
                 else:
+                    arity, cdim = map_.arity, map_.cdim
+
                     temp_name = f"t_{next(temp_counter)}"
                     map_name = self._names[map_]
-                    temps.append((temp_name, (map_.arity,)))
+                    temps.append((temp_name, (arity, cdim)))
 
                     local_kernel_args.append(temp_name)
 
                     pack_insn = f"""\
-for (int32_t k=0; k<{map_.arity}; k++)
-  {temp_name}[k] = {dat_name}[{map_name}[j*{map_.arity}+k]];"""
+for (int32_t k=0; k<{arity}; k++)
+  for (int32_t l=0; l<{cdim}; l++)
+    {temp_name}[{cdim}*k+l] = {dat_name}[{map_name}[j*{arity}+k]*{cdim}+l];"""
                     pack_insns.append(pack_insn)
 
             else:
@@ -943,15 +971,23 @@ class PatchBase(PCSNESBase):
         patch.setDM(self.plex)
         patch.setPatchCellNumbering(mesh_unique._old_to_new_cell_numbering)
 
-        breakpoint()
-        mytest = pyop3.sf.create_petsc_section_sf(V[1].mesh().topology_dm.getPointSF(), V[1].local_section)
+        dms = []
+        block_sizes = []
+        node_maps = []
+        offsets = []
+        offset = 0
+        for Vsub in V:
+            dms.append(Vsub.dm)
+            # for some reason only the cell->node map is wanted here regardless of integral type
+            Vsub_node_map = EntityNodeMap(Vsub, "cell")
+            block_sizes.append(Vsub_node_map.cdim)
+            node_maps.append(Vsub_node_map.values)
+            offsets.append(offset)
+            offset += Vsub.dof_count
+        patch.setPatchDiscretisationInfo(
+            dms, block_sizes, node_maps, offsets, ghost_bc_nodes, global_bc_nodes
+        )
 
-        patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         numpy.array([1 for W in V], dtype=PETSc.IntType),
-                                         [W.cell_dof_map_array for W in V],
-                                         numpy.array([0 for W in V], dtype=PETSc.IntType),
-                                         ghost_bc_nodes,
-                                         global_bc_nodes)
         patch.setPatchConstructType(PETSc.PC.PatchConstructType.PYTHON, operator=self.user_construction_op)
         patch.setAttr("ctx", ctx)
         patch.incrementTabLevel(1, parent=obj)
@@ -1054,5 +1090,5 @@ def _(dat: op3.Dat):
 
 
 @_get_ctypes_arg.register
-def _(map_: EntityDofMap):
+def _(map_: EntityNodeMap):
     return map_.values.ctypes.data

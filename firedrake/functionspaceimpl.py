@@ -5,6 +5,7 @@ classes for attaching extra information to instances of these.
 """
 from __future__ import annotations
 
+import abc
 import collections
 import dataclasses
 import functools
@@ -43,7 +44,7 @@ from firedrake.cython import extrusion_numbering as extnum
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies, get_iteration_spec
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType
+from firedrake.utils import IntType, deprecated
 
 
 def check_element(element, top=True):
@@ -630,6 +631,10 @@ class AxisConstraint:
 
 class AbstractFunctionSpace:
 
+    # {{{ data layout
+
+    # }}}
+
     # {{{ PETSc
 
     @cached_property
@@ -639,10 +644,33 @@ class AbstractFunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
+    @property
+    @abc.abstractmethod
+    def section(self) -> PETSc.Section:
+        """Docs"""
+
+    @property
+    @deprecated("section")
+    def local_section(self):
+        return self.section
+
+    @cached_property
+    @_with_mesh_heavy_cache
+    def template_vec(self) -> PETSc.Vec:
+        """Dummy PETSc Vec of the right size for this set of axes."""
+        vec = PETSc.Vec().create(comm=self.comm)
+        axes = self.layout_axes.materialize()  # discard parent information
+        vec.setSizes(
+            (axes.owned.local_size, axes.global_size),
+            bsize=self.block_size,
+        )
+        vec.setUp()
+        return vec
+
     # }}}
 
 
-    # {{{ entity/offset maps
+    # {{{ entity->node/offset maps
 
     @cached_property
     def cell_node_map(self) -> op3.Map:
@@ -683,24 +711,38 @@ class AbstractFunctionSpace:
     def interior_facet_node_map_dat(self) -> op3.Dat:
         return self._iterset_to_node_map_dat("interior_facet")
 
-    # TODO bad name, call cell_node_map_array instead
     @cached_property
-    def cell_node_list(self) -> numpy.ndarray:
+    def cell_node_map_array(self) -> numpy.ndarray:
         """Return an array mapping mesh cells to function space nodes."""
         values = self.cell_node_map_dat.data_ro
         return values.reshape((self.mesh().unique().cells.owned.local_size, -1))
 
-    @cached_property
-    def exterior_facet_node_list(self) -> numpy.ndarray:
-        """Return an array mapping exterior facets to function space nodes."""
-        values = self.exterior_facet_node_dat.data_ro
-        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+    @property
+    @deprecated("cell_node_map_array")
+    def cell_node_list(self) -> numpy.ndarray:
+        return self.cell_node_map_array
 
     @cached_property
-    def interior_facet_node_list(self) -> numpy.ndarray:
+    def exterior_facet_node_map_array(self) -> numpy.ndarray:
+        """Return an array mapping exterior facets to function space nodes."""
+        values = self.exterior_facet_node_map_dat.data_ro
+        return values.reshape((self.mesh().unique().exterior_facets.owned.local_size, -1))
+
+    @property
+    @deprecated("exterior_facet_node_map_array")
+    def exterior_facet_node_list(self) -> numpy.ndarray:
+        return self.exterior_facet_node_map_array
+
+    @cached_property
+    def interior_facet_node_map_array(self) -> numpy.ndarray:
         """Return an array mapping interior facets to function space nodes."""
-        values = self.interior_facet_node_dat.data_ro
+        values = self.interior_facet_node_map_dat.data_ro
         return values.reshape((self.mesh().unique().interior_facets.owned.local_size, -1))
+
+    @property
+    @deprecated("interior_facet_node_map_array")
+    def interior_facet_node_list(self) -> numpy.ndarray:
+        return self.interior_facet_node_map_array
 
     @cached_property
     def cell_dof_map_dat(self) -> op3.Dat:
@@ -1181,7 +1223,7 @@ class FunctionSpace(AbstractFunctionSpace):
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
-                             local_section=self.local_section, global_section=self.global_section)
+                             section=self.section)
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm
@@ -1207,20 +1249,6 @@ class FunctionSpace(AbstractFunctionSpace):
         base_section.setPermutation(base_mesh._dm_renumbering)
         base_section.setUp()
         return base_section
-
-    @cached_property
-    @_with_mesh_heavy_cache
-    def template_vec(self):
-        """Dummy PETSc Vec of the right size for this set of axes."""
-        if self.parent:
-            return self.parent.template_vec
-        vec = PETSc.Vec().create(comm=self.comm)
-        vec.setSizes(
-            (self.layout_axes.owned.local_size, self.layout_axes.global_size),
-            bsize=self.block_size,
-        )
-        vec.setUp()
-        return vec
 
     @cached_property
     @utils.deprecated("field_ises")
@@ -1252,22 +1280,21 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     @_mesh_cached
-    def local_section(self):
+    def section(self):
         from firedrake.cython import dmcommon
+
+        # The section is defined as if the data exists in isolation, so we don't
+        # care if it is an unmixed space or a component of a mixed space.
+        axes = self.layout_axes.materialize()
 
         # TODO: This can be made generic to all layouts if we just specify the mesh axis here somehow
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
-        axis_section = self.layout_axes.section({}, "mylabel")
+        axis_section = axes.section({}, "mylabel")
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
         return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
-
-    @cached_property
-    @_mesh_cached
-    def global_section(self):
-        return _create_global_section(self.local_section, self.axes.owned.local_size, self.mesh().topology_dm.getPointSF())
 
     @cached_property
     def topological(self):
@@ -1692,7 +1719,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     @_mesh_cached
-    def local_section(self):
+    def section(self):
         raise NotImplementedError("Default data layout of mixed (fields outermost) "
                                   "prohibits making a section")
 
@@ -1866,18 +1893,6 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         _, level = get_level(self.mesh()[0])
         dmhooks.attach_hooks(dm, level=level)
         return dm
-
-    # NOTE: this is the same as for the non-mixed case, should rejig types
-    @cached_property
-    def template_vec(self):
-        """Dummy PETSc Vec of the right size for this function space."""
-        vec = PETSc.Vec().create(comm=self.comm)
-        vec.setSizes(
-            (self.layout_axes.owned.local_size, self.layout_axes.global_size),
-            bsize=self.block_size,
-        )
-        vec.setUp()
-        return vec
 
     # FIXME: This loses information for proxy spaces
     def collapse(self):
@@ -2423,21 +2438,3 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)
-
-
-def _create_global_section(local_section: PETSc.Section, local_size: int, point_sf: PETSc.SF) -> PETSc.Section:
-    if point_sf.comm.size > 1:
-        # see https://petsc.org/release/manualpages/PetscSection/PetscSectionCreateGlobalSection/
-        raise NotImplementedError("TODO: need to invert ghost entries...")
-
-    global_section = local_section.clone()
-
-    # Take the local offsets and add an offset that is the number of local DoFs. We
-    # can't use any existing PETSc routines for this (e.g. createGlobalSection) because
-    # those assume that the DoFs in the local section sum to the total number of local
-    # DoFs, which isn't true for subspaces of a mixed function space.
-    start = point_sf.comm.tompi4py().exscan(local_size) or 0
-    for p in range(*local_section.getChart()):
-        offset = local_section.getOffset(p)
-        global_section.setOffset(p, offset+start)
-    return global_section

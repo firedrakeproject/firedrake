@@ -49,7 +49,8 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         f = Function(V)
         fval = numpy.full(V.sub(i).value_shape, 1.0, dtype=float)
         f.sub(i).interpolate(Constant(fval))
-        a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
+        # a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
+        a = inner(grad(u), grad(v))*dx  # debugging without function
         L = inner(Constant(rhs), v)*dx
         bcs = [DirichletBC(Q, 0, "on_boundary")
                for Q in V.subspaces]
