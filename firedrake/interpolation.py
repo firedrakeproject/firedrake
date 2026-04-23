@@ -47,7 +47,7 @@ from firedrake.exceptions import (
 
 from mpi4py import MPI
 
-from pyadjoint.tape import stop_annotating, no_annotations
+from pyadjoint.tape import no_annotations
 
 __all__ = (
     "interpolate",
@@ -827,6 +827,18 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
     def __init__(self, expr: Interpolate):
         super().__init__(expr)
+        if self.source_mesh.input_ordering is self.target_mesh:
+            # The forward interpolation is a star forest reduction
+            self.forward_reduce = True
+            self.original_vom = self.source_mesh
+        elif self.target_mesh.input_ordering is self.source_mesh:
+            # The forward interpolation is a star forest broadcast
+            self.forward_reduce = False
+            self.original_vom = self.target_mesh
+        else:
+            raise ValueError(
+                "The target vom and source vom must be linked by input ordering!"
+            )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         if bcs:
@@ -839,10 +851,10 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
-                
+
                 def callable() -> Cofunction:
                     with self.dual_arg.dat.vec_ro as source_vec:
-                        coeff = self.expr_as_coeff(source_vec)
+                        coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh, source_vec)
                         with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
                             self.mat.multHermitian(coeff_vec, target_vec)
                     return f
@@ -850,7 +862,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 assert isinstance(f, Function)
 
                 def callable() -> Function:
-                    coeff = self.expr_as_coeff()
+                    coeff = expr_as_coeff(self.target_space, self.operand, self.ufl_interpolate.is_adjoint, self.source_mesh)
                     with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
                         self.mat.mult(coeff_vec, target_vec)
                     return f
@@ -866,16 +878,22 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 return self.mat
 
         return callable
-    
+
     def _build_python_mat(self, mpi_type) -> PETSc.Mat:
         # In this case mat_type="matfree", so we use the SF wrapped as a PETSc Mat
         # to perform the permutation.
-        forward_reduce, original_vom = self._get_permutation_direction()
-        source_size, target_size, _, _ = self._get_mat_sizes(original_vom)
-        ctx = VomOntoVomMatContext(self)
+        source_size, target_size, _, _ = self._get_mat_sizes()
+        ctx = VomOntoVomMatContext(
+            self.original_vom.input_ordering_without_halos_sf,
+            self.forward_reduce,
+            self.target_space,
+            self.source_mesh,
+            self.operand,
+            self.ufl_interpolate.is_adjoint,
+        )
         ctx.mpi_type = mpi_type
         mat = PETSc.Mat().create(comm=self.source_mesh.comm)
-        if forward_reduce:
+        if self.forward_reduce:
             mat_size = (source_size, target_size)
         else:
             mat_size = (target_size, source_size)
@@ -894,9 +912,8 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         PETSc.Mat
             PETSc seqaij matrix
         """
-        # Calculate correct local and global sizes for the matrix
-        forward_reduce, original_vom = self._get_permutation_direction()
-        source_size, target_size, nleaves, local_sizes = self._get_mat_sizes(original_vom)
+        # Get correct local and global sizes for the matrix
+        source_size, target_size, nleaves, local_sizes = self._get_mat_sizes()
         if mat_type == "baij" and self.target_space.block_size > 1:
             create = PETSc.Mat().createBAIJ
         else:
@@ -914,15 +931,16 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
-        self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        sf = self.original_vom.input_ordering_without_halos_sf
+        sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(target_size[0] + 1, dtype=IntType)
         # Vector and Tensor valued functions are stored in a flattened array, so
         # we need to space out the column indices according to the block size
         cols = (self.target_space.block_size * perm[:, None] + numpy.arange(self.target_space.block_size, dtype=IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=IntType))
         mat.assemble()
-        if forward_reduce and not self.ufl_interpolate.is_adjoint:
+        if self.forward_reduce and not self.ufl_interpolate.is_adjoint:
             # The mat we have constructed thus far takes us from the input-ordering VOM to the
             # immersed VOM. If we're going the other way, then we need to transpose it,
             # unless we're doing the adjoint interpolation, since source_mesh and target_mesh
@@ -930,23 +948,8 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             mat.transpose()
         return mat
 
-    def _get_permutation_direction(self):
-        if self.source_mesh.input_ordering is self.target_mesh:
-            # The forward interpolation is a star forest reduction
-            forward_reduce = True
-            original_vom = self.source_mesh
-        elif self.target_mesh.input_ordering is self.source_mesh:
-            # The forward interpolation is a star forest broadcast
-            forward_reduce = False
-            original_vom = self.target_mesh
-        else:
-            raise ValueError(
-                "The target vom and source vom must be linked by input ordering!"
-            )
-        return forward_reduce, original_vom
-    
-    def _get_mat_sizes(self, original_vom):
-        nroots, leaves, _ = original_vom.input_ordering_without_halos_sf.getGraph()
+    def _get_mat_sizes(self):
+        nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
         nleaves = len(leaves)
         local_sizes = self.target_space.comm.allgather(nroots)
         source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(local_sizes))
@@ -955,54 +958,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             self.target_space.block_size * self.target_space.comm.allreduce(nleaves, op=MPI.SUM),
         )
         return source_size, target_size, nleaves, local_sizes
-
-    def expr_as_coeff(self, source_vec: PETSc.Vec | None = None) -> Function:
-        """Return a Function that corresponds to the expression used at
-        construction, where the expression has been interpolated into the P0DG
-        function space on the source vertex-only mesh.
-
-        Will fail if there are no arguments.
-
-        Parameters
-        ----------
-        source_vec : PETSc.Vec | None, optional
-            Optional vector used to replace arguments in the expression.
-            By default None.
-
-        Returns
-        -------
-        Function
-            A Function representing the expression as a coefficient on the
-            source vertex-only mesh.
-
-        """
-        # Since we always output a coefficient when we don't have arguments in
-        # the expression, we should evaluate the expression on the source mesh
-        # so its dat can be sent to the target mesh.
-        with stop_annotating():
-            element = self.target_space.ufl_element()  # Could be vector/tensor valued
-            # if we have any arguments in the expression we need to replace
-            # them with equivalent coefficients now
-            arguments = extract_arguments(self.operand)
-            if len(arguments):
-                if len(arguments) > 1:
-                    raise NotImplementedError("Can only interpolate expressions with one argument!")
-                if source_vec is None:
-                    raise ValueError("Need to provide a source dat for the argument!")
-
-                arg = arguments[0]
-                source_space = arg.function_space()
-                P0DG = FunctionSpace(self.target_mesh if self.ufl_interpolate.is_adjoint else self.source_mesh, element)
-                arg_coeff = Function(self.target_space if self.ufl_interpolate.is_adjoint else source_space)
-                arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
-                    arg_coeff.dat.data_wo.shape
-                )
-                coeff_expr = replace(self.operand, {arg: arg_coeff})
-                coeff = Function(P0DG).interpolate(coeff_expr)
-            else:
-                P0DG = FunctionSpace(self.source_mesh, element)
-                coeff = Function(P0DG).interpolate(self.operand)
-        return coeff
 
     @property
     def _allowed_mat_types(self):
@@ -1405,44 +1360,108 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_c
     )
 
 
+@no_annotations
+def expr_as_coeff(
+        target_space: WithGeometry,
+        operand: Expr,
+        is_adjoint: bool,
+        source_mesh: MeshGeometry,
+        source_vec: PETSc.Vec | None = None,
+) -> Function:
+    """Return a Function that corresponds to the expression used at
+    construction, where the expression has been interpolated into the P0DG
+    function space on the source vertex-only mesh.
+
+    Parameters
+    ----------
+    target_space : WithGeometry
+        The function space on the target mesh which the expression is being
+        interpolated into.
+    operand : Expr
+        The expression being interpolated.
+    is_adjoint : bool
+        Whether the interpolation is an adjoint interpolation.
+    source_mesh : MeshGeometry
+        The source vertex-only mesh on which the expression should be evaluated.
+    source_vec : PETSc.Vec | None, optional
+        Optional vector used to replace arguments in the expression.
+        By default None.
+
+    Returns
+    -------
+    Function
+        A Function representing the expression as a coefficient on the
+        source vertex-only mesh.
+
+    """
+    # Since we always output a coefficient when we don't have arguments in
+    # the expression, we should evaluate the expression on the source mesh
+    # so its dat can be sent to the target mesh.
+    element = target_space.ufl_element()  # Could be vector/tensor valued
+    # if we have any arguments in the expression we need to replace
+    # them with equivalent coefficients now
+    target_mesh = target_space.mesh()
+    arguments = extract_arguments(operand)
+    if len(arguments):
+        if len(arguments) > 1:
+            raise NotImplementedError("Can only interpolate expressions with one argument!")
+        if source_vec is None:
+            raise ValueError("Need to provide a source dat for the argument!")
+        arg = arguments[0]
+        source_space = arg.function_space()
+        P0DG = FunctionSpace(target_mesh if is_adjoint else source_mesh, element)
+        arg_coeff = Function(target_space if is_adjoint else source_space)
+        arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
+            arg_coeff.dat.data_wo.shape
+        )
+        coeff_expr = replace(operand, {arg: arg_coeff})
+        return Function(P0DG).interpolate(coeff_expr)
+    else:
+        P0DG = FunctionSpace(source_mesh, element)
+        return Function(P0DG).interpolate(operand)
+
+
 class VomOntoVomMatContext:
-    """
-    Object that facilitates interpolation between a VertexOnlyMesh and its
-    input_ordering VertexOnlyMesh. This is either a PETSc Star Forest wrapped
-    as a PETSc Mat, or a concrete PETSc Mat, depending on whether
-    `mat_type='matfree` is passed to assemble.
-    """
-    def __init__(self, interpolator: VomOntoVomInterpolator):
-        """Initialise the VomOntoVomMat.
+    """Object that facilitates matfree interpolation between a VertexOnlyMesh and its
+    input_ordering VertexOnlyMesh. This wraps the star forest representing the permutation
+    between the VOMs and advertises it as a PETSc Mat.
 
-        Parameters
-        ----------
-        interpolator : VomOntoVomInterpolator
-            A :class:`VomOntoVomInterpolator` object.
+    Parameters
+    ----------
+    sf : PETSc.SF
+        The PETSc Star Forest representing the permutation between the VOMs.
+    forward_reduce : bool
+        True if the forward interpolation is a reduction, False if it is a broadcast.
+    target_space : WithGeometry
+        The FunctionSpace being interpolated into.
+    source_vom : MeshGeometry
+        The VOM being interpolated from.
+    operand : Expr
+        The expression being interpolated.
+    is_adjoint : bool
+        Whether the interpolation is an adjoint interpolation.
 
-        Raises
-        ------
-        ValueError
-            If the source and target vertex-only meshes are not linked by input_ordering.
-        """
-        forward_reduce, original_vom = interpolator._get_permutation_direction()
-        self.interpolator = interpolator
+    Raises
+    ------
+    ValueError
+        If the source and target vertex-only meshes are not linked by input_ordering.
+    """
+    def __init__(
+            self,
+            sf: PETSc.SF,
+            forward_reduce: bool,
+            target_space: WithGeometry,
+            source_vom: MeshGeometry,
+            operand: Expr,
+            is_adjoint: bool,
+    ):
+
         self.forward_reduce = forward_reduce
-        """True if the forward interpolation is a reduction, False if it is a broadcast."""
-        self.sf = original_vom.input_ordering_without_halos_sf
-        """The PETSc Star Forest representing the permutation between the VOMs."""
-        self.target_space = interpolator.target_space
-        """The FunctionSpace being interpolated into."""
-        self.target_vom = interpolator.target_mesh
-        """The VOM being interpolated to."""
-        self.source_vom = interpolator.source_mesh
-        """The VOM being interpolated from."""
-        self.operand = interpolator.operand
-        """The expression in the primal slot of the Interpolate."""
-        self.arguments = extract_arguments(self.operand)
-        """The arguments of the expression being interpolated."""
-        self.is_adjoint = interpolator.ufl_interpolate.is_adjoint
-        """Are we doing the adjoint interpolation?"""
+        self.sf = sf
+        self.target_space = target_space
+        self.source_vom = source_vom
+        self.operand = operand
+        self.is_adjoint = is_adjoint
 
     @property
     def mpi_type(self):
@@ -1523,7 +1542,7 @@ class VomOntoVomMatContext:
         """
         # Need to convert the expression into a coefficient
         # so that we can broadcast/reduce it
-        coeff = self.interpolator.expr_as_coeff(source_vec)
+        coeff = expr_as_coeff(self.target_space, self.operand, self.is_adjoint, self.source_vom, source_vec)
         with coeff.dat.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
