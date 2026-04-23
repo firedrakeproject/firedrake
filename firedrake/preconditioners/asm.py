@@ -512,7 +512,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                                     zlice = slice(W.block_size * begin, W.block_size * end)
                                     indices.extend(iset[zlice])
 
-                    indices = numpy.array(indices)
+                    indices = numpy.array(indices, dtype=PETSc.IntType)
                     indices = indices[indices >= 0]
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
@@ -642,7 +642,7 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
     """
     points = get_star_points(mesh_dm, ordering, prefix, seed_points)
     indices = get_entity_dofs(V, V_local_ises_indices, points)
-    indices = numpy.array(indices)
+    indices = numpy.array(indices, dtype=PETSc.IntType)
     indices = indices[indices >= 0]
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
@@ -689,7 +689,7 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
         indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
 
-    indices = numpy.array(indices)
+    indices = numpy.array(indices, dtype=PETSc.IntType)
     indices = indices[indices >= 0]
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
