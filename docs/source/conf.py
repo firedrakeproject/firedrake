@@ -143,6 +143,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'progress\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
+    ('py:class', 'pyop2.op2.Kernel'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -180,7 +181,8 @@ linkcheck_ignore = [
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
-    r'https://buy.crosscountrytrains.co.uk'
+    r'https://www.ox.ac.uk',
+    r'https://buy.crosscountrytrains.co.uk',
 ]
 linkcheck_timeout = 30
 

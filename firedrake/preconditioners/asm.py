@@ -179,7 +179,7 @@ class ASMStarPC(ASMPatchPC):
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = get_local_ises_indices(V)
 
         # Build index sets for the patches
         colors = get_colors(mesh_dm, use_coloring, depth, distance=1)
@@ -242,7 +242,7 @@ class ASMVankaPC(ASMPatchPC):
         Z = splitting(V)
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_local_ises_indices = get_local_ises_indices(V)
         Z_local_ises_indices = splitting(V_local_ises_indices)
 
         # Build index sets for the patches
@@ -285,6 +285,10 @@ class ASMLinesmoothPC(ASMPatchPC):
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
 
+        if len(V) > 1:
+            raise NotImplementedError("Not implemeneted for mixed spaces")
+        V_local_ises_indices = get_local_ises_indices(V)
+
         # Build index sets for the patches
         ises = []
         for codim in codim_list:
@@ -296,7 +300,10 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
+                zlice = slice(off*V.block_size, V.block_size * (off + dof))
+
+                indices = V_local_ises_indices[0][zlice]
+                indices = indices[indices >= 0]
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -409,7 +416,7 @@ class ASMExtrudedStarPC(ASMStarPC):
 
         # Accessing .indices causes the allocation of a global array,
         # so we need to cache these for efficiency
-        V_ises = tuple(iset.indices for iset in V.dof_dset.local_ises)
+        V_ises = get_local_ises_indices(V)
         basemeshoff = []
         basemeshdof = []
         basemeshlayeroffsets = []
@@ -504,9 +511,23 @@ class ASMExtrudedStarPC(ASMStarPC):
                                         end = off + (layer + 1) * blayer_offset
                                     zlice = slice(W.block_size * begin, W.block_size * end)
                                     indices.extend(iset[zlice])
+
+                    indices = numpy.array(indices)
+                    indices = indices[indices >= 0]
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                     ises.append(iset)
         return ises
+
+
+def get_local_ises_indices(V):
+    """Return the local indices of each subspace of V.
+    The restricted DOFs will be masked for a RestrictedFunctionSpace.
+    """
+    V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
+    for Vi, indices in zip(V, V_local_ises_indices):
+        if Vi.boundary_set:
+            indices[Vi.dof_dset.lgmap.indices == -1] = -1
+    return V_local_ises_indices
 
 
 def validate_overlap(mesh, patch_dim, patch_type):
@@ -621,6 +642,8 @@ def build_star_indices(V, V_local_ises_indices, mesh_dm, ordering, prefix, seed_
     """
     points = get_star_points(mesh_dm, ordering, prefix, seed_points)
     indices = get_entity_dofs(V, V_local_ises_indices, points)
+    indices = numpy.array(indices)
+    indices = indices[indices >= 0]
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
 
@@ -666,5 +689,7 @@ def build_vanka_indices(Z, Z_local_ises_indices, mesh_dm, ordering, prefix, incl
         indices.extend(get_entity_dofs(Z[0], Z_local_ises_indices[0], V_points))
         indices.extend(get_entity_dofs(Z[1], Z_local_ises_indices[1], Q_points))
 
+    indices = numpy.array(indices)
+    indices = indices[indices >= 0]
     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
     return iset
