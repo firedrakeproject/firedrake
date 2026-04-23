@@ -18,8 +18,10 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "fenics-ufl>=2025.3",
-  "firedrake-fiat>=2026.4",
+  # TODO RELEASE
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
+  # TODO RELEASE
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
   "h5py>3.12.1",
   "firedrake-rtree",
   "immutabledict",
@@ -27,7 +29,8 @@ dependencies = [
   "loopy>2024.1",
   "numpy",
   "packaging",
-  "petsc4py==3.25.0",
+  # TODO RELEASE
+  # "petsc4py==3.25.0",
   "petsctools>=2026.0",
   "pkgconfig",
   "progress",
@@ -89,9 +92,10 @@ jax = [
 netgen = [
   "ngsPETSc>=0.2.0",
 ]
-slepc = [
-  "slepc4py==3.25.0",
-]
+# TODO RELEASE
+# slepc = [
+#   "slepc4py==3.25.0",
+# ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
 ]
@@ -116,7 +120,8 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.25.0",
+# TODO RELEASE
+#  "slepc4py==3.25.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -134,7 +139,8 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.25.0",
+  # TODO RELEASE 
+  # "slepc4py==3.25.0",
   "vtk",
 ]
 
@@ -146,7 +152,8 @@ requires = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
-  "petsc4py==3.25.0",
+  # TODO RELEASE
+  # "petsc4py==3.25.0",
   "petsctools",
   "pkgconfig",
   "pybind11",
