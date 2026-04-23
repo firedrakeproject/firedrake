@@ -833,6 +833,11 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
         mat_type = mat_type or "matfree"
         self.mat = VomOntoVomMat(self, mat_type=mat_type)
+        mat_handle = self.mat.handle
+        if mat_type == "matfree":
+            # The python mat handle has a reference to VomOntoVomMat, so we break it here
+            # to avoid memory leaks.
+            self.mat.handle = None
         if self.rank == 1:
             f = tensor or self._get_tensor(mat_type)
             # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
@@ -848,7 +853,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                     with self.dual_arg.dat.vec_ro as source_vec:
                         coeff = self.mat.expr_as_coeff(source_vec)
                         with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                            self.mat.handle.multHermitian(coeff_vec, target_vec)
+                            mat_handle.multHermitian(coeff_vec, target_vec)
                     return f
             else:
                 assert isinstance(f, Function)
@@ -856,7 +861,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 def callable() -> Function:
                     coeff = self.mat.expr_as_coeff()
                     with coeff.dat.vec_ro as coeff_vec, f.dat.vec_wo as target_vec:
-                        self.mat.handle.mult(coeff_vec, target_vec)
+                        mat_handle.mult(coeff_vec, target_vec)
                     return f
         elif self.rank == 2:
             # Create a temporary function to get the correct MPI type
@@ -864,7 +869,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             self.mat.mpi_type = _get_mtype(temp_source_func.dat)[0]
 
             def callable() -> PETSc.Mat:
-                return self.mat.handle
+                return mat_handle
 
         return callable
 
