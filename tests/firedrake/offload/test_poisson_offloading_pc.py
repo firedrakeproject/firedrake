@@ -2,15 +2,12 @@ from firedrake import *
 import pytest
 
 
-# TODO: add marker for cuda pytests and something to check if cuda memory was really used
+# TODO: add something to check if cuda memory was really used(?)
 @pytest.mark.skipnogpu
 @pytest.mark.parametrize(
     "ksp_type, pc_type", [("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")]
 )
 def test_poisson_offload(ksp_type, pc_type):
-
-    # Different tests for poisson: cg and pctype sor, --ksp_type=cg --pc_type=gamg
-    print(f"Using ksp_type = {ksp_type}, and pc_type = {pc_type}.", flush=True)
 
     nested_parameters = {
         "pc_type": "ksp",
@@ -47,6 +44,7 @@ def test_poisson_offload(ksp_type, pc_type):
 
     # Exact solution
     sol = Function(V)
+    sol.interpolate(sin(pi*x)*sin(pi*y))
     R = action(L, sol)
 
     # Solution function
@@ -56,7 +54,6 @@ def test_poisson_offload(ksp_type, pc_type):
     solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
     error = errornorm(u_f, sol)
-    print(f"Error norm = {error}", flush=True)
     assert error < 1.0e-9
 
 

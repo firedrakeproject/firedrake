@@ -23,9 +23,12 @@ class OffloadPC(PCBase):
 
     _prefix = "offload_"
 
-    def initialize(self, pc):
-        # Check if our PETSc installation is GPU enabled
+    def call_device_vec_impl(self, x, func_name: str, func_args=(), func_kwargs={}):
+        return getattr(x, _device_vector_impls[self.device_type][func_name])(
+            *func_args, **func_kwargs
+        )
 
+    def initialize(self, pc):
         A, P = pc.getOperators()
 
         if pc.type != "python":
@@ -33,7 +36,7 @@ class OffloadPC(PCBase):
         opc = pc
         if P.type == "python":
             context = P.getPythonContext()
-            # It only makes sense to preconditioner/invert a diagonal
+            # It only makes sense to precondition/invert a diagonal
             # block in general.  That's all we're going to allow.
             if not context.on_diag:
                 raise ValueError("Only makes sense to invert diagonal block")
@@ -42,6 +45,7 @@ class OffloadPC(PCBase):
         options_prefix = prefix + self._prefix
 
         self.device_mat = device_matrix_type(pc.comm.rank == 0)
+        self.device_type = get_device_type()
         dm = opc.getDM()
 
         pc = PETSc.PC().create(comm=opc.comm)
@@ -50,20 +54,17 @@ class OffloadPC(PCBase):
         if self.device_mat is not None:
             with PETSc.Log.Event("Event: initialize offload"):
                 P_dev = P.convert(mat_type=self.device_mat)
-                A_dev = A.convert(mat_type=self.device_mat)
+                A_dev = P_dev if A.handle == P.handle else A.convert(mat_type=self.device_mat)
             P_dev.setNullSpace(P.getNullSpace())
             P_dev.setTransposeNullSpace(P.getTransposeNullSpace())
             P_dev.setNearNullSpace(P.getNearNullSpace())
-            self.vector_impls = _device_vector_impls[get_device_type()]
             pc.setOperators(A_dev, P_dev)
         else:
             pc.setOperators(A, P)
 
         # Simplest reconstruction we can manage
         octx = dmhooks.get_appctx(dm)
-        self._ctx_ref = octx.reconstruct(
-            problem=None, mat_type=self.device_mat, pmat_type=self.device_mat
-        )
+        self._ctx_ref = octx.reconstruct(mat_type=self.device_mat, pmat_type=self.device_mat)
         self.pc = pc
 
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
@@ -73,39 +74,38 @@ class OffloadPC(PCBase):
         A, P = pc.getOperators()
         A_dev, P_dev = self.pc.getOperators()
         P.copy(P_dev)
-        A.copy(A_dev)
+        if A_dev.handle != P_dev.handle:
+            A.copy(A_dev)
 
     # Convert vectors to CUDA, solve and get solution on CPU back
-    def apply(self, pc, x, y):
+    def apply(self, pc, x, y, transpose=False):
+        pc_apply = self.pc.applyTranspose if transpose else self.pc.apply
+        dm = pc.getDM()
         if self.device_mat is None:
-            self.pc.apply(x, y)
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+                pc_apply(x, y)
         else:
             with PETSc.Log.Event("Event: apply offload"):  #
-                dm = pc.getDM()
                 with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
                     with PETSc.Log.Event("Event: vectors offload"):
                         # Create the to-be-offloaded vector
                         y_dev = PETSc.Vec()
                         # Use device implementation of 'createWithArrays' function
-                        getattr(y_dev, self.vector_impls["createWithArrays"])(
-                            y.array_r, None
-                        )
+                        self.call_device_vec_impl(y_dev, "createWithArrays", (y.array_r, None))
                         # Create the to-be-offloaded vector
                         x_dev = PETSc.Vec()
                         # Use device implementation of 'createWithArrays' function
-                        getattr(x_dev, self.vector_impls["createWithArrays"])(
-                            x.array_r, None
-                        )
+                        self.call_device_vec_impl(x_dev, "createWithArrays", (x.array_r, None))
                     with PETSc.Log.Event("Event: solve"):
-                        self.pc.apply(x_dev, y_dev)
+                        pc_apply(x_dev, y_dev)
                     with PETSc.Log.Event("Event: vectors copy back"):
                         # y is already designated as host storage for y_dev, so calling
                         # getArray is sufficient to synchronise the vector on the device
                         # with y on the host
                         y_dev.getArray(True)
 
-    def applyTranspose(self, pc, X, Y):
-        raise NotImplementedError
+    def applyTranspose(self, pc, x, y):
+        self.apply(pc, x, y, transpose=True)
 
     def view(self, pc, viewer=None):
         super().view(pc, viewer)
