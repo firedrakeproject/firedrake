@@ -180,7 +180,6 @@ def manifold():
     distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     base = UnitIcosahedralSphereMesh(refinement_level=0, degree=1,
                                      distribution_parameters=distribution_parameters)
-
     mh = MeshHierarchy(base, refinement_levels=3)
     for m in mh:
         m.init_cell_orientations(SpatialCoordinate(m))
