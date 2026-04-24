@@ -1236,12 +1236,6 @@ class StandaloneInterpolationMatrix(object):
         uf_perm, _, _ = get_permutation_to_nodal_elements(self.Vf)
         uc_perm, _, _ = get_permutation_to_nodal_elements(self.Vc)
 
-        # debugging, didn't work..
-        # uf_perm = op3.utils.invert(uf_perm)
-        # uc_perm = op3.utils.invert(uc_perm)
-
-        breakpoint()
-
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
         loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
 
