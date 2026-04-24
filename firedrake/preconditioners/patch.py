@@ -61,11 +61,11 @@ class EntityNodeMap:
     def values(self) -> np.ndarray:
         match self.integral_type:
             case "cell":
-                return self.space.cell_node_map_array
+                return self.space.cell_node_map_dat.data_ro
             case "interior_facet":
-                return self.space.interior_facet_node_map_array
+                return self.space.interior_facet_node_map_dat.data_ro
             case "exterior_facet":
-                return self.space.exterior_facet_node_map_array
+                return self.space.exterior_facet_node_map_dat.data_ro
             case _:
                 raise AssertionError(f"Unrecognised integral type '{self.kinfo.integral_type}'")
 

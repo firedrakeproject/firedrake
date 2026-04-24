@@ -711,35 +711,20 @@ class AbstractFunctionSpace:
     def interior_facet_node_map_dat(self) -> op3.Dat:
         return self._iterset_to_node_map_dat("interior_facet")
 
-    @cached_property
-    def cell_node_map_array(self) -> numpy.ndarray:
-        """Return an array mapping mesh cells to function space nodes."""
-        return self._reshape_entity_map(self.cell_node_map_dat.data_ro, "cell")
-
     @property
-    @deprecated("cell_node_map_array")
+    @deprecated("cell_node_map_dat.data_ro")
     def cell_node_list(self) -> numpy.ndarray:
-        return self.cell_node_map_array
-
-    @cached_property
-    def exterior_facet_node_map_array(self) -> numpy.ndarray:
-        """Return an array mapping exterior facets to function space nodes."""
-        return self._reshape_entity_map(self.cell_node_map_dat.data_ro, "cell")
+        return self.cell_node_map_dat.data_ro
 
     @property
-    @deprecated("exterior_facet_node_map_array")
+    @deprecated("exterior_facet_node_map_dat.data_ro")
     def exterior_facet_node_list(self) -> numpy.ndarray:
-        return self.exterior_facet_node_map_array
-
-    @cached_property
-    def interior_facet_node_map_array(self) -> numpy.ndarray:
-        """Return an array mapping interior facets to function space nodes."""
-        return self._reshape_entity_map(self.interior_facet_node_map_dat.data_ro, "interior_facet")
+        return self.exterior_facet_node_map_dat.data_ro
 
     @property
-    @deprecated("interior_facet_node_map_array")
+    @deprecated("interior_facet_node_map_dat.data_ro")
     def interior_facet_node_list(self) -> numpy.ndarray:
-        return self.interior_facet_node_map_array
+        return self.interior_facet_node_map_dat.data_ro
 
     @_with_mesh_heavy_cache
     def _iterset_to_node_map_dat(
@@ -753,11 +738,15 @@ class AbstractFunctionSpace:
                 "they are interleaved with the nodes of the other spaces."
             )
 
+        # To convert between the fully unrolled DoF map and a node-wise one
+        # we just need to stride and divide by the block size.
         dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
-        node_map_axes = dof_map_dat.axes.blocked(self.shape)
-        dof_map_array = self._reshape_entity_map(dof_map_dat.data_ro, iter_type)
-        node_map_array = dof_map_array[:, ::self.block_size] // self.block_size
-        return op3.Dat(node_map_axes, data=node_map_array)
+        node_map_dat = op3.Dat.empty(
+            dof_map_dat.axes[:, ::self.block_size].materialize(),
+            dtype=PETSc.IntType,
+        )
+        node_map_dat.assign(dof_map_dat[:, ::self.block_size] // self.block_size, eager=True)
+        return node_map_dat
 
     @cached_property
     def cell_dof_map_dat(self) -> op3.Dat:
@@ -770,21 +759,6 @@ class AbstractFunctionSpace:
     @cached_property
     def interior_facet_dof_map_dat(self) -> op3.Dat:
         return self._iterset_to_dof_map_dat("interior_facet")
-
-    @cached_property
-    def cell_dof_map_array(self) -> numpy.ndarray:
-        """A numpy array mapping mesh cells to function space offsets."""
-        return self._reshape_entity_map(self.cell_dof_map_dat.data_ro, "cell")
-
-    @cached_property
-    def exterior_facet_dof_map_array(self) -> numpy.ndarray:
-        """A numpy array mapping exterior facets to function space offsets."""
-        return self._reshape_entity_map(self.exterior_facet_dof_map_dat.data_ro, "exterior_facet")
-
-    @cached_property
-    def interior_facet_dof_map_array(self) -> numpy.ndarray:
-        """A numpy array mapping interior facets to function space offsets."""
-        return self._reshape_entity_map(self.interior_facet_dof_map_dat.data_ro, "interior_facet")
 
     def _iterset_to_dof_map_dat(
         self,
@@ -810,8 +784,15 @@ class AbstractFunctionSpace:
 
         # Create the array to store the indirection map. If mixed then this stores
         # offsets per entity then per field.
-        map_axes = loop_info.iterset.materialize()  # outer axis is cells etc
-        map_axes = map_axes.add_subtree(None, packed_offsets.axes.materialize())
+        #
+        #     {iterset: ...}
+        #     └──➤ {support: {0: 2}}
+        #          └──➤ {closure: [{0: 3}, {1: 3}, {2: 1}]}
+        #               ├──➤ {dof0: 1}
+        #               ├──➤ {dof1: 0}
+        #               └──➤ {dof2: 0}
+        iterset_axes = loop_info.iterset.materialize()  # outer axis is cells etc
+        map_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize())
         map_ = op3.Dat.empty(map_axes, dtype=IntType, prefix="map")
 
         # Finally compute
@@ -820,20 +801,13 @@ class AbstractFunctionSpace:
             map_[p].assign(packed_offsets),
             eager=True,
         )
-        return map_
 
-    def _reshape_entity_map(self, map_array: numpy.ndarray, iter_type: str) -> numpy.ndarray:
-        mesh = self.mesh().unique()
-        match iter_type:
-            case "cell":
-                iterset = mesh.cells
-            case "exterior_facet":
-                iterset = mesh.exterior_facets
-            case "interior_facet":
-                iterset = mesh.interior_facets
-            case _:
-                raise AssertionError
-        return map_array.reshape((iterset.owned.local_size, -1))
+        # Lastly reshape things because we want to have 2 axes: iterset and DoFs
+        #
+        #     {iterset: ...}
+        #     └──➤ {dofs_per_iterate: 6}
+        map_axes = iterset_axes.add_axis(None, op3.Axis(packed_offsets.size))
+        return op3.Dat(map_axes, buffer=map_.buffer, prefix="map")
 
     # }}}
 

@@ -4158,11 +4158,11 @@ values from f.)"""
             lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
             dll = compilation.load(
                 src, "c",
-                cppargs=[
+                cppargs=(
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
                     f"-I{rtree.finder.get_include()}"
-                ] + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                ) + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
                 ldargs=[
                     f"-L{sys.prefix}/lib",
                     str(libspatialindex_so),

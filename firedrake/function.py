@@ -901,11 +901,11 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     ldargs += [str(libspatialindex_so), lsi_runpath]
     dll = compilation.load(
         src, "c",
-        cppargs=[
+        cppargs=(
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
             f"-I{rtree.finder.get_include()}"
-        ] + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+        ) + petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
         ldargs=ldargs,
         comm=function.comm
     )

@@ -619,8 +619,11 @@ class LabelledTree:
 
 
 class MutableLabelledTreeMixin:
-    def add_node(self, path: PathT, node: Node) -> MutableLabelledTreeMixin:
+    def add_node(self, path: PathT | None, node: Node) -> MutableLabelledTreeMixin:
         """Return a new tree with ``node`` attached at ``path``."""
+        if path is None:
+            path = self.leaf_path
+
         path = as_path(path)
 
         if self.node_map[path]:
