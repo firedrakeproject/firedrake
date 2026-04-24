@@ -306,7 +306,7 @@ class Executable:
         return compile_loopy(self.code, compiler_parameters=self.compiler_parameters, comm=self.comm)
 
     def __call__(self, *args) -> None:
-        # if len(self.code.callables_table) > 1 and "expression" in str(self.code):
+        # if len(self.code.callables_table) > 1 and "pyop3_kernel_inj" in str(self.code):
         #     breakpoint()
         #     import pyop3.debug
         #     pyop3.debug.maybe_breakpoint()

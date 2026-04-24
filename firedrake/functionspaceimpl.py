@@ -714,16 +714,32 @@ class AbstractFunctionSpace:
     @property
     @deprecated("cell_node_map_dat.data_ro")
     def cell_node_list(self) -> numpy.ndarray:
+        if len(self) > 1 or self.parent:
+            warnings.warn(
+                "For mixed spaces it is no longer the case that offset=node*bsize, "
+                "use a DoF list instead."
+            )
         return self.cell_node_map_dat.data_ro
 
     @property
     @deprecated("exterior_facet_node_map_dat.data_ro")
     def exterior_facet_node_list(self) -> numpy.ndarray:
+        if len(self) > 1 or self.parent:
+            warnings.warn(
+                "For mixed spaces it is no longer the case that offset=node*bsize, "
+                "use a DoF list instead."
+            )
         return self.exterior_facet_node_map_dat.data_ro
 
     @property
     @deprecated("interior_facet_node_map_dat.data_ro")
     def interior_facet_node_list(self) -> numpy.ndarray:
+        if len(self) > 1 or self.parent:
+            warnings.warn(
+                "For mixed spaces it is no longer the case that offset=node*bsize "
+                "because the strides between nodes are not constant as they are "
+                "interleaved with the nodes of other spaces. Use a dof_map_array instead."
+            )
         return self.interior_facet_node_map_dat.data_ro
 
     @_with_mesh_heavy_cache
@@ -731,12 +747,8 @@ class AbstractFunctionSpace:
         self,
         iter_type: Literal["cell", "exterior_facet", "interior_facet"],
     ) -> op3.Dat:
-        if len(self) > 1 or self.parent:
-            raise TypeError(
-                "Cannot map to function space nodes for a mixed function space. "
-                "This is because the strides between nodes is not constant as "
-                "they are interleaved with the nodes of the other spaces."
-            )
+        if len(self) > 1:
+            raise NotImplementedError
 
         # To convert between the fully unrolled DoF map and a node-wise one
         # we just need to stride and divide by the block size.
@@ -767,47 +779,60 @@ class AbstractFunctionSpace:
         """Return a dat mapping iteration entities to offsets."""
         from firedrake import pack
 
-        if self.parent:
-            parent_dof_map_dat = self.parent._iterset_to_dof_map_dat(iter_type)
-            field_label = self.parent.field_axis.component_labels[self.index]
-            return parent_dof_map_dat[:, field_label]
+        # When we build maps we discard parent information because everything is
+        # done relative to the current space. For example, the map could be between
+        # point 5 and node 8 of *this space*. It makes no sense at this point to
+        # be mapping point 5 to node 17 of the full mixed space.
+        space = self.collapse() if self.parent else self
 
         # Create an array of offsets
         offsets = op3.Dat(
-            self.plex_axes,
-            data=numpy.arange(self.plex_axes.local_size, dtype=IntType),
+            space.plex_axes,
+            data=numpy.arange(space.plex_axes.local_size, dtype=IntType),
         )
 
         # Now pack this for use in a parloop
-        loop_info = get_iteration_spec(self.mesh(), iter_type)
-        packed_offsets = pack(offsets, self, loop_info)
+        loop_info = get_iteration_spec(space.mesh(), iter_type)
+        packed_offsets = pack(offsets, space, loop_info)
 
         # Create the array to store the indirection map. If mixed then this stores
-        # offsets per entity then per field.
+        # offsets per iteration entity then per field.
         #
         #     {iterset: ...}
-        #     └──➤ {support: {0: 2}}
-        #          └──➤ {closure: [{0: 3}, {1: 3}, {2: 1}]}
-        #               ├──➤ {dof0: 1}
-        #               ├──➤ {dof1: 0}
-        #               └──➤ {dof2: 0}
+        #     └──➤ {field: [{functionspace0: 1}, {functionspace1: 1}]}
+        #          ├──➤ {closure: [{0: 2}, {1: 1}]}
+        #          │    ├──➤ {dof0: 1}
+        #          │    └──➤ {dof1: 0}
+        #          └──➤ {closure: [{0: 2}, {1: 1}]}
+        #               ├──➤ {dof0: 0}
+        #               └──➤ {dof1: 1}
         iterset_axes = loop_info.iterset.materialize()  # outer axis is cells etc
-        map_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize())
-        map_ = op3.Dat.empty(map_axes, dtype=IntType, prefix="map")
+        map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize())
+        map_plex = op3.Dat.empty(map_plex_axes, dtype=IntType, prefix="map")
 
-        # Finally compute
         op3.loop(
             p := loop_info.loop_index,
-            map_[p].assign(packed_offsets),
+            map_plex[p].assign(packed_offsets),
             eager=True,
         )
 
-        # Lastly reshape things because we want to have 2 axes: iterset and DoFs
+        # Lastly reshape things because we want to have fewer axes: iterset, (maybe) field, and DoFs
         #
         #     {iterset: ...}
-        #     └──➤ {dofs_per_iterate: 6}
-        map_axes = iterset_axes.add_axis(None, op3.Axis(packed_offsets.size))
-        return op3.Dat(map_axes, buffer=map_.buffer, prefix="map")
+        #     └──➤ {field: [{functionspace0: 1}, {functionspace1: 1}]}
+        #          ├──➤ {_label_Axis_2: 2}
+        #          └──➤ {_label_Axis_3: 1}
+        if len(self) > 1:
+            map_dof_axes = iterset_axes.add_axis(None, packed_offsets.axes.root)
+            for label, subspace in zip(self._labels, self):
+                path = iterset_axes.leaf_path | {"field": label}
+                map_dof_axes = map_dof_axes.add_axis(
+                    path,
+                    op3.Axis(packed_offsets.axes[label].size),
+                )
+        else:
+            map_dof_axes = iterset_axes.add_axis(None, op3.Axis(packed_offsets.size))
+        return op3.Dat(map_dof_axes, buffer=map_plex.buffer, prefix="map")
 
     # }}}
 
@@ -1248,7 +1273,7 @@ class FunctionSpace(AbstractFunctionSpace):
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        size = self.axes.unindexed.owned.local_size
+        size = self.layout_axes.owned.local_size  # discard parent information
         start = self.comm.exscan(size) or 0
         is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
         is_.setBlockSize(self.block_size)
@@ -1256,6 +1281,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def local_ises(self) -> tuple[PETSc.IS]:
+        size = self.layout_axes.owned.local_size  # discard parent information
         is_ = PETSc.IS().createStride(self.axes.unindexed.local_size, comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
         return (is_,)
@@ -1811,9 +1837,9 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Used when extracting blocks from matrices for solvers."""
         ises = []
         with mpi.temp_internal_comm(self.comm) as icomm:
-            start = icomm.exscan(self.axes.unindexed.owned.local_size) or 0
+            start = icomm.exscan(self.axes.owned.local_size) or 0
         for subspace in self:
-            size = subspace.axes.unindexed.owned.local_size
+            size = subspace.axes.owned.local_size
             is_ = PETSc.IS().createStride(size, first=start, comm=self.comm)
             is_.setBlockSize(subspace.block_size)
             ises.append(is_)
