@@ -13,8 +13,7 @@ from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
 from ufl.core.ufl_type import UFLType
 from ufl.corealg.multifunction import MultiFunction
 from ufl.formatting.ufl2unicode import (
-    Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
-    colorama,
+    Expression2UnicodeHandler, UC, subscript_number, colorama,
 )
 from functools import cached_property
 from ufl.utils.counted import Counted
