@@ -181,22 +181,19 @@ class Tensor(ContextAware, TerminalExpression, DistributedObject, abc.ABC):
                 return
 
             if eager_strategy is None:
-                eager_strategy = "array"
-
-            if eager_strategy == "array":
                 try:
                     self._array_assign(other, mode)
-                    return
                 except BaseException as e:
                     raise e
-                    # log a warning and throw a good exception...
-                    breakpoint()
+                    # TODO: log a warning, or do something else sensible
                     self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
-                    return
+            elif eager_strategy == "array":
+                self._array_assign(other, mode)
             else:
                 assert eager_strategy == "compile"
                 self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
-                return
+            return
+
         else:
             if eager_strategy is not None:
                 raise ValueError(
