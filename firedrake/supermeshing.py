@@ -166,11 +166,11 @@ each supermesh cell.
     for cell_A, dofs_A in enumerate(V_A.cell_node_list):
         for cell_B in likely(cell_A):
             dofs_B = V_B.cell_node_list[cell_B, :]
-            sparsity.buffer.petscmat.setValuesLocal(dofs_B, dofs_A, zeros)
+            sparsity.buffer.mat.setValuesLocal(dofs_B, dofs_A, zeros)
     sparsity.assemble()
 
     mat = op3.Mat.from_sparsity(sparsity)
-    petscmat = mat.buffer.petscmat
+    petscmat = mat.buffer.mat
     # TODO: Boundary conditions not handled.
     petscmat.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
     petscmat.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
@@ -447,9 +447,9 @@ each supermesh cell.
     lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
     lib.restype = ctypes.c_int
 
-    ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat.buffer.petscmat)
+    ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat.buffer.mat)
     if orig_block_size == 1:
-        return mat.buffer.petscmat
+        return mat.buffer.mat
     else:
         (lrows, grows), (lcols, gcols) = petscmat.getSizes()
         lrows *= orig_block_size

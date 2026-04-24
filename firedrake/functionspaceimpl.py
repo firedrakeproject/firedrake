@@ -1440,7 +1440,7 @@ class FunctionSpace(AbstractFunctionSpace):
         elif isinstance(iter_mesh.topology, ExtrudedMeshTopology) and iter_mesh.topology._base_mesh is mesh.topology:
             composed_map = iter_mesh.extr_cell_to_base_cell_map(iteration_spec.loop_index)
             target_integral_type = "cell"
-        elif mesh.submesh_youngest_common_ancester(iteration_spec.mesh):
+        elif mesh.submesh_youngest_common_ancestor(iteration_spec.mesh):
             composed_map, target_integral_type = mesh.trans_mesh_entity_map(iteration_spec)
         else:
             # No shared topology, must be using a vertex-only mesh

@@ -896,7 +896,6 @@ class AbstractMeshTopology(abc.ABC):
         pass
 
     @property
-    @abc.abstractmethod
     def cell_to_facets(self):
         """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
@@ -907,7 +906,7 @@ class AbstractMeshTopology(abc.ABC):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        pass
+        raise NotImplementedError
 
     @cached_property
     def _strata_slice(self):
@@ -1867,12 +1866,6 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def local_cell_orientation_dat(self):
         return self.entity_orientations_dat[:, op3.as_slice(self.cell_label)]
-        # return op2.Dat(
-        #     op2.DataSet(self.cell_set, 1),
-        #     self.entity_orientations[:, [-1]],
-        #     gem.uint_type,
-        #     f"{self.name}_local_cell_orientation"
-        # )
 
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
@@ -3295,6 +3288,7 @@ class ExtrudedMeshTopology(MeshTopology):
            for entities (or a single layer number for the constant
            layer case).
         """
+        assert False, "old code"
         if self.variable_layers:
             return extnum.entity_layers(self, height, label)
         else:
@@ -3529,6 +3523,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @utils.deprecated("cells.owned")
     def cell_set(self):
         return self.cells.owned
+
+    @property
+    def exterior_facets(self) -> op3.IndexedAxisTree:
+        raise NotImplementedError("Should be empty")
+
+    @property
+    def interior_facets(self):
+        raise NotImplementedError("Should be empty")
 
     @property
     def cell_label(self) -> int:
@@ -5705,21 +5707,16 @@ def _parent_mesh_embedding(
         reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
 
     # Get parent mesh rank ownership information.
-    visible_ranks = np.empty(parent_mesh.cell_set.total_size, dtype=IntType)
-    visible_ranks[:parent_mesh.cell_set.size] = parent_mesh.comm.rank
-    visible_ranks[parent_mesh.cell_set.size:] = -1
+    visible_ranks = np.empty(parent_mesh.cells.local_size, dtype=IntType)
+    visible_ranks[:parent_mesh.cells.owned.local_size] = parent_mesh.comm.rank
+    visible_ranks[parent_mesh.cells.owned.local_size:] = -1
     # Halo exchange the visible ranks so that each rank knows which ranks can see each cell.
     dmcommon.exchange_cell_orientations(
-        parent_mesh.topology.topology_dm, parent_mesh.topology._cell_numbering, visible_ranks
+        parent_mesh.topology, parent_mesh.topology._old_to_new_cell_numbering, visible_ranks
     )
     locally_visible = parent_cell_nums != -1
 
-    if parent_mesh.extruded:
-        # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
-        # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
-        locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
-    else:
-        locally_visible_cell_nums = parent_cell_nums[locally_visible]
+    locally_visible_cell_nums = parent_cell_nums[locally_visible]
 
     # In parallel there will regularly be disagreements about which cell owns a
     # point when those points are close to mesh partition boundaries.
@@ -5785,10 +5782,7 @@ def _parent_mesh_embedding(
             )
             changed_ranks_tied &= locally_visible
             # update the identified rank
-            if parent_mesh.extruded:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
-            else:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
+            _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
             ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
             # if the rank now matches then we have found the correct cell
             locally_visible[changed_ranks_tied] &= (

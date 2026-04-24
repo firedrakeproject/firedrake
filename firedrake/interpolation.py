@@ -1088,7 +1088,7 @@ def _build_interpolation_callables(
                 # vertex cell.)
                 local_kernel_args.append(pack(target_mesh.reference_coordinates, iter_spec))
 
-    if any(c.dat.buffer == tensor.buffer for c in coefficients):
+    if any(c.dat == tensor for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
         if access is not op3.WRITE:
@@ -1099,7 +1099,7 @@ def _build_interpolation_callables(
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(iter_spec.loop_index, expression_kernel(*local_kernel_args))
 
-    pyop3_compiler_parameters = {"optimize": True}.update(pyop3_compiler_parameters)
+    pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
 
     def parloop_callable():
         parloop(compiler_parameters=pyop3_compiler_parameters)
