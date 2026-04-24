@@ -58,8 +58,6 @@ class UnrecognisedDeviceError(FiredrakeException):
 class SerialExecutionOnlyError(FiredrakeException):
     """Raised when calling any Firedrake method that only runs in serial.
     """
-<<<<<<< HEAD
-=======
 
 
 class PointNotInDomainError(FiredrakeException):
@@ -75,4 +73,3 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
->>>>>>> origin/main
