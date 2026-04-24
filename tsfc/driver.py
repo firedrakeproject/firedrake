@@ -25,6 +25,8 @@ from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
 from tsfc.exceptions import MismatchingDomainError
 
+from ufl.formatting.ufl2unicode import ufl2unicode
+
 
 # To handle big forms. The various transformations might need a deeper stack
 sys.setrecursionlimit(3000)
@@ -75,6 +77,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     """
     cpu_time = time.time()
+
+    # does this run?
+    ufl2unicode(form)
 
     assert isinstance(form, Form)
 
@@ -243,6 +248,8 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
 
     # Determine whether in complex mode
     complex_mode = is_complex(parameters["scalar_type"])
+
+    ufl2unicode(expression)
 
     orig_coefficients = extract_coefficients(expression)
     if isinstance(expression, ufl.Interpolate):
