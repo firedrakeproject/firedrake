@@ -538,11 +538,7 @@ def prolongation_transfer_kernel_action(Vf, expr):
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.mesh().coordinates] + coefficients
-
-    return op2.Kernel(kernel.ast, kernel.name,
-                      requires_zeroed_output_arguments=True,
-                      flop_count=kernel.flop_count,
-                      events=(kernel.event,)), coefficients
+    return kernel, coefficients
 
 
 def expand_element(ele):
@@ -835,7 +831,7 @@ static inline void permute_axis(PetscBLASInt axis,
     PetscBLASInt n0, PetscBLASInt n1, PetscBLASInt n2, PetscBLASInt n3,
     PetscScalar *x, PetscScalar *y){
     /*
-    Apply a cyclic permutation to a n0 x n1 x n2 x n3 array x, exponsing axis as
+    Apply a cyclic permutation to a n0 x n1 x n2 x n3 array x, exposing axis as
     the fast direction.  Write the result on y.
     */
 
@@ -1059,25 +1055,9 @@ def get_piola_tensor(mapping, domain, inverse=False):
         raise ValueError("Mapping %s is not supported" % mapping)
 
 
-def cache_generate_code(kernel, comm):
-    _cachedir = os.environ.get('PYOP3_CACHE_DIR',
-                               os.path.join(tempfile.gettempdir(),
-                                            'pyop2-cache-uid%d' % os.getuid()))
-
-    key = kernel.cache_key[0]
-    shard, disk_key = key[:2], key[2:]
-    filepath = os.path.join(_cachedir, shard, disk_key)
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
-            code = f.read()
-    else:
-        code = loopy.generate_code_v2(kernel.code).device_code()
-        if comm.rank == 0:
-            os.makedirs(os.path.join(_cachedir, shard), exist_ok=True)
-            with open(filepath, 'w') as f:
-                f.write(code)
-        comm.barrier()
-    return code
+@op3.cache.memory_and_disk_cache()
+def cache_generate_code(kernel, comm) -> str:
+    return loopy.generate_code_v2(kernel.ast).device_code()
 
 
 def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
@@ -1255,6 +1235,13 @@ class StandaloneInterpolationMatrix(object):
         # dual evaluation of EnrichedElement is not yet implemented in FInAT
         uf_perm, _, _ = get_permutation_to_nodal_elements(self.Vf)
         uc_perm, _, _ = get_permutation_to_nodal_elements(self.Vc)
+
+        # debugging, didn't work..
+        # uf_perm = op3.utils.invert(uf_perm)
+        # uc_perm = op3.utils.invert(uc_perm)
+
+        breakpoint()
+
         prolong_kernel, restrict_kernel, coefficients = self.make_blas_kernels(self.Vf, self.Vc)
         loop_info = get_iteration_spec(self.Vf.mesh().unique(), "cell")
 
@@ -1265,14 +1252,22 @@ class StandaloneInterpolationMatrix(object):
                          pack(self.uf, loop_info, permutation=uf_perm),
                          pack(self._weight, loop_info, permutation=uf_perm)]
         coefficient_args = [pack(c, loop_info) for c in coefficients]
-        prolong = op3.loop(
+        prolong_expr = op3.loop(
             loop_info.loop_index,
             prolong_kernel(*prolong_args, *coefficient_args),
         )
-        restrict = op3.loop(
+
+        def prolong():
+            prolong_expr(compiler_parameters={"optimize": True})
+
+        restrict_expr = op3.loop(
             loop_info.loop_index,
             restrict_kernel(*restrict_args, *coefficient_args),
         )
+
+        def restrict():
+            restrict_expr(compiler_parameters={"optimize": True})
+
         return prolong, restrict
 
     def _prolong(self):

@@ -1391,7 +1391,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def extruded_periodic(self):
-        return self.periodic
+        return isinstance(self, ExtrudedMeshTopology) and self.periodic
 
     @cached_property
     def _plex_closures(self) -> dict[Any, np.ndarray]:

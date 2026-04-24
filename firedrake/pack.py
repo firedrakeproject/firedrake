@@ -40,9 +40,7 @@ def _(
     dat: op3.Dat,
     space: WithGeometry,
     loop_info: IterationSpec,
-    *,
-    nodes: bool = False,
-    permutation: collections.abc.Iterable | None = None,
+    **kwargs,
 ):
     mesh = space.mesh()
 
@@ -57,7 +55,7 @@ def _(
     # t3[1] = t2
     packed_dats = np.empty(len(space), dtype=object)
     for i, (index, subspace) in enumerate(iter_space(space)):
-        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, nodes=nodes)
+        packed_dats[i] = _pack_dat_nonmixed(dat[index], subspace, loop_info, **kwargs)
 
     if packed_dats.size == 1:
         return packed_dats.item()
@@ -90,6 +88,7 @@ def _pack_dat_nonmixed(
             axes = packed_dat.axes
         depth = [axis.label for axis in axes.axes].index("closure")
     else:
+        assert False, "old code"
         return dat[space.cell_node_map(loop_info.loop_index)]
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
@@ -185,7 +184,7 @@ def transform_packed_cell_closure_dat(
     # old and new 'cell_node_list's which I want to avoid.
     packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
 
-    # FIXME: This is awful!
+    # FIXME: This is awful! Just do it universally
     if _needs_static_permutation(space.finat_element) or permutation is not None:
         nodal_axis_tree, nodal_axis = _packed_nodal_axes(packed_dat.axes, space, depth)
         packed_dat = packed_dat.reshape(nodal_axis_tree)
@@ -195,6 +194,7 @@ def transform_packed_cell_closure_dat(
             packed_dat = packed_dat[dof_perm_slice]
 
         if permutation is not None:
+            print("applying perm")
             # needed because we relabel here... else the labels dont match
             nodal_axis = packed_dat.axes.axes[depth]
             perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
