@@ -1,6 +1,7 @@
 import collections
 import functools
 import warnings
+import os
 from typing import Any
 
 import loopy as lp
@@ -410,7 +411,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
     return axes.__record_init__(_targets=new_targets)
 
 
-@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim))
+@op3.cache.serial_cache(hashkey=lambda space, dim: (space.finat_element, dim, os.environ.get("FIREDRAKE_USE_FUSE", 0)))
 def _entity_permutation_buffer_expr(space: WithGeometry, dim_label) -> tuple[op3.LinearDatBufferExpression, ...]:
     perms = utils.single_valued(space.finat_element.entity_permutations[dim_label].values())
     # TODO: can optimise the dtype here to be as small as possible

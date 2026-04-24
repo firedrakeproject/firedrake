@@ -662,7 +662,7 @@ def compile(op, compiler_parameters=None):
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-    return (op.disk_cache_key, compiler_parameters, config)
+    return (op.disk_cache_key, compiler_parameters, config, os.environ.get("FIREDRAKE_USE_FUSE", 0))
 
 
 @memory_and_disk_cache(

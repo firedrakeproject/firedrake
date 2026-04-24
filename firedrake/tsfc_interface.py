@@ -59,6 +59,7 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
         utils.tuplify(parameters),
         dont_split_numbers,
         diagonal,
+        environ.get("FIREDRAKE_USE_FUSE", 0),
     )
 
 
@@ -168,6 +169,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
         split,
         _make_dont_split_numbers(dont_split, form),
         diagonal,
+        environ.get("FIREDRAKE_USE_FUSE", 0)
     )
 
 

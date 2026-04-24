@@ -3,6 +3,7 @@ geometric quantities into GEM expressions."""
 
 import collections
 import itertools
+import os
 from functools import cached_property, singledispatch
 
 import gem
@@ -322,7 +323,7 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
-@serial_cache(hashkey=lambda *args: args)
+@serial_cache(hashkey=lambda *args: args + (os.environ.get("FIREDRAKE_USE_FUSE", 0),))
 def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
     integration_cell = fiat_cell.construct_subcomplex(integration_dim)
     return make_quadrature(integration_cell, quadrature_degree, scheme=scheme)

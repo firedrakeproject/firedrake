@@ -437,7 +437,8 @@ class AnonymousCompiler(Compiler):
 def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
     cppargs = tuple(cppargs)
     ldargs = tuple(ldargs)
-    return default_parallel_hashkey(code, extension, cppargs, ldargs)
+    fuse_status = os.environ.get("FIREDRAKE_USE_FUSE", 0)
+    return default_parallel_hashkey(code, extension, cppargs, ldargs, fuse_status)
 
 
 @mpi.collective
@@ -514,7 +515,8 @@ def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     else:
         exe = compiler.cc
         compiler_flags = compiler.cflags
-    return (compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags)
+    fuse_status = os.environ.get("FIREDRAKE_USE_FUSE", 0)
+    return (compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags, fuse_status)
 
 
 def check_source_hashes(compiler, code, extension, comm):
