@@ -192,7 +192,7 @@ def _unicode_format_firedrake_constant(self, o):
 
 
 # This monkey patches ufl2unicode support for Firedrake constants
-Expression2UnicodeHandler.firedrake_constant = _unicode_format_firedrake_constant
+Expression2UnicodeHandler.process.register(Constant, _unicode_format_firedrake_constant)
 
 # This is internally done in UFL by the ufl_type decorator, but we cannot
 # do the same here, because we want to use the class name Constant
@@ -209,4 +209,3 @@ terminal_classes.add(Constant)
 
 # These caches need rebuilding for the new type to be registered
 MultiFunction._handlers_cache = {}
-ufl.formatting.ufl2unicode._precrules = PrecedenceRules()
