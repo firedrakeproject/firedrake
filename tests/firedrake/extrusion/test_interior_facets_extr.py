@@ -13,8 +13,8 @@ def test_interior_facet_vfs_extr_horiz_2d_rhs():
 
     temp = assemble(jump(conj(v), n)*dS_h).dat.data_ro
 
-    assert np.all(temp[::2] == 0.0)
-    assert not np.all(temp[1::2] == 0.0)
+    assert np.all(temp[:, 0] == 0.0)
+    assert not np.all(temp[:, 1] == 0.0)
 
 
 def test_interior_facet_vfs_extr_horiz_2d_lhs():
@@ -50,12 +50,13 @@ def test_interior_facet_vfs_extr_horiz_2d_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS_h)
     mm = assemble(inner(u2('-'), v1('-'))*dS_h)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)
 
 
 def test_interior_facet_vfs_extr_horiz_3d_rhs():
@@ -68,9 +69,9 @@ def test_interior_facet_vfs_extr_horiz_3d_rhs():
 
     temp = assemble(jump(conj(v), n)*dS_h).dat.data_ro
 
-    assert np.all(temp[::3] == 0.0)
-    assert np.all(temp[1::3] == 0.0)
-    assert not np.all(temp[2::3] == 0.0)
+    assert np.all(temp[:, 0] == 0.0)
+    assert np.all(temp[:, 1] == 0.0)
+    assert not np.all(temp[:, 2] == 0.0)
 
 
 def test_interior_facet_vfs_extr_horiz_3d_lhs():
@@ -99,8 +100,8 @@ def test_interior_facet_vfs_extr_vert_rhs():
 
     temp = assemble(jump(conj(v), n)*dS_v).dat.data_ro
 
-    assert not np.all(temp[::2] == 0.0)
-    assert np.all(temp[1::2] == 0.0)
+    assert not np.all(temp[:, 0] == 0.0)
+    assert np.all(temp[:, 1] == 0.0)
 
 
 def test_interior_facet_vfs_extr_vert_lhs():
@@ -136,9 +137,10 @@ def test_interior_facet_vfs_extr_vert_mixed():
     mp = assemble(inner(u2('-'), v1('+'))*dS_v)
     mm = assemble(inner(u2('-'), v1('-'))*dS_v)
 
-    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
-    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
-    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+    label0, label1 = W._labels
+    assert not np.all(pp.M[label0, label1].values == pm.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pp.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
+    assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
+    assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)

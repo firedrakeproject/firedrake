@@ -742,6 +742,7 @@ class AbstractFunctionSpace:
             )
         return self.interior_facet_node_map_dat.data_ro
 
+    @cached_method()
     @_with_mesh_heavy_cache
     def _iterset_to_node_map_dat(
         self,
@@ -757,21 +758,26 @@ class AbstractFunctionSpace:
             dof_map_dat.axes[:, ::self.block_size].materialize(),
             dtype=PETSc.IntType,
         )
-        node_map_dat.assign(dof_map_dat[:, ::self.block_size] // self.block_size, eager=True)
+        node_map_dat.assign(
+            dof_map_dat[:, ::self.block_size] // self.block_size,
+            eager=True,
+            eager_strategy="compile",
+        )
         return node_map_dat
 
-    @cached_property
+    @property
     def cell_dof_map_dat(self) -> op3.Dat:
         return self._iterset_to_dof_map_dat("cell")
 
-    @cached_property
+    @property
     def exterior_facet_dof_map_dat(self) -> op3.Dat:
         return self._iterset_to_dof_map_dat("exterior_facet")
 
-    @cached_property
+    @property
     def interior_facet_dof_map_dat(self) -> op3.Dat:
         return self._iterset_to_dof_map_dat("interior_facet")
 
+    @cached_method()
     def _iterset_to_dof_map_dat(
         self,
         iter_type: Literal["cell", "exterior_facet", "interior_facet"],
