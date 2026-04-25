@@ -1299,12 +1299,23 @@ class FunctionSpace(AbstractFunctionSpace):
 
         # The section is defined as if the data exists in isolation, so we don't
         # care if it is an unmixed space or a component of a mixed space.
-        axes = self.layout_axes.materialize()
+        orphaned_space = self.collapse() if self.parent else self
+
+        if self.ufl_element().family() == "Real":
+            ndofs = orphaned_space.layout_axes.local_size
+            section = PETSc.Section().create(comm=self.comm)
+            p_start, p_end = self.mesh().topology_dm.getChart()
+            section.setChart(p_start, p_end)
+            section.setPermutation(self.mesh()._new_to_old_point_renumbering)
+            for pt in range(p_start, p_end):
+                section.setDof(pt, ndofs)
+                section.setOffset(pt, 0)
+            return section
 
         # TODO: This can be made generic to all layouts if we just specify the mesh axis here somehow
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
-        axis_section = axes.section({}, "mylabel")
+        axis_section = orphaned_space.layout_axes.section({}, "mylabel")
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).

@@ -1656,9 +1656,6 @@ class IndexedAxisTree(AbstractAxisTree):
         indices_dat = Dat.full(self.materialize().regionless(), -1, dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
-            # if "constrained" in str(iterset):
-            #     import pyop3.debug
-            #     pyop3.debug.enable_conditional_breakpoints()
             p = iterset.iter()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
