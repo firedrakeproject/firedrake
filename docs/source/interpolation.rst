@@ -267,12 +267,6 @@ function space has any finite element which supports interpolation, as specified
 spaces can also be interpolated into from other meshes as long as they are
 constructed from these spaces.
 
-.. note::
-
-   The list of supported elements above is only for *target* function spaces.
-   Function spaces on the *source* mesh can be built from most of the supported
-   elements.
-
 There are few constraints on the meshes involved: the target mesh can have a
 different cell shape, topological dimension, or resolution to the source mesh.
 There are many use cases for this: For example, two solutions to the same
