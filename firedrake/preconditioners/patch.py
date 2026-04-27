@@ -578,10 +578,10 @@ PetscErrorCode ComputeResidual(PC pc,
         if self.kinfo.integral_type == "cell":
             point2facet = 0
         elif self.kinfo.integral_type == "interior_facet":
-            point2facet = self._mesh.interior_facets.point2facetnumber.ctypes.data
+            point2facet = self._mesh.interior_facet_local_facet_indices.data_ro.ctypes.data
         else:
             assert self.kinfo.integral_type == "exterior_facet"
-            point2facet = self._mesh.exterior_facets.point2facetnumber.ctypes.data
+            point2facet = self._mesh.exterior_facet_local_facet_indices.data_ro.ctypes.data
 
         struct_args = [
             *(_get_ctypes_arg(arg) for arg in self._wrapper_kernel_args),
@@ -980,7 +980,7 @@ class PatchBase(PCSNESBase):
 
         dms = [Vsub.dm for Vsub in V]
         block_sizes = [Vsub.block_size for Vsub in V]
-        cell_node_maps = [Vsub.cell_node_map_array for Vsub in V]
+        cell_node_maps = [Vsub.cell_node_map_dat.data_ro for Vsub in V]
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo(

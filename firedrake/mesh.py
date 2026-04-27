@@ -906,7 +906,7 @@ class AbstractMeshTopology(abc.ABC):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
-        raise NotImplementedError
+        raise AttributeError
 
     @cached_property
     def _strata_slice(self):
@@ -3526,11 +3526,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @property
     def exterior_facets(self) -> op3.IndexedAxisTree:
-        raise NotImplementedError("Should be empty")
+        raise AttributeError("Should be empty")
 
     @property
     def interior_facets(self):
-        raise NotImplementedError("Should be empty")
+        raise AttributeError("Should be empty")
 
     @property
     def cell_label(self) -> int:

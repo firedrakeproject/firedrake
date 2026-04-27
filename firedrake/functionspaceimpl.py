@@ -996,9 +996,12 @@ class FunctionSpace(AbstractFunctionSpace):
     @cached_property
     @_mesh_cached
     def layout_axes(self) -> AxisTree:
-        if self.parent:
-            field_label = self.parent.field_axis.component_labels[self.index]
-            return self.parent.layout_axes[field_label]
+        # Actually I think we don't care about the parent here because creating a
+        # data structure on a subspace should have the smaller size
+        # TODO: remove parent from the cache key here
+        # if self.parent:
+        #     field_label = self.parent.field_axis.component_labels[self.index]
+        #     return self.parent.layout_axes[field_label]
 
         # idea is to define this for this and mixed function space etc - this is the
         # *data layout* which is different to .axes (which is always the same for a
@@ -1017,7 +1020,7 @@ class FunctionSpace(AbstractFunctionSpace):
     def axis_constraints(self) -> tuple[AxisConstraint]:
         from firedrake.cython import dmcommon
 
-        assert self.parent is None, "axis_constraints not valid for indexed spaces"
+        # assert self.parent is None, "axis_constraints not valid for indexed spaces"
 
         mesh_axis = self._mesh.flat_points
         num_points = mesh_axis.local_size
@@ -1094,9 +1097,9 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
-        if self.parent is not None:
-            field_label = self.parent.field_axis.component_labels[self.index]
-            return self.parent.plex_axes[field_label]
+        # if self.parent is not None:
+        #     field_label = self.parent.field_axis.component_labels[self.index]
+        #     return self.parent.plex_axes[field_label]
 
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
@@ -1126,9 +1129,9 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def nodal_axes(self) -> op3.IndexedAxisTree:
-        if self.parent is not None:
-            field_label = self.parent.field_axis.component_labels[self.index]
-            return self.parent.nodal_axes[field_label]
+        # if self.parent is not None:
+        #     field_label = self.parent.field_axis.component_labels[self.index]
+        #     return self.parent.nodal_axes[field_label]
 
         # Create the axis tree without index information
         axis_tree = self._nodes_axis.as_tree()
