@@ -346,3 +346,35 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     # Test 0-form
     result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
     assert np.isclose(result_0, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_2_processes():
+    # Regression test for an IndexError in firedrake.mesh._pic_swarm_in_mesh
+    # when interpolating a function defined on a Submesh of an exterior facet
+    # onto its parent mesh in parallel: ranks that own zero cells of the
+    # Submesh hit ``IndexError: index -1 is out of bounds for axis 0 with
+    # size 0`` because parent_cell_nums_local contains -1 sentinels and
+    # cell_closure has shape (0, k) on those ranks.
+    mesh = UnitCubeMesh(8, 8, 8)
+    x, y, z = SpatialCoordinate(mesh)
+    V_marker = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_indicator = Function(V_marker).interpolate(
+        conditional(x > 0.999, 1.0, 0.0)
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_indicator], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
+    x, y, z = SpatialCoordinate(mesh)
+    xs, ys, zs = SpatialCoordinate(subm)
+    V_sub = FunctionSpace(subm, "CG", 1)
+    V_parent = FunctionSpace(mesh, "CG", 1)
+    f_sub = Function(V_sub).interpolate(ys + zs)
+    f_parent = Function(V_parent)
+    f_parent.interpolate(f_sub, allow_missing_dofs=True)
+    expected = Function(V_parent).interpolate(
+        conditional(x > 0.999, y + z, 0.0)
+    )
+    assert np.allclose(
+        f_parent.dat.data_with_halos, expected.dat.data_with_halos
+    )
