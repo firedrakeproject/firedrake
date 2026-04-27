@@ -6413,7 +6413,7 @@ def get_iteration_spec(
     # Use a weakref for the mesh here because otherwise we would store a
     # reference to the mesh in the cache and, since the lifetime of the cache
     # is tied to the mesh, things will never be cleaned up.
-    mesh_ref = weakref.proxy(mesh)
+    mesh_ref = weakref.proxy(mesh.topology)
 
     return IterationSpec(mesh_ref, integral_type, iterset, plex_indices, old_to_new_entity_numbering, needs_subset=needs_subset)
 
