@@ -3937,8 +3937,13 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local, -1
+        # Fancy-index only the visible rows: parent_cell_nums_local has
+        # -1 sentinels for query points with no owning cell on this rank,
+        # which crash the indexing on ranks whose cell_closure is shape
+        # (0, k). Sentinel rows are discarded by [visible_idxs] below.
+        plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
+        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
+            parent_cell_nums_local[visible_idxs], -1
         ]
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
