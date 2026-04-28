@@ -87,6 +87,10 @@ from pyop3.insn import (  # noqa: F401
     exscan,
     AssignmentType,
 )
+from pyop3.device import ( # noqa: F401
+    HOST_DEVICE,
+    Device
+)
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
 from pyop3.tree.index_tree.parse import as_index_forest
