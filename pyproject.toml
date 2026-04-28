@@ -31,7 +31,7 @@ dependencies = [
   "numpy",
   "packaging",
   # TODO RELEASE
-  # "petsc4py==3.24.5",
+  # "petsc4py==3.25.0",
   # UNDO ME
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@connorjward/cpetsc",
   "pkgconfig",
