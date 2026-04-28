@@ -279,6 +279,7 @@ class InstructionExecutionContext:
             try:
                 nest_indices = utils.just_one(mat.nest_indices)
             except ValueError:
+                breakpoint()
                 raise NotImplementedError("Recursively nested MATNESTs not supported")
             buffer = buffer.restrict_nest(*nest_indices)
 

@@ -1882,6 +1882,7 @@ class ParloopBuilder:
                         return True
         return False
 
+    # This should be done outside the local kernel I think?
     def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
 
@@ -1894,23 +1895,43 @@ class ParloopBuilder:
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
         column_space = column_arg.function_space()
+        petscmat = matrix.petscmat
+
+        i, j = indices
+        if petscmat.type == PETSc.Mat.Type.NEST:
+            assert len(row_space) > 1 and len(column_space) > 1
+            row_space = row_space[i]
+            column_space = column_space[j]
+            petscmat = petscmat.getNestSubMatrix(i, j)
+            i = None
+            j = None
+        if petscmat.type == PETSc.Mat.Type.PYTHON:
+            return None
+
+        masked_row_lgmap = mask_lgmap(row_space, i, self._bcs)
+        masked_column_lgmap = mask_lgmap(column_space, j, self._bcs)
+        return (masked_row_lgmap, masked_column_lgmap)
+
 
         petscmat = matrix.M.buffer.mat
         row_axes = matrix.M.row_axes
         column_axes = matrix.M.column_axes
-        i, j = indices
         row_bcs, column_bcs = self._filter_bcs(i or 0, j or 0)
 
         if petscmat.type == PETSc.Mat.Type.NEST:
+            assert len(row_space) > 1 and len(column_space) > 1
             petscmat = petscmat.getNestSubMatrix(i, j)
-
-            row_label = row_space.field_axis.component_labels[i]
-            row_axes = row_axes[row_label]
-            column_label = column_space.field_axis.component_labels[j]
-            column_axes = column_axes[column_label]
-
         if petscmat.type == PETSc.Mat.Type.PYTHON:
             return None
+
+        if len(row_space) > 1:
+            row_label = row_space.field_axis.component_labels[i]
+            row_axes = row_axes[row_label]
+            row_space = row_space[i]
+        if len(column_space) > 1:
+            column_label = column_space.field_axis.component_labels[j]
+            column_axes = column_axes[column_label]
+            column_space = column_space[j]
 
         row_lgmap, column_lgmap = petscmat.getLGMap()
 

@@ -2421,7 +2421,9 @@ def entity_permutations_key(entity_permutations):
 # Likely we should just be dealing with the function space and mat spec, the other args confuse things
 
 # TODO: make return type and arg consistent
-def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
+# TODO: can be a method of a function space
+# Don't need to pass lgmap as an arg because we can derive it
+def mask_lgmap(V, field_index: int | None, bcs) -> PETSc.LGMap:
     """Return a map from process-local to global DoF numbering.
 
     # update this#
@@ -2438,11 +2440,45 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
         The local-to-global mapping.
 
     """
+    if field_index is None:
+        # The lgmap is for the full space
+        if len(V) > 1:
+            split_bcs = []
+            breakpoint()  # need a loop
+        else:
+            split_bcs = [((), bcs)]
+
+    else:
+        # The lgmap is only for a subspace
+        split_bcs = [((field_index,), [])]
+        for bc in bcs:
+            if bc.function_space_index() == field_index:
+                split_bcs[0][1].append(bc)
+
+    # TODO: catch unblocked here
+    breakpoint()
+    lgmap_axes = V.axes.materialize()
+    if ...:
+        lgmap_axes = lgmap_axes.blocked(???)
+
+    lgmap_dat = V.axes.materialize().global_numbering
     if not bcs:
-        return lgmap
+        return lgmap.data_ro
+
+    for field_idx, bcs_ in split_bcs:
+        unblocked = any(bc.function_space().component is not None for bc in bcs_)
+        for bc in bcs_:
+            component_idx = bc.function_space().component or ()
+            try:
+                lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
+            except:
+                breakpoint()
+
+    return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
 
     unblocked = any(bc.function_space().component is not None for bc in bcs)
     if unblocked:
+        raise NotImplementedError
         indices = lgmap.indices.copy()
         block_size = 1
     else:
@@ -2463,6 +2499,9 @@ def mask_lgmap(V, axes, lgmap: LGMap, bcs, block_shape) -> PETSc.LGMap:
             assert component_slice is not None
         else:
             component_slice = ()
-        dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
+        try:
+            dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
+        except:
+            breakpoint()
 
     return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)
