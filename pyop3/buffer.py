@@ -226,16 +226,21 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ Instance attrs
 
+    # TODO: Update to lazily allocated pair of host/device arrays
     _lazy_data: np.ndarray = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
+    # TODO: Device awareness variable - subscriber/observer? 
+    _awareness: int
 
     _max_value: np.number | None = None
 
-    _state: int = 0
+    # TODO: Mutable pair of variables corresponding to state for host & device  
+    # Not done as dataclass requires immutable or default factory but latter cannot be attr
+    _state: int = 0 
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
@@ -464,6 +469,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
+    # TODO: Update this to provide CPU/GPU array as per awareness
     @property
     def _data(self):
         if self._lazy_data is None:

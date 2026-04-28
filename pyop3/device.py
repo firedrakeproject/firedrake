@@ -1,11 +1,27 @@
 # File to handle op3.device context manager
-import abc
+from abc import ABCMeta, abstractmethod
 import contextlib
 import warnings
 
-# TODO: Consider if there is approach to actually identify host method calling the python script
-# For now, we just have a constant argument.
-HOST_DEVICE = "cpu" 
+# TODO: The constant should be elsewhere but temporary here 
+HOST_DEVICE = 0 
 
-class Device(abc.ABC):
+class Device(metaclass=ABCMeta):
+  _available: bool
+  _name: str
+
+  def __init__(self):
+    pass
+
+class GPU(Device):
   pass
+
+@contextlib.contextmanager
+def device(dev: Device): 
+  # TODO: Update buffers and copy to
+  try:
+    yield "not implemented"
+  finally:
+    # TODO: Update buffers and copy back
+    pass
+    
