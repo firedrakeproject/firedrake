@@ -608,7 +608,7 @@ jobs:
           # -----
           # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
           #
-          readarray -d' ' arr < <( python tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time | grep '^SNESSolve' )
+          declare -a arr=( $( python tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time | grep '^SNESSolve' ) )
           [[ "${arr[-1]}" -gt 80 ]] || exit 1
 
       - name: Post-run cleanup
