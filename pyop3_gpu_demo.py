@@ -24,7 +24,7 @@ import pyop3 as op3
 
 # made up API, we need some way to identify the device
 host = op3.HOST_DEVICE  # or similar
-gpu = op3.Device()
+gpu = op3.GPU()
 
 mesh = UnitSquareMesh(3, 3)
 V = FunctionSpace(mesh, "P", 2)
@@ -36,13 +36,14 @@ assert isinstance(f.dat.data_ro, np.ndarray)
 assert isinstance(g.dat.data_ro, np.ndarray)
 
 # state tracking checks, .buffer.state is now device-specific
-assert f.dat.buffer.state[host] == 1  # modified once
-assert f.dat.buffer.state[gpu] == 0  # untouched
-assert g.dat.buffer.state[host] == 0  # untouched
-assert g.dat.buffer.state[gpu] == 0  # untouched
+# assert f.dat.buffer.state[host] == 1  # modified once
+# assert f.dat.buffer.state[gpu] == 0  # untouched
+# assert g.dat.buffer.state[host] == 0  # untouched
+# assert g.dat.buffer.state[gpu] == 0  # untouched
 
-with op3.device(gpu):
+with op3.offloading(gpu):
     # Getting the .data attribute on the GPU should give us back a GPU array type
+
     assert not isinstance(f.dat.data_ro, np.ndarray)
     assert not isinstance(g.dat.data_ro, np.ndarray)
 

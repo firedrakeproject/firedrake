@@ -11,6 +11,7 @@ from functools import cached_property
 from typing import Any, ClassVar, Hashable
 
 import numpy as np
+import cupy as cp
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -20,6 +21,7 @@ from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
+from pyop3.device import _current_device
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
@@ -227,7 +229,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ Instance attrs
 
     # TODO: Update to lazily allocated pair of host/device arrays
-    _lazy_data: np.ndarray = dataclasses.field(repr=False)
+    _lazy_data: np.ndarray | cp.ndarray = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
@@ -472,11 +474,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: Update this to provide CPU/GPU array as per awareness
     @property
     def _data(self):
-        if self._lazy_data is None:
-            self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-        if self.name == "array_247_buffer":
-            breakpoint()
-        return self._lazy_data
+        # NOTE: Testing context manager
+        _location = _current_device.get()
+
+        if _location == "cpu":
+          if self._lazy_data is None:
+              self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
+          if self.name == "array_247_buffer":
+              breakpoint()
+          return self._lazy_data 
+        elif _location == "gpu":
+          if self._lazy_data is None:
+              self._lazy_data = cp.zeros(self.shape, dtype=self.dtype)
+          if self.name == "array_247_buffer":
+              breakpoint()
+          return cp.asarray(self._lazy_data)
+        else:
+          raise RuntimeError("Offload device not supported")
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
