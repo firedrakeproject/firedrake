@@ -602,6 +602,7 @@ jobs:
       - name: Confirm GPU usage in OffloadPC test
         shell: bash
         run: |
+          . venv/bin/activate
           # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
           # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
           # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
@@ -612,9 +613,14 @@ jobs:
           while read -r line; do
             if [[ "${line}" =~ ^SNESSolve ]]; then
               readarray -d' ' arr <<<"${line}"
-              [[ "${arr[-1]}" -gt 80 ]] || exit 1
+              echo "SNESSolve PETSc log_view line"
+              echo "============================="
+              echo "${line}"
+              [[ "${arr[-1]}" -gt 80 ]] && exit 0 || exit 1
             fi
-          done < <( python tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
+          done < <( python firedrake-repo/tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
+          echo "SNESSolve not found in PETSc log_view output!"
+          exit 1
 
       - name: Post-run cleanup
         if: always()
