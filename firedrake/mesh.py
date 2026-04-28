@@ -4358,8 +4358,8 @@ def _parent_mesh_embedding(
             ncoords_local = coords_local.shape[0]
             coords_global = coords_local
             ncoords_global = coords_global.shape[0]
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
+            global_idxs_global = np.arange(coords_global.shape[0], dtype=IntType)
+            input_coords_idxs_local = np.arange(ncoords_local, dtype=IntType)
             input_coords_idxs_global = input_coords_idxs_local
             input_ranks_local = np.zeros(ncoords_local, dtype=IntType)
             input_ranks_global = input_ranks_local
@@ -4376,7 +4376,7 @@ def _parent_mesh_embedding(
             ncoords_global = sum(ncoords_local_allranks)
             # The below code looks complicated but it's just an allgather of the
             # (variable length) coords_local array such that they are concatenated.
-            coords_local_size = np.array(coords_local.size)
+            coords_local_size = np.array(coords_local.size, dtype=IntType)
             coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=IntType)
             icomm.Allgatherv(coords_local_size, coords_local_sizes)
             coords_global = np.empty(
@@ -4389,8 +4389,8 @@ def _parent_mesh_embedding(
             # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
             # endidx = startidx + ncoords_local
             # global_idxs_global = np.arange(startidx, endidx)
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
+            global_idxs_global = np.arange(coords_global.shape[0], dtype=IntType)
+            input_coords_idxs_local = np.arange(ncoords_local, dtype=IntType)
             input_coords_idxs_global = np.empty(ncoords_global, dtype=IntType)
             icomm.Allgatherv(
                 input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
@@ -4595,7 +4595,7 @@ def _swarm_original_ordering_preserve(
         (plex_parent_cell_nums_global, ncoords_local_allranks),
     )
 
-    reference_coords_local_size = np.array(reference_coords_local.size)
+    reference_coords_local_size = np.array(reference_coords_local.size, dtype=IntType)
     reference_coords_local_sizes = np.empty(comm.size, dtype=IntType)
     comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
     reference_coords_global = np.empty(
