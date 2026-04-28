@@ -599,6 +599,22 @@ jobs:
           firedrake-check
         timeout-minutes: 10
 
+      - name: Confirm GPU usage in OffloadPC test
+        run: |
+          # We expect >80% of compute in SNESSolve to be performed on the GPU with GAMG pc and CG ksp. When
+          # -log_view -log_view_gpu_time is enabled, the final column of the PETSc profiling output is the
+          # percentage of FLOPs performed on the GPU. This test extracts the line beginning with SNESSolve (example below)
+          # into an array and tests if the final element of that array is above 80.
+          # -----
+          # SNESSolve 1 1.0 8.6306e-01 1.0 2.50e+05 1.0 0.0e+00 0.0e+00 0.0e+00 22 89 0 0 0 22 89 0 0 0 0 7 27 4.99e-02 21 2.63e-02 87
+          #
+          while read line; do
+            if [[ "${line}" =~ ^SNESSolve ]]; then
+              readarray -d' ' arr <<<"${line}"
+              [[ "${arr[-1]}" -gt 80 ]] || exit 1
+            fi
+          done < <( python tests/firedrake/offload/test_poisson_offloading_pc.py -log_view -log_view_gpu_time )
+
       - name: Post-run cleanup
         if: always()
         run: |
