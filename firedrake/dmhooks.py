@@ -159,7 +159,7 @@ class SetupHooks(object):
             f()
 
 
-def add_hook(dm, setup=None, teardown=None, call_setup=False, call_teardown=False):
+def add_hook(dm, setup=None, teardown=None):
     """Add a hook to a DM to be called for setup/teardown of
     subproblems.
 
@@ -169,8 +169,6 @@ def add_hook(dm, setup=None, teardown=None, call_setup=False, call_teardown=Fals
          data.
     :arg teardown: function of no arguments to call to remove
          subproblem data.
-    :arg call_setup: Should the setup function be called now?
-    :arg call_teardown: Should the teardown function be called now?
 
     See also :class:`add_hooks` which provides a context manager which
     manages everything."""
@@ -180,12 +178,8 @@ def add_hook(dm, setup=None, teardown=None, call_setup=False, call_teardown=Fals
     obj = stack[-1]
     if setup is not None:
         obj.add_setup(setup)
-        if call_setup:
-            setup()
     if teardown is not None:
         obj.add_teardown(teardown)
-        if call_teardown:
-            teardown()
 
 
 class add_hooks(object):
@@ -207,7 +201,7 @@ class add_hooks(object):
        # In setup
        pc = ...
        pc.setDM(dm)
-       with dmhooks.add_hooks(dm, self, appctx=ctx, save=False):
+       with dmhooks.add_hooks(dm, appctx=ctx):
            pc.setFromOptions()
 
        ...
@@ -217,39 +211,24 @@ class add_hooks(object):
        with dmhooks.add_hooks(dm, self, appctx=self.ctx):
           pc.apply(...)
     """
-    def __init__(self, dm, obj, *, save=True, appctx=None):
+    def __init__(self, dm, obj, *, appctx=None):
+        if appctx is not None:
+            add_hook(
+                dm,
+                setup=partial(push_appctx, dm, appctx),
+                teardown=partial(pop_appctx, dm, appctx),
+            )
+
         self.dm = dm
-        self.obj = obj
-        self.first_time = not hasattr(obj, "setup_hooks")
-        self.save = save
         self.appctx = appctx
-        if not (self.save or self.first_time):
-            raise ValueError("Can't have save=False for non-first-time usage")
 
     def __enter__(self):
-        if not self.first_time:
-            # We've already run setup, so just attach the data to the subdms.
-            hooks = self.obj.setup_hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
-            hooks.setup()
-        else:
-            # Not yet seen, let's save the relevant information.
-            hooks = SetupHooks()
-            if self.save:
-                # Remember it for later
-                self.obj.setup_hooks = hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
-            if self.appctx is not None:
-                add_hook(self.dm, setup=partial(push_appctx, self.dm, self.appctx),
-                         teardown=partial(pop_appctx, self.dm, self.appctx),
-                         call_setup=True)
+        hooks = SetupHooks()
+        push_attr("__setup_hooks__", self.dm, hooks)
+        if self.appctx is not None:
 
     def __exit__(self, typ, value, traceback):
         hooks = pop_attr("__setup_hooks__", self.dm)
-        if self.first_time:
-            assert hooks is not None
-        else:
-            assert hooks == self.obj.setup_hooks
         hooks.teardown()
 
 
@@ -259,6 +238,7 @@ pop_parent = partial(pop_attr, "__parent__")
 
 
 def get_parent(dm):
+    raise AssertionError("No longer used")
     return get_attr("__parent__", dm, default=dm)
 
 
@@ -351,6 +331,10 @@ def create_field_decomposition(dm, *args, **kwargs):
     if ctx is not None and len(W) > 1:
         ctxs = ctx.split([(i, ) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
+            # add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
+            #          call_setup=True)
+            # add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
+            #          call_setup=True)
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
