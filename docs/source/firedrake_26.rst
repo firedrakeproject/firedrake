@@ -44,17 +44,24 @@ Participants can register for either the PETSc or the Firedrake part of the
 meeting, or (highly recommended!) for both.
 
 Registration is all-inclusive: workshop, accommodation (Monday and Tuesday
-night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day and
+night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day
+(excluding breakfast/dinner for the day that you arrive/leave) and
 coffee breaks. There are also options without the room and breakfast component
 for those who live locally.
 
-=================   ========    ======  ======= ======================= ========================== 
-Event               Dates       Full    Student Full (no accommodation) Student (no accommodation)
-=================   ========    ======  ======= ======================= ========================== 
-PETSc & Firedrake   1-5 June	£1000   £400    £420                    £170 
-PETSc only          1-3 June    £550    £220    £250                    £100 
-Firedrake only	    3-5 June    £550    £220    £250                    £100 
-=================   ========    ======  ======= ======================= ========================== 
+=================   =================================== ======  ======= ======================= ========================== 
+Event               Dates                               Full    Student Full (no accommodation) Student (no accommodation)
+=================   =================================== ======  ======= ======================= ========================== 
+PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170 
+PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100 
+Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100 
+=================   =================================== ======  ======= ======================= ========================== 
+
+International attendees will likely need to book a hotel for the night before
+the conference. We recommend either booking an extra night at the `conference
+venue <https://mercureoxfordhawkwellhouse.com>`__ or booking a hotel by
+London Paddington, as it is a convenient midpoint between London Heathrow and
+Oxford.
 
 `Register here! <https://cvent.me/lqGoPm>`__
 

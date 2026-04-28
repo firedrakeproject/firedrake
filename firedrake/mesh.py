@@ -16,7 +16,7 @@ from ufl.domain import extract_unique_domain
 import enum
 import numbers
 import abc
-import rtree
+import firedrake_rtree
 from textwrap import dedent
 from pathlib import Path
 import typing
@@ -35,10 +35,10 @@ import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
-import firedrake.cython.spatialindex as spatialindex
+import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
-from firedrake.logging import info_red, logger
+from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
@@ -2381,7 +2381,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.submesh_parent = None
 
         self._bounding_box_coords = None
-        self._spatial_index = None
+        self._rtree = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
         # Cache mesh object on the coordinateless coordinates function
@@ -2459,8 +2459,8 @@ values from f.)"""
 
         Notes
         -----
-        After changing tolerance any requests for :attr:`spatial_index` will cause
-        the spatial index to be rebuilt with the new tolerance which may take some time.
+        After changing tolerance any requests for :attr:`rtree` will cause
+        the rtree to be rebuilt with the new tolerance which may take some time.
         """
         return self._tolerance
 
@@ -2469,28 +2469,25 @@ values from f.)"""
         if not isinstance(value, numbers.Number):
             raise TypeError("tolerance must be a number")
         if value != self._tolerance:
-            self.clear_spatial_index()
+            self.clear_rtree()
             self._tolerance = value
 
-    def clear_spatial_index(self):
-        """Reset the :attr:`spatial_index` on this mesh geometry.
+    def clear_rtree(self):
+        """Reset the :attr:`rtree` on this mesh geometry.
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        self._spatial_index = None
+        self._rtree = None
 
     @cached_property
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
-        """Calculates bounding boxes for spatial indexing.
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculates bounding boxes for the mesh rtree.
 
         Returns
         -------
         Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
-
-        None if the geometric dimension is 1, since libspatialindex
-        does not support 1D.
 
         Notes
         -----
@@ -2501,11 +2498,6 @@ values from f.)"""
         """
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
-
-        gdim = self.geometric_dimension
-        if gdim <= 1:
-            info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
-            return None
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
@@ -2541,7 +2533,7 @@ values from f.)"""
             return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=self.geometric_dimension)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -2550,7 +2542,7 @@ values from f.)"""
 
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
+        domain = f"{{[d, i]: 0 <= d < {self.geometric_dimension} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
@@ -2571,20 +2563,19 @@ values from f.)"""
 
     @property
     @PETSc.Log.EventDecorator()
-    def spatial_index(self):
-        """Builds spatial index from bounding box coordinates, expanding
-        the bounding box by the mesh tolerance.
+    def rtree(self):
+        """Builds an rtree from bounding box coordinates, expanding
+        the bounding boxes by the mesh tolerance.
 
         Returns
         -------
-        :class:`~.spatialindex.SpatialIndex` or None if the mesh is
-        one-dimensional.
+        :class:`~.rtree.RTree`
 
         Notes
         -----
         If this mesh has a :attr:`tolerance` property, which
         should be a float, this tolerance is added to the extrema of the
-        spatial index so that points just outside the mesh, within tolerance,
+        rtree so that points just outside the mesh, within tolerance,
         can be found.
 
         """
@@ -2592,8 +2583,8 @@ values from f.)"""
             if "bounding_box_coords" in self.__dict__:
                 del self.bounding_box_coords
         else:
-            if self._spatial_index:
-                return self._spatial_index
+            if self._rtree:
+                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2605,22 +2596,21 @@ values from f.)"""
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
-        if self.bounding_box_coords is None:
-            # This happens in 1D meshes
-            return None
-        else:
-            coords_min, coords_max = self.bounding_box_coords
+        coords_min, coords_max = self.bounding_box_coords
+        if self.geometric_dimension == 1:
+            coords_min = coords_min.reshape(-1, 1)
+            coords_max = coords_max.reshape(-1, 1)
+
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
         coords_min = coords_mid - (tolerance + 0.5)*d
         coords_max = coords_mid + (tolerance + 0.5)*d
 
-        # Build spatial index
-        with PETSc.Log.Event("spatial_index_build"):
-            self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        with PETSc.Log.Event("rtree_build"):
+            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
         self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
-        return self._spatial_index
+        return self._rtree
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2629,7 +2619,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: cell number (int), or None (if the point is not
@@ -2644,7 +2634,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: reference coordinates within cell (numpy array) or
@@ -2659,7 +2649,7 @@ values from f.)"""
         :arg x: point coordinates
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cell_ignore: Cell number to ignore in the search.
         :returns: tuple either
@@ -2683,7 +2673,7 @@ values from f.)"""
         :arg xs: 1 or more point coordinates of shape (npoints, gdim)
         :kwarg tolerance: Tolerance for checking if a point is in a cell.
             Default is this mesh's :attr:`tolerance` property. Changing
-            this from default will cause the spatial index to be rebuilt which
+            this from default will cause the rtree to be rebuilt which
             can take some time.
         :kwarg cells_ignore: Cell numbers to ignore in the search for each
             point in xs. Shape should be (npoints, n_ignore_pts). Each column
@@ -2768,21 +2758,19 @@ values from f.)"""
                 }}
             """)
 
-            libspatialindex_so = Path(rtree.core.rt._name).absolute()
-            lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
             dll = compilation.load(
                 src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
-                    f"-I{rtree.finder.get_include()}",
+                    f"-I{firedrake_rtree.get_include()}",
                     *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
                 ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    str(libspatialindex_so),
+                    firedrake_rtree.get_lib_filename(),
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    lsi_runpath
+                    f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
                 ],
                 comm=self.comm
             )
@@ -3098,13 +3086,16 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.reference_value_shape) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension <= V.value_size
+    orig_mesh = V.mesh()
+    assert orig_mesh.ufl_cell().topological_dimension <= V.value_size
 
     mesh = MeshGeometry(coordinates)
     mesh.name = name
     # Mark mesh as being made from coordinates
     mesh._made_from_coordinates = True
     mesh._tolerance = tolerance
+    mesh._did_reordering = orig_mesh._did_reordering
+    mesh._distribution_parameters = orig_mesh._distribution_parameters
     return mesh
 
 
@@ -3634,7 +3625,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the mesh will be built using just the vertices
         which are specified on rank 0. If False, the mesh will be built using
@@ -3804,7 +3795,7 @@ def _pic_swarm_in_mesh(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
@@ -4290,7 +4281,7 @@ def _parent_mesh_embedding(
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
         mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's spatial index to be rebuilt which can take some
+        cause the parent mesh's rtree to be rebuilt which can take some
         time.
     redundant : ``bool``
         If True, the embedding will be done using only the points specified on

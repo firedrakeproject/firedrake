@@ -3,8 +3,7 @@
 # the specific version, here we are more permissive. This is to catch the
 # case where users don't update their PETSc for a really long time or
 # accidentally install a too-new release that isn't yet supported.
-# TODO RELEASE set to ">=3.25"
-PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
+PETSC_SUPPORTED_VERSIONS = ">=3.25.0"
 
 
 def init_petsc():
@@ -70,10 +69,10 @@ from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
+    SerialExecutionOnlyError, PointNotInDomainError,
 )
 from firedrake.function import (  # noqa: F401
-    Function, PointNotInDomainError,
-    CoordinatelessFunction, PointEvaluator
+    Function, CoordinatelessFunction, PointEvaluator
 )
 from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
