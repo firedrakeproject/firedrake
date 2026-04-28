@@ -332,10 +332,20 @@ class Mat(Tensor):
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return tuple(itertools.zip_longest(self.row_axes.nest_indices, self.column_axes.nest_indices))
+        idxs = tuple(
+            itertools.zip_longest(
+                self.row_axes.nest_indices, self.column_axes.nest_indices
+            )
+        )
+        if self.transform:
+            return self.transform.nest_indices + idxs
+        else:
+            return idxs
 
     @cached_property
     def nest_labels(self) -> tuple[tuple[int, int], ...]:
+        if self.transform:
+            raise NotImplementedError
         return tuple(itertools.zip_longest(self.row_axes.nest_labels, self.column_axes.nest_labels))
 
 

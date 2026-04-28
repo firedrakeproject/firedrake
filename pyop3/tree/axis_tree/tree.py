@@ -1422,7 +1422,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         numbering[self.owned.local_size:] = -1
         self.sf.broadcast(numbering, MPI.REPLACE)
         debug_assert(lambda: (numbering >= 0).all())
-        return Dat(self, data=numbering)
+        return Dat(self.localize(), data=numbering)
 
 
 @pyop3.record.frozenrecord()
@@ -1691,7 +1691,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def global_numbering(self) -> Dat[IntType]:
         from pyop3 import Dat
 
-        return Dat(self, buffer=self.unindexed.global_numbering.buffer)
+        return Dat(self.localize(), buffer=self.unindexed.global_numbering.buffer)
 
     # }}}
 
@@ -2069,7 +2069,7 @@ class AxisForest(DistributedObject):
     def global_numbering(self) -> Dat:
         from pyop3 import Dat
 
-        return Dat(self, buffer=self.trees[0].global_numbering.buffer)
+        return Dat(self.localize(), buffer=self.trees[0].global_numbering.buffer)
 
     @property
     def owned(self) -> AxisForest:

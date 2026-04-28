@@ -2440,11 +2440,28 @@ def mask_lgmap(V, field_index: int | None, bcs) -> PETSc.LGMap:
         The local-to-global mapping.
 
     """
+    lgmap_axes = V.axes.materialize()
+    if any(bc.function_space().component is not None for bc in bcs):
+        block_size = 1
+    else:
+        lgmap_axes = lgmap_axes.blocked(V.shape)
+        block_size = numpy.prod(V.shape)
+    lgmap_dat = lgmap_axes.materialize().global_numbering
+
+    if not bcs:
+        return PETSc.LGMap().create(
+            lgmap_dat.data_ro, bsize=block_size, comm=V.comm
+        )
+
     if field_index is None:
         # The lgmap is for the full space
         if len(V) > 1:
             split_bcs = []
-            breakpoint()  # need a loop
+            for subspace in V:
+                split_bcs.append(((subspace.index,), []))
+                for bc in bcs:
+                    if bc.function_space_index() == subspace.index:
+                        split_bcs[subspace.index][1].append(bc)
         else:
             split_bcs = [((), bcs)]
 
@@ -2455,26 +2472,15 @@ def mask_lgmap(V, field_index: int | None, bcs) -> PETSc.LGMap:
             if bc.function_space_index() == field_index:
                 split_bcs[0][1].append(bc)
 
-    # TODO: catch unblocked here
-    breakpoint()
-    lgmap_axes = V.axes.materialize()
-    if ...:
-        lgmap_axes = lgmap_axes.blocked(???)
-
-    lgmap_dat = V.axes.materialize().global_numbering
-    if not bcs:
-        return lgmap.data_ro
-
-    for field_idx, bcs_ in split_bcs:
-        unblocked = any(bc.function_space().component is not None for bc in bcs_)
-        for bc in bcs_:
+    for field_idx, bcs_per_field in split_bcs:
+        for bc in bcs_per_field:
             component_idx = bc.function_space().component or ()
-            try:
-                lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
-            except:
-                breakpoint()
+            # try:
+            lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
+            # except:
+            #     breakpoint()
 
-    return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
+    return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=V.comm)
 
     unblocked = any(bc.function_space().component is not None for bc in bcs)
     if unblocked:

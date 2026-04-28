@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import itertools
 import numbers
 import typing
 from functools import cached_property
@@ -241,6 +242,11 @@ class TensorTransform(abc.ABC):
     def prev(self) -> TensorTransform | None:
         pass
 
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        pass
+
 
 class CallableTensorTransform(TensorTransform):
     pass
@@ -264,6 +270,10 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
         return (type(self), self.transform_in, self.transform_out, prev_key)
 
     prev = pyop3.record.attr("_prev")
+
+    @property
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        raise NotImplementedError
 
     # }}}
 
@@ -289,5 +299,13 @@ class ReshapeTensorTransform(IdentityTensorTransform):
         return (type(self), self.axis_trees, prev_key)
 
     prev = pyop3.record.attr("_prev")
+
+    @cached_property
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        return tuple(
+            itertools.zip_longest(
+                *(axes.nest_indices for axes in self.axis_trees)
+            )
+        )
 
     # }}}
