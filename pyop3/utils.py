@@ -14,6 +14,7 @@ from typing import Any
 
 import cachetools
 import numpy as np
+import cupy as cp
 import pytools
 from immutabledict import immutabledict
 from mpi4py import MPI
@@ -23,7 +24,7 @@ from pyop3.collections import AbstractOrderedSet, StrictlyUniqueDict
 from pyop3.config import config
 from pyop3.constants import PYOP3_DECIDE, _nothing
 from pyop3.dtypes import DTypeT, IntType
-from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception, UnhashableObjectException, UnsupportedArrayException
 from pyop3.mpi import collective
 
 
@@ -331,12 +332,22 @@ def map_when(func, when_func, iterable):
             yield item
 
 
-def readonly(array):
+@functools.singledispatch
+def readonly(array: Any) -> Any:
+    raise UnsupportedArrayException 
+
+@readonly.register
+def _(array: np.ndarray) -> np.ndarray:
     """Return a readonly view of a numpy array."""
     view = array.view()
     view.setflags(write=False)
     return view
 
+@readonly.register
+def _(array: cp.ndarray) -> cp.ndarray:
+    """ Return a view of a CuPy array."""
+    view = array.view()
+    return view
 
 def debug_assert(predicate, msg=None):
     if config.debug_checks:

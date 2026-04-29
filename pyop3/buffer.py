@@ -21,7 +21,10 @@ from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
-from pyop3.device import _current_device
+from pyop3.device import (
+    _current_device,
+    HOST_DEVICE
+)
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
@@ -224,25 +227,22 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 # copies should live in this class.
 @pyop3.record.record()
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a numpy array."""
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array."""
 
     # {{{ Instance attrs
 
     # TODO: Update to lazily allocated pair of host/device arrays
-    _lazy_data: np.ndarray | cp.ndarray = dataclasses.field(repr=False)
+    _lazy_data: dict[str, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
     sf: StarForest
     _name: str
     _constant: bool
     _rank_equal: bool
     _ordered: bool
-    # TODO: Device awareness variable - subscriber/observer? 
-    _awareness: int
+    # TODO: Mutable pair of variables corresponding to state for host & device  
+    _state: dict[str, int]
 
     _max_value: np.number | None = None
 
-    # TODO: Mutable pair of variables corresponding to state for host & device  
-    # Not done as dataclass requires immutable or default factory but latter cannot be attr
-    _state: int = 0 
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
@@ -254,8 +254,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             type(self), self._constant, self._rank_equal, self._ordered, 
             self.dtype, buffer_counter[self])
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
-        data = data.flatten()
+    def __init__(self, data: np.ndarray | cp.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, rank_equal: bool = False, max_value: numbers.Number | None=None, ordered:bool=False):
+
+        data_mapping = {pyop3.HOST_DEVICE: None, "gpu": None}
+
         if sf is None:
             sf = NullStarForest(data.size)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -265,16 +267,24 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if rank_equal and not constant:
             raise ValueError
 
+        # TODO: CuPy has no support for `writeable` flag 
         if constant:
             data.flags.writeable = False
 
-        self._lazy_data = data
+        if isinstance(data, np.ndarray):
+            data_mapping[pyop3.HOST_DEVICE] = data
+        elif isinstance(data, cp.ndarray):
+            data_mapping["gpu"] = data 
+            
+        self._lazy_data = data_mapping 
         self.sf = sf
         self._name = name
         self._constant = constant
         self._rank_equal = rank_equal
         self._max_value = max_value
         self._ordered = ordered
+        # TODO: Quite ugly, maybe switch to ENUM in future.
+        self._state = {pyop3.HOST_DEVICE: 0, "gpu": 0}
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -312,8 +322,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        self._state += 1
+        self._state[self.context] += 1
 
+    # NOTE: Why is this using _lazy_data instead of _data?
+    # TODO: Either adjust for _lazy_data mapping or switch to _data
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
@@ -323,8 +335,16 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         else:
             data = np.zeros_like(self._lazy_data)
         return self.__record_init__(_name=name, _lazy_data=data)
+    
+    def sync_to_host(self):
+        self.state[pyop3.HOST_DEVICE] = cp.asnumpy(self.state["gpu"])
+        self.state[pyop3.HOST_DEVICE] = self.state["gpu"]
 
     is_nested: ClassVar[bool] = False
+    
+    @property
+    def context(self) -> str:
+        return str(_current_device.get())
 
     @property
     def handle(self) -> np.ndarray:
@@ -471,26 +491,23 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
-    # TODO: Update this to provide CPU/GPU array as per awareness
+    # TODO: Need logic to recognise when to copy data to GPU
     @property
     def _data(self):
-        # NOTE: Testing context manager
-        _location = _current_device.get()
+        context = self.context
 
-        if _location == "cpu":
-          if self._lazy_data is None:
-              self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-          if self.name == "array_247_buffer":
-              breakpoint()
-          return self._lazy_data 
-        elif _location == "gpu":
-          if self._lazy_data is None:
-              self._lazy_data = cp.zeros(self.shape, dtype=self.dtype)
-          if self.name == "array_247_buffer":
-              breakpoint()
-          return cp.asarray(self._lazy_data)
+        if context == "cpu":
+            if self._lazy_data[context] is None:
+                self._lazy_data[context] = np.zeros(self.shape, dtype=self.dtype)
+        elif context == "gpu":
+            if self._lazy_data[context] is None:
+                self._lazy_data[context] = cp.zeros(self.shape, dtype=self.dtype)
         else:
-          raise RuntimeError("Offload device not supported")
+            raise RuntimeError("Offload device not supported")
+
+        if self.name == "array_247_buffer":
+            breakpoint()
+        return self._lazy_data[context]
 
     # TODO: I think the halo bits should only be handled at the Dat level via the
     # axis tree. Here we can just consider the array.
