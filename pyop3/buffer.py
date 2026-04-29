@@ -22,8 +22,8 @@ from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 from pyop3.device import (
-    _current_device,
-    HOST_DEVICE
+    HOST_DEVICE,
+    _current_device
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
@@ -322,7 +322,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self._data.dtype
 
     def inc_state(self) -> None:
-        self._state[self.context] += 1
+        self._state[self.get_context()] += 1
 
     # NOTE: Why is this using _lazy_data instead of _data?
     # TODO: Either adjust for _lazy_data mapping or switch to _data
@@ -335,15 +335,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         else:
             data = np.zeros_like(self._lazy_data)
         return self.__record_init__(_name=name, _lazy_data=data)
-    
-    def sync_to_host(self):
-        self.state[pyop3.HOST_DEVICE] = cp.asnumpy(self.state["gpu"])
-        self.state[pyop3.HOST_DEVICE] = self.state["gpu"]
 
     is_nested: ClassVar[bool] = False
     
-    @property
-    def context(self) -> str:
+    def get_context(self) -> str:
         return str(_current_device.get())
 
     @property
@@ -491,19 +486,40 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
-    # TODO: Need logic to recognise when to copy data to GPU
     @property
     def _data(self):
-        context = self.context
+        context = self.get_context()
 
-        if context == "cpu":
-            if self._lazy_data[context] is None:
-                self._lazy_data[context] = np.zeros(self.shape, dtype=self.dtype)
-        elif context == "gpu":
-            if self._lazy_data[context] is None:
-                self._lazy_data[context] = cp.zeros(self.shape, dtype=self.dtype)
-        else:
-            raise RuntimeError("Offload device not supported")
+        # TODO: This logic cannot be kept
+        '''
+            Flaw in that host and gpu modifications will be out of sync.
+            This could lead to situations where multiple copies are made before GPU
+            context has reached the same modifications as CPU.
+            Even worse if data is called without being modified - copied but no state change.
+
+            Solution: 
+                - Copy state modifications after context window
+                - If states match, check if None, else copy.
+                - Do we want to free cupy space after context window? 
+        '''
+        if context == "gpu":
+            # If GPU has modifications >= CPU and not None, don't copy.
+            if self._lazy_data[context] is None or self.state[context] < self.state[pyop3.HOST_DEVICE]:
+                self._sync_to_device()
+
+        elif context == "cpu":
+            # If CPU has modifications >= GPU and not None, don't copy.
+            if self._lazy_data[context] is None or self.state[context] < self.state["gpu"]:
+                self._sync_to_host()
+
+        # if context == "cpu":
+        #     if self._lazy_data[context] is None:
+        #         self._lazy_data[context] = np.zeros(self.shape, dtype=self.dtype)
+        # elif context == "gpu":
+        #     if self._lazy_data[context] is None:
+        #         self._lazy_data[context] = cp.zeros(self.shape, dtype=self.dtype)
+        # else:
+        #     raise RuntimeError("Offload device not supported")
 
         if self.name == "array_247_buffer":
             breakpoint()
@@ -620,7 +636,15 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_property
     def _localized(self) -> ArrayBuffer:
         return self.__record_init__(sf=None)
+    
+    # TODO: Consider whether to make these asynchronous and group with a sync
+    def _sync_to_host(self):
+        self._lazy_data[pyop3.HOST_DEVICE] = cp.asnumpy(self._lazy_data["gpu"])
+        self.state[pyop3.HOST_DEVICE] = self.state["gpu"]
 
+    def _sync_to_device(self):
+        self._lazy_data["gpu"] = cp.asarray(self._lazy_data[pyop3.HOST_DEVICE])
+        self.state["gpu"] = self.state[pyop3.HOST_DEVICE]
 
 class MatBufferSpec(abc.ABC):
     pass
