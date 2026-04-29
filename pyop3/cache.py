@@ -174,9 +174,15 @@ def get_method_cache(obj):
 
 
 def cached_method(key=default_hashkey):
+    """TODO"""
+    # Since this is a cache for an instance we ignore the 'self' argument
+    # def method_cache_key(self, *args, **kwargs):
+    #     return key(*args, **kwargs)
+    method_cache_key = key
+
     def wrapper(func):
         return cachetools.cachedmethod(
-            lambda self: get_method_cache(self)[func.__qualname__], key
+            lambda self: get_method_cache(self)[func.__qualname__], method_cache_key
         )(func)
     return wrapper
 

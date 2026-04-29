@@ -27,6 +27,7 @@ from mpi4py import MPI
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.cache
 import pyop3.record
 from pyop3.cache import cached_on, memory_cache, cached_method
 from pyop3.collections import StrictlyUniqueDict, OrderedSet
@@ -818,10 +819,11 @@ class EquivalentAxisTargetSet(tuple):
     pass
 
 
+# def _getitem_cache_key(indices, *, strict=False) -> Hashable:
 def _getitem_cache_key(self, indices, *, strict=False) -> Hashable:
     if isinstance(indices, list):
         indices = tuple(indices)
-    return cachetools.keys.methodkey(self, indices, strict=strict)
+    return pyop3.cache.default_hashkey(indices, strict=strict)
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):

@@ -24,7 +24,6 @@ import pyop3 as op3
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
-from firedrake.functionspaceimpl import ProxyFunctionSpace, mask_lgmap
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
@@ -1862,9 +1861,7 @@ class ParloopBuilder:
         row_bcs = [bc for bc in self._bcs if bc.function_space() == row_space]
         column_bcs = [bc for bc in self._bcs if bc.function_space() == column_space]
 
-        masked_row_lgmap = mask_lgmap(row_space, row_bcs, i)
-        masked_column_lgmap = mask_lgmap(column_space, column_bcs, j)
-        return (masked_row_lgmap, masked_column_lgmap)
+        return row_space.lgmap(row_bcs, i), column_space.lgmap(column_bcs, j)
 
     @property
     def _indices(self):

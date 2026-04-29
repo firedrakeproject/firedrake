@@ -668,6 +668,74 @@ class AbstractFunctionSpace:
         vec.setUp()
         return vec
 
+    # @cached_method()
+    def lgmap(self, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
+        """Return a map from process-local to global DoF numbering.
+
+        # update this#
+
+        Parameters
+        ----------
+        bcs
+            Optional iterable of boundary conditions. If provided these DoFs
+            are masked out (set to -1) in the returned map.
+
+        Returns
+        -------
+        PETSc.LGMap
+            The local-to-global mapping.
+
+        """
+        lgmap_axes = self.axes.materialize()
+        if any(bc.function_space().component is not None for bc in bcs):
+            block_size = 1
+        else:
+            lgmap_axes = lgmap_axes.blocked(self.shape)
+            block_size = numpy.prod(self.shape)
+        lgmap_dat = lgmap_axes.materialize().global_numbering
+
+        # track which BCs are used so we can warn if any are missed
+        unused_bcs = set(bcs)
+        if index is None:  # The lgmap is for the full space
+            if len(self) > 1:
+                split_bcs = []
+                for subspace in self:
+                    matching_bcs = []
+                    for bc in bcs:
+                        if bc.function_space().topological == subspace.topological:
+                            matching_bcs.append(bc)
+                            unused_bcs.discard(bc)
+                    split_bcs.append(((subspace.index,), matching_bcs))
+            else:
+                matching_bcs = []
+                for bc in bcs:
+                    if bc.function_space().topological == self.topological:
+                        matching_bcs.append(bc)
+                        unused_bcs.discard(bc)
+                split_bcs = [((), matching_bcs)]
+
+        else:  # The lgmap is only for a subspace
+            subspace = self[index]
+            matching_bcs = []
+            for bc in bcs:
+                if bc.function_space().topological == subspace.topological:
+                    matching_bcs.append(bc)
+                    unused_bcs.discard(bc)
+            split_bcs = [((index,), matching_bcs)]
+
+        if unused_bcs:
+            firedrake.logging.warning(
+                "Some boundary conditions did not match the function space and were "
+                "ignored when masking the local to global map"
+            )
+
+        for field_idx, bcs_per_field in split_bcs:
+            for bc in bcs_per_field:
+                component_idx = bc.function_space().component or ()
+                lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
+
+        return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=self.comm)
+
     # }}}
 
 
@@ -2414,111 +2482,3 @@ def entity_permutations_key(entity_permutations):
         key.append(tuple(sub_key))
     key = tuple(key)
     return key
-
-
-# NOTE: This function is much much more complicated than it appears. Possible permutations are:
-# 1. lgmap for a AIJ mixed system
-# 2. lgmap for a submat of a matnest for a mixed thing
-# Likely we should just be dealing with the function space and mat spec, the other args confuse things
-
-# TODO: make return type and arg consistent
-# TODO: can be a method of a function space
-# Don't need to pass lgmap as an arg because we can derive it
-def mask_lgmap(V, bcs: Iterable[DirichletBC] = (), index: int | None = None) -> PETSc.LGMap:
-    """Return a map from process-local to global DoF numbering.
-
-    # update this#
-
-    Parameters
-    ----------
-    bcs
-        Optional iterable of boundary conditions. If provided these DoFs
-        are masked out (set to -1) in the returned map.
-
-    Returns
-    -------
-    PETSc.LGMap
-        The local-to-global mapping.
-
-    """
-    lgmap_axes = V.axes.materialize()
-    if any(bc.function_space().component is not None for bc in bcs):
-        block_size = 1
-    else:
-        lgmap_axes = lgmap_axes.blocked(V.shape)
-        block_size = numpy.prod(V.shape)
-    lgmap_dat = lgmap_axes.materialize().global_numbering
-
-    # track which BCs are used so we can warn if any are missed
-    unused_bcs = set(bcs)
-    if index is None:
-        # The lgmap is for the full space
-        if len(V) > 1:
-            split_bcs = []
-            for subspace in V:
-                split_bcs.append(((subspace.index,), []))
-                for bc in bcs:
-                    if bc.function_space() == subspace:
-                        split_bcs[subspace.index][1].append(bc)
-                        unused_bcs.discard(bc)
-        else:
-            split_bcs = [((), [])]
-            for bc in bcs:
-                if bc.function_space() == V:
-                    split_bcs[0][1].append(bc)
-                    unused_bcs.discard(bc)
-
-    else:
-        # The lgmap is only for a subspace
-        subspace = V[index]
-        split_bcs = [((index,), [])]
-        for bc in bcs:
-            if bc.function_space() == subspace:
-                split_bcs[0][1].append(bc)
-                unused_bcs.discard(bc)
-
-    if unused_bcs:
-        firedrake.logging.warning(
-            "Some boundary conditions did not match the function space and were "
-            "ignored when masking the local to global map"
-        )
-
-    for field_idx, bcs_per_field in split_bcs:
-        for bc in bcs_per_field:
-            component_idx = bc.function_space().component or ()
-            # try:
-            lgmap_dat[*field_idx, bc.node_set, *component_idx].assign(-1, eager=True)
-            # except:
-            #     breakpoint()
-
-    return PETSc.LGMap().create(lgmap_dat.data_ro, bsize=block_size, comm=V.comm)
-
-    unblocked = any(bc.function_space().component is not None for bc in bcs)
-    if unblocked:
-        raise NotImplementedError
-        indices = lgmap.indices.copy()
-        block_size = 1
-    else:
-        indices = lgmap.block_indices.copy()
-        axes = axes.blocked(block_shape)
-        assert lgmap.block_size == numpy.prod(block_shape)
-        block_size = lgmap.block_size
-
-    dat = op3.Dat(axes.materialize().regionless(), data=indices)
-    for bc in bcs:
-        if len(V) > 1:
-            field_slice = (Ellipsis,)
-        else:
-            field_slice = ()
-
-        if unblocked:
-            component_slice = bc.function_space().component
-            assert component_slice is not None
-        else:
-            component_slice = ()
-        try:
-            dat[*field_slice, bc.node_set, *component_slice].assign(-1, eager=True)
-        except:
-            breakpoint()
-
-    return PETSc.LGMap().create(dat.data_ro, bsize=block_size, comm=lgmap.comm)
