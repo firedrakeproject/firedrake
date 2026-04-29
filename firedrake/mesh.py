@@ -4746,8 +4746,8 @@ def _parent_mesh_embedding(
 
     winner_ref_coords = np.zeros((nroots, ref_dim), dtype=RealType)
     ref_coords_leaves = np.where(leaf_is_winner[:, np.newaxis], reference_coords, 0.0).ravel()
-    embedded_sf.reduceBegin(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.SUM)
-    embedded_sf.reduceEnd(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.SUM)
+    embedded_sf.reduceBegin(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
+    embedded_sf.reduceEnd(real_unit, ref_coords_leaves, winner_ref_coords, op=MPI.REPLACE)
 
     # Manually set winner ref coords to nan for missing roots
     # since the reduction will have set them to zero.
