@@ -65,6 +65,8 @@ from pyop3.utils import (
     strictly_all,
 )
 
+from ._tree_cy import apply_constraints
+
 
 if typing.TYPE_CHECKING:
     from pyop3.expr import LinearDatBufferExpression
@@ -440,10 +442,18 @@ def _region_label_matches(region, label) -> bool:
 
 @pyop3.record.frozenrecord()
 class AxisComponent(LabelledNodeComponent):
+    """
+    Parameters
+    ----------
+    size
+        This is useful if we know a-priori that the region sizes sum to something.
+        For example the number of unconstrained+constrained dofs will always add to 3.
+    """
 
     # {{{ instance attrs
 
     regions: Any
+    _size: Any
     _label: Any
     sf: Any
 
@@ -453,6 +463,7 @@ class AxisComponent(LabelledNodeComponent):
         label=utils.PYOP3_DECIDE,
         *,
         sf=None,
+        size: Any = None,
     ) -> None:
         from pyop3 import Scalar, evaluate
         from pyop3.expr import ScalarBufferExpression
@@ -479,6 +490,7 @@ class AxisComponent(LabelledNodeComponent):
                 regions = _partition_regions(regions, sf)
 
         object.__setattr__(self, "regions", regions)
+        object.__setattr__(self, "_size", size)
         object.__setattr__(self, "_label", label)
         object.__setattr__(self, "sf", sf)
         self.__post_init__()
@@ -523,7 +535,10 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def size(self) -> ExpressionT:
-        return sum(r.size for r in self.regions)
+        if self._size is not None:
+            return self._size
+        else:
+            return sum(r.size for r in self.regions)
 
     @cached_property
     def local_size(self) -> Any:
@@ -558,29 +573,31 @@ class AxisComponent(LabelledNodeComponent):
     def region_labels(self) -> tuple[ComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
-    @cached_property
-    def _all_region_labels(self) -> tuple[str]:
-        assert False, "old code"
-        return tuple(r.label for r in self._all_regions)
-
     @cached_method()
     def localize(self) -> AxisComponent:
-        if any(
-            _region_label_matches(region, label_)
-            for region in self.regions
-            for label_ in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
+        new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+        return self.__record_init__(regions=(new_region,), sf=None)
+
+        # below is old impl
+        # Region labels are ("owned", "ghost)
+        # Want to combine them into a single unlabelled region
+        # TODO: implementation is simplified if region labels are always frozensets
+        if self.region_labels == (OWNED_REGION_LABEL, GHOST_REGION_LABEL):
+            new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+            return self.__record_init__(regions=(new_region,), sf=None)
+
+        # Region labels are ({"owned", "X"}, {"owned", "Y"}, {"ghost", "X"}, {"ghost", "Y"})
+        # Want to combine them into two regions ("X", "Y")
+        # Ah, but this isn't possible because they might not be contiguous, try dropping
+        # everything and renaming localize() to regionless()
+        elif utils.strictly_all(
+            isinstance(label, frozenset)
+            and (OWNED_REGION_LABEL in label or GHOST_REGION_LABEL in label)
+            for label in self.region_labels
         ):
-            if len(self.regions) == 2:
-                assert set(r.label for r in self.regions) == {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
-                new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
-                return self.__record_init__(regions=(new_region,), sf=None)
-            else:
-                # have sets/tuples instead here of (something, "owned") or (something, "ghost")
-                # need to merge into a single 'something' region
-                raise NotImplementedError
-                # drop the owned/ghost distinction
-                for region in self.regions:
-                    ...
+            new_region = AxisComponentRegion(sum(r.size for r in self.regions), label=None)
+            return self.__record_init__(regions=(new_region,), sf=None)
+
         else:
             assert self.sf is None
             return self
@@ -1301,7 +1318,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
-        from pyop3 import Dat
+        from pyop3 import Dat, loop
 
         path = as_path(path)
         component_label = as_component_label(component)
@@ -1309,15 +1326,15 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         component = utils.just_one(c for c in axis.components if c.label == component_label)
 
         subpath = path | {axis.label: component_label}
+        subtree = self.subtree(subpath)
+
         if subpath in self.leaf_paths:
             size_expr = 1
         else:
-            size_expr = self.materialize().subtree(subpath).local_size
+            size_expr = subtree.size
 
         size_dat = Dat.empty(axis.linearize(component_label).regionless(), dtype=IntType)
-
         size_dat.assign(size_expr, eager=True, eager_strategy="compile")
-
         sizes = size_dat.buffer.data_ro
 
         section = PETSc.Section().create(comm=self.comm)
@@ -1325,7 +1342,19 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         for point in range(component.local_size):
             section.setDof(point, sizes[point])
 
-        section.setUp()  # instead of setting the offset
+        if "constrained" in subtree._all_region_labels:
+            cdat = Dat.zeros(self.regionless(), dtype=IntType)
+            loop(
+                p := self.with_region_label("constrained").iter(),
+                cdat[p].assign(1),
+                eager=True,
+            )
+            constrained = cdat.data_ro
+            apply_constraints(section, sizes, constrained)
+
+        else:
+            section.setUp()
+
         return section
 
     # }}}
@@ -2432,7 +2461,7 @@ def replace_exprs(treelike, replace_map):
 
 @replace_exprs.register(Axis)
 def _(axis: Axis, /, replace_map):
-    return axis.copy(components=tuple(replace_exprs(c, replace_map) for c in axis.components))
+    return axis.__record_init__(components=tuple(replace_exprs(c, replace_map) for c in axis.components))
 
 
 @replace_exprs.register(AxisComponent)

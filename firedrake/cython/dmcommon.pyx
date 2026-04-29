@@ -293,6 +293,9 @@ def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: 
 
 
 def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
+
+    assert False, "need to move constraints too"
+
     p_start, p_end = section.getChart()
     new_section: PETSc.Section = PETSc.Section().create(comm=section.comm)
     new_section.setChart(p_start, p_end)

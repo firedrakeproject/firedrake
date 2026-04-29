@@ -687,7 +687,7 @@ class AbstractFunctionSpace:
 
         """
         lgmap_axes = self.axes.materialize()
-        if any(bc.function_space().component is not None for bc in bcs):
+        if len(self) > 1 or any(bc.function_space().component is not None for bc in bcs):
             block_size = 1
         else:
             lgmap_axes = lgmap_axes.blocked(self.shape)
@@ -881,8 +881,8 @@ class AbstractFunctionSpace:
         #          └──➤ {closure: [{0: 2}, {1: 1}]}
         #               ├──➤ {dof0: 0}
         #               └──➤ {dof1: 1}
-        iterset_axes = loop_info.iterset.materialize()  # outer axis is cells etc
-        map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize())
+        iterset_axes = loop_info.iterset.materialize().localize()  # outer axis is cells etc
+        map_plex_axes = iterset_axes.add_subtree(None, packed_offsets.axes.materialize().localize())
         map_plex = op3.Dat.empty(map_plex_axes, dtype=IntType, prefix="map")
 
         op3.loop(
@@ -895,8 +895,8 @@ class AbstractFunctionSpace:
         #
         #     {iterset: ...}
         #     └──➤ {field: [{functionspace0: 1}, {functionspace1: 1}]}
-        #          ├──➤ {_label_Axis_2: 2}
-        #          └──➤ {_label_Axis_3: 1}
+        #          ├──➤ {some_label: 2}
+        #          └──➤ {some_label: 1}
         if len(self) > 1:
             map_dof_axes = iterset_axes.add_axis(None, packed_offsets.axes.root)
             for label, subspace in zip(self._labels, self):
@@ -1132,6 +1132,11 @@ class FunctionSpace(AbstractFunctionSpace):
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
         unconstrained_dofs_expr = op3.as_linear_buffer_expression(unconstrained_dofs_dat)
 
+        # TODO: ideally do this earlier but we have to do it here because we renumber inside
+        # partition_constrained_points
+        fulldofsdat = op3.Dat(mesh_axis, data=num_unconstrained_dofs+num_constrained_dofs)
+        full_dofs_expr = op3.as_linear_buffer_expression(fulldofsdat)
+
         if self.boundary_set:
             constrained_dofs_expr = op3.as_linear_buffer_expression(constrained_dofs_dat)
             regions = [
@@ -1143,7 +1148,7 @@ class FunctionSpace(AbstractFunctionSpace):
                 op3.AxisComponentRegion(unconstrained_dofs_expr),
             ]
 
-        component = op3.AxisComponent(regions)
+        component = op3.AxisComponent(regions, size=full_dofs_expr)
         dof_axis = op3.Axis(component, "dof")
 
         constraint = AxisConstraint(
@@ -1371,7 +1376,8 @@ class FunctionSpace(AbstractFunctionSpace):
 
         # The section is defined as if the data exists in isolation, so we don't
         # care if it is an unmixed space or a component of a mixed space.
-        orphaned_space = self.collapse() if self.parent else self
+        # orphaned_space = self.collapse() if self.parent else self
+        orphaned_space = self  # think we don't need to collapse here since layout_axes doesn't index
 
         if self.ufl_element().family() == "Real":
             ndofs = orphaned_space.layout_axes.local_size
@@ -1388,10 +1394,39 @@ class FunctionSpace(AbstractFunctionSpace):
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
         axis_section = orphaned_space.layout_axes.section({}, "mylabel")
+
+        if self.boundary_set:
+            breakpoint()
+
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
-        return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
+        section_ = dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
+
+        # Restricted function spaces need to report which DoFs are constrained
+        if self.boundary_set:
+            breakpoint()
+            # for marker in boundary_set:
+            #     if marker in ["bottom", "top"]:
+            #         continue
+            #     elif marker == "on_boundary":
+            #         label = "exterior_facets"
+            #         marker = 1
+            #     else:
+            #         label = FACE_SETS_LABEL
+            #     n = dm.getStratumSize(label, marker)
+            #     if n == 0:
+            #         continue
+            #     points = dm.getStratumIS(label, marker).indices
+            #     for i in range(n):
+            #         p = points[i]
+            #         CHKERR(PetscSectionGetDof(section.sec, p, &dof))
+            #         for j in range(dof):
+            #             dof_array[j] = j
+            #         CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
+            # CHKERR(PetscFree(dof_array))
+
+        return section_
 
     @cached_property
     def topological(self):
@@ -1515,6 +1550,9 @@ class FunctionSpace(AbstractFunctionSpace):
             Entity node map.
 
         """
+        if len(self) > 1:
+            raise NotImplementedError("will this work?")
+
         iter_mesh = iteration_spec.mesh
         mesh = self.mesh().unique()
         if iter_mesh.topology is mesh.topology:
@@ -1544,12 +1582,14 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return self_map(composed_map)
 
+    # NOTE: superseded by .lgmap()
     @cached_property
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
         return PETSc.LGMap().create(indices.data_ro, bsize=self.block_size, comm=self.comm)
 
+    # NOTE: superseded by .lgmap()?
     @cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
@@ -1671,7 +1711,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                 region_size = scalar_axis_tree.with_region_labels({owned_or_ghost, maybe_constrained}).size
                 regions.append(op3.AxisComponentRegion(region_size, frozenset({owned_or_ghost, maybe_constrained})))
 
-        node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf)], "nodes")
+        node_axis = op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "nodes")
         axis_tree = op3.AxisTree(node_axis)
         for i, dim in enumerate(self.shape):
             axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis([op3.AxisComponent(dim)], f"dim{i}"))

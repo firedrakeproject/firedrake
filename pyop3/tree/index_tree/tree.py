@@ -1187,9 +1187,6 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         regions = _prepare_regions_for_slice_component(slice_component, target_component.regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=seen_target_exprs)
 
-        # if isinstance(slice_component, RegionSliceComponent):
-        #     breakpoint()
-
         if isinstance(target_component.sf, StarForest):
             # It is not possible to have a star forest attached to a
             # component with variable extent
@@ -1237,7 +1234,14 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             # and labelling the resultant axis component.
             component_label = slice_component.label
 
-        component = AxisComponent(indexed_regions, label=component_label, sf=sf)
+        # TODO: Add handling for the other types of slices
+        component_size = None
+        if target_component._size is not None:
+            if isinstance(slice_component, AffineSliceComponent):
+                start, stop, step = slice_component.with_size(target_component._size)
+                component_size = (stop-start) // step
+
+        component = AxisComponent(indexed_regions, label=component_label, sf=sf, size=component_size)
         components.append(component)
 
     axis = Axis(components, label=axis_label)

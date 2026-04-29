@@ -233,8 +233,14 @@ def _(axis, relabeler):
 
 @canonicalize_labels.register(op3_tree.AxisComponent)
 def _(component: op3_tree.AxisComponent, relabeler) -> tuple:
+    from pyop3.expr.visitors import canonicalize_labels as relabel_expr
+
     relabeled_regions = tuple(canonicalize_labels(r, relabeler) for r in component.regions)
-    return component.__record_init__(regions=relabeled_regions)
+    if component._size is not None:
+        relabeled_size = relabel_expr(component._size, relabeler)
+    else:
+        relabeled_size = None
+    return component.__record_init__(regions=relabeled_regions, _size=relabeled_size)
 
 
 @canonicalize_labels.register(op3_tree.AxisComponentRegion)

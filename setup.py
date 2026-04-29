@@ -223,6 +223,12 @@ def extensions():
         sources=[os.path.join("pyop3", "_sf_cy.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
+    cython_list.append(Extension(
+        name="pyop3.tree.axis_tree._tree_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "tree", "axis_tree", "_tree_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_)
+    ))
 
     # PYBIND11 EXTENSIONS
     pybind11_list = []

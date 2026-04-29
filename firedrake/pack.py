@@ -19,7 +19,7 @@ from firedrake.mesh import IterationSpec
 
 @functools.singledispatch
 def pack(tensor: Any, loop_info: IterationSpec, **kwargs) -> op3.Tensor:
-    """Prepare a tensor for use inside a pyop3 loop."""
+    """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
@@ -42,8 +42,6 @@ def _(
     loop_info: IterationSpec,
     **kwargs,
 ):
-    mesh = space.mesh()
-
     # This is tricky. Consider the case where you have a mixed space with hexes and
     # each space needs a different (non-permutation) transform. That means that we
     # have to generate code like:
@@ -68,28 +66,21 @@ def _pack_dat_nonmixed(
     space: WithGeometry,
     loop_info: IterationSpec,
     *,
-    nodes: bool = False,
     permutation: collections.abc.Iterable | None = None,
 ):
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
-    mesh = space.mesh()
-
-    if not nodes:
-        map_ = space.entity_node_map(loop_info)
-        cell_index = map_.index
-        packed_dat = dat[map_]
-        # bit of a hack, find the depth of the axis labelled 'closure', this relies
-        # on the fact that the tree is always linear at the top
-        if isinstance(packed_dat.axes, op3.AxisForest):  # bit of a hack
-            axes = packed_dat.axes.trees[0]
-        else:
-            axes = packed_dat.axes
-        depth = [axis.label for axis in axes.axes].index("closure")
+    map_ = space.entity_node_map(loop_info)
+    cell_index = map_.index
+    packed_dat = dat[map_]
+    # bit of a hack, find the depth of the axis labelled 'closure', this relies
+    # on the fact that the tree is always linear at the top
+    if isinstance(packed_dat.axes, op3.AxisForest):  # bit of a hack
+        axes = packed_dat.axes.trees[0]
     else:
-        assert False, "old code"
-        return dat[space.cell_node_map(loop_info.loop_index)]
+        axes = packed_dat.axes
+    depth = [axis.label for axis in axes.axes].index("closure")
 
     return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
 
@@ -100,8 +91,6 @@ def _(
     row_space: WithGeometry,
     column_space: WithGeometry,
     loop_info: IterationSpec,
-    *,
-    nodes: bool = False,
 ):
     if isinstance(row_space.topological, RestrictedFunctionSpace):
         row_space = row_space.function_space
@@ -122,7 +111,7 @@ def _(
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):
         for ic, (column_index, column_subspace) in enumerate(iter_space(column_space)):
             packed_mats[ir, ic] = _pack_mat_nonmixed(
-                mat[row_index, column_index], row_subspace, column_subspace, loop_info, nodes=nodes,
+                mat[row_index, column_index], row_subspace, column_subspace, loop_info,
             )
 
     if packed_mats.size == 1:
@@ -136,14 +125,7 @@ def _pack_mat_nonmixed(
     row_space: WithGeometry,
     column_space: WithGeometry,
     loop_info: IterationSpec,
-    *,
-    nodes: bool = False,
 ):
-    if nodes:
-        if loop_info.integral_type != "cell":
-            raise NotImplementedError
-        return mat[row_space.cell_node_map(loop_info.loop_index), column_space.cell_node_map(loop_info.loop_index)]
-
     row_map = row_space.entity_node_map(loop_info)
     column_map = column_space.entity_node_map(loop_info)
     packed_mat = mat[row_map, column_map]

@@ -240,6 +240,7 @@ class StarForest(AbstractStarForest):
         return (dtype, from_buffer, to_buffer, op)
 
 
+# FIXME: Do we really need to have a size attr?
 class NullStarForest(AbstractStarForest):
 
     # {{{ instance attrs

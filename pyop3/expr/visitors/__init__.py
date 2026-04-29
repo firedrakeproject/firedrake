@@ -1650,7 +1650,7 @@ class LabelCanonicalizer(ExpressionVisitor, NodeTransformer):
     @process.register(pyop3.expr.LoopIndexVar)
     def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> pyop3.expr.LoopIndexVar:
         relabeled_iterset = canonicalize_axis_labels(loop_var.loop_index.iterset, self._relabeler)
-        relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler[loop_var.loop_index.id])
+        relabeled_loop_index = LoopIndex(relabeled_iterset, id=self._relabeler.add(loop_var.loop_index.id, "loop"))
         relabeled_axis = canonicalize_axis_labels(loop_var.axis, self._relabeler)
         return loop_var.__record_init__(loop_index=relabeled_loop_index, axis=relabeled_axis)
 

@@ -415,10 +415,13 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
     return (op.disk_cache_key, compiler_parameters, config)
 
 
-@memory_and_disk_cache(
-    hashkey=_compile_static_hashkey,
-    get_comm=lambda op, *args, **kwargs: op.comm,
-)
+# FIXME: This is causing
+# tests/firedrake/multigrid/test_p_multigrid.py::test_p_multigrid_scalar[triangles-matfree-restrict]
+# to fail because of buffer issues, are we adding extra buffers during lowering?
+# @memory_and_disk_cache(
+#     hashkey=_compile_static_hashkey,
+#     get_comm=lambda op, *args, **kwargs: op.comm,
+# )
 def _compile_static(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
 

@@ -15,6 +15,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.record
+import pyop3.sf
 from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
@@ -271,7 +272,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self.__post_init__()
 
     def __post_init__(self) -> None:
-        assert self.sf.size == self.size
+        assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
+        if isinstance(self.sf, pyop3.sf.StarForest):
+            assert self.sf.size == self.size
         if self.rank_equal:
             assert self.constant
         if self.ordered:
